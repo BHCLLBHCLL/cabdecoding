@@ -1,0 +1,408 @@
+# CAB 项目文件格式说明（scSTREAM Pre，逆向工程）
+
+> 目标：完整描述 Cradle scSTREAM Pre 项目文件 `.cab` 的容器与全部成员格式，
+> 支撑「逆向解析 / GUI 元数据编辑 / 导出 `.s` 与 `.xemt`」三条核心能力。
+>
+> 分析样例：`tests/ex4_e.cab`（244,000 B）+ 官方导出对拍件
+> `tests/ex4_e.s`（48,571 B）/ `tests/ex4_e.xemt`（2,267 B）。
+> 样例版本：scSTREAM V2023.2（STpre SDK 1623.20302.20231027），
+> Parasolid modeller version 3401153（SCH_3401153_34101_1300）。
+
+---
+
+## 1. 总体概览
+
+`.cab` 是 **Microsoft Cabinet（MSCF）归档容器**（不是 ZIP），魔数 `MSCF`。
+解包后得到 3 个成员（与官方 [File]-[Export] 的 Default File / Property File /
+XT File 一一对应）：
+
+| 成员（存储顺序） | 未压缩大小 | 角色 | 格式 |
+|------|-----------|------|------|
+| `ex4_e.xml` | 104,926 B | 项目定义（全部前处理设置） | XML，UTF-8 BOM（`<stpre>`，见 §3） |
+| `_ex4_e_property.xml` | 69,987 B | 基础材料属性库 | XML，UTF-8 BOM（`<property>`，见 §4） |
+| `_ex4_e_all.x_t` | 802,665 B | Parasolid 几何（当前放置的全部 parts） | Parasolid 文本传输流（见 §5） |
+
+> 成员名前缀规则：项目名 `ex4_e`；`_ex4_e_property.xml` / `_ex4_e_all.x_t`
+> 带下划线，`ex4_e.xml` 不带。`ex4_e.xml` 内 `<property_db>/<file>`
+> 与 `<body_files>/<file>` 显式引用另外两个成员名。
+
+`.s`（SDAT，STsolver 输入）与 `.xemt`（EMT 材料/部件映射）是 Pre 导出文件：
+手册 [File]-[Export] 明确「[S File] Current status is output to S file of
+STsolver」；EMT 说明为「EMT file (*.xemt), which is output from Pre
+automatically when S file is exported, stores the information about
+relationship between part name, material name, region name」。
+两者的全部数据源都在 cab 成员内（见 §6/§7），因此可从 cab 无损重建。
+
+---
+
+## 2. 容器格式：Microsoft Cabinet（MSCF）
+
+### 2.1 文件头 CFHEADER（本样例 44 字节，含 8 字节 CFFOLDER）
+
+实测字节（hex）与字段：
+
+```
+000000  4d 53 43 46  00 00 00 00  20 b9 03 00  00 00 00 00
+000010  2c 00 00 00  00 00 00 00  03 01 01 00  03 00 00 00
+000020  39 30 00 00  89 00 00 00  1e 00 01 00
+```
+
+| 偏移 | 长度 | 值 | 含义 |
+|------|------|-----|------|
+| 0 | 4 | `MSCF` | 签名 |
+| 4 | 4 | 0 | 保留 |
+| 8 | 4 | 0x0003B920 = 244,000 | cbCabinet（= 文件总长，LE u32） |
+| 12 | 4 | 0 | 保留（标准中为 cbReserveCFHeader） |
+| 16 | 4 | 44 | coffFiles（首条 CFFILE 的绝对偏移） |
+| 20 | 4 | 0 | 保留零（见下方陷阱） |
+| 24 | 1 | 3 | 观测 versionMinor |
+| 25 | 1 | 1 | 观测 versionMajor |
+| 26 | 2 | 1 | cFolders |
+| 28 | 2 | 3 | cFiles |
+| 30 | 2 | 0 | flags（无保留区、无预压缩等） |
+| 32 | 2 | 0x3039 = 12345 | setID |
+| 34 | 2 | 0 | iCabinet |
+| 36 | 8 | 见 2.2 | CFFOLDER[0] |
+| 44 | — | 见 2.3 | CFFILE 表 |
+
+> **解析陷阱**：标准 [MS-CAB] 在偏移 20 依次放置 versionMinor(1)/versionMajor(1)/
+> cFolders(2)/cFiles(2)/flags(2)/setID(2)/iCabinet(2)。本样例偏移 20–23 为 4 个
+> 零字节，真实版本/计数整体后移 4 字节（也可能 coffFiles 按 8 字节 u64 存储，
+> 值同为 44）。**不要**按标准字段位置解析，直接读 cFiles 并迭代 CFFILE 即可；
+> Windows `expand` 可正常解包，说明微软侧兼容此布局。
+
+### 2.2 CFFOLDER（8 字节）
+
+| 偏移 | 长度 | 值 | 含义 |
+|------|------|-----|------|
+| 36 | 4 | 137 | coffCabStart（首条 CFDATA 绝对偏移） |
+| 40 | 2 | 30 | cCFData（CFDATA 块数） |
+| 42 | 2 | 1 | typeCompress = **MSZIP** |
+
+单文件夹，压缩类型 1（MSZIP）。文件夹解压后的完整流（下文简称“文件夹流”）
+按成员顺序存放全部成员数据。
+
+### 2.3 CFFILE（16 字节固定 + NUL 结尾文件名）
+
+字段（LE）：`cbFile u32` + `uoffFolderStart u32` + `iFolder u16` +
+`date u16`（MS-DOS 日期）+ `time u16`（MS-DOS 时间）+ `attribs u16` +
+`szName`（ASCII，`\0` 结尾）。
+
+实测三条记录：
+
+| 成员 | CFFILE 偏移 | cbFile | uoffFolderStart | iFolder | date | time | attribs | 名称偏移 |
+|------|-----------|--------|-----------------|---------|------|------|---------|---------|
+| ex4_e.xml | 44 | 104,926 | 0 | 0 | 0x575F | 0xA32D | 0x00A0 | 60 |
+| _ex4_e_property.xml | 70 | 69,987 | 104,926 | 0 | 0x575F | 0xA32D | 0x00A0 | 86 |
+| _ex4_e_all.x_t | 106 | 802,665 | 174,913 | 0 | 0x575F | 0xA32D | 0x00A0 | 122 |
+
+日期时间解码验证：`0x575F` → 1980+(0x575F>>9)=2023 年，(0x575F>>5)&0xF=10 月，
+&0x1F=31 日（2023-10-31）；`0xA32D` → 20:25:26，与 XML 头注释
+`2023/10/31 20:25:25` 一致。三条记录时间戳相同。
+
+> 三条 `uoffFolderStart` 均为精确连续值（0 / 104,926 / 174,913 =
+> 104,926+69,987），文件夹流总长 977,578 B = 三成员之和，无间隙。
+> 提取仍按顺序累加 cbFile 定位、以成员魔数（XML BOM、`**`+Parasolid 头）
+> 校验，便于将来兼容其他变体。
+
+### 2.4 CFDATA 与 MSZIP 载荷
+
+#### 2.4.1 CFDATA 块头（本格式 8 字节，非标准 12 字节）
+
+```
+u32 csum      LE 校验和（算法未验证，工具可忽略）
+u16 cbData    本块压缩字节数（含 2 字节 'CK'）
+u16 cbUncomp  本块解压字节数（≤ 32768，末块可为余数）
+payload       2 字节 'CK' 标记 + raw DEFLATE 流（RFC1951）
+```
+
+> 标准 [MS-CAB] 为 `csum u32 + cbData u32 + cbUncomp u32`；本格式两块长度
+> 均为 u16（块头共 8 字节）。30 个块从头到尾精确覆盖文件（末块结束偏移 =
+> 文件总长），且每块头后紧跟 `CK`，实证该布局。
+
+#### 2.4.2 跨块 LZ77 历史
+
+MSZIP 块之间**共享 32KB 滑动窗口**：后一块的 DEFLATE 引用可回溯到前一块
+解压输出。逐块独立 `zlib.decompress(..., -15)` 会在非首块报
+`invalid distance too far back`。Python 解法：
+
+```python
+out = b""
+for i, blk in enumerate(blocks):
+    dec = zlib.decompressobj(-15, zdict=out[-32768:]) if i else zlib.decompressobj(-15)
+    out += dec.decompress(blk[2:])   # blk = 'CK' + deflate
+```
+
+验证：30 块全部解压成功，总长 977,578 B；三个成员切片与 `expand` 提取件
+逐字节一致（md5 全同）。
+
+#### 2.4.3 实测块统计
+
+首块：csum=`0xEC6E6584`，cbData=3,234，cbUncomp=32,768；首块解压内容为
+UTF-8 BOM + `<?xml version="1.0"...`。末块解压长度为 27,818（余数）。平均
+压缩比约 4 倍（几何 x_t 部分占比大）。
+
+---
+
+## 3. 成员 1：`ex4_e.xml` — 项目定义（scSTREAM XML）
+
+UTF-8 BOM。文件头注释：
+
+```xml
+<!-- scSTREAM V2023.2 -->
+<!-- user : pre -->
+<!-- Version : 1623.20302.20231027 -->
+<!-- date/time : 2023/10/31 20:25:25 -->
+<stpre>
+```
+
+根元素 `<stpre>`，顶层章节（按出现顺序）：
+
+| 章节 | 内容 |
+|------|------|
+| `version` | `no="2023.2"`，module（Standard）、release（20230901） |
+| `property_db` | 属性库文件名 `_ex4_e_property.xml` |
+| `unit` | 43+ 个物理量显示单位（display=mm、geometry=m、velocity=m/s…） |
+| `project` | 项目名、注释、cxyz_scale、precision、ambient_temperature、treeview 状态等 |
+| `body_files` | 几何文件引用：`<file type="xt">_ex4_e_all.x_t</file>`（unit=m） |
+| `analysis_region` | 计算域（type=cube）：name/base/size/color/property + 6 个 face_list 边界 region（Xmin…Zmax，face 编号 1–6） |
+| `group` | 部件组（cellular_phone）：layer、可见性、heat_balance + 全部 `<parts>` |
+| `region` | 未定义边界（Undefined(Stress/Heat/Radiation)…，含 seq_no） |
+| `table` | 表格（pq-curve0 等） |
+| `analysis_set` | 求解设置：type=incompressive、fluid=7、heat=1、turbulence、grav、cycle、calculation、courant、辐射（vf）、fluid_region、文件组 `<file>`（.s/.r/.vf/…）、cutcell 参数 |
+| `output` | 输出控制：fld_file、fout（HTRC/SURT/HTFX）、restart、minmax、list、fan_ocon 等 |
+| `steady_param` | 稳态参数（under_relax、inertia_relax） |
+| `value` × N | 命名条件值（flux/initial/wall/heat_transfer/radiation_boundary/heat_source 等，如 Flux1、HeatSource1） |
+| `condition` × N | 条件绑定：`<analysis>/<region>/<parts>` + `<value>` 名 |
+| `mesh_control` | 网格控制：RootBlock（min/max/grid=99,243,63、divide 等） |
+| `mesh_block` | **网格坐标表**：`<x num="99">`/`<y num="243">`/`<z num="63">` 各含 `<g no>` 坐标（单位 mm，`B`=边界、`N`/`S`=相邻段标记）——即 `.s` 的 CXYZ 数据源 |
+| `element` | **部件体/面盒表**：`<analysis name="Domain(cuboid)">` 的 body/face list 与每个 `<parts name>` 的 body list（`i1,i2,j1,j2,k1,k2,0,1,1`）——即 `.s` 的 PARTS 数据源 |
+| `draw_control` / `draw_scene` | 绘图控制与场景（eye/target/up/window/projection/frame） |
+| `condition_wizard` | 向导状态位 |
+| `state` | element_execute |
+| `color` | 全部显示配色 |
+
+### 3.1 `<parts>` 关键子元素（部件元数据编辑目标）
+
+`<group>/<parts type="body|cube">`：
+
+- `name` / `name2`：部件名（body 型带 name2）
+- `property`：材料名（对应 `_ex4_e_property.xml` entry 与 `.xemt` mat）
+- `attribute`：solid 等
+- `volume`（unit=m）、`color`（RGBA）、`layer`、`visible_count`、`monitor`
+- `facet_kind`、`def_axis`
+- `file`（unit=m）：`x_t`（body 型引用几何文件）
+- `transform`（unit=m）：4×4 齐次变换矩阵（16 个逗号分隔值，行主序）
+- cube 型另有 `base`/`size`（unit=mm）、`locate`
+
+### 3.2 编辑语义
+
+`ex4_e.xml` 为**标准 XML**（无索引标签陷阱，ElementTree 可直接解析/序列化，
+注意保留 UTF-8 BOM 与注释头）。它是 GUI 元数据编辑的主载体：部件名、
+材料、颜色、层、变换、边界条件值、求解参数均可改后写回并重打包。
+
+---
+
+## 4. 成员 2：`_ex4_e_property.xml` — 基础材料属性库
+
+UTF-8 BOM。结构：
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- property table -->
+<!-- date/time :  Tue Oct 31 20:25:25 2023 -->
+<property>
+  <group>
+    <type> fluid </type>
+    <name> gas(incompressible) </name>
+    <entry>
+      <name> air(incompressible/20C) </name>
+      <density> 1.206 </density>
+      <ref_density> 1.206 </ref_density>
+      <ref_temperature unit="C"> 20 </ref_temperature>
+      <viscosity> 1.83e-05 </viscosity>
+      <capacity> 1007 </capacity>
+      <conductivity> 0.0256 </conductivity>
+      <expansion> 0.003495 </expansion>
+      <radiation field="T"> <absorption> 0 </absorption> <scattering> 0 </scattering> </radiation>
+      <surf_tension> 0 </surf_tension>
+    </entry>
+    ...
+```
+
+- 顶层：`<property>` > 多个 `<group>`（type=fluid/gas/solid/…，name 如
+  `gas(incompressible)`）> 多个 `<entry>`（一个具体材料）。
+- entry 内物性键：density / ref_density / ref_temperature / viscosity /
+  capacity / conductivity / expansion / radiation / surf_tension 等。
+- 材料 `mat no="1".."7"`（`.xemt`）与 `.s` 的 `PROPERTY` 段、本 XML 的 entry
+  一一对应（如 no=1 ↔ `air(incompressible/20C)` ↔ `.s` 材料 1）。
+
+---
+
+## 5. 成员 3：`_ex4_e_all.x_t` — Parasolid 文本传输流
+
+纯文本（无 BOM，`\r\n` 行尾）。头部：
+
+```
+**ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789**************************
+**PARASOLID !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~0123456789**************************
+**PART1;
+MC=unknown;
+MC_MODEL=unknown;
+MC_ID=unknown;
+OS=Windows;
+OS_RELEASE=7 later;
+FRU=Software Cradle Co.Ltd.;
+APPL=STREAM V2023;
+SITE=Osaka Japan;
+USER=unknown;
+FORMAT=text;
+GUISE=transmit;
+KEY=C:\...\_ex4_e_all.x_t;
+FILE=C:\...\_ex4_e_all.x_t;
+DATE=2023/10/31(Tuesday)
+**PART2;
+SCH=SCH_3401153_34101;
+USFLD_SIZE=0;
+**PART3;
+**END_OF_HEADER*****************************************************************
+T51 : TRANSMIT FILE created by modeller version 340115323 SCH_3401153_34101_1300
+6231 0 176 6 14 PART_XMT_BLOCK9 Part list9 n_entries0 0 1 d16 index_map_offset0 ...
+```
+
+要点：
+
+- `**PART1` 属性行（`MC`/`FRU`/`APPL`/`SITE`/`KEY`/`FILE`/`DATE`）是
+  元数据编辑的可读入口。
+- `**PART2` 给出 `SCH=SCH_3401153_34101`；T51 行给出完整 schema
+  `SCH_3401153_34101_1300` 与 modeller version `340115323`。
+- 后续为 `**PART3` 起的传输记录（T51 schema 字段表、PKEdge/PKFace/PKVertex
+  实体、SDL 属性）。**完整 B-rep 拓扑还原依赖 Parasolid 内核，本仓库沿用
+  `pphdecoding/parasolid.py` 的「部分提取」路线**（schema / 字段名 /
+  实体类型 / SDL 属性），满足轻量交互与元数据查看。
+
+---
+
+## 6. 导出格式 `.s`（SDAT，STsolver 输入）
+
+UTF-8 BOM 的文本流，首行 `SDAT`。样例 `tests/ex4_e.s` 的章节（按出现顺序）：
+
+`SDAT / STREAM / POST / HPT / VFEX / UNIT / HEATPATH / EQUA / GRAV / HSOL /
+CYCS / UNDR / PROPERTY / CXYZ / PARTS / REGION / V_PRT / A_MDR / INIT_REGION /
+TEMP / FLUX_REGION / AMOM_REGION / AENT_REGION / VENT_REGION / VFWL_REGION /
+VFEM / VFDE / AUTOFIXP / FOUT / HTRC / SURT / HTFX / MEIX_VAR / UNOR / VNOR /
+WNOR / PRES / HBAL_PARTS / HBAL_BTW_PARTS / FBAL / TPRT_OUTPUT / GOGO`
+
+各章节与 cab 成员的数据映射（已验证样例逐项对应）：
+
+| `.s` 章节 | 数据源 |
+|------|------|
+| `STREAM`（版本/注释） | `ex4_e.xml` 头注释（Version 1623.20302.20231027） |
+| `POST/RO/VF/OT/HPT`（文件名块） | `analysis_set/<file>`（.s/.r/.vf/.ot/.hpt） |
+| `UNIT`（温度单位等） | `unit` 章节 |
+| `EQUA/GRAV/HSOL/CYCS/UNDR` | `analysis_set`（type/grav/heat/cycle/under_relax…） |
+| `PROPERTY`（材料物性） | `_ex4_e_property.xml` entry（7 材料） |
+| `CXYZ`（网格间距） | `mesh_block` `<x>/<y>/<z>` 坐标（mm→m 换算） |
+| `PARTS`（部件盒） | `element` `<parts>` body list（i/j/k 索引盒） |
+| `REGION`/`FLUX_REGION` 等 | `analysis_region` face_list region + `value`/`condition` |
+| `INIT_REGION/TEMP` | `value type=initial` + `condition` |
+| `FOUT/HTRC/SURT/HTFX/MEIX_VAR` | `output` 章节 |
+
+> 结构式网格由 `mesh_block`（99×243×63 坐标）与 `element` 盒表重建；
+> 网格数与 `.s` 头 `98 242 62`（ni×nj×nk 单元）一致。**导出可完全脱机实现，
+> 无需重跑网格划分**，但部件面分类（面区 → BC 类型）需从 face list 与
+> region 名称推导，是主要工作量所在。
+
+---
+
+## 7. 导出格式 `.xemt`（EMT：材料/部件/区域映射）
+
+UTF-8 BOM 的标准 XML，根 `<EMT>`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8" ?>
+<!-- date/time : 2023/10/31 20:25:31 -->
+<EMT>
+   <Version no="2023"/>
+   <Material>
+      <mat no="1" name="air(incompressible/20C)"/>
+      ...
+      <mat no="7" name="diecast_magnesium(300K)"/>
+   </Material>
+   <Parts>
+      <fluid no="1" name="Domain(cuboid)" mat="1"/>
+      <part no="1" name="Domain(cuboid)" mat="1"/>
+      <group name="cellular_phone" expand="T">
+         <part no="2" name="lower_cover_01" mat="7"/>
+         ...
+         <part no="32" name="(cuboid)_U_04" mat="4"/>
+      </group>
+   </Parts>
+</EMT>
+```
+
+数据源：`Material` ← `_ex4_e_property.xml` 的 entry（名称+序号，与 `.s`
+PROPERTY 顺序一致）；`Parts` ← `ex4_e.xml` 的 `analysis_region`（fluid，
+mat=1）与 `group/parts`（part no 按出现顺序，mat 由 `<parts>/<property>`
+材料名映射到 Material 序号）。分组结构（如 `cellular_phone`）直接保留。
+
+---
+
+## 8. 写入与往返（round-trip）
+
+目标流程：`解析 cab → 编辑 XML 元数据 → 重新打包 cab → 导出 .s/.xemt`。
+
+### 8.1 重打包要点
+
+- 保留成员存储顺序（ex4_e.xml → _property.xml → _all.x_t）。
+- 重建 44 字节 CFHEADER（保留 20–23 四个零字节的观测布局）、1 条 CFFOLDER
+  （MSZIP、30 块），CFFILE 按成员重算（date/time 可用当前时间或保留原值；
+  uoffFolderStart 直接写精确顺序偏移，与本样例官方文件一致）。
+- MSZIP 写入：需要按 32KB 解压窗口分块、每块 `CK` + 独立 DEFLATE 流并允许
+  引用前块历史；Python 标准库 `zlib` 无法直接产生跨块引用流。可选路线：
+  a) Windows `CreateCompressor(COMPRESSION_ALGORITHM_MSZIP)`（cabinet.dll /
+  ntcompression API）；b) 自实现受限编码器（每块独立窗口、压缩率略降，但
+  合法）；c) 调用系统 `makecab.exe` 由文件生成 cab（保留头差异需验证）。
+- CFDATA 校验和字段：算法未验证，写 0 或原样（Windows 工具不校验）。
+
+### 8.2 编辑语义
+
+- `ex4_e.xml` / `_ex4_e_property.xml`：标准 XML，ElementTree 直接
+  parse/serialize；写回时保持 UTF-8 BOM、注释头、缩进风格（2 空格，文本节点
+  带首尾空格——序列化需自定义以逐字节稳定）。
+- `.x_t`：头部 `**PART1` 属性行（FRU/APPL/SITE/DATE 等）可文本级编辑；
+  实体几何按 pphdecoding 路线做“部分提取”展示，不做字节级改写。
+
+---
+
+## 9. 与 pphdecoding（scFLOW `.pph`）的异同
+
+| 维度 | scSTREAM `.cab`（本仓库） | scFLOW `.pph`（pphdecoding） |
+|------|--------------------------|------------------------------|
+| 容器 | Microsoft CAB（MSCF + MSZIP） | ZIP（deflate） |
+| 加密 | 无 | PKBody3 外层 Blowfish-LE ECB |
+| 文本成员 | ex4_e.xml / _property.xml | main.xml / main.prp / main.xenv / main.js |
+| 几何 | `_ex4_e_all.x_t`（明文 Parasolid） | `main.sctsnapshot`（CADThru 快照内 PKBody3 密文 + ZIPOCTREE） |
+| 网格 | 内嵌于 XML（mesh_block/element） | 独立 `.gph/.oct/_part.mdl/_ridge.mdl`（CRDL-FLD） |
+| 导出物 | `.s`（SDAT）+ `.xemt`（EMT） | `.s` + `.xemt`（flddecoding 已实现） |
+| 解析器 | `parasolid.py` 可复用（schema/字段/实体） | 同左 |
+
+---
+
+## 10. 未解决问题清单
+
+1. **uoffFolderStart 跨版本验证**：本样例三个成员均为精确连续偏移；其他
+   版本/规模 cab 是否保持该约定需多样本确认（解析端按顺序拼接，不依赖
+   该字段）。
+2. **CFDATA 校验和算法**：u32 字段存在，常见 MS-CAB 校验变体均未匹配，
+   需对照 Windows `makecab.exe` 输出反推或确认 Cradle 自定义算法。
+3. **MSZIP 写端**：跨块历史编码器选型（Windows API / 受限编码器 /
+   makecab），需 SCTpre 实机验收。
+4. **多样本覆盖**：目前仅 ex4_e（2023.2）一个样本；需要不同版本
+   （2024/2025.2）、不同网格组规模、多材料/多 region 的 cab 验证
+   CFHEADER 布局与 XML 章节集（尤其新版新增 `<jos_model>`、`<boil>`、
+   `<free_surface>` 等 condition_wizard 位与对应章节）。
+5. **`.s` 面分类**：element face list（`-1..-6` 编号语义）到 BC 类型的
+   完整映射表需结合更多样例与 SCTpre 导出对拍。
+6. **Parasolid 完整 B-rep**：沿用“部分提取”，完整拓扑还原留作长期项
+   （商业内核 / 超长逆向）。
