@@ -209,13 +209,16 @@ class CabArchive:
 
         ``preserve_source_blocks=True`` reproduces the original file
         byte-for-byte (raw CFDATA blocks are kept verbatim); otherwise the
-        folder stream is re-compressed with :func:`mszip_compress`.
+        folder stream (built from the current member payloads, so edited
+        member data is honoured) is re-compressed with :func:`mszip_compress`.
         """
         if preserve_source_blocks and self._raw:
             return self._prefix + b"".join(
                 b.to_bytes() for b in self._blocks) + self._trailing
 
-        stream = self.folder_stream()
+        if any(m.data is None for m in self.members):
+            self.fill_member_data()
+        stream = b"".join(m.data or b"" for m in self.members)
         blocks, _ = mszip_compress(stream)
         return self._build_prefix(len(blocks), stream) + b"".join(
             struct.pack("<IHH", 0, len(blk),
@@ -249,10 +252,11 @@ class CabArchive:
         file_table = b""
         off = 0
         for m in self.members:
-            file_table += struct.pack("<IIHHHH", m.cb_file, off, m.i_folder,
+            size = len(m.data) if m.data is not None else m.cb_file
+            file_table += struct.pack("<IIHHHH", size, off, m.i_folder,
                                       m.date, m.time, m.attribs)
             file_table += m.name.encode("ascii", "replace") + b"\x00"
-            off += m.cb_file
+            off += size
         return header + folder_table + file_table
 
     # -- helpers ----------------------------------------------------------
