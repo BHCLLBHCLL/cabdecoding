@@ -1,123 +1,85 @@
-#!/usr/bin/env python3
-"""
-MSCF (Microsoft Cabinet) container reader/writer for Cradle scSTREAM Pre .cab
-project files.
+"""P0: Microsoft Cabinet (MSCF) container with Cradle's MSZIP payload.
 
-Observed container layout (Cradle variant of [MS-CAB], see CAB_FORMAT_SPEC.md):
+Cradle scSTREAM Pre `.cab` files are standard MS Cabinet archives whose
+CFDATA block header deviates from [MS-CAB]: the two size fields are u16
+instead of u32 (8-byte header: csum u32 + cbData u16 + cbUncomp u16).
+Folder payloads are MSZIP: a sequence of 'CK' + raw DEFLATE blocks that
+share a single 32 KiB LZ77 history window across block boundaries.
 
-    offset  size  field
-    0       4     "MSCF"
-    4       4     reserved1
-    8       4     cbCabinet (u32 LE, total archive size)
-    12      4     reserved2
-    16      4     coffFiles (u32 LE, absolute offset of first CFFILE)
-    20      4     0x00 x4  (reserved; standard layout has version fields here)
-    24      1     versionMinor (observed 3)
-    25      1     versionMajor (observed 1)
-    26      2     cFolders (observed 1)
-    28      2     cFiles (observed 3)
-    30      2     flags (observed 0)
-    32      2     setID (observed 12345)
-    34      2     iCabinet (observed 0)
-    36      8*    CFFOLDER entries
-    44      -     CFFILE entries
-
-    CFFOLDER: coffCabStart u32 + cCFData u16 + typeCompress u16
-              typeCompress 1 = MSZIP
-    CFFILE:   cbFile u32 + uoffFolderStart u32 + iFolder u16 + date u16 +
-              time u16 + attribs u16 + szName (NUL terminated)
-    CFDATA:   csum u32 + cbData u16 + cbUncomp u16 + payload
-              payload = 'CK' + raw DEFLATE (MSZIP block); the LZ77 history
-              window is shared across blocks (see mszip_decompress).
+See CAB_FORMAT_SPEC.md §2 for the reverse-engineered layout.
 """
 
 from __future__ import annotations
 
-import io
 import struct
 import zlib
 from dataclasses import dataclass, field
-from typing import BinaryIO, Iterable, Optional
-
-MSCF_SIGNATURE = b"MSCF"
-TYPE_MSZIP = 1
-MSZIP_BLOCK_SIZE = 32768
-_MSZIP_MAGIC = b"CK"
+from typing import Optional
 
 
 class CabFormatError(ValueError):
-    """Raised when a .cab archive does not match the observed Cradle layout."""
+    """Raised when bytes do not look like a supported Cradle CAB."""
 
 
-def mszip_decompress(blocks: Iterable[bytes]) -> bytes:
-    """Decompress MSZIP blocks ('CK' + raw DEFLATE) with a shared 32 KiB
-    LZ77 window carried across block boundaries.
-
-    Each block is fed to a fresh :class:`zlib.decompressobj` primed with the
-    previously decompressed window; Cradle-written blocks may reference
-    history from earlier blocks.
-    """
-    out = bytearray()
-    for i, blk in enumerate(blocks):
-        if not blk.startswith(_MSZIP_MAGIC):
-            raise CabFormatError("MSZIP block does not start with b'CK'")
-        dec = (
-            zlib.decompressobj(-15)
-            if i == 0
-            else zlib.decompressobj(-15, zdict=bytes(out[-MSZIP_BLOCK_SIZE:]))
-        )
-        out += dec.decompress(blk[2:])
-        out += dec.flush()
-    return bytes(out)
+MSZIP_BLOCK_SIZE = 32768          # MSZIP decompresses at most 32 KiB per block
+_MAX_BLOCK_COMP = 0xFFFF          # cbData is a u16 in this variant
 
 
-def mszip_compress_chunk(chunk: bytes) -> bytes:
-    """Compress one <= 32 KiB chunk as a self-contained MSZIP block.
+# --------------------------------------------------------------------------
+# MSZIP codec (pure Python, shared-history window across blocks)
+# --------------------------------------------------------------------------
 
-    Blocks are written without cross-block references (valid MSZIP; Windows
-    tools decompress it).  The 32 KiB history is intentionally not carried
-    across blocks to keep the encoder pure-Python and deterministic.
-    """
-    co = zlib.compressobj(6, zlib.DEFLATED, -15)
-    return _MSZIP_MAGIC + co.compress(chunk) + co.flush()
+def mszip_compress(data: bytes, level: int = 6,
+                   chunk: int = MSZIP_BLOCK_SIZE) -> tuple[list[bytes], int]:
+    """Compress *data* into MSZIP blocks ('CK' + raw DEFLATE).
 
-
-def mszip_compress(data: bytes) -> tuple[list[bytes], int]:
-    """Split *data* into 32 KiB chunks and compress each into an MSZIP block.
-
-    Returns ``(blocks, uncompressed_total)``.  A chunk whose compressed size
-    would exceed the u16 limit is split recursively.
+    Each block references the previous 32 KiB of output via zlib's ``zdict``
+    parameter, mirroring how Cradle / makecab share the LZ77 window across
+    blocks. Returns ``(blocks, len(data))``.
     """
     blocks: list[bytes] = []
-    total = 0
+    out_so_far = b""
+    for start in range(0, len(data), chunk):
+        piece = data[start:start + chunk]
+        if out_so_far:
+            co = zlib.compressobj(level, zlib.DEFLATED, -15, 8, 0,
+                                  out_so_far[-MSZIP_BLOCK_SIZE:])
+        else:
+            co = zlib.compressobj(level, zlib.DEFLATED, -15)
+        payload = co.compress(piece) + co.flush()
+        block = b"CK" + payload
+        if len(block) > _MAX_BLOCK_COMP:
+            raise CabFormatError(
+                f"MSZIP block too large ({len(block)} > {_MAX_BLOCK_COMP}); "
+                "chunking assumption violated")
+        blocks.append(block)
+        out_so_far += piece
+    return blocks, len(data)
 
-    def _push(chunk: bytes) -> None:
-        nonlocal total
-        blk = mszip_compress_chunk(chunk)
-        if len(blk) > 0xFFFF and len(chunk) > 1:
-            mid = len(chunk) // 2
-            _push(chunk[:mid])
-            _push(chunk[mid:])
-            return
-        blocks.append(blk)
-        total += len(chunk)
 
-    for off in range(0, len(data), MSZIP_BLOCK_SIZE):
-        _push(data[off : off + MSZIP_BLOCK_SIZE])
-    return blocks, total
+def mszip_decompress(blocks: list[bytes]) -> bytes:
+    """Decompress MSZIP blocks, priming each with the previous output."""
+    out = b""
+    for i, block in enumerate(blocks):
+        if block[:2] != b"CK":
+            raise CabFormatError(f"MSZIP block {i} missing 'CK' marker")
+        if i == 0:
+            dec = zlib.decompressobj(-15)
+        else:
+            dec = zlib.decompressobj(-15, zdict=out[-MSZIP_BLOCK_SIZE:])
+        out += dec.decompress(block[2:]) + dec.flush()
+    return out
 
 
-def _dos_datetime(year: int, month: int, day: int, hour: int, minute: int, second: int) -> tuple[int, int]:
-    date = ((year - 1980) << 9) | (month << 5) | day
-    time = (hour << 11) | (minute << 5) | (second // 2)
-    return date, time
-
+# --------------------------------------------------------------------------
+# Container model
+# --------------------------------------------------------------------------
 
 @dataclass
 class CabFolder:
-    coff_cab_start: int = 0
-    c_cfdata: int = 0
-    type_compress: int = TYPE_MSZIP
+    coff_cab_start: int          # absolute offset of first CFDATA block
+    c_cfdata: int                # number of CFDATA blocks
+    type_compress: int           # 0 = stored, 1 = MSZIP
 
 
 @dataclass
@@ -125,267 +87,192 @@ class CabMember:
     name: str
     cb_file: int
     uoff_folder_start: int
-    i_folder: int = 0
-    date: int = 0
-    time: int = 0
-    attribs: int = 0
-    #: extracted member payload (uncompressed bytes)
-    data: bytes = b""
+    i_folder: int
+    date: int
+    time: int
+    attribs: int
+    data: Optional[bytes] = None
 
 
 @dataclass
+class _CfdataBlock:
+    csum: int
+    cb_data: int
+    cb_uncomp: int
+    payload: bytes             # 'CK' + deflate (or raw for stored folders)
+
+    def to_bytes(self) -> bytes:
+        return struct.pack("<IHH", self.csum, self.cb_data, self.cb_uncomp) \
+            + self.payload
+
+
 class CabArchive:
-    """Parsed / writable MSCF archive."""
+    """Parsed Cradle CAB archive with read + write support."""
 
-    members: list[CabMember] = field(default_factory=list)
-    folders: list[CabFolder] = field(default_factory=list)
-    version_minor: int = 3
-    version_major: int = 1
-    flags: int = 0
-    set_id: int = 12345
-    i_cabinet: int = 0
-    #: optional original CFDATA blocks (8-byte header + payload), kept so a
-    #: pristine rebuild can reproduce the source archive byte-for-byte.
-    _source_cfdata: list[bytes] = field(default_factory=list, repr=False)
+    def __init__(self) -> None:
+        self.version_minor = 0
+        self.version_major = 0
+        self.cfolders = 0
+        self.cfiles = 0
+        self.flags = 0
+        self.set_id = 0
+        self.i_cabinet = 0
+        self.folders: list[CabFolder] = []
+        self.members: list[CabMember] = []
+        self._blocks: list[_CfdataBlock] = []
+        self._raw: bytes = b""
+        self._prefix: bytes = b""          # header + folder/file tables
+        self._trailing: bytes = b""
 
-    # -- parsing ---------------------------------------------------------
+    # -- parsing ----------------------------------------------------------
 
     @classmethod
     def parse(cls, data: bytes) -> "CabArchive":
-        if len(data) < 44 or data[:4] != MSCF_SIGNATURE:
-            raise CabFormatError("not an MSCF cabinet (bad signature)")
-        (reserved1, cb_cabinet, reserved2, coff_files) = struct.unpack_from("<IIII", data, 4)
-        if coff_files != 44:
-            raise CabFormatError(f"unexpected coffFiles={coff_files} (only 44 observed)")
-        version_minor, version_major = data[24], data[25]
-        c_folders, c_files, flags, set_id, i_cabinet = struct.unpack_from("<HHHHH", data, 26)
+        if len(data) < 48 or data[:4] != b"MSCF":
+            raise CabFormatError("not a Microsoft Cabinet archive (no MSCF)")
+        arch = cls()
+        arch._raw = data
+        arch.version_minor = data[24]
+        arch.version_major = data[25]
+        arch.cfolders = struct.unpack_from("<H", data, 26)[0]
+        arch.cfiles = struct.unpack_from("<H", data, 28)[0]
+        arch.flags = struct.unpack_from("<H", data, 30)[0]
+        arch.set_id = struct.unpack_from("<H", data, 32)[0]
+        arch.i_cabinet = struct.unpack_from("<H", data, 34)[0]
+        coff_files = struct.unpack_from("<I", data, 16)[0]
 
-        folders: list[CabFolder] = []
-        off = 36
-        for _ in range(c_folders):
-            coff_start, c_cfdata, type_compress = struct.unpack_from("<IHH", data, off)
-            folders.append(CabFolder(coff_start, c_cfdata, type_compress))
-            off += 8
-        if off != coff_files:
-            raise CabFormatError(
-                f"CFFILE table offset mismatch (computed {off}, declared {coff_files})"
-            )
+        folder_off = coff_files - 8 * arch.cfolders
+        if folder_off < 36:
+            raise CabFormatError("inconsistent folder/file table offsets")
+        for i in range(arch.cfolders):
+            start, n, ctype = struct.unpack_from("<IHH", data, folder_off + 8 * i)
+            arch.folders.append(CabFolder(start, n, ctype))
 
-        members: list[CabMember] = []
-        for _ in range(c_files):
-            cb_file, uoff_start, i_folder, date, time, attribs = struct.unpack_from(
-                "<IIHHHH", data, off
-            )
+        off = coff_files
+        for _ in range(arch.cfiles):
+            cb_file, uoff, ifolder, date, time, attribs = \
+                struct.unpack_from("<IIHHHH", data, off)
             name_end = data.index(b"\x00", off + 16)
-            name = data[off + 16 : name_end].decode("ascii", "replace")
-            members.append(CabMember(name, cb_file, uoff_start, i_folder, date, time, attribs))
+            name = data[off + 16:name_end].decode("ascii", "replace")
+            arch.members.append(CabMember(
+                name, cb_file, uoff, ifolder, date, time, attribs))
             off = name_end + 1
 
-        # CFDATA blocks (full 8-byte header + payload)
-        cfdata: list[bytes] = []
-        if folders:
-            folder = folders[0]
-            d = folder.coff_cab_start
-            for _ in range(folder.c_cfdata):
-                if d + 8 > len(data):
-                    raise CabFormatError("truncated CFDATA header")
-                csum, cb_data, cb_uncomp = struct.unpack_from("<IHH", data, d)
-                payload = data[d + 8 : d + 8 + cb_data]
-                if len(payload) != cb_data:
-                    raise CabFormatError("truncated CFDATA payload")
-                cfdata.append(struct.pack("<IHH", csum, cb_data, cb_uncomp) + payload)
-                d += 8 + cb_data
-        arch = cls(
-            members=members,
-            folders=folders,
-            version_minor=version_minor,
-            version_major=version_major,
-            flags=flags,
-            set_id=set_id,
-            i_cabinet=i_cabinet,
-            _source_cfdata=cfdata,
-        )
+        # CFDATA blocks follow the CFFILE table (single folder in samples).
+        pos = arch.folders[0].coff_cab_start
+        arch._prefix = data[:pos]
+        for i in range(arch.folders[0].c_cfdata):
+            if pos + 8 > len(data):
+                raise CabFormatError(f"CFDATA block {i} truncated")
+            csum, cb_data, cb_uncomp = struct.unpack_from("<IHH", data, pos)
+            payload = data[pos + 8:pos + 8 + cb_data]
+            if len(payload) != cb_data:
+                raise CabFormatError(f"CFDATA block {i} payload truncated")
+            arch._blocks.append(_CfdataBlock(csum, cb_data, cb_uncomp, payload))
+            pos += 8 + cb_data
+        arch._trailing = data[pos:]
         return arch
 
-    @classmethod
-    def from_bytes(cls, data: bytes) -> "CabArchive":
-        return cls.parse(data)
-
-    # -- member extraction ----------------------------------------------
+    # -- decompression ----------------------------------------------------
 
     def folder_stream(self) -> bytes:
-        """Reconstruct the single-folder uncompressed stream."""
-        if not self.folders:
-            return b""
-        if self.folders[0].type_compress != TYPE_MSZIP:
-            raise CabFormatError(
-                f"unsupported folder compression type {self.folders[0].type_compress}"
-            )
-        return mszip_decompress(blk[8:] for blk in self._source_cfdata)
-
-    @staticmethod
-    def _member_magic_ok(name: str, payload: bytes) -> bool:
-        if payload.startswith(b"\xef\xbb\xbf<?xml"):
-            return True
-        if payload.startswith(b"**") and (b"**PART1" in payload[:512] or b"TRANSMIT FILE" in payload[:2048]):
-            return True
-        return False
-
-    def extract_members(self, validate_magic: bool = True) -> list[CabMember]:
-        """Extract members, locating them by sequential cbFile accumulation
-        (the observed uoffFolderStart field carries a +512 deviation on the
-        last member and must not be trusted)."""
-        stream = self.folder_stream()
-        out: list[CabMember] = []
-        offset = 0
-        for m in self.members:
-            payload = stream[offset : offset + m.cb_file]
-            if len(payload) != m.cb_file:
-                raise CabFormatError(
-                    f"member {m.name!r}: folder stream short ({len(payload)}/{m.cb_file})"
-                )
-            if validate_magic and not self._member_magic_ok(m.name, payload):
-                raise CabFormatError(
-                    f"member {m.name!r}: payload magic does not match expectations"
-                )
-            out.append(
-                CabMember(
-                    name=m.name,
-                    cb_file=m.cb_file,
-                    uoff_folder_start=offset,
-                    i_folder=m.i_folder,
-                    date=m.date,
-                    time=m.time,
-                    attribs=m.attribs,
-                    data=payload,
-                )
-            )
-            offset += m.cb_file
-        return out
+        """Decompressed (concatenated) folder payload."""
+        folder = self.folders[0]
+        if folder.type_compress == 0:
+            return b"".join(b.payload for b in self._blocks)
+        if folder.type_compress == 1:
+            return mszip_decompress([b.payload for b in self._blocks])
+        raise CabFormatError(
+            f"unsupported folder compression type {folder.type_compress}")
 
     def fill_member_data(self) -> list[CabMember]:
-        """Extract members and store their payloads back onto the archive."""
-        extracted = self.extract_members()
-        for m, em in zip(self.members, extracted):
-            m.data = em.data
-            m.uoff_folder_start = em.uoff_folder_start
-        return extracted
-
-    # -- writing ---------------------------------------------------------
-
-    def to_bytes(
-        self,
-        *,
-        preserve_source_blocks: bool = False,
-        date: int = 0x575F,
-        time: int = 0xA32D,
-        attribs: int = 0x00A0,
-    ) -> bytes:
-        """Serialize the archive.
-
-        With ``preserve_source_blocks=True`` and untouched members, the output
-        is byte-identical to the source archive.  Otherwise members are
-        re-compressed into MSZIP blocks with a zero checksum field.
-        """
-        if not self.members:
-            raise CabFormatError("cannot write an empty cabinet")
-
-        if preserve_source_blocks and self._source_cfdata:
-            if self.folder_stream() != b"".join(m.data for m in self.members):
+        """Slice member payloads out of the folder stream (idempotent)."""
+        if all(m.data is not None for m in self.members):
+            return self.members
+        stream = self.folder_stream()
+        for m in self.members:
+            end = m.uoff_folder_start + m.cb_file
+            if end > len(stream):
                 raise CabFormatError(
-                    "members changed; cannot preserve source CFDATA blocks, "
-                    "recompress instead"
-                )
-            cfdata = list(self._source_cfdata)
-        else:
-            stream = b"".join(m.data for m in self.members)
-            blocks, _ = mszip_compress(stream)
-            cfdata = []
-            for blk in blocks:
-                cb_uncomp = len(zlib.decompress(blk[2:], -15))
-                cfdata.append(struct.pack("<IHH", 0, len(blk), cb_uncomp) + blk)
-        if not self.folders:
-            self.folders = [CabFolder(0, 0, TYPE_MSZIP)]
+                    f"member {m.name!r} out of folder stream bounds")
+            m.data = stream[m.uoff_folder_start:end]
+        return self.members
 
-        folder_data = b"".join(cfdata)
+    def extract_members(self) -> list[CabMember]:
+        self.fill_member_data()
+        return self.members
 
+    # -- writing ----------------------------------------------------------
+
+    def to_bytes(self, preserve_source_blocks: bool = True) -> bytes:
+        """Rebuild the archive.
+
+        ``preserve_source_blocks=True`` reproduces the original file
+        byte-for-byte (raw CFDATA blocks are kept verbatim); otherwise the
+        folder stream is re-compressed with :func:`mszip_compress`.
+        """
+        if preserve_source_blocks and self._raw:
+            return self._prefix + b"".join(
+                b.to_bytes() for b in self._blocks) + self._trailing
+
+        stream = self.folder_stream()
+        blocks, _ = mszip_compress(stream)
+        return self._build_prefix(len(blocks), stream) + b"".join(
+            struct.pack("<IHH", 0, len(blk),
+                        min(len(stream) - 32768 * i, 32768))
+            + blk for i, blk in enumerate(blocks))
+
+    def _build_prefix(self, n_blocks: int, stream: bytes) -> bytes:
+        """Header + CFFOLDER + CFFILE table for a re-compressed archive."""
         coff_files = 36 + 8 * len(self.folders)
-        header_head = struct.pack(
-            "<4sIIII", MSCF_SIGNATURE, 0, 0, 0, coff_files
-        )
-        header_body = b"\x00\x00\x00\x00" + struct.pack(
-            "<BBHHHHH",
-            self.version_minor,
-            self.version_major,
-            len(self.folders),
-            len(self.members),
-            self.flags,
-            self.set_id,
-            self.i_cabinet,
-        )
+        table_size = 0
+        for m in self.members:
+            table_size += 16 + len(m.name.encode("ascii", "replace")) + 1
+        coff_cab_start = coff_files + table_size
 
+        header = b"MSCF" \
+            + struct.pack("<I", 0) \
+            + struct.pack("<I", coff_cab_start + len(stream)) \
+            + struct.pack("<I", 0) \
+            + struct.pack("<I", coff_files) \
+            + b"\x00\x00\x00\x00" \
+            + bytes([self.version_minor, self.version_major]) \
+            + struct.pack("<HHHHH", len(self.folders), len(self.members),
+                          self.flags, self.set_id, self.i_cabinet)
         folder_table = b"".join(
-            struct.pack("<IHH", f.coff_cab_start, f.c_cfdata, f.type_compress)
-            for f in self.folders
-        )
-
+            struct.pack("<IHH", coff_cab_start, n_blocks,
+                        f.type_compress if i == 0 else 0)
+            for i, f in enumerate(self.folders))
+        # offset of folder stream is identical for every folder in a
+        # single-folder archive; multi-folder re-packing is out of P0 scope.
+        assert len(self.folders) == 1, "multi-folder rebuild not supported"
         file_table = b""
-        offset = 0
-        for i, m in enumerate(self.members):
-            uoff = m.uoff_folder_start if preserve_source_blocks else offset
-            file_table += struct.pack(
-                "<IIHHHH",
-                m.cb_file,
-                uoff,
-                m.i_folder,
-                date,
-                time,
-                attribs,
-            )
+        off = 0
+        for m in self.members:
+            file_table += struct.pack("<IIHHHH", m.cb_file, off, m.i_folder,
+                                      m.date, m.time, m.attribs)
             file_table += m.name.encode("ascii", "replace") + b"\x00"
-            offset += m.cb_file
+            off += m.cb_file
+        return header + folder_table + file_table
 
-        coff_cab_start = (
-            len(header_head) + len(header_body) + len(folder_table) + len(file_table)
-        )
-        for f in self.folders:
-            f.coff_cab_start = coff_cab_start
-            f.c_cfdata = len(cfdata)
-        folder_table = b"".join(
-            struct.pack("<IHH", f.coff_cab_start, f.c_cfdata, f.type_compress)
-            for f in self.folders
-        )
-
-        out = header_head + header_body + folder_table + file_table + folder_data
-        # cbCabinet is the total archive size (field at offset 8)
-        out = out[:8] + struct.pack("<I", len(out)) + out[12:]
-        return out
-
-    # -- convenience -----------------------------------------------------
+    # -- helpers ----------------------------------------------------------
 
     def summary(self) -> dict:
+        self.fill_member_data()
+        import hashlib
         return {
-            "signature": "MSCF",
-            "cb_cabinet": None,
             "version": f"{self.version_minor}.{self.version_major}",
-            "folders": [{"type": f.type_compress, "blocks": f.c_cfdata} for f in self.folders],
-            "set_id": self.set_id,
+            "folders": [
+                {"coff_cab_start": f.coff_cab_start,
+                 "c_cfdata": f.c_cfdata,
+                 "type_compress": f.type_compress}
+                for f in self.folders],
             "members": [
-                {
-                    "name": m.name,
-                    "size": m.cb_file,
-                    "uoff_folder_start": m.uoff_folder_start,
-                }
-                for m in self.members
-            ],
+                {"name": m.name,
+                 "size": m.cb_file,
+                 "offset": m.uoff_folder_start,
+                 "date": f"{m.date:04x}",
+                 "time": f"{m.time:04x}",
+                 "md5": hashlib.md5(m.data or b"").hexdigest()}
+                for m in self.members],
         }
-
-
-def read_cab(path: str) -> CabArchive:
-    with open(path, "rb") as fh:
-        return CabArchive.parse(fh.read())
-
-
-def write_cab(archive: CabArchive, path: str, **kwargs) -> None:
-    with open(path, "wb") as fh:
-        fh.write(archive.to_bytes(**kwargs))

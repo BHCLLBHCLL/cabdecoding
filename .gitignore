@@ -8,5 +8,6 @@ build/
 dist/
 *.egg-info/
 
-tests/*
+tests/*.fld
+tests/**/*.fld
 cases/*
