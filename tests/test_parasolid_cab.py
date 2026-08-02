@@ -79,9 +79,17 @@ def test_part_boxes_in_domain():
     assert battery.bounds[5] - battery.bounds[2] > 1e-4
     # color parsed from XML RGBA
     assert 0.0 <= battery.color[0] <= 1.0
+    # multi-cell occupancy (not a single AABB brick)
+    cover = by_name["lower_cover_01"]
+    assert len(cover.cells) > 1
+    assert len(battery.cells) >= 1
+    # AABB must enclose every cell
+    for cell in cover.cells:
+        assert cell[0] >= cover.bounds[0] - 1e-12
+        assert cell[3] <= cover.bounds[3] + 1e-12
 
 
-def test_vtk_scene_build_and_offscreen_render(tmp_path):
+def test_vtk_scene_build_and_offscreen_render():
     if not cab_vtk._HAS_VTK:
         import pytest
         pytest.skip("vtk not installed")
@@ -90,6 +98,9 @@ def test_vtk_scene_build_and_offscreen_render(tmp_path):
     boxes = cab_vtk.part_boxes(model)
     scene = cab_vtk.build_scene(boxes, wireframe=False)
     assert len(scene) == len(boxes)
+    # multi-cell parts produce more polygons than a single brick (6 quads)
+    cover_pd = scene[[b.name for b in boxes].index("lower_cover_01")][0]
+    assert cover_pd.GetNumberOfCells() > 6
     renderer = vtk.vtkRenderer()
     render_window = vtk.vtkRenderWindow()
     render_window.SetOffScreenRendering(1)

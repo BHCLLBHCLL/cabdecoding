@@ -366,9 +366,9 @@ class ControlWindow(QWidget):
         ("Sketch plane", "sketch_plane", False),
         ("Domain frame", "domain_frame", True),
         ("Mesh", "mesh", False),
-        ("Axis (Global)", "axis_global", True),
+        ("Axis (Global)", "axis_global", True),   # corner triad marker
         ("Axis (Sketch)", "axis_sketch", False),
-        ("Origin", "origin", True),
+        ("Origin", "origin", False),
         ("Aspect ratio", "aspect_ratio", False),
     ]
 

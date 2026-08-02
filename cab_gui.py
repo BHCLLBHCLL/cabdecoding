@@ -34,6 +34,11 @@ try:
     )
     from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
     import vtk
+    try:
+        import vtkmodules.vtkInteractionStyle  # noqa: F401
+        import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
+    except Exception:
+        pass
     _HAS_GUI_DEPS = True
 except Exception:  # pragma: no cover - headless environments
     _HAS_GUI_DEPS = False
@@ -70,6 +75,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._drawing_mode = "Shading"
         self._hidden_parts: set[str] = set()
         self._recent: list[str] = []
+        self._orientation = None
+        self._trackball_style = None
+        self._rubber_style = None
+        self._iren_ready = False
+        self._mouse_mode = "trackball"  # trackball | rubber
 
         self._build_ui()
         self._apply_style()
@@ -120,6 +130,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.vtk_widget = QVTKRenderWindowInteractor(self)
             self.renderer = vtk.vtkRenderer()
             self.renderer.SetBackground(0.93, 0.93, 0.94)
+            self.renderer.SetBackground2(0.78, 0.82, 0.90)
+            self.renderer.GradientBackgroundOn()
+            self.renderer.GetActiveCamera().ParallelProjectionOn()
             self.vtk_widget.GetRenderWindow().AddRenderer(self.renderer)
             draw_body = self.vtk_widget
         else:
@@ -211,6 +224,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "XZ Plane", lambda: self._set_plane("xz"))
         add(m, "YZ Plane", lambda: self._set_plane("yz"))
         m.addSeparator()
+        add(m, "Rubber Box Zoom", lambda: self._set_mouse_mode("rubber"))
+        add(m, "Trackball Camera",
+            lambda: self._set_mouse_mode("trackball"))
+        m.addSeparator()
         self._tb_toggles = []
         for name, attr in (("File Bar", "tb_file"),
                            ("Edit Bar", "tb_edit"),
@@ -219,7 +236,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                            ("Display Bar", "tb_disp")):
             act = QAction(name, self)
             act.setCheckable(True)
-            act.setChecked(name != "Parts Bar" and name != "Mouse Bar")
+            act.setChecked(name != "Parts Bar")
             act.triggered.connect(
                 lambda on, a=attr: self._toggle_toolbar(a, on))
             m.addAction(act)
@@ -241,7 +258,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Editing Mesh")
 
         m = mb.addMenu("Option(&O)")
-        add(m, "(Mouse)")
+        add(m, "(Mouse) Trackball",
+            lambda: self._set_mouse_mode("trackball"))
+        add(m, "(Mouse) Rubber Band Zoom",
+            lambda: self._set_mouse_mode("rubber"))
         add(m, "Environment Settings")
         add(m, "Detailed Program Settings")
 
@@ -309,12 +329,26 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tb_parts.setVisible(False)
 
         self.tb_mouse = tb("Mouse")
-        for text, icon in (("Select", "select"), ("Rotate", "rotate"),
-                           ("Pan", "pan"), ("Zoom", "zoom")):
-            act(self.tb_mouse, text, icon, text,
-                lambda _=False, t=text: self._nyi(f"Mouse — {t}"))
+        # Cradle 3-button Trackball（同 pph_gui）：左旋转 / 中平移 / 右缩放
+        tips = {
+            "Trackball": "Trackball Camera（左键旋转·中键平移·右键/滚轮缩放）",
+            "Rubber": "橡皮框缩放（拖拽框选放大）",
+            "Fit": "Fit to DrawWindow",
+            "Reset": "Reset DrawWindow",
+        }
+        self._act_trackball = act(
+            self.tb_mouse, "Trackball", "rotate", tips["Trackball"],
+            lambda: self._set_mouse_mode("trackball"))
+        self._act_rubber = act(
+            self.tb_mouse, "Rubber", "zoom", tips["Rubber"],
+            lambda: self._set_mouse_mode("rubber"))
+        act(self.tb_mouse, "Fit", "fit", tips["Fit"], self._fit_view)
+        act(self.tb_mouse, "Reset", "show_all", tips["Reset"],
+            self._reset_view)
+        self._act_trackball.setCheckable(True)
+        self._act_rubber.setCheckable(True)
+        self._act_trackball.setChecked(True)
         self.addToolBar(self.tb_mouse)
-        self.tb_mouse.setVisible(False)
 
     def _toggle_toolbar(self, attr: str, on: bool) -> None:
         bar = getattr(self, attr, None)
@@ -376,8 +410,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._rebuild_scene()
         self._update_title()
         self._add_recent(path)
+        n_cells = sum(len(b.cells) for b in cab_vtk.part_boxes(self.model))
         self.log(f"Loaded {path}  parts={len(self.model.parts())}  "
-                 f"materials={len(self.props.material_names())}")
+                 f"materials={len(self.props.material_names())}  "
+                 f"mesh-cells={n_cells}")
+        self.log(
+            "Draw geometry = structured-mesh body boxes (element lists). "
+            "Smooth Parasolid fillets need STpre / a Parasolid kernel.",
+            "INFO")
         self.statusBar().showMessage(f"已加载 {path}")
         return True
 
@@ -444,6 +484,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 if pname in self._hidden_parts:
                     continue
                 actor.SetVisibility(1 if on else 0)
+        elif key == "axis_global":
+            self._set_orientation_marker(on)
         else:
             for actor in self._layer_actors.get(key, []):
                 actor.SetVisibility(1 if on else 0)
@@ -502,9 +544,102 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     # ---------------------------------------------------------------- 3D
 
+    def _ensure_interactor(self) -> None:
+        """Trackball + observers（对齐 pph_gui View3DTab.showEvent）。"""
+        if not self._enable_3d or self.vtk_widget is None or self._iren_ready:
+            return
+        try:
+            from vtkmodules.vtkInteractionStyle import (
+                vtkInteractorStyleTrackballCamera)
+        except Exception:
+            vtkInteractorStyleTrackballCamera = (
+                vtk.vtkInteractorStyleTrackballCamera)
+        iren = self.vtk_widget.GetRenderWindow().GetInteractor()
+        self._trackball_style = vtkInteractorStyleTrackballCamera()
+        iren.SetInteractorStyle(self._trackball_style)
+        iren.AddObserver("MouseMoveEvent", self._on_mouse_move, 1.0)
+        iren.Initialize()
+        self._iren_ready = True
+        self._set_orientation_marker(self.control.layer_on("axis_global"))
+
+    def _set_mouse_mode(self, mode: str) -> None:
+        if not self._enable_3d or self.vtk_widget is None:
+            return
+        self._ensure_interactor()
+        iren = self.vtk_widget.GetRenderWindow().GetInteractor()
+        try:
+            from vtkmodules.vtkInteractionStyle import (
+                vtkInteractorStyleRubberBandZoom,
+                vtkInteractorStyleTrackballCamera)
+        except Exception:
+            vtkInteractorStyleRubberBandZoom = (
+                vtk.vtkInteractorStyleRubberBandZoom)
+            vtkInteractorStyleTrackballCamera = (
+                vtk.vtkInteractorStyleTrackballCamera)
+        if mode == "rubber":
+            style = vtkInteractorStyleRubberBandZoom()
+            style.SetRenderOnMouseMove(1)
+            self._rubber_style = style
+            iren.SetInteractorStyle(style)
+            self._mouse_mode = "rubber"
+            self._op_label.setText("Rubber")
+            self._act_rubber.setChecked(True)
+            self._act_trackball.setChecked(False)
+            self.log("Mouse: Rubber Band Zoom — drag a box to zoom")
+        else:
+            self._trackball_style = vtkInteractorStyleTrackballCamera()
+            iren.SetInteractorStyle(self._trackball_style)
+            self._mouse_mode = "trackball"
+            self._op_label.setText("Trackball")
+            self._act_trackball.setChecked(True)
+            self._act_rubber.setChecked(False)
+            self.log("Mouse: Trackball — L-rotate / M-pan / R-zoom / wheel")
+
+    def _set_orientation_marker(self, on: bool) -> None:
+        if not self._enable_3d or self.vtk_widget is None:
+            return
+        if self._orientation is not None:
+            try:
+                self._orientation.SetEnabled(0)
+            except Exception:
+                pass
+            self._orientation = None
+        if not on:
+            return
+        try:
+            iren = self.vtk_widget.GetRenderWindow().GetInteractor()
+            self._orientation = cab_vtk.orientation_marker_widget(iren)
+        except Exception as exc:
+            self.log(f"Orientation marker failed: {exc}", "WARN")
+
+    def _on_mouse_move(self, obj, _event) -> None:
+        if self.renderer is None:
+            return
+        try:
+            x, y = obj.GetEventPosition()
+            picker = vtk.vtkWorldPointPicker()
+            picker.Pick(float(x), float(y), 0.0, self.renderer)
+            wx, wy, wz = picker.GetPickPosition()
+            # show mm to match STpre / XML units
+            self._coord_label.setText(
+                f"( {wx * 1000:.4g} , {wy * 1000:.4g} , {wz * 1000:.4g} )")
+        except Exception:
+            pass
+
+    def _domain_scale(self) -> float:
+        """Characteristic length (m) for origin marker sizing."""
+        if self.model is None:
+            return 0.05
+        frame = cab_vtk.domain_frame(self.model)
+        if frame is None:
+            return 0.05
+        b = frame.bounds
+        return max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-6)
+
     def _rebuild_scene(self) -> None:
         if not self._enable_3d or self.model is None or self.renderer is None:
             return
+        self._ensure_interactor()
         self.renderer.RemoveAllViewProps()
         self.actors.clear()
         for k in self._layer_actors:
@@ -546,22 +681,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
 
-        if self.control.layer_on("axis_global"):
-            axes = vtk.vtkAxesActor()
-            axes.SetTotalLength(0.05, 0.05, 0.05)
-            self.renderer.AddActor(axes)
-            self._layer_actors["axis_global"].append(axes)
+        # Global axes → corner orientation marker (not a scene actor)
+        self._set_orientation_marker(self.control.layer_on("axis_global"))
 
         if self.control.layer_on("origin"):
+            scale = self._domain_scale()
             src = vtk.vtkSphereSource()
-            src.SetRadius(0.002)
-            src.SetThetaResolution(12)
-            src.SetPhiResolution(12)
+            src.SetRadius(max(scale * 0.008, 1e-4))
+            src.SetThetaResolution(16)
+            src.SetPhiResolution(16)
             mapper = vtk.vtkPolyDataMapper()
             mapper.SetInputConnection(src.GetOutputPort())
             actor = vtk.vtkActor()
             actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(0.2, 0.2, 0.2)
+            actor.GetProperty().SetColor(0.25, 0.25, 0.25)
             self.renderer.AddActor(actor)
             self._layer_actors["origin"].append(actor)
 
@@ -586,14 +719,28 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """Compat helper for tests."""
         self._set_drawing_mode("Line" if on else "Shading")
 
+    def _ensure_parallel_camera(self) -> None:
+        if self.renderer is None:
+            return
+        self.renderer.GetActiveCamera().ParallelProjectionOn()
+
     def _fit_view(self) -> None:
         if not self._enable_3d or self.renderer is None:
             return
         self.renderer.ResetCamera()
+        self._ensure_parallel_camera()
         self.renderer.GetRenderWindow().Render()
 
     def _reset_view(self) -> None:
-        self._fit_view()
+        if not self._enable_3d or self.renderer is None:
+            return
+        cam = self.renderer.GetActiveCamera()
+        cam.SetViewUp(0, 1, 0)
+        cam.SetPosition(1, 1, 1)
+        cam.SetFocalPoint(0, 0, 0)
+        self.renderer.ResetCamera()
+        self._ensure_parallel_camera()
+        self.renderer.GetRenderWindow().Render()
 
     def _set_plane(self, plane: str) -> None:
         if not self._enable_3d or self.renderer is None:
@@ -610,7 +757,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             cam.SetPosition(1, 0, 0)
             cam.SetViewUp(0, 0, 1)
         self.renderer.ResetCamera()
+        self._ensure_parallel_camera()
         self.renderer.GetRenderWindow().Render()
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        if self._enable_3d:
+            self._ensure_interactor()
 
     # ------------------------------------------------------------ actions
 
@@ -779,7 +932,7 @@ def main(argv: list[str] | None = None) -> int:
     win = CabViewer(path)
     win.show()
     if win.vtk_widget is not None:
-        win.vtk_widget.GetRenderWindow().GetInteractor().Initialize()
+        win._ensure_interactor()
     return app.exec_()
 
 

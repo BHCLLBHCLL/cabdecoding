@@ -1,20 +1,23 @@
 """P2: VTK geometry builders for scSTREAM cab projects.
 
-Full facet geometry would require a Parasolid kernel (out of scope), so the
-3D view is assembled from data that is fully present in the cab XML:
+scSTREAM Pre shades **Parasolid** (``.x_t``) B-rep — that needs a commercial
+kernel and is out of scope.  What *is* fully present in the cab XML is the
+structured-mesh occupancy of every part: the ``element`` section stores many
+``i1,i2,j1,j2,k1,k2`` index boxes per part (cut-cell / body lists).
 
-- every part's meshed i/j/k box ranges (``element`` section) mapped through
-  the ``mesh_block`` axis coordinates -> world-space part bounds;
-- the analysis domain frame;
-- cube parts additionally carry an analytic ``base``/``size`` (mm) plus a
-  ``transform`` matrix, used as a fallback when the mesh tables are missing.
+Earlier builds merged those boxes into a single AABB, which made every part
+look like a long rectangular brick and erased chamfer / fillet transitions.
 
-Output is ``vtkPolyData`` ready for the GUI (solid boxes + wireframes).
+This module renders the **union of index boxes** (stair-step solid) so the
+Draw Window follows the same mesh occupancy STpre uses for Element division,
+including stepped approximations of rounded corners.
+
+Output is ``vtkPolyData`` ready for the GUI.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 import numpy as np
@@ -31,12 +34,22 @@ except Exception:  # pragma: no cover - environment without vtk
     _HAS_VTK = False
 
 
+Bounds = tuple[float, float, float, float, float, float]
+
+
 @dataclass
 class PartBox:
+    """One part's display geometry.
+
+    ``cells`` holds every mesh body box (meters).  ``bounds`` is the AABB of
+    those cells (kept for tests / domain checks).
+    """
+
     name: str
-    bounds: tuple[float, float, float, float, float, float]  # xmin..zmax (m)
+    bounds: Bounds
     color: tuple[float, float, float]                        # 0..1 RGB
     opacity: float = 1.0
+    cells: list[Bounds] = field(default_factory=list)
 
 
 def _parse_color(text: str) -> tuple[float, float, float]:
@@ -49,37 +62,54 @@ def _parse_color(text: str) -> tuple[float, float, float]:
     return (0.7, 0.7, 0.7)
 
 
-def _box_bounds_from_element(model: StpreModel, part_name: str
-                             ) -> Optional[tuple[float, float, float,
-                                                 float, float, float]]:
-    axes = model.mesh_axes()
-    if not axes or any(len(v) < 2 for v in axes.values()):
+def _ijk_box_to_bounds(axes: dict[str, list[float]],
+                       box: list[int]) -> Optional[Bounds]:
+    """Map one ``i1,i2,j1,j2,k1,k2,...`` list entry → world AABB (meters)."""
+    if len(box) < 6:
         return None
-    boxes = model.part_boxes(part_name)
-    if not boxes:
-        return None
-    mins = [float("inf")] * 3
-    maxs = [-float("inf")] * 3
-    axis_names = ("x", "y", "z")
-    for box in boxes:
-        if len(box) < 6:
-            continue
-        for a in range(3):
-            i1, i2 = box[2 * a], box[2 * a + 1]
-            coords = axes[axis_names[a]]
-            if not (1 <= i1 <= len(coords) and 1 <= i2 <= len(coords)):
-                return None
-            lo = coords[i1 - 1] / 1000.0          # XML stores mm
-            hi = coords[i2] / 1000.0
-            mins[a] = min(mins[a], lo)
-            maxs[a] = max(maxs[a], hi)
-    if not all(np.isfinite(m) for m in mins + maxs):
-        return None
+    mins: list[float] = []
+    maxs: list[float] = []
+    for a, axis in enumerate(("x", "y", "z")):
+        i1, i2 = box[2 * a], box[2 * a + 1]
+        coords = axes[axis]
+        if not (1 <= i1 <= len(coords) and 0 <= i2 < len(coords)):
+            return None
+        # Same convention as the historical AABB merger: lo at (i1-1), hi at i2.
+        lo = coords[i1 - 1] / 1000.0
+        hi = coords[i2] / 1000.0
+        if hi < lo:
+            lo, hi = hi, lo
+        if abs(hi - lo) < 1e-15:
+            # degenerate slab — nudge by a tiny epsilon of local spacing
+            span = max(abs(coords[-1] - coords[0]) / max(len(coords), 1),
+                       1e-6) / 1000.0
+            hi = lo + span * 0.01
+        mins.append(lo)
+        maxs.append(hi)
     return (mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2])
 
 
-def _box_bounds_from_cube(part) -> Optional[tuple[float, float, float,
-                                                  float, float, float]]:
+def _merge_bounds(cells: list[Bounds]) -> Optional[Bounds]:
+    if not cells:
+        return None
+    mins = [min(c[i] for c in cells) for i in range(3)]
+    maxs = [max(c[i + 3] for c in cells) for i in range(3)]
+    return (mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2])
+
+
+def _cells_from_element(model: StpreModel, part_name: str) -> list[Bounds]:
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return []
+    out: list[Bounds] = []
+    for box in model.part_boxes(part_name):
+        b = _ijk_box_to_bounds(axes, box)
+        if b is not None:
+            out.append(b)
+    return out
+
+
+def _box_bounds_from_cube(part) -> Optional[Bounds]:
     if not part.base or not part.size:
         return None
     try:
@@ -109,17 +139,20 @@ def _box_bounds_from_cube(part) -> Optional[tuple[float, float, float,
 
 
 def part_boxes(model: StpreModel) -> list[PartBox]:
-    """World-space bounds for every part (meters, mesh-derived first)."""
+    """Per-part geometry: one ``PartBox`` with all mesh body cells."""
     out: list[PartBox] = []
     for p in model.parts():
-        bounds = _box_bounds_from_element(model, p.name)
+        cells = _cells_from_element(model, p.name)
+        bounds = _merge_bounds(cells)
         if bounds is None:
-            bounds = _box_bounds_from_cube(p)
-        if bounds is None:
-            continue
+            cube = _box_bounds_from_cube(p)
+            if cube is None:
+                continue
+            cells = [cube]
+            bounds = cube
         color = _parse_color(p.color)
         opacity = 0.45 if p.attribute == "fluid" else 0.85
-        out.append(PartBox(p.name, bounds, color, opacity))
+        out.append(PartBox(p.name, bounds, color, opacity, cells=cells))
     return out
 
 
@@ -137,13 +170,12 @@ def domain_frame(model: StpreModel) -> Optional[PartBox]:
         s = [float(v) / 1000.0 for v in size.text.split(",")[:3]]
     except ValueError:
         return None
-    return PartBox("Domain", (b[0], b[1], b[2],
-                              b[0] + s[0], b[1] + s[1], b[2] + s[2]),
-                   (0.4, 0.7, 1.0), 1.0)
+    bb: Bounds = (b[0], b[1], b[2], b[0] + s[0], b[1] + s[1], b[2] + s[2])
+    return PartBox("Domain", bb, (0.4, 0.7, 1.0), 1.0, cells=[bb])
 
 
-def _make_box_polydata(box: PartBox, wireframe: bool):
-    xmin, ymin, zmin, xmax, ymax, zmax = box.bounds
+def _bounds_polydata(bounds: Bounds, wireframe: bool):
+    xmin, ymin, zmin, xmax, ymax, zmax = bounds
     pts = np.array([
         [xmin, ymin, zmin], [xmax, ymin, zmin], [xmax, ymax, zmin],
         [xmin, ymax, zmin], [xmin, ymin, zmax], [xmax, ymin, zmax],
@@ -161,6 +193,23 @@ def _make_box_polydata(box: PartBox, wireframe: bool):
         [1, 5, 6, 2], [2, 6, 7, 3], [3, 7, 4, 0],
     ], dtype=np.int64)
     return _polydata(pts, quads, "quads")
+
+
+def _make_box_polydata(box: PartBox, wireframe: bool):
+    """PolyData for a part: union of all mesh body cells (not just AABB)."""
+    cells = box.cells or [box.bounds]
+    if len(cells) == 1:
+        return _bounds_polydata(cells[0], wireframe)
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    append = vtk.vtkAppendPolyData()
+    for cell in cells:
+        append.AddInputData(_bounds_polydata(cell, wireframe))
+    append.Update()
+    cleaned = vtk.vtkCleanPolyData()
+    cleaned.SetInputConnection(append.GetOutputPort())
+    cleaned.Update()
+    return cleaned.GetOutput()
 
 
 def _polydata(points: np.ndarray, cells: np.ndarray, kind: str):
@@ -196,3 +245,39 @@ def build_scene(boxes: list[PartBox],
         pd = _make_box_polydata(box, wireframe)
         out.append((pd, box.color, box.opacity))
     return out
+
+
+def axes_actor(length: float = 1.0):
+    """Compact XYZ triad for the corner orientation marker (from pph_vtk)."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    axes = vtk.vtkAxesActor()
+    axes.SetTotalLength(length, length, length)
+    axes.SetShaftTypeToCylinder()
+    axes.SetCylinderRadius(0.02)
+    axes.SetConeRadius(0.08)
+    axes.SetConeResolution(12)
+    axes.SetCylinderResolution(12)
+    axes.AxisLabelsOn()
+    for cap in (axes.GetXAxisCaptionActor2D(),
+                axes.GetYAxisCaptionActor2D(),
+                axes.GetZAxisCaptionActor2D()):
+        prop = cap.GetCaptionTextProperty()
+        prop.SetFontSize(12)
+        prop.SetBold(1)
+        prop.ShadowOff()
+    return axes
+
+
+def orientation_marker_widget(interactor, size_frac: float = 0.14):
+    """Corner orientation marker — does not pollute the scene bounds."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    widget = vtk.vtkOrientationMarkerWidget()
+    widget.SetOrientationMarker(axes_actor())
+    widget.SetInteractor(interactor)
+    # bottom-left, matching STpre triad placement
+    widget.SetViewport(0.0, 0.0, size_frac, size_frac)
+    widget.SetEnabled(1)
+    widget.InteractiveOff()
+    return widget
