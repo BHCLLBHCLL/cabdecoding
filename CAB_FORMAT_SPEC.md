@@ -396,13 +396,14 @@ mat=1）与 `group/parts`（part no 按出现顺序，mat 由 `<parts>/<property
    该字段）。
 2. **CFDATA 校验和算法**：u32 字段存在，常见 MS-CAB 校验变体均未匹配，
    需对照 Windows `makecab.exe` 输出反推或确认 Cradle 自定义算法。
-3. **MSZIP 写端**：跨块历史编码器选型（Windows API / 受限编码器 /
-   makecab），需 SCTpre 实机验收。
+3. **MSZIP 写端实机验收**：本仓库已用 zlib `zdict` 实现跨块历史编码器，
+   输出经 Windows `expand` 解包验证逐字节一致；仍待 SCTpre 实机验收。
 4. **多样本覆盖**：目前仅 ex4_e（2023.2）一个样本；需要不同版本
    （2024/2025.2）、不同网格组规模、多材料/多 region 的 cab 验证
    CFHEADER 布局与 XML 章节集（尤其新版新增 `<jos_model>`、`<boil>`、
    `<free_surface>` 等 condition_wizard 位与对应章节）。
 5. **`.s` 面分类**：element face list（`-1..-6` 编号语义）到 BC 类型的
-   完整映射表需结合更多样例与 SCTpre 导出对拍。
+   映射已在 ex4_e 黄金对拍锁定（A_MDR 行与 @UNDEFINED* 标记），跨版本确认
+   仍需更多样例。
 6. **Parasolid 完整 B-rep**：沿用“部分提取”，完整拓扑还原留作长期项
    （商业内核 / 超长逆向）。

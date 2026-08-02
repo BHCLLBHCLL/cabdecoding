@@ -185,3 +185,19 @@
 
 依赖：P1 依赖 P0；P3 依赖 P1（+P2 的几何信息用于面分类交叉验证）；P4 依赖
 P1–P3；P5 与各阶段并行推进。
+
+## 9. 实现状态（2026-08-03）
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| P0 容器层 | ✅ 完成 | `cab_container.py` + `cab_parser.py`；10 项测试；重压缩 cab 已由 Windows `expand` 解包逐字节验证 |
+| P1 XML 模型 | ✅ 完成 | `cabxml.py`；7 项测试；两个 XML 成员字节级往返，编辑→重打包→重解析闭环 |
+| P2 几何接入 | ✅ 完成 | `parasolid.py`（文本 x_t 部分提取）+ `cab_vtk.py`（部件盒/域框架/离屏渲染）；6 项测试 |
+| P3 导出 | ✅ 完成 | `s_export.py` + `xemt_export.py`；5 项测试；`.s` 与官方 1021 行**零结构差异**（仅 CXYZ 末位 1-ulp 舍入差），`.xemt` 仅日期注释不同；flddecoding `s_model` 消费一致 |
+| P4 GUI | ✅ 完成 | `cab_gui.py`（PyQt5+VTK，四窗格）+ `requirements-gui.txt`；5 项离屏测试 |
+| P5 扫描 | ✅ 基础就绪 | `tests/test_samples.py` 自动发现 `tests/**/*.cab` 跑结构不变量/往返/导出对拍；当前仅 ex4_e 样本 |
+
+全仓测试：`python -m pytest tests -q` → 33 项全绿。
+剩余开放项（见 CAB_FORMAT_SPEC.md §10）：CFDATA 校验和算法、多样本覆盖
+（2024/2025.2 版本、多网格组、多材料/辐射/湿度/粒子案例）、.s 面分类的
+跨版本确认、Parasolid 完整 B-rep（长期项）。
