@@ -40,64 +40,105 @@ def test_viewer_loads(viewer):
     assert win.model is not None
     assert win.model.project_name == "ex4_e"
     assert win.actors == []
-    assert win.nav_tree.topLevelItemCount() == 1
+    assert win.tree_view.layout_tree.topLevelItemCount() >= 1
     assert "已加载" in win.status.currentMessage()
 
 
+def test_layout_panes(viewer):
+    win = viewer
+    titles = {w.title_label.text()
+              for w in win.findChildren(__import__(
+                  "cab_panes", fromlist=["PaneFrame"]).PaneFrame)}
+    assert "Tree/List View" in titles
+    assert "Control" in titles
+    assert "Draw Window" in titles
+    assert "Message" in titles
+    menus = [a.text() for a in win.menuBar().actions()]
+    assert any("File" in m for m in menus)
+    assert any("Part" in m for m in menus)
+    assert any("Wizard" in m for m in menus)
+    assert any("Mesh" in m for m in menus)
+
+
 def test_model_tree_visibility(viewer):
+    from PyQt5.QtCore import Qt
     win = viewer
-    target = None
-    for i in range(win.model_tree.topLevelItemCount()):
-        item = win.model_tree.topLevelItem(i)
-        if item.text(0) == "battery":
-            target = item
-            break
+    target = win.tree_view.find_part_item("battery")
     assert target is not None
-    target.setCheckState(0, __import__("PyQt5.QtCore",
-                                        fromlist=["Qt"]).Qt.Unchecked)
-    assert target.checkState(0) == __import__("PyQt5.QtCore",
-                                              fromlist=["Qt"]).Qt.Unchecked
-    target.setCheckState(0, __import__("PyQt5.QtCore",
-                                        fromlist=["Qt"]).Qt.Checked)
-    assert target.checkState(0) == __import__("PyQt5.QtCore",
-                                              fromlist=["Qt"]).Qt.Checked
+    target.setCheckState(0, Qt.Unchecked)
+    assert target.checkState(0) == Qt.Unchecked
+    assert "battery" in win._hidden_parts
+    target.setCheckState(0, Qt.Checked)
+    assert target.checkState(0) == Qt.Checked
+    assert "battery" not in win._hidden_parts
 
 
-def test_edit_part_property(viewer, tmp_path):
+def test_edit_part_property(viewer):
+    import tempfile
+    from PyQt5.QtWidgets import QComboBox, QLineEdit
     win = viewer
+    # reload clean state for name rename test
+    win.load(CAB)
     part = next(p for p in win.model.parts() if p.name == "speaker")
     win._show_property("part", part.name)
-    assert "speaker" in win.prop_fields["名称"].text()
-    win.prop_fields["名称"].setText("speaker_v2")
-    win.prop_fields["材料"].setText("epoxy_resin(300K)")
+    name_w = win.control.prop_fields["名称"]
+    assert isinstance(name_w, QLineEdit)
+    assert "speaker" in name_w.text()
+    name_w.setText("speaker_v2")
+    mat_w = win.control.prop_fields["材料"]
+    if isinstance(mat_w, QComboBox):
+        mat_w.setCurrentText("epoxy_resin(300K)")
+    else:
+        mat_w.setText("epoxy_resin(300K)")
     win._apply_edits()
     assert win.model.find_part("speaker_v2") is not None
     assert win.model.find_part("speaker") is None
-    # rebuild cab with the edit
-    out = str(tmp_path / "edited.cab")
-    assert win._rebuild_to(out)
-    re_arch = CabArchive.parse(open(out, "rb").read())
-    re_members = {m.name: m.data for m in re_arch.fill_member_data()}
-    m2 = StpreModel(parse_stpre(re_members["ex4_e.xml"]))
-    assert m2.find_part("speaker_v2") is not None
-    assert m2.find_part("speaker") is None
+    with tempfile.TemporaryDirectory(dir=HERE) as td:
+        out = os.path.join(td, "edited.cab")
+        assert win._rebuild_to(out)
+        re_arch = CabArchive.parse(open(out, "rb").read())
+        re_members = {m.name: m.data for m in re_arch.fill_member_data()}
+        m2 = StpreModel(parse_stpre(re_members["ex4_e.xml"]))
+        assert m2.find_part("speaker_v2") is not None
+        assert m2.find_part("speaker") is None
 
 
-def test_export_s_and_xemt(viewer, tmp_path):
+def test_export_s_and_xemt(viewer):
+    import tempfile
     win = viewer
-    base = str(tmp_path / "out")
-    with open(base + ".s", "w", encoding="utf-8-sig", newline="") as fh:
-        fh.write(build_sdat(win.model, win.props))
-    with open(base + ".xemt", "w", encoding="utf-8-sig", newline="") as fh:
-        fh.write(build_emt(win.model, win.props))
-    assert os.path.getsize(base + ".s") > 40_000
-    assert os.path.getsize(base + ".xemt") > 2_000
-    assert open(base + ".s", encoding="utf-8-sig").read().startswith("SDAT")
-    assert "<EMT>" in open(base + ".xemt", encoding="utf-8-sig").read()
+    win.load(CAB)
+    with tempfile.TemporaryDirectory(dir=HERE) as td:
+        base = os.path.join(td, "out")
+        with open(base + ".s", "w", encoding="utf-8-sig", newline="") as fh:
+            fh.write(build_sdat(win.model, win.props))
+        with open(base + ".xemt", "w", encoding="utf-8-sig", newline="") as fh:
+            fh.write(build_emt(win.model, win.props))
+        assert os.path.getsize(base + ".s") > 40_000
+        assert os.path.getsize(base + ".xemt") > 2_000
+        assert open(base + ".s", encoding="utf-8-sig").read().startswith("SDAT")
+        assert "<EMT>" in open(base + ".xemt", encoding="utf-8-sig").read()
 
 
 def test_wireframe_toggle(viewer):
     win = viewer
     win._set_wireframe(True)
     assert win._wireframe is True
+    assert win._drawing_mode == "Line"
     assert len(win.actors) == 0          # headless mode builds no actors
+
+
+def test_drawing_mode_control(viewer):
+    win = viewer
+    win.control.set_drawing_mode("Translucent")
+    win._set_drawing_mode("Translucent")
+    assert win._drawing_mode == "Translucent"
+    assert win._translucent is True
+
+
+def test_nyi_logs(viewer):
+    win = viewer
+    win.message_win.clear()
+    win._nyi("Cuboid")
+    text = win.message_win.text.toPlainText()
+    assert "WARN" in text
+    assert "Cuboid" in text

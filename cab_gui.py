@@ -1,16 +1,13 @@
-"""P4: PyQt5 + VTK viewer/editor for scSTREAM Pre cab project files.
+"""P4: PyQt5 + VTK viewer/editor for scSTREAM Pre .cab projects.
 
-Four-pane layout following the scSTREAM Pre manual (Navigation / Tree /
-Property / Draw windows):
+Layout aligned with STpre (scSTREAM Pre manual + screenshot):
 
-- Navigation: open / save-as (rebuild cab) / export .s+.xemt / reload,
-  plus a file info card and a grouped navigation tree;
-- Tree: project model tree (groups/parts/regions/values/conditions/mesh/
-  material library) and a visibility model tree with checkboxes;
-- Property: structured, editable metadata for the selected item
-  (part name / material / color), applied back to the XML model;
-- Draw: 3D view of part boxes (mesh-derived bounds) + domain frame with
-  shade/wireframe, fit/reset.
+  Menu: File / Edit / View / Part / Wizard / Mesh / Option / Help
+  Toolbars: File | Edit | Display | (Parts) | (Mouse)
+  Main: Tree/List View + Control | Draw + Message
+  Status bar: coordinates / selection mode / operation / target
+
+Icons, PaneFrame, MessageWindow patterns ported from pph_gui.
 """
 
 from __future__ import annotations
@@ -21,115 +18,334 @@ import sys
 import cab_vtk
 import xemt_export
 from cab_container import CabArchive
-from cabxml import (PropertyModel, StpreModel, parse_property, parse_stpre)
+from cab_icons import AppIcons
+from cab_panes import (
+    ControlWindow, MessageWindow, PaneFrame, TreeListView,
+)
+from cabxml import PropertyModel, StpreModel, parse_property, parse_stpre
 from s_export import build_sdat
 
 try:
-    from PyQt5 import QtCore, QtGui, QtWidgets
+    from PyQt5 import QtWidgets
+    from PyQt5.QtCore import QSize, Qt
+    from PyQt5.QtWidgets import (
+        QAction, QApplication, QComboBox, QFileDialog, QLabel, QMainWindow,
+        QMessageBox, QSplitter, QToolBar,
+    )
     from vtk.qt.QVTKRenderWindowInteractor import QVTKRenderWindowInteractor
     import vtk
     _HAS_GUI_DEPS = True
-except Exception as e:  # pragma: no cover - headless environments
+except Exception:  # pragma: no cover - headless environments
     _HAS_GUI_DEPS = False
     QtWidgets = None
+    QMainWindow = object  # type: ignore
 
 
-class CabViewer(QtWidgets.QMainWindow if _HAS_GUI_DEPS else object):
+ST_MANUAL = (r"C:\Program Files\Cradle\CradleCFD2025.2"
+             r"\Manuals\ST\HTML\Pre_eng\index.html")
+
+
+class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     """Main window: load / browse / edit / export / rebuild a cab file."""
 
     def __init__(self, path: str | None = None, enable_3d: bool = True):
         if not _HAS_GUI_DEPS:
             raise RuntimeError("PyQt5/vtk not installed")
         super().__init__()
-        self.setWindowTitle("cabdecoding - scSTREAM Pre cab viewer")
-        self.resize(1280, 820)
+        self.setWindowTitle("cabdecoding — STpre layout")
+        self.resize(1600, 900)
         self._enable_3d = enable_3d
         self.archive: CabArchive | None = None
         self.model: StpreModel | None = None
         self.props: PropertyModel | None = None
-        self.actors: list[tuple[vtk.vtkActor, str]] = []
+        self.actors: list[tuple] = []
+        self._layer_actors: dict[str, list] = {
+            "domain_frame": [], "axis_global": [], "origin": [],
+            "mesh": [], "mesh_block": [],
+        }
         self.current_path: str | None = None
+        self._dirty = False
         self._wireframe = False
+        self._translucent = False
+        self._drawing_mode = "Shading"
+        self._hidden_parts: set[str] = set()
+        self._recent: list[str] = []
 
         self._build_ui()
+        self._apply_style()
+        self.log("Ready. Open a .cab project to begin.")
         if path:
             self.load(path)
 
     # ------------------------------------------------------------------ UI
 
-    def _build_ui(self):
-        nav = QtWidgets.QDockWidget("Navigation", self)
-        nav.setObjectName("nav")
-        nav.setFeatures(QtWidgets.QDockWidget.DockWidgetMovable)
-        self._nav = QtWidgets.QWidget()
-        nav.setWidget(self._nav)
-        nav_layout = QtWidgets.QVBoxLayout(self._nav)
-        nav_layout.setContentsMargins(6, 6, 6, 6)
+    def log(self, msg: str, level: str = "INFO") -> None:
+        if hasattr(self, "message_win"):
+            self.message_win.log(msg, level)
+        self.statusBar().showMessage(msg, 8000)
 
-        toolbar = QtWidgets.QToolBar()
-        toolbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
-        self.act_open = QtWidgets.QAction("打开", self)
-        self.act_open.triggered.connect(self._open_dialog)
-        self.act_save = QtWidgets.QAction("另存为(cab)", self)
-        self.act_save.triggered.connect(self._save_dialog)
-        self.act_export = QtWidgets.QAction("导出 .s/.xemt", self)
-        self.act_export.triggered.connect(self._export_dialog)
-        self.act_fit = QtWidgets.QAction("Fit", self)
-        self.act_fit.triggered.connect(self._fit_view)
-        self.act_wire = QtWidgets.QAction("线框", self)
-        self.act_wire.setCheckable(True)
-        self.act_wire.toggled.connect(self._set_wireframe)
-        for a in (self.act_open, self.act_save, self.act_export,
-                  self.act_fit, self.act_wire):
-            toolbar.addAction(a)
-        nav_layout.addWidget(toolbar)
+    def _nyi(self, name: str) -> None:
+        self.log(
+            f"[{name}] not available in cab viewer "
+            f"(STpre-only / not yet mapped).",
+            "WARN")
 
-        self.info_label = QtWidgets.QLabel("未打开文件")
-        self.info_label.setWordWrap(True)
-        nav_layout.addWidget(self.info_label)
+    def _build_ui(self) -> None:
+        self._build_menus()
+        self._build_toolbars()
 
-        self.nav_tree = QtWidgets.QTreeWidget()
-        self.nav_tree.setHeaderLabels(["项目"])
-        self.nav_tree.itemClicked.connect(self._on_tree_click)
-        nav_layout.addWidget(self.nav_tree)
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, nav)
+        self.tree_view = TreeListView(self)
+        self.tree_view.visibility_changed.connect(self._on_visibility)
+        self.tree_view.item_selected.connect(self._on_item_selected)
+        self.tree_view.context_action.connect(self._on_context_action)
+        # compat alias for older tests
+        self.model_tree = self.tree_view.layout_tree
 
-        tree_dock = QtWidgets.QDockWidget("Model Tree", self)
-        tree_dock.setObjectName("tree")
-        self.model_tree = QtWidgets.QTreeWidget()
-        self.model_tree.setHeaderLabels(["部件 / 显隐"])
-        self.model_tree.itemChanged.connect(self._on_visibility_changed)
-        tree_dock.setWidget(self.model_tree)
-        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, tree_dock)
+        self.control = ControlWindow(self)
+        self.control.drawing_mode_changed.connect(self._set_drawing_mode)
+        self.control.layer_toggled.connect(self._on_layer_toggled)
+        self.control.selection_target_changed.connect(self._on_sel_target)
+        self.control.apply_requested.connect(self._apply_edits)
+        self.control.lib_tree.itemSelectionChanged.connect(
+            self._on_lib_selected)
 
-        prop_dock = QtWidgets.QDockWidget("Property", self)
-        prop_dock.setObjectName("prop")
-        self.prop_widget = QtWidgets.QWidget()
-        self.prop_layout = QtWidgets.QFormLayout(self.prop_widget)
-        self.prop_title = QtWidgets.QLabel("选择树节点查看属性")
-        self.prop_layout.addRow(self.prop_title)
-        self.prop_fields: dict[str, QtWidgets.QLineEdit] = {}
-        self.apply_btn = QtWidgets.QPushButton("应用修改")
-        self.apply_btn.setEnabled(False)
-        self.apply_btn.clicked.connect(self._apply_edits)
-        prop_dock.setWidget(self.prop_widget)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, prop_dock)
+        left = QSplitter(Qt.Vertical, self)
+        left.addWidget(PaneFrame("Tree/List View", self.tree_view))
+        left.addWidget(PaneFrame("Control", self.control))
+        left.setStretchFactor(0, 3)
+        left.setStretchFactor(1, 2)
+        left.setSizes([420, 280])
 
         if self._enable_3d:
             self.vtk_widget = QVTKRenderWindowInteractor(self)
-            self.setCentralWidget(self.vtk_widget)
             self.renderer = vtk.vtkRenderer()
-            self.renderer.SetBackground(0.93, 0.94, 0.95)
+            self.renderer.SetBackground(0.93, 0.93, 0.94)
             self.vtk_widget.GetRenderWindow().AddRenderer(self.renderer)
-            self.vtk_widget.GetRenderWindow().SetSize(900, 700)
+            draw_body = self.vtk_widget
         else:
             self.vtk_widget = None
             self.renderer = None
-            self.setCentralWidget(QtWidgets.QLabel(
-                "3D 视图已禁用（headless 测试模式）", self))
+            draw_body = QLabel("3D 视图已禁用（headless 测试模式）", self)
+            draw_body.setAlignment(Qt.AlignCenter)
 
-        self.status = self.statusBar()
-        self.status.showMessage("就绪")
+        self.draw_pane = PaneFrame("Draw Window", draw_body)
+        self.message_win = MessageWindow(self)
+        msg_pane = PaneFrame("Message", self.message_win)
+
+        right = QSplitter(Qt.Vertical, self)
+        right.addWidget(self.draw_pane)
+        right.addWidget(msg_pane)
+        right.setStretchFactor(0, 5)
+        right.setStretchFactor(1, 1)
+        right.setSizes([640, 140])
+
+        main = QSplitter(Qt.Horizontal, self)
+        main.addWidget(left)
+        main.addWidget(right)
+        main.setStretchFactor(0, 0)
+        main.setStretchFactor(1, 1)
+        main.setSizes([300, 1200])
+        self.setCentralWidget(main)
+
+        # status bar segments
+        self._coord_label = QLabel("( —, —, — )")
+        self._mode_label = QLabel("Part")
+        self._op_label = QLabel("Selection")
+        self._target_label = QLabel("Part")
+        self._group_label = QLabel("Global mode")
+        sb = self.statusBar()
+        sb.addPermanentWidget(self._coord_label, 1)
+        for w in (self._mode_label, self._op_label,
+                  self._target_label, self._group_label):
+            sb.addPermanentWidget(w)
+        self.status = sb
+        sb.showMessage("No project")
+
+        # aliases used by property helpers / tests
+        self.prop_fields = self.control.prop_fields
+
+    def _build_menus(self) -> None:
+        mb = self.menuBar()
+
+        def add(menu, text, slot=None, shortcut=None):
+            act = QAction(text, self)
+            if shortcut:
+                act.setShortcut(shortcut)
+            if slot:
+                act.triggered.connect(slot)
+            else:
+                act.triggered.connect(
+                    lambda _=False, t=text: self._nyi(t))
+            menu.addAction(act)
+            return act
+
+        m = mb.addMenu("File(&F)")
+        add(m, "Open…", self._open_dialog, "Ctrl+O")
+        add(m, "Save", self._save, "Ctrl+S")
+        add(m, "Save As…", self._save_dialog, "Ctrl+Shift+S")
+        m.addSeparator()
+        add(m, "Import…")
+        add(m, "Export…", self._export_dialog, "Ctrl+E")
+        m.addSeparator()
+        add(m, "Print")
+        add(m, "Execute Solver")
+        add(m, "Execute Post")
+        m.addSeparator()
+        self._recent_menu = m.addMenu("Recent Files")
+        add(m, "Exit", self.close, "Alt+F4")
+
+        m = mb.addMenu("Edit(&E)")
+        add(m, "Undo")
+        add(m, "Redo")
+        m.addSeparator()
+        add(m, "Deletion of Parts")
+        add(m, "Group")
+        add(m, "Reset Computational Domain",
+            lambda: self._on_item_selected("domain", None))
+
+        m = mb.addMenu("View(&V)")
+        add(m, "Fit to DrawWindow", self._fit_view, "Ctrl+F")
+        add(m, "Reset DrawWindow", self._reset_view)
+        m.addSeparator()
+        add(m, "XY Plane", lambda: self._set_plane("xy"))
+        add(m, "XZ Plane", lambda: self._set_plane("xz"))
+        add(m, "YZ Plane", lambda: self._set_plane("yz"))
+        m.addSeparator()
+        self._tb_toggles = []
+        for name, attr in (("File Bar", "tb_file"),
+                           ("Edit Bar", "tb_edit"),
+                           ("Parts Bar", "tb_parts"),
+                           ("Mouse Bar", "tb_mouse"),
+                           ("Display Bar", "tb_disp")):
+            act = QAction(name, self)
+            act.setCheckable(True)
+            act.setChecked(name != "Parts Bar" and name != "Mouse Bar")
+            act.triggered.connect(
+                lambda on, a=attr: self._toggle_toolbar(a, on))
+            m.addAction(act)
+            self._tb_toggles.append(act)
+
+        m = mb.addMenu("Part(&P)")
+        for label in ("Cuboid", "Cylinder", "Sphere", "Panel",
+                      "Sketch Part", "Fan"):
+            add(m, label)
+
+        m = mb.addMenu("Wizard(&W)")
+        add(m, "Initial Setting…", self._wizard_initial)
+        add(m, "Condition Setting…", self._wizard_condition)
+
+        m = mb.addMenu("Mesh(&G)")
+        add(m, "Gridding (read-only)", self._mesh_info)
+        add(m, "Checking S-File", self._check_sfile)
+        add(m, "Meshing")
+        add(m, "Editing Mesh")
+
+        m = mb.addMenu("Option(&O)")
+        add(m, "(Mouse)")
+        add(m, "Environment Settings")
+        add(m, "Detailed Program Settings")
+
+        m = mb.addMenu("Help(&H)")
+        add(m, "User's Guide", self._open_manual)
+        add(m, "About cabdecoding", self._about)
+
+    def _build_toolbars(self) -> None:
+        icon_sz = 22
+
+        def tb(name: str) -> QToolBar:
+            bar = QToolBar(name, self)
+            bar.setObjectName(name)
+            bar.setMovable(False)
+            bar.setIconSize(QSize(icon_sz, icon_sz))
+            bar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            return bar
+
+        def act(bar, text, icon, tip, slot):
+            a = QAction(AppIcons.get(icon, icon_sz), text, self)
+            a.setToolTip(tip)
+            a.triggered.connect(slot)
+            bar.addAction(a)
+            return a
+
+        self.tb_file = tb("File")
+        act(self.tb_file, "Open", "open", "Open Project (CAB)",
+            self._open_dialog)
+        act(self.tb_file, "Save", "save", "Save CAB", self._save)
+        act(self.tb_file, "Export", "export", "Export .s / .xemt",
+            self._export_dialog)
+        act(self.tb_file, "Reload", "reload", "Reload Project", self._reload)
+        self.addToolBar(self.tb_file)
+
+        self.tb_edit = tb("Edit")
+        act(self.tb_edit, "XY", "plane_xy", "XY Plane",
+            lambda: self._set_plane("xy"))
+        act(self.tb_edit, "XZ", "plane_xz", "XZ Plane",
+            lambda: self._set_plane("xz"))
+        act(self.tb_edit, "YZ", "plane_yz", "YZ Plane",
+            lambda: self._set_plane("yz"))
+        act(self.tb_edit, "Fit", "fit", "Fit to DrawWindow", self._fit_view)
+        act(self.tb_edit, "Reset", "show_all", "Reset DrawWindow",
+            self._reset_view)
+        self.addToolBar(self.tb_edit)
+
+        self.tb_disp = tb("Display")
+        disp_label = QLabel()
+        disp_label.setPixmap(AppIcons.get("display", 18).pixmap(18, 18))
+        self.tb_disp.addWidget(disp_label)
+        self.tb_display = QComboBox(self)
+        self.tb_display.addItems(["Line", "Shading", "Translucent"])
+        self.tb_display.setCurrentText("Shading")
+        self.tb_display.setMinimumWidth(100)
+        self.tb_display.currentTextChanged.connect(self._toolbar_display)
+        self.tb_disp.addWidget(self.tb_display)
+        self.addToolBar(self.tb_disp)
+
+        self.tb_parts = tb("Parts")
+        for text, icon in (("Cube", "cube"), ("Cylinder", "cylinder"),
+                           ("Sphere", "sphere"), ("Panel", "panel")):
+            act(self.tb_parts, text, icon, f"Create {text}",
+                lambda _=False, t=text: self._nyi(f"Part — {t}"))
+        self.addToolBar(self.tb_parts)
+        self.tb_parts.setVisible(False)
+
+        self.tb_mouse = tb("Mouse")
+        for text, icon in (("Select", "select"), ("Rotate", "rotate"),
+                           ("Pan", "pan"), ("Zoom", "zoom")):
+            act(self.tb_mouse, text, icon, text,
+                lambda _=False, t=text: self._nyi(f"Mouse — {t}"))
+        self.addToolBar(self.tb_mouse)
+        self.tb_mouse.setVisible(False)
+
+    def _toggle_toolbar(self, attr: str, on: bool) -> None:
+        bar = getattr(self, attr, None)
+        if bar is not None:
+            bar.setVisible(on)
+
+    def _apply_style(self) -> None:
+        self.setStyleSheet("""
+            QMainWindow { background: #e8e8e8; }
+            QMenuBar { background: #f0f0f0; }
+            QToolBar { background: #f5f5f5; border: none; spacing: 2px;
+                       padding: 2px; }
+            QToolBar QToolButton {
+                padding: 2px 6px 1px 6px; margin: 1px;
+                border: 1px solid transparent; border-radius: 3px;
+            }
+            QToolBar QToolButton:hover {
+                background: #e3f2fd; border: 1px solid #90caf9;
+            }
+            QToolBar QToolButton:pressed { background: #bbdefb; }
+            #PaneFrame, #PaneBody {
+                background: #ffffff;
+                border: 1px solid #9a9a9a;
+            }
+            #PaneBody { border: none; }
+            #PaneTitleBar {
+                background: #d8d8d8;
+                border-bottom: 1px solid #9a9a9a;
+            }
+            #PaneTitle { font-weight: bold; color: #333; }
+        """)
 
     # ------------------------------------------------------------ loading
 
@@ -139,254 +355,427 @@ class CabViewer(QtWidgets.QMainWindow if _HAS_GUI_DEPS else object):
             archive = CabArchive.parse(raw)
             archive.fill_member_data()
         except Exception as exc:
-            QtWidgets.QMessageBox.critical(self, "打开失败", str(exc))
+            QMessageBox.critical(self, "打开失败", str(exc))
+            self.log(f"Open failed: {exc}", "ERROR")
             return False
         self.archive = archive
         self.current_path = path
+        self._dirty = False
+        self._hidden_parts.clear()
         members = {m.name: m.data for m in archive.members}
-        self.model = StpreModel(parse_stpre(members["ex4_e.xml"]))
-        self.props = PropertyModel(parse_property(
-            members["_ex4_e_property.xml"]))
-        self._populate_nav()
-        self._populate_model_tree()
+        xml_name = next(n for n in members if n.endswith(".xml")
+                        and not n.startswith("_"))
+        prop_name = next(n for n in members if n.endswith("_property.xml"))
+        self.model = StpreModel(parse_stpre(members[xml_name]))
+        self.props = PropertyModel(parse_property(members[prop_name]))
+        self._xml_member = xml_name
+        self._prop_member = prop_name
+        self.tree_view.populate(self.model, archive.members)
+        self.control.populate_library(self.props)
+        self.control.clear_property()
         self._rebuild_scene()
-        info = (f"{os.path.basename(path)}  "
-                f"{len(raw):,} B  v{archive.version_minor}."
-                f"{archive.version_major}\n"
-                f"成员 {len(archive.members)} 个 | 部件 "
-                f"{len(self.model.parts())} 个 | 材料 "
-                f"{len(self.props.material_names())} 个")
-        self.info_label.setText(info)
-        self.status.showMessage(f"已加载 {path}")
+        self._update_title()
+        self._add_recent(path)
+        self.log(f"Loaded {path}  parts={len(self.model.parts())}  "
+                 f"materials={len(self.props.material_names())}")
+        self.statusBar().showMessage(f"已加载 {path}")
         return True
 
-    def _populate_nav(self):
-        tree = self.nav_tree
-        tree.clear()
-        root = QtWidgets.QTreeWidgetItem([self.model.project_name])
-        tree.addTopLevelItem(root)
+    def _update_title(self) -> None:
+        base = "cabdecoding — STpre layout"
+        if self.current_path:
+            name = os.path.basename(self.current_path)
+            mark = " *" if self._dirty else ""
+            self.setWindowTitle(f"{base} — {name}{mark}")
+        else:
+            self.setWindowTitle(base)
 
-        def add(parent, label, data):
-            item = QtWidgets.QTreeWidgetItem([label])
-            item.setData(0, QtCore.Qt.UserRole, data)
-            parent.addChild(item)
-            return item
+    def _mark_dirty(self) -> None:
+        self._dirty = True
+        self._update_title()
 
-        proj = add(root, "项目", ("project", None))
-        add(proj, f"注释: {self.model.project_name}", ("project", None))
-        groups = add(root, f"部件组 ({len(self.model.groups())})",
-                     ("groups", None))
-        for grp in self.model.groups():
-            gname = ""
-            for ch in grp:
-                if ch.tag == "name":
-                    gname = (ch.text or "").strip()
-            g = add(groups, gname, ("group", gname))
-            for p in self.model.parts():
-                if p.group == gname:
-                    add(g, f"{p.name}  [{p.property}]",
-                        ("part", p.name))
-        regions = add(root, f"边界区域 ({len(self.model.regions())})",
-                      ("regions", None))
-        for r in self.model.regions():
-            for ch in r:
-                if ch.tag == "name":
-                    add(regions, (ch.text or "").strip(), ("region", None))
-        add(root, f"条件值 ({len(self.model.values())})",
-            ("values", None))
-        add(root, "求解设置", ("analysis_set", None))
-        add(root, f"材料库 ({len(self.props.material_names())})",
-            ("materials", None))
-        root.setExpanded(True)
-
-    def _populate_model_tree(self):
-        tree = self.model_tree
-        tree.blockSignals(True)
-        tree.clear()
-        for p in self.model.parts():
-            item = QtWidgets.QTreeWidgetItem([p.name])
-            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
-            item.setCheckState(0, QtCore.Qt.Checked)
-            item.setData(0, QtCore.Qt.UserRole, ("part", p.name))
-            tree.addTopLevelItem(item)
-        tree.blockSignals(False)
+    def _add_recent(self, path: str) -> None:
+        path = os.path.abspath(path)
+        if path in self._recent:
+            self._recent.remove(path)
+        self._recent.insert(0, path)
+        self._recent = self._recent[:8]
+        self._recent_menu.clear()
+        for p in self._recent:
+            act = QAction(p, self)
+            act.triggered.connect(lambda _=False, pp=p: self.load(pp))
+            self._recent_menu.addAction(act)
 
     # ------------------------------------------------------------- events
 
-    def _on_tree_click(self, item, _col):
-        data = item.data(0, QtCore.Qt.UserRole)
-        if not data:
+    def _on_item_selected(self, kind: str, name) -> None:
+        self.control.show_property(kind, name, self.model, self.props)
+        self.prop_fields = self.control.prop_fields
+        self._mode_label.setText("Part" if kind == "part" else kind)
+
+    def _on_lib_selected(self) -> None:
+        items = self.control.lib_tree.selectedItems()
+        if not items:
             return
-        kind, name = data
-        self._show_property(kind, name)
+        data = items[0].data(0, Qt.UserRole)
+        if data:
+            self._on_item_selected(data[0], data[1])
 
-    def _show_property(self, kind: str, name: str | None):
-        for w in self.prop_fields.values():
-            w.deleteLater()
-        self.prop_fields.clear()
-        while self.prop_layout.rowCount():
-            self.prop_layout.removeRow(0)
-        self.prop_title = QtWidgets.QLabel()
-        self.prop_layout.addRow(self.prop_title)
-        self._prop_target = (kind, name)
+    def _on_context_action(self, action: str, kind: str, name) -> None:
+        if action == "refer":
+            self._on_item_selected(kind, name)
 
-        def field(label, value, ro=False):
-            edit = QtWidgets.QLineEdit(value)
-            edit.setReadOnly(ro)
-            self.prop_layout.addRow(label, edit)
-            self.prop_fields[label] = edit
-
-        if kind == "part" and name:
-            part = None
-            for p in self.model.parts():
-                if p.name == name:
-                    part = p
-                    break
-            if part is None:
-                return
-            self.prop_title.setText(f"部件: {name}")
-            field("名称", part.name)
-            field("材料", part.property)
-            field("类型", part.kind, ro=True)
-            field("属性", part.attribute, ro=True)
-            field("颜色 RGBA", part.color)
-            field("体积", part.volume, ro=True)
-            self.apply_btn.setEnabled(True)
-            self.prop_layout.addRow(self.apply_btn)
-        elif kind == "project":
-            self.prop_title.setText("项目")
-            field("名称", self.model.project_name, ro=True)
-        elif kind == "materials":
-            self.prop_title.setText("材料库")
-            for mat in self.props.material_names():
-                field(mat, "", ro=True)
+    def _on_visibility(self, part_name: str, visible: bool) -> None:
+        if visible:
+            self._hidden_parts.discard(part_name)
         else:
-            self.prop_title.setText(kind)
-            self.apply_btn.setEnabled(False)
-
-    def _apply_edits(self):
-        kind, name = self._prop_target
-        if kind != "part" or not name:
+            self._hidden_parts.add(part_name)
+        if not self._enable_3d:
             return
-        new_name = self.prop_fields["名称"].text().strip()
-        material = self.prop_fields["材料"].text().strip()
-        color = self.prop_fields["颜色 RGBA"].text().strip()
-        changed = False
-        if new_name and new_name != name:
-            changed = self.model.rename_part(name, new_name) or changed
-        if material:
-            changed = self.model.set_part_property(
-                new_name or name, material) or changed
-        if color:
-            parts = [int(x) for x in color.split(",")[:4]] \
-                if all(x.strip().isdigit() for x in color.split(",")[:4]) \
-                else None
-            if parts and len(parts) == 4:
-                changed = self.model.set_part_color(
-                    new_name or name, tuple(parts)) or changed
-        if changed:
-            self._populate_nav()
-            self._populate_model_tree()
-            self.status.showMessage("已应用修改（另存为 cab 生效）")
-
-    def _on_visibility_changed(self, item, _col):
-        data = item.data(0, QtCore.Qt.UserRole)
-        if not data or data[0] != "part":
-            return
-        visible = item.checkState(0) == QtCore.Qt.Checked
-        if self._enable_3d:
-            for actor, pname in self.actors:
-                if pname == data[1]:
-                    actor.SetVisibility(1 if visible else 0)
+        for actor, pname in self.actors:
+            if pname == part_name:
+                actor.SetVisibility(1 if visible else 0)
+        if self.renderer:
             self.renderer.GetRenderWindow().Render()
+
+    def _on_layer_toggled(self, key: str, on: bool) -> None:
+        if key == "part":
+            for actor, pname in self.actors:
+                if pname in self._hidden_parts:
+                    continue
+                actor.SetVisibility(1 if on else 0)
+        else:
+            for actor in self._layer_actors.get(key, []):
+                actor.SetVisibility(1 if on else 0)
+        if self.renderer and self._enable_3d:
+            self.renderer.GetRenderWindow().Render()
+        if key in ("sketch_plane", "condition", "aspect_ratio",
+                   "axis_sketch") and on:
+            self._nyi(f"Drawing layer — {key}")
+
+    def _on_sel_target(self, target: str) -> None:
+        self._target_label.setText(target)
+        if target != "Part":
+            self._nyi(f"Target of selection — {target}")
+
+    def _show_property(self, kind: str, name) -> None:
+        """Test / external helper."""
+        self.control.show_property(kind, name, self.model, self.props)
+        self.prop_fields = self.control.prop_fields
+
+    def _apply_edits(self) -> None:
+        kind, name = self.control.prop_target()
+        if self.model is None:
+            return
+        changed = False
+        if kind == "part" and name:
+            new_name = self.control.field_text("名称")
+            material = self.control.field_text("材料")
+            color = self.control.field_text("颜色 RGBA")
+            if new_name and new_name != name:
+                changed = self.model.rename_part(name, new_name) or changed
+                name = new_name
+            if material:
+                changed = self.model.set_part_property(
+                    name, material) or changed
+            if color:
+                parts = color.split(",")[:4]
+                if len(parts) == 4 and all(
+                        x.strip().lstrip("-").isdigit() for x in parts):
+                    rgba = tuple(int(x) for x in parts)
+                    changed = self.model.set_part_color(
+                        name, rgba) or changed
+        elif kind == "value" and name:
+            for label, w in list(self.control.prop_fields.items()):
+                if label == "名称":
+                    continue
+                val = self.control.field_text(label)
+                changed = self.model.set_value_param(
+                    name, label, val) or changed
+        if changed:
+            self._mark_dirty()
+            self.tree_view.populate(self.model, self.archive.members
+                                    if self.archive else [])
+            self._rebuild_scene()
+            self.log("Edits applied (Save CAB to persist)")
+            self.statusBar().showMessage("已应用修改（另存为 cab 生效）")
 
     # ---------------------------------------------------------------- 3D
 
-    def _rebuild_scene(self):
-        if not self._enable_3d:
+    def _rebuild_scene(self) -> None:
+        if not self._enable_3d or self.model is None or self.renderer is None:
             return
         self.renderer.RemoveAllViewProps()
         self.actors.clear()
+        for k in self._layer_actors:
+            self._layer_actors[k] = []
+
+        wire = self._drawing_mode == "Line"
+        translucent = self._drawing_mode == "Translucent"
+        self._wireframe = wire
+
         boxes = cab_vtk.part_boxes(self.model)
-        frame = cab_vtk.domain_frame(self.model)
-        if frame:
-            boxes.append(frame)
+        part_on = self.control.layer_on("part")
         for box in boxes:
-            pd = cab_vtk._make_box_polydata(box, wireframe=self._wireframe)
+            pd = cab_vtk._make_box_polydata(box, wireframe=wire)
             mapper = vtk.vtkPolyDataMapper()
             mapper.SetInputData(pd)
             actor = vtk.vtkActor()
             actor.SetMapper(mapper)
             actor.GetProperty().SetColor(*box.color)
-            actor.GetProperty().SetOpacity(box.opacity)
-            actor.SetVisibility(1)
+            op = 0.35 if translucent else box.opacity
+            actor.GetProperty().SetOpacity(op)
+            if wire:
+                actor.GetProperty().SetRepresentationToWireframe()
+            visible = part_on and box.name not in self._hidden_parts
+            actor.SetVisibility(1 if visible else 0)
             self.renderer.AddActor(actor)
             self.actors.append((actor, box.name))
+
+        if self.control.layer_on("domain_frame"):
+            frame = cab_vtk.domain_frame(self.model)
+            if frame:
+                pd = cab_vtk._make_box_polydata(frame, wireframe=True)
+                mapper = vtk.vtkPolyDataMapper()
+                mapper.SetInputData(pd)
+                actor = vtk.vtkActor()
+                actor.SetMapper(mapper)
+                actor.GetProperty().SetColor(*frame.color)
+                actor.GetProperty().SetOpacity(frame.opacity)
+                actor.GetProperty().SetRepresentationToWireframe()
+                self.renderer.AddActor(actor)
+                self._layer_actors["domain_frame"].append(actor)
+
+        if self.control.layer_on("axis_global"):
+            axes = vtk.vtkAxesActor()
+            axes.SetTotalLength(0.05, 0.05, 0.05)
+            self.renderer.AddActor(axes)
+            self._layer_actors["axis_global"].append(axes)
+
+        if self.control.layer_on("origin"):
+            src = vtk.vtkSphereSource()
+            src.SetRadius(0.002)
+            src.SetThetaResolution(12)
+            src.SetPhiResolution(12)
+            mapper = vtk.vtkPolyDataMapper()
+            mapper.SetInputConnection(src.GetOutputPort())
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetColor(0.2, 0.2, 0.2)
+            self.renderer.AddActor(actor)
+            self._layer_actors["origin"].append(actor)
+
         self._fit_view()
 
-    def _set_wireframe(self, on: bool):
-        self._wireframe = on
-        if self.model is None:
-            return
-        self._rebuild_scene()
+    def _set_drawing_mode(self, mode: str) -> None:
+        self._drawing_mode = mode
+        self._wireframe = mode == "Line"
+        self._translucent = mode == "Translucent"
+        if self.tb_display.currentText() != mode:
+            self.tb_display.blockSignals(True)
+            self.tb_display.setCurrentText(mode)
+            self.tb_display.blockSignals(False)
+        self.control.set_drawing_mode(mode)
+        if self.model is not None:
+            self._rebuild_scene()
 
-    def _fit_view(self):
-        if not self._enable_3d:
+    def _toolbar_display(self, mode: str) -> None:
+        self._set_drawing_mode(mode)
+
+    def _set_wireframe(self, on: bool) -> None:
+        """Compat helper for tests."""
+        self._set_drawing_mode("Line" if on else "Shading")
+
+    def _fit_view(self) -> None:
+        if not self._enable_3d or self.renderer is None:
             return
+        self.renderer.ResetCamera()
+        self.renderer.GetRenderWindow().Render()
+
+    def _reset_view(self) -> None:
+        self._fit_view()
+
+    def _set_plane(self, plane: str) -> None:
+        if not self._enable_3d or self.renderer is None:
+            return
+        cam = self.renderer.GetActiveCamera()
+        cam.SetFocalPoint(0, 0, 0)
+        if plane == "xy":
+            cam.SetPosition(0, 0, 1)
+            cam.SetViewUp(0, 1, 0)
+        elif plane == "xz":
+            cam.SetPosition(0, -1, 0)
+            cam.SetViewUp(0, 0, 1)
+        else:
+            cam.SetPosition(1, 0, 0)
+            cam.SetViewUp(0, 0, 1)
         self.renderer.ResetCamera()
         self.renderer.GetRenderWindow().Render()
 
     # ------------------------------------------------------------ actions
 
-    def _open_dialog(self):
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+    def _open_dialog(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
             self, "打开 cab", "", "scSTREAM project (*.cab);;All (*)")
         if path:
             self.load(path)
 
-    def _save_dialog(self):
+    def _reload(self) -> None:
+        if self.current_path:
+            self.load(self.current_path)
+        else:
+            self.log("No project open.", "WARN")
+
+    def _save(self) -> None:
         if self.model is None:
             return
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+        if not self.current_path:
+            self._save_dialog()
+            return
+        if self._rebuild_to(self.current_path):
+            self._dirty = False
+            self._update_title()
+
+    def _save_dialog(self) -> None:
+        if self.model is None:
+            return
+        path, _ = QFileDialog.getSaveFileName(
             self, "另存为 cab", "", "scSTREAM project (*.cab)")
         if not path:
             return
-        self._rebuild_to(path)
+        if self._rebuild_to(path):
+            self.current_path = path
+            self._dirty = False
+            self._update_title()
 
     def _rebuild_to(self, path: str) -> bool:
-        member = next(m for m in self.archive.members
-                      if m.name == "ex4_e.xml")
+        if self.archive is None or self.model is None:
+            return False
+        xml_name = getattr(self, "_xml_member", None)
+        member = next(
+            (m for m in self.archive.members if m.name == xml_name), None)
+        if member is None:
+            member = next(m for m in self.archive.members
+                          if m.name.endswith(".xml")
+                          and not m.name.startswith("_"))
+        if self.props is not None:
+            prop_member = next(
+                (m for m in self.archive.members
+                 if m.name.endswith("_property.xml")), None)
+            if prop_member is not None:
+                prop_member.data = self.props.doc.serialize()
         member.data = self.model.doc.serialize()
         data = self.archive.to_bytes(preserve_source_blocks=False)
         with open(path, "wb") as fh:
             fh.write(data)
-        self.status.showMessage(f"已重建 {path} ({len(data):,} B)")
+        self.log(f"Saved {path} ({len(data):,} B)")
+        self.statusBar().showMessage(f"已重建 {path} ({len(data):,} B)")
         return True
 
-    def _export_dialog(self):
-        if self.model is None:
+    def _export_dialog(self) -> None:
+        if self.model is None or self.props is None:
             return
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, "导出 S/XEMT 基名", self.model.project_name, "")
+        path, selected = QFileDialog.getSaveFileName(
+            self, "导出", self.model.project_name or "export",
+            "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*)")
         if not path:
             return
-        base = path.rsplit(".", 1)[0]
-        with open(base + ".s", "w", encoding="utf-8-sig",
-                  newline="") as fh:
-            fh.write(build_sdat(self.model, self.props))
-        with open(base + ".xemt", "w", encoding="utf-8-sig",
-                  newline="") as fh:
-            fh.write(xemt_export.build_emt(self.model, self.props))
-        self.status.showMessage(f"已导出 {base}.s / {base}.xemt")
+        base, ext = os.path.splitext(path)
+        if not ext:
+            ext = ".s"
+        wrote = []
+        if "XEMT" in selected and "S +" not in selected:
+            out = base + ".xemt"
+            with open(out, "w", encoding="utf-8-sig", newline="") as fh:
+                fh.write(xemt_export.build_emt(self.model, self.props))
+            wrote.append(out)
+        elif "S +" in selected or selected.startswith("S File") or ext == ".s":
+            with open(base + ".s", "w", encoding="utf-8-sig",
+                      newline="") as fh:
+                fh.write(build_sdat(self.model, self.props))
+            wrote.append(base + ".s")
+            if "S +" in selected or ext != ".xemt":
+                with open(base + ".xemt", "w", encoding="utf-8-sig",
+                          newline="") as fh:
+                    fh.write(xemt_export.build_emt(self.model, self.props))
+                wrote.append(base + ".xemt")
+        else:
+            with open(base + ".xemt", "w", encoding="utf-8-sig",
+                      newline="") as fh:
+                fh.write(xemt_export.build_emt(self.model, self.props))
+            wrote.append(base + ".xemt")
+        self.log("Exported " + ", ".join(wrote))
+
+    def _wizard_initial(self) -> None:
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        ar = self.model.analysis_region()
+        base = size = ""
+        if ar is not None:
+            b = ar.find("base")
+            s = ar.find("size")
+            base = (b.text or "").strip() if b is not None else ""
+            size = (s.text or "").strip() if s is not None else ""
+        axes = self.model.mesh_axes()
+        msg = (
+            f"Project: {self.model.project_name}\n"
+            f"Parts: {len(self.model.parts())}\n"
+            f"Domain base: {base}\n"
+            f"Domain size: {size}\n"
+            f"Mesh: "
+            f"{len(axes.get('x', []))}×{len(axes.get('y', []))}×"
+            f"{len(axes.get('z', []))}\n"
+            f"Materials: {len(self.props.material_names()) if self.props else 0}"
+        )
+        QMessageBox.information(self, "Initial Setting (read-only)", msg)
+
+    def _wizard_condition(self) -> None:
+        self.tree_view.tabs.setCurrentWidget(self.tree_view.cond_tree)
+        self.log("Condition Setting — select an item in Conditions tab")
+
+    def _mesh_info(self) -> None:
+        if self.model is None:
+            return
+        self._on_item_selected("mesh_block", "RootBlock")
+        axes = self.model.mesh_axes()
+        self.log(
+            f"Mesh block: "
+            f"{len(axes.get('x', []))}×{len(axes.get('y', []))}×"
+            f"{len(axes.get('z', []))} points")
+
+    def _check_sfile(self) -> None:
+        if self.model is None or self.props is None:
+            return
+        text = build_sdat(self.model, self.props)
+        lines = text.splitlines()
+        self.log(f"S-File check: {len(lines)} lines, starts with "
+                 f"{lines[0][:40]!r}" if lines else "empty")
+
+    def _open_manual(self) -> None:
+        if os.path.isfile(ST_MANUAL):
+            os.startfile(ST_MANUAL)  # noqa: S606
+            self.log(f"Opened manual: {ST_MANUAL}")
+        else:
+            self.log(f"Manual not found: {ST_MANUAL}", "ERROR")
+
+    def _about(self) -> None:
+        QMessageBox.about(
+            self, "About",
+            "cabdecoding — scSTREAM Pre (.cab) viewer\n"
+            "Layout aligned with Cradle STpre / scSTREAM Pre manual.\n"
+            "Icons & pane chrome adapted from pph_gui.")
 
 
 def main(argv: list[str] | None = None) -> int:
     if not _HAS_GUI_DEPS:
         print("PyQt5 / vtk 未安装：python -m pip install -r requirements-gui.txt")
         return 1
-    app = QtWidgets.QApplication(argv or sys.argv)
-    path = argv[1] if argv and len(argv) > 1 and os.path.isfile(argv[1]) \
-        else None
+    app = QApplication(argv or sys.argv)
+    path = None
+    args = argv if argv is not None else sys.argv
+    if len(args) > 1 and os.path.isfile(args[1]):
+        path = args[1]
     win = CabViewer(path)
     win.show()
     if win.vtk_widget is not None:
