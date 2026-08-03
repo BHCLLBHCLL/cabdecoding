@@ -5,6 +5,8 @@
 >
 > 分析样例：`tests/ex4_e.cab`（244,000 B）+ 官方导出对拍件
 > `tests/ex4_e.s`（48,571 B）/ `tests/ex4_e.xemt`（2,267 B）。
+> 补充样例：`tests/box.cab`、`tests/tr03.cab`（2025.2，无 `element`
+> 网格、嵌套 `<group>`）。
 > 样例版本：scSTREAM V2023.2（STpre SDK 1623.20302.20231027），
 > Parasolid modeller version 3401153（SCH_3401153_34101_1300）。
 
@@ -192,8 +194,18 @@ UTF-8 BOM。文件头注释：
 - `volume`（unit=m）、`color`（RGBA）、`layer`、`visible_count`、`monitor`
 - `facet_kind`、`def_axis`
 - `file`（unit=m）：`x_t`（body 型引用几何文件）
-- `transform`（unit=m）：4×4 齐次变换矩阵（16 个逗号分隔值，行主序）
+- `transform`（unit=m）：4×4 齐次变换矩阵（16 个逗号分隔值，**列主序**
+  存储；平移位于第 13–15 个分量，1-based）。按字符串顺序 reshape 成 4×4
+  数组后，以 `hom @ m` 应用）
 - cube 型另有 `base`/`size`（unit=mm）、`locate`
+
+`<group>` 可嵌套（如 tr03：`tr03 → tr02`），部件可出现在任意层级；未生成
+网格时 XML 可以**没有 `<element>` 章节**，部件几何仅由 `.x_t` body +
+`<transform>` 提供。
+
+`draw_control` 中与 3D 显示相关的关键开关：`parts_draw_type=shade` 对应
+Part 实体着色；`parts_facet=F` 表示不叠加 CAD 面片边；`mesh_element=T`
+对应 Element division 网格盒线。
 
 ### 3.2 编辑语义
 
@@ -280,6 +292,45 @@ T51 : TRANSMIT FILE created by modeller version 340115323 SCH_3401153_34101_1300
   实体、SDL 属性）。**完整 B-rep 拓扑还原依赖 Parasolid 内核，本仓库沿用
   `pphdecoding/parasolid.py` 的「部分提取」路线**（schema / 字段名 /
   实体类型 / SDL 属性），满足轻量交互与元数据查看。
+
+### 5.1 Parasolid 曲面显示与 GO 面片化（2026-08-04）
+
+显示级曲面不再依赖手工解析 B-rep，而是调用 Cradle 自带
+`Programs_x64/pskernel.dll`：
+
+1. `PK_PART_receive` 接收 `.x_t` 全部 body（本样例 24 个）；
+2. 对每个 body 调 `PK_TOPOL_render_facet`，通过 GO `GOSGMT` 回调收集面片；
+3. 实测面片段 `segtyp=2016`（SGTPFT），`lntp=[occ, 3007, 1, 3]`，即
+   `L3TPFV` 单环三角形；解析为 `TessPart.points / triangles`。
+
+`PK_TOPOL_render_facet` 选项结构为
+`PK_TOPOL_render_facet_o_t = control(PK_TOPOL_facet_mesh_o_t) + go_option`：
+
+- x64 下 `control` 为 368 字节，`go_option` 紧随其后；旧实现曾按第 200
+  字节写 `go_option` 版本号，字段会错位，现改为完整 ctypes 结构体。
+- 零选项时 Parasolid 使用内核内部容差，曲率面片过粗；现在显式设置
+  `is_surface_plane_tol=1` / `surface_plane_tol=1e-4` 与
+  `is_surface_plane_ang=1` / `surface_plane_ang=12°`。
+
+`.x_t` 中 body 为**局部坐标**，装配位置由 `ex4_e.xml` 的
+`<parts>/<transform>` 提供（4×4 **列主序**）。GUI 组装流程：
+
+```text
+x_t body ──PK_PART_receive──▶ PK_TOPOL_render_facet ──GO──▶ TessPart
+    │                                                        │
+    │                                            XML <transform> 列主序变换
+    ▼                                                        ▼
+part_boxes ─────────────▶ attach_cad_meshes ──▶ vtkPolyData（点法线 + 45°锐边拆分）
+```
+
+渲染层：`vtkCleanPolyData` 合并重复顶点，`vtkPolyDataNormals` 生成点法线
+（Gouraud），`SetFeatureAngle(45)` 保留硬棱边。实测 ex4_e：默认 9,826 个
+三角形 → 25,006 个；`lower_cover_01` 由 790 → 2,110 个；24/24 个 body 均带
+法线，变换后 CAD 包围盒与 XML `element` 网格盒一致。
+
+对于尚未生成 `element` 网格的项目（如 tr03），`part_boxes()` 不再预先丢弃
+无网格盒的 body 部件：只要存在同名 Parasolid body，就先保留占位并在 CAD
+挂接成功后显示 x_t 曲面；没有 CAD 的占位项会被清理。
 
 ---
 
@@ -371,7 +422,7 @@ mat=1）与 `group/parts`（part no 按出现顺序，mat 由 `<parts>/<property
   parse/serialize；写回时保持 UTF-8 BOM、注释头、缩进风格（2 空格，文本节点
   带首尾空格——序列化需自定义以逐字节稳定）。
 - `.x_t`：头部 `**PART1` 属性行（FRU/APPL/SITE/DATE 等）可文本级编辑；
-  实体几何按 pphdecoding 路线做“部分提取”展示，不做字节级改写。
+  实体几何显示级通过 `pskernel.dll` GO 面片化（见 §5.1），不做字节级改写。
 
 ---
 
@@ -398,12 +449,14 @@ mat=1）与 `group/parts`（part no 按出现顺序，mat 由 `<parts>/<property
    需对照 Windows `makecab.exe` 输出反推或确认 Cradle 自定义算法。
 3. **MSZIP 写端实机验收**：本仓库已用 zlib `zdict` 实现跨块历史编码器，
    输出经 Windows `expand` 解包验证逐字节一致；仍待 SCTpre 实机验收。
-4. **多样本覆盖**：目前仅 ex4_e（2023.2）一个样本；需要不同版本
-   （2024/2025.2）、不同网格组规模、多材料/多 region 的 cab 验证
-   CFHEADER 布局与 XML 章节集（尤其新版新增 `<jos_model>`、`<boil>`、
-   `<free_surface>` 等 condition_wizard 位与对应章节）。
+4. **多样本覆盖**：当前已有 ex4_e（2023.2）、box、tr03（2025.2，无
+   `element` 网格、嵌套 group）；仍需更多版本（2024/2025.2 各规模）、
+   不同网格组规模、多材料/多 region 的 cab 验证 CFHEADER 布局与 XML
+   章节集（尤其新版新增 `<jos_model>`、`<boil>`、`<free_surface>` 等
+   condition_wizard 位与对应章节）。
 5. **`.s` 面分类**：element face list（`-1..-6` 编号语义）到 BC 类型的
    映射已在 ex4_e 黄金对拍锁定（A_MDR 行与 @UNDEFINED* 标记），跨版本确认
    仍需更多样例。
-6. **Parasolid 完整 B-rep**：沿用“部分提取”，完整拓扑还原留作长期项
-   （商业内核 / 超长逆向）。
+6. **Parasolid 完整 B-rep 拓扑**：完整拓扑还原仍留作长期项
+   （商业内核 / 超长逆向）；**显示级曲面已通过 Cradle `pskernel.dll`
+   `PK_TOPOL_render_facet` GO 面片化解决**（2026-08-04，见 §5.1）。

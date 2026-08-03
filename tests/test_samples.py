@@ -39,6 +39,11 @@ def _archive(path: str) -> CabArchive:
     return arch
 
 
+def _member_names(path: str) -> tuple[str, str, str]:
+    stem = os.path.splitext(os.path.basename(path))[0]
+    return (f"{stem}.xml", f"_{stem}_property.xml", f"_{stem}_all.x_t")
+
+
 def test_samples_present():
     cabs = _cabs()
     assert cabs, "no tests/**/*.cab samples found"
@@ -54,9 +59,9 @@ def test_container_invariants(cab):
     folder = arch.folders[0]
     assert folder.type_compress == 1                 # MSZIP
     assert folder.c_cfdata > 0
-    # exactly three known members
-    assert [m.name for m in arch.members] == [
-        "ex4_e.xml", "_ex4_e_property.xml", "_ex4_e_all.x_t"]
+    # exactly three known members named after the project
+    xml_name, prop_name, xt_name = _member_names(cab)
+    assert [m.name for m in arch.members] == [xml_name, prop_name, xt_name]
     # member offsets are contiguous
     off = 0
     for m in arch.members:
@@ -66,9 +71,10 @@ def test_container_invariants(cab):
     assert len(stream) == off
     # magic checks
     members = {m.name: m.data for m in arch.members}
-    assert members["ex4_e.xml"][:3] == b"\xef\xbb\xbf"
-    assert members["_ex4_e_property.xml"][:3] == b"\xef\xbb\xbf"
-    assert members["_ex4_e_all.x_t"][:2] == b"**"
+    xml_name, prop_name, xt_name = _member_names(cab)
+    assert members[xml_name][:3] == b"\xef\xbb\xbf"
+    assert members[prop_name][:3] == b"\xef\xbb\xbf"
+    assert members[xt_name][:2] == b"**"
 
 
 @pytest.mark.parametrize("cab", _cabs(),
@@ -76,9 +82,10 @@ def test_container_invariants(cab):
 def test_xml_roundtrip(cab):
     arch = _archive(cab)
     members = {m.name: m.data for m in arch.members}
-    for name in ("ex4_e.xml", "_ex4_e_property.xml"):
+    xml_name, prop_name, _ = _member_names(cab)
+    for name in (xml_name, prop_name):
         doc = parse_stpre(members[name]) \
-            if name == "ex4_e.xml" else parse_property(members[name])
+            if name == xml_name else parse_property(members[name])
         assert doc.serialize() == members[name]
 
 
@@ -95,7 +102,8 @@ def test_rebuild_roundtrip(cab):
 def test_parasolid_partial_extract(cab):
     arch = _archive(cab)
     members = {m.name: m.data for m in arch.members}
-    s = parasolid.parse_transmit(members["_ex4_e_all.x_t"])
+    _, _, xt_name = _member_names(cab)
+    s = parasolid.parse_transmit(members[xt_name])
     assert s.header.get("FORMAT") == "text"
     assert s.schema and s.schema.startswith("SCH_")
     assert s.version
@@ -105,17 +113,18 @@ def test_parasolid_partial_extract(cab):
 @pytest.mark.parametrize("cab", _cabs(),
                          ids=[os.path.basename(c) for c in _cabs()])
 def test_export_parity_or_smoke(cab):
+    stem = os.path.splitext(cab)[0]
+    if not (os.path.isfile(stem + ".s") and os.path.isfile(stem + ".xemt")):
+        pytest.skip("no official .s/.xemt pair for this sample")
     arch = _archive(cab)
     members = {m.name: m.data for m in arch.members}
-    model = StpreModel(parse_stpre(members["ex4_e.xml"]))
-    props = PropertyModel(parse_property(members["_ex4_e_property.xml"]))
+    xml_name, prop_name, _ = _member_names(cab)
+    model = StpreModel(parse_stpre(members[xml_name]))
+    props = PropertyModel(parse_property(members[prop_name]))
     ours_s = build_sdat(model, props)
     ours_x = xemt_export.build_emt(model, props)
     assert ours_s.startswith("SDAT") and ours_s.endswith("GOGO\r\n")
     assert "<EMT>" in ours_x
-    stem = os.path.splitext(cab)[0]
-    if not (os.path.isfile(stem + ".s") and os.path.isfile(stem + ".xemt")):
-        pytest.skip("no official .s/.xemt pair for this sample")
     official_s = open(stem + ".s", encoding="utf-8-sig").read()
     official_x = open(stem + ".xemt", encoding="utf-8-sig").read()
     a, b = official_s.splitlines(), ours_s.splitlines()

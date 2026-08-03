@@ -174,7 +174,16 @@ class StpreModel:
     # -- parts -------------------------------------------------------------
 
     def groups(self) -> list[ET.Element]:
-        return _children(self.root, "group")
+        """All ``<group>`` elements in document order, including nested ones."""
+        out: list[ET.Element] = []
+
+        def walk(parent: ET.Element) -> None:
+            for grp in _children(parent, "group"):
+                out.append(grp)
+                walk(grp)
+
+        walk(self.root)
+        return out
 
     def parts(self) -> list[PartInfo]:
         out: list[PartInfo] = []

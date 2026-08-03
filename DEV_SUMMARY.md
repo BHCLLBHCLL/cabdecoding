@@ -1,6 +1,6 @@
 # scSTREAM Pre cab 文件解析开发规划
 
-> 更新日期：2026-08-03 ｜ 仓库：`cabdecoding` ｜ 格式细节见
+> 更新日期：2026-08-04 ｜ 仓库：`cabdecoding` ｜ 格式细节见
 > [CAB_FORMAT_SPEC.md](CAB_FORMAT_SPEC.md)
 
 ## 1. 总体判断
@@ -38,6 +38,8 @@
 
 - Parasolid 完整 B-rep 拓扑还原（沿用 pphdecoding 的“部分提取”：schema/
   字段名/实体类型/SDL 属性）。
+- 完整 B-rep 拓扑还原仍为长期项；**显示级曲面已通过 Cradle
+  `pskernel.dll` 的 GO 面片化实现**（2026-08-04，见 §10）。
 - 网格求解或 FLD 生成（flddecoding 已覆盖，仅做互操作对接）。
 
 ## 3. 系统架构
@@ -50,9 +52,10 @@
 | `cab_model.py` | 高层 `CabProject`：成员分类、顺序拼接、magic 校验、摘要 | — |
 | `cabxml.py` | `ex4_e.xml`（stpre）与 `_ex4_e_property.xml` 的解析/序列化（保留 BOM/注释/缩进）、模型对象 | pphdecoding `pphxml.py` 的 sanitize/round-trip 思路 |
 | `parasolid.py` | x_t 传输流头/属性行/schema/实体部分提取 | 直接移植 pphdecoding `parasolid.py` |
+| `ps_tessellate.py` | x_t body 经 Cradle `pskernel.dll` 接收 + `PK_TOPOL_render_facet` GO 面片化 → `TessPart`（点/三角形），显式面片容差 | Cradle Parasolid 内核 / GO 文档 |
 | `s_export.py` | XML 模型 → SDAT `.s`（CXYZ/PARTS/REGION/条件/输出各段） | flddecoding `s_model.py` 的数据类与字段语义 |
 | `xemt_export.py` | 属性库+部件表 → EMT `.xemt` | flddecoding `xemt_model.py` 的逆写 |
-| `cab_vtk.py` | 部件几何（x_t 部分提取 + XML 变换/盒）→ vtkPolyData，离屏可测 | pphdecoding `pph_vtk.py` |
+| `cab_vtk.py` | 部件几何（x_t GO 面片 + XML 列主序变换 + 点法线/锐边拆分）→ vtkPolyData，离屏可测 | pphdecoding `pph_vtk.py` |
 | `cab_gui.py` | PyQt5 + VTK 查看/编辑 GUI | pphdecoding `pph_gui.py` 的四窗格骨架 |
 | `cab_parser.py` | CLI：摘要 / 解包 / 导出 .s+.xemt / round-trip | pphdecoding `pph_parser.py` 风格 |
 | `tests/` | 容器往返、XML 编辑往返、导出对拍、GUI 离屏回归 | 两仓库测试惯例 |
@@ -63,8 +66,10 @@
 .cab ──cab_container──▶ 成员流（顺序拼接 + magic 校验）
         ├──ex4_e.xml──────────▶ cabxml.stpreModel ──┬─▶ s_export ──▶ .s
         ├──_ex4_e_property.xml▶ cabxml.propertyModel┼─▶ xemt_export ─▶ .xemt
-        └──_ex4_e_all.x_t─────▶ parasolid 部分提取 ─┴─▶ cab_vtk ──▶ GUI 3D
-                                     │
+        └──_ex4_e_all.x_t─────▶ ps_tessellate（pskernel GO 面片化）──▶ TessPart
+                                       │
+                                       ├─▶ parasolid 部分提取（元数据/头部）
+                                       └─▶ cab_vtk（列主序变换 + 点法线）──▶ GUI 3D
                              cab_container.write ◀── 编辑后模型（GUI/CLI）
 ```
 
@@ -186,18 +191,71 @@
 依赖：P1 依赖 P0；P3 依赖 P1（+P2 的几何信息用于面分类交叉验证）；P4 依赖
 P1–P3；P5 与各阶段并行推进。
 
-## 9. 实现状态（2026-08-03）
+## 9. 实现状态（2026-08-04）
 
 | 阶段 | 状态 | 说明 |
 |------|------|------|
 | P0 容器层 | ✅ 完成 | `cab_container.py` + `cab_parser.py`；10 项测试；重压缩 cab 已由 Windows `expand` 解包逐字节验证 |
 | P1 XML 模型 | ✅ 完成 | `cabxml.py`；7 项测试；两个 XML 成员字节级往返，编辑→重打包→重解析闭环 |
-| P2 几何接入 | ✅ 完成 | `parasolid.py`（文本 x_t 部分提取）+ `cab_vtk.py`（部件盒/域框架/离屏渲染）；6 项测试 |
+| P2 几何接入 | ✅ 完成 | `parasolid.py`（文本 x_t 部分提取）+ `ps_tessellate.py`（pskernel GO 面片化）+ `cab_vtk.py`（点法线/变换/离屏渲染）；8 项测试 |
 | P3 导出 | ✅ 完成 | `s_export.py` + `xemt_export.py`；5 项测试；`.s` 与官方 1021 行**零结构差异**（仅 CXYZ 末位 1-ulp 舍入差），`.xemt` 仅日期注释不同；flddecoding `s_model` 消费一致 |
-| P4 GUI | ✅ 完成 | `cab_gui.py`（PyQt5+VTK，四窗格）+ `requirements-gui.txt`；5 项离屏测试 |
-| P5 扫描 | ✅ 基础就绪 | `tests/test_samples.py` 自动发现 `tests/**/*.cab` 跑结构不变量/往返/导出对拍；当前仅 ex4_e 样本 |
+| P4 GUI | ✅ 完成 | `cab_gui.py`（PyQt5+VTK，四窗格）+ `requirements-gui.txt`；Part shading 使用 x_t 光滑曲面，Element division 使用网格盒线；5 项离屏测试 |
+| P5 扫描 | ✅ 基础就绪 | `tests/test_samples.py` 自动发现 `tests/**/*.cab` 跑结构不变量/往返/导出对拍；当前样本：ex4_e / box / tr03 |
 
-全仓测试：`python -m pytest tests -q` → 33 项全绿。
+全仓测试：`python -m pytest tests -q` → 54 项通过、2 项跳过（`box.cab` /
+`tr03.cab` 无官方 `.s/.xemt` 对拍文件）。`test_samples.py` 已改为按项目名
+动态匹配成员，不再把新样例误判为 ex4_e。
 剩余开放项（见 CAB_FORMAT_SPEC.md §10）：CFDATA 校验和算法、多样本覆盖
 （2024/2025.2 版本、多网格组、多材料/辐射/湿度/粒子案例）、.s 面分类的
-跨版本确认、Parasolid 完整 B-rep（长期项）。
+跨版本确认、Parasolid 完整 B-rep 拓扑（长期项；显示级已解决，见下节）。
+
+## 10. Parasolid 曲面显示问题分析与修复（2026-08-04）
+
+### 10.1 现象
+
+关闭 Element division 后，scSTREAM Pre 能显示光滑的 `.x_t` 曲面，而
+cab_gui 显示为阶梯状/棱面，不像原始 Parasolid 几何。
+
+### 10.2 根因
+
+GO 三角形本身解析正确（ex4_e 的 24 个 body 全部可解析，面片均为单环
+三角形 `lntp=[occ, 3007, 1, 3]`），问题出在以下四个下游环节：
+
+1. **面片精度未控制**：`PK_TOPOL_render_facet` 之前传入全零选项，Parasolid
+   使用内核内部默认容差，`lower_cover_01` 仅 790 个三角形，曲率面明显有棱。
+2. **没有点法线**：生成的 `vtkPolyData` 只有三角形坐标，VTK 退化为
+   flat shading，每个三角形按平面着色，视觉上就是“阶梯面”。
+3. **GO 选项结构偏移错误**：旧代码把 `go_option` 硬编码在缓冲区第 200 字节；
+   x64 下 `PK_TOPOL_facet_mesh_o_t` 实际为 368 字节，后续字段会写错位置。
+4. **XML transform 未应用**：`.x_t` 内 body 为局部坐标，cab_gui 直接渲染
+   tess 坐标，未乘 `<parts>/<transform>`，所有零件叠在原点。
+
+### 10.3 修复
+
+- `ps_tessellate.py`：用完整 ctypes 结构体替代裸缓冲区；显式设置
+  `surface_plane_tol=1e-4`、`surface_plane_ang=12°`（可通过
+  `tessellate_xt(facet_tol=..., facet_angle_deg=...)` 调整）。
+- `cab_vtk.py`：`vtkCleanPolyData` + `vtkPolyDataNormals` 计算点法线，
+  45° feature angle 拆分锐边；按 XML 列主序 transform 应用 `hom @ m`，
+  并修正 `_box_bounds_from_cube` 的矩阵方向。
+- `cab_gui.py`：Part shading actor 显式 Gouraud + ambient/diffuse/specular。
+
+### 10.4 验证
+
+- ex4_e 全模型面片数：默认 9,826 → 25,006 个三角形；
+  `lower_cover_01`：790 → 2,110 个三角形。
+- 24/24 个 body 挂接 CAD 网格且均带点法线。
+- 应用 transform 后 CAD 包围盒与 XML `element` 网格盒完全对齐。
+
+### 10.5 tr03 补充：无 `element` 网格 + 嵌套 `group`（2026-08-04）
+
+- tr03 只有 `.x_t`，尚未生成网格：XML **没有 `<element>` 章节**，且
+  `<group>` 嵌套一层（`tr03 → tr02`）。
+- 根因：`cabxml.StpreModel.parts()` 只遍历顶层 group，模型读不到
+  Case/Impeller/Rotate；`cab_vtk.part_boxes()` 又在挂接 CAD 前直接
+  跳过无网格盒的部件，于是 GUI 只剩域框/网格线框。
+- 修复：
+  - `StpreModel.groups()/parts()` 递归遍历嵌套 group；
+  - `part_boxes()` 对无 `element` 但有匹配 Parasolid body 的部件先建
+    占位 `PartBox`，CAD 挂接成功后保留，否则丢弃；
+  - 新增 `test_tessellate_cad_only_no_element_mesh` 回归。

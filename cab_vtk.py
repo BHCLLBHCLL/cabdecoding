@@ -1,16 +1,12 @@
 """P2: VTK geometry builders for scSTREAM cab projects.
 
-scSTREAM Pre shades **Parasolid** (``.x_t``) B-rep — that needs a commercial
-kernel and is out of scope.  What *is* fully present in the cab XML is the
-structured-mesh occupancy of every part: the ``element`` section stores many
-``i1,i2,j1,j2,k1,k2`` index boxes per part (cut-cell / body lists).
-
-Earlier builds merged those boxes into a single AABB, which made every part
-look like a long rectangular brick and erased chamfer / fillet transitions.
-
-This module renders the **union of index boxes** (stair-step solid) so the
-Draw Window follows the same mesh occupancy STpre uses for Element division,
-including stepped approximations of rounded corners.
+Part shading prefers Parasolid ``.x_t`` tessellation when Cradle
+``pskernel.dll`` is available (smooth B-rep).  The tessellated mesh is
+transformed into world coordinates with the part ``<transform>`` and gets
+per-point normals so curved faces shade smoothly while sharp edges stay
+crisp.  Otherwise — and always for Element division overlays — the
+structured-mesh occupancy boxes from the ``element`` section are used
+(stair-step solids).
 
 Output is ``vtkPolyData`` ready for the GUI.
 """
@@ -42,7 +38,9 @@ class PartBox:
     """One part's display geometry.
 
     ``cells`` holds every mesh body box (meters).  ``bounds`` is the AABB of
-    those cells (kept for tests / domain checks).
+    those cells (kept for tests / domain checks).  When ``cad_polydata`` is
+    set, Part shading uses the smooth CAD mesh; Element division still uses
+    ``cells``.
     """
 
     name: str
@@ -50,6 +48,8 @@ class PartBox:
     color: tuple[float, float, float]                        # 0..1 RGB
     opacity: float = 1.0
     cells: list[Bounds] = field(default_factory=list)
+    cad_polydata: object = None  # optional vtkPolyData
+    transform: Optional[str] = None  # XML <transform>, column-major 4x4
 
 
 def _parse_color(text: str) -> tuple[float, float, float]:
@@ -130,7 +130,8 @@ def _box_bounds_from_cube(part) -> Optional[Bounds]:
                 [float(v) for v in part.transform.split(",")[:16]]
             ).reshape(4, 4)
             hom = np.hstack([corners, np.ones((8, 1))])
-            corners = (hom @ m.T)[:, :3]
+            # XML transform is column-major; row-vector convention needs @ m.
+            corners = (hom @ m)[:, :3]
         return (float(corners[:, 0].min()), float(corners[:, 1].min()),
                 float(corners[:, 2].min()), float(corners[:, 0].max()),
                 float(corners[:, 1].max()), float(corners[:, 2].max()))
@@ -138,8 +139,78 @@ def _box_bounds_from_cube(part) -> Optional[Bounds]:
         return None
 
 
-def part_boxes(model: StpreModel) -> list[PartBox]:
-    """Per-part geometry: one ``PartBox`` with all mesh body cells."""
+def _apply_transform(points: np.ndarray,
+                     transform: Optional[str]) -> np.ndarray:
+    """Apply the XML part transform (column-major 4x4) to points."""
+    if not transform:
+        return points
+    try:
+        m = np.array(
+            [float(v) for v in transform.split(",")[:16]]
+        ).reshape(4, 4)
+    except (ValueError, IndexError):
+        return points
+    hom = np.hstack([points, np.ones((len(points), 1))])
+    return (hom @ m)[:, :3]
+
+
+def _tris_to_polydata(points: np.ndarray, triangles: np.ndarray):
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    if points.size == 0 or triangles.size == 0:
+        return None
+    pd = _polydata(np.asarray(points, dtype=np.float64),
+                   np.asarray(triangles, dtype=np.int64), "tris")
+    cleaned = vtk.vtkCleanPolyData()
+    cleaned.SetInputData(pd)
+    cleaned.Update()
+    normals = vtk.vtkPolyDataNormals()
+    normals.SetInputConnection(cleaned.GetOutputPort())
+    normals.ComputePointNormalsOn()
+    normals.ComputeCellNormalsOff()
+    normals.SplittingOn()
+    normals.SetFeatureAngle(45.0)
+    normals.ConsistencyOn()
+    normals.AutoOrientNormalsOn()
+    normals.Update()
+    return normals.GetOutput()
+
+
+def attach_cad_meshes(
+    boxes: list[PartBox],
+    tess_parts: list,
+) -> int:
+    """Attach tessellated CAD meshes onto matching ``PartBox`` entries.
+
+    Returns the number of parts that received CAD geometry.
+    """
+    by_name = {t.name: t for t in tess_parts}
+    n = 0
+    for box in boxes:
+        tess = by_name.get(box.name)
+        if tess is None:
+            continue
+        pts = _apply_transform(
+            np.asarray(tess.points, dtype=np.float64), box.transform)
+        pd = _tris_to_polydata(pts, tess.triangles)
+        if pd is None:
+            continue
+        box.cad_polydata = pd
+        # Prefer CAD AABB when mesh boxes are missing/odd
+        if pts.size:
+            box.bounds = (
+                float(pts[:, 0].min()), float(pts[:, 1].min()),
+                float(pts[:, 2].min()), float(pts[:, 0].max()),
+                float(pts[:, 1].max()), float(pts[:, 2].max()),
+            )
+        n += 1
+    return n
+
+
+def part_boxes(model: StpreModel,
+               cad_meshes: Optional[list] = None) -> list[PartBox]:
+    """Per-part geometry: mesh body cells, optionally with CAD shading mesh."""
+    cad_names = {t.name for t in cad_meshes} if cad_meshes else set()
     out: list[PartBox] = []
     for p in model.parts():
         cells = _cells_from_element(model, p.name)
@@ -147,12 +218,23 @@ def part_boxes(model: StpreModel) -> list[PartBox]:
         if bounds is None:
             cube = _box_bounds_from_cube(p)
             if cube is None:
-                continue
-            cells = [cube]
-            bounds = cube
+                # Body geometry with no generated mesh yet: keep a placeholder
+                # only when a matching Parasolid body can supply the surface.
+                if p.name not in cad_names:
+                    continue
+                bounds = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            else:
+                cells = [cube]
+                bounds = cube
         color = _parse_color(p.color)
         opacity = 0.45 if p.attribute == "fluid" else 0.85
-        out.append(PartBox(p.name, bounds, color, opacity, cells=cells))
+        out.append(PartBox(p.name, bounds, color, opacity, cells=cells,
+                           transform=p.transform))
+    if cad_meshes:
+        attach_cad_meshes(out, cad_meshes)
+        # Drop placeholder-only entries whose CAD body could not be attached.
+        out = [b for b in out
+               if b.cad_polydata is not None or b.cells]
     return out
 
 
@@ -210,6 +292,14 @@ def _make_box_polydata(box: PartBox, wireframe: bool):
     cleaned.SetInputConnection(append.GetOutputPort())
     cleaned.Update()
     return cleaned.GetOutput()
+
+
+def part_polydata(box: PartBox, *, for_part: bool = True,
+                  wireframe: bool = False):
+    """PolyData for Part shading (CAD if present) or Element boxes."""
+    if for_part and box.cad_polydata is not None:
+        return box.cad_polydata
+    return _make_box_polydata(box, wireframe)
 
 
 def _polydata(points: np.ndarray, cells: np.ndarray, kind: str):

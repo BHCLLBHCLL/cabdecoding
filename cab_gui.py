@@ -66,7 +66,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.actors: list[tuple] = []
         self._layer_actors: dict[str, list] = {
             "domain_frame": [], "axis_global": [], "origin": [],
-            "mesh": [], "mesh_block": [],
+            "mesh": [], "mesh_block": [], "element": [], "face": [],
         }
         self.current_path: str | None = None
         self._dirty = False
@@ -80,6 +80,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._rubber_style = None
         self._iren_ready = False
         self._mouse_mode = "trackball"  # trackball | rubber
+        self._cad_meshes = None
 
         self._build_ui()
         self._apply_style()
@@ -313,13 +314,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         disp_label.setPixmap(AppIcons.get("display", 18).pixmap(18, 18))
         self.tb_disp.addWidget(disp_label)
         self.tb_display = QComboBox(self)
-        self.tb_display.addItems(
-            ["Line", "Shading", "Translucent", "Mesh lines"])
+        self.tb_display.addItems(["Line", "Shading", "Translucent"])
         self.tb_display.setCurrentText("Shading")
-        self.tb_display.setMinimumWidth(110)
+        self.tb_display.setMinimumWidth(100)
         self.tb_display.setToolTip(
-            "Line=wireframe · Shading=solid · Translucent · "
-            "Mesh lines=solid + edges")
+            "Part drawing: Line / Shading / Translucent\n"
+            "勾选 Control→Element division 叠加网格线")
         self.tb_display.currentTextChanged.connect(self._toolbar_display)
         self.tb_disp.addWidget(self.tb_display)
         self.addToolBar(self.tb_disp)
@@ -408,20 +408,39 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.props = PropertyModel(parse_property(members[prop_name]))
         self._xml_member = xml_name
         self._prop_member = prop_name
+        self._cad_meshes = None
+        xt_name = next((n for n in members if n.endswith(".x_t")), None)
+        if xt_name:
+            try:
+                import ps_tessellate
+                if ps_tessellate.available():
+                    self._cad_meshes = ps_tessellate.tessellate_xt(
+                        members[xt_name])
+            except Exception as exc:
+                self.log(f"Parasolid tessellation skipped: {exc}", "WARN")
+                self._cad_meshes = None
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
         self.control.clear_property()
         self._rebuild_scene()
         self._update_title()
         self._add_recent(path)
-        n_cells = sum(len(b.cells) for b in cab_vtk.part_boxes(self.model))
+        boxes = cab_vtk.part_boxes(self.model, self._cad_meshes)
+        n_cells = sum(len(b.cells) for b in boxes)
+        n_cad = sum(1 for b in boxes if b.cad_polydata is not None)
         self.log(f"Loaded {path}  parts={len(self.model.parts())}  "
                  f"materials={len(self.props.material_names())}  "
-                 f"mesh-cells={n_cells}")
-        self.log(
-            "Draw geometry = structured-mesh body boxes (element lists). "
-            "Smooth Parasolid fillets need STpre / a Parasolid kernel.",
-            "INFO")
+                 f"mesh-cells={n_cells}  cad-parts={n_cad}")
+        if n_cad:
+            self.log(
+                f"Part shading uses Parasolid .x_t tessellation "
+                f"({n_cad} bodies). Element division still uses mesh boxes.",
+                "INFO")
+        else:
+            self.log(
+                "Draw geometry = structured-mesh body boxes (element lists). "
+                "Install Cradle CFD (pskernel) for smooth .x_t Part shading.",
+                "INFO")
         self.statusBar().showMessage(f"已加载 {path}")
         return True
 
@@ -477,28 +496,28 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not self._enable_3d:
             return
         part_on = self.control.layer_on("part")
-        show = bool(visible and part_on)
+        elem_on = self.control.layer_on("element")
         for actor, pname in self.actors:
             if pname == part_name:
-                actor.SetVisibility(1 if show else 0)
+                actor.SetVisibility(1 if (visible and part_on) else 0)
         for actor, pname in getattr(self, "_edge_actors", []):
             if pname == part_name:
-                actor.SetVisibility(1 if show else 0)
+                # Element division independent of Part shading (STpre)
+                actor.SetVisibility(1 if (visible and elem_on) else 0)
         if self.renderer:
             self.renderer.GetRenderWindow().Render()
 
     def _on_layer_toggled(self, key: str, on: bool) -> None:
-        # Mesh / Mesh Block rebuild geometry; others toggle visibility.
-        if key in ("mesh", "mesh_block") and self.model is not None:
+        # Layers that add/remove geometry need a rebuild.
+        if key in ("element", "face", "mesh", "mesh_block") \
+                and self.model is not None:
             self._rebuild_scene()
             return
         if key == "part":
             for actor, pname in self.actors:
                 show = on and pname not in self._hidden_parts
                 actor.SetVisibility(1 if show else 0)
-            for actor, pname in getattr(self, "_edge_actors", []):
-                show = on and pname not in self._hidden_parts
-                actor.SetVisibility(1 if show else 0)
+            # keep element edges if Element division is on
         elif key == "axis_global":
             self._set_orientation_marker(on)
         else:
@@ -664,41 +683,59 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         mode = self._drawing_mode
         wire = mode == "Line"
         translucent = mode == "Translucent"
-        mesh_lines = mode == "Mesh lines" or self.control.layer_on("mesh")
         self._wireframe = wire
-
-        boxes = cab_vtk.part_boxes(self.model)
         part_on = self.control.layer_on("part")
-        for box in boxes:
-            # solid / translucent always use surface polys; Line uses edges only
-            pd = cab_vtk._make_box_polydata(box, wireframe=False)
-            visible = part_on and box.name not in self._hidden_parts
+        # STpre: Element division overlays mesh lines with Part shading
+        element_on = self.control.layer_on("element")
+        face_on = self.control.layer_on("face")
 
+        boxes = cab_vtk.part_boxes(
+            self.model, getattr(self, "_cad_meshes", None))
+        for box in boxes:
+            # Part shading: CAD mesh when available; Element: mesh boxes
+            pd_part = cab_vtk.part_polydata(box, for_part=True)
+            pd_elem = cab_vtk.part_polydata(box, for_part=False)
+            tree_vis = box.name not in self._hidden_parts
+
+            # --- Part geometry (Line / Shading / Translucent) ---
             if wire:
+                # Line mode: colored wireframe as the Part representation
                 edge = cab_vtk.edges_actor(
-                    pd, color=box.color, line_width=1.4)
-                edge.SetVisibility(1 if visible else 0)
+                    pd_part, color=box.color, line_width=1.4)
+                edge.SetVisibility(1 if (part_on and tree_vis) else 0)
                 self.renderer.AddActor(edge)
                 self.actors.append((edge, box.name))
-                self._edge_actors.append((edge, box.name))
-                self._layer_actors["mesh"].append(edge)
             else:
                 mapper = vtk.vtkPolyDataMapper()
-                mapper.SetInputData(pd)
+                mapper.SetInputData(pd_part)
                 actor = vtk.vtkActor()
                 actor.SetMapper(mapper)
-                actor.GetProperty().SetColor(*box.color)
-                op = 0.35 if translucent else 1.0
-                actor.GetProperty().SetOpacity(op)
-                actor.SetVisibility(1 if visible else 0)
+                prop = actor.GetProperty()
+                prop.SetColor(*box.color)
+                prop.SetOpacity(0.35 if translucent else 1.0)
+                prop.SetInterpolationToGouraud()
+                prop.SetAmbient(0.25)
+                prop.SetDiffuse(0.85)
+                prop.SetSpecular(0.2)
+                prop.SetSpecularPower(18)
+                actor.SetVisibility(1 if (part_on and tree_vis) else 0)
                 self.renderer.AddActor(actor)
                 self.actors.append((actor, box.name))
-                if mesh_lines:
-                    edge = cab_vtk.edges_actor(pd, line_width=1.15)
-                    edge.SetVisibility(1 if visible else 0)
-                    self.renderer.AddActor(edge)
-                    self._edge_actors.append((edge, box.name))
-                    self._layer_actors["mesh"].append(edge)
+
+            # --- Element division: mesh lines (can show with Part) ---
+            if element_on or face_on:
+                # face division uses same cell edges for now (no separate
+                # face-list tessellation without Parasolid)
+                line_w = 1.0 if face_on and not element_on else 1.2
+                col = (0.08, 0.08, 0.1) if element_on else (0.2, 0.35, 0.55)
+                mesh_edge = cab_vtk.edges_actor(
+                    pd_elem, color=col, line_width=line_w)
+                show_e = tree_vis and (element_on or face_on)
+                mesh_edge.SetVisibility(1 if show_e else 0)
+                self.renderer.AddActor(mesh_edge)
+                self._edge_actors.append((mesh_edge, box.name))
+                key = "element" if element_on else "face"
+                self._layer_actors[key].append(mesh_edge)
 
         if self.control.layer_on("domain_frame"):
             frame = cab_vtk.domain_frame(self.model)
@@ -715,8 +752,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
 
-        if self.control.layer_on("mesh_block"):
-            # thin large grids: stride so faces stay readable
+        if self.control.layer_on("mesh") or self.control.layer_on("mesh_block"):
             axes = self.model.mesh_axes()
             nmax = max((len(v) for v in axes.values()), default=2)
             stride = 1 if nmax <= 40 else max(1, nmax // 40)
@@ -731,9 +767,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 actor.GetProperty().SetLineWidth(1.0)
                 actor.GetProperty().LightingOff()
                 self.renderer.AddActor(actor)
-                self._layer_actors["mesh_block"].append(actor)
+                if self.control.layer_on("mesh"):
+                    self._layer_actors["mesh"].append(actor)
+                if self.control.layer_on("mesh_block"):
+                    self._layer_actors["mesh_block"].append(actor)
 
-        # Global axes → corner orientation marker (not a scene actor)
         self._set_orientation_marker(self.control.layer_on("axis_global"))
 
         if self.control.layer_on("origin"):
@@ -753,16 +791,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._fit_view()
 
     def _set_drawing_mode(self, mode: str) -> None:
-        self._drawing_mode = mode
-        self._wireframe = mode == "Line"
-        self._translucent = mode == "Translucent"
-        # Mesh lines mode implies Mesh layer for Show/Select sync
-        if mode == "Mesh lines" and not self.control.layer_on("mesh"):
-            cb = self.control.layer_checks.get("mesh")
-            if cb is not None:
+        # Compat: old "Mesh lines" mode → Shading + Element division
+        if mode == "Mesh lines":
+            mode = "Shading"
+            cb = self.control.layer_checks.get("element")
+            if cb is not None and not cb.isChecked():
                 cb.blockSignals(True)
                 cb.setChecked(True)
                 cb.blockSignals(False)
+        self._drawing_mode = mode
+        self._wireframe = mode == "Line"
+        self._translucent = mode == "Translucent"
         if self.tb_display.currentText() != mode:
             self.tb_display.blockSignals(True)
             idx = self.tb_display.findText(mode)

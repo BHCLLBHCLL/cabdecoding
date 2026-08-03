@@ -360,13 +360,16 @@ class ControlWindow(QWidget):
     apply_requested = pyqtSignal()
 
     LAYER_KEYS = [
+        # Aligned with STpre Show/Select — Part + Element division can both be ON
         ("Part", "part", True),
         ("Mesh Block", "mesh_block", False),
+        ("Element division", "element", True),   # mesh lines on part cells
+        ("Face division", "face", False),
         ("Condition", "condition", False),
         ("Sketch plane", "sketch_plane", False),
         ("Domain frame", "domain_frame", True),
-        ("Mesh", "mesh", True),   # part edge / mesh-line overlay
-        ("Axis (Global)", "axis_global", True),   # corner triad marker
+        ("Mesh", "mesh", False),                # domain structured grid
+        ("Axis (Global)", "axis_global", True),
         ("Axis (Sketch)", "axis_sketch", False),
         ("Origin", "origin", False),
         ("Aspect ratio", "aspect_ratio", False),
@@ -411,24 +414,21 @@ class ControlWindow(QWidget):
         lay.addWidget(draw_box)
 
         mode_box = QGroupBox("Drawing mode", page)
-        ml = QVBoxLayout(mode_box)
-        row1 = QHBoxLayout()
-        row2 = QHBoxLayout()
+        ml = QHBoxLayout(mode_box)
         self.mode_group = QButtonGroup(mode_box)
-        for i, text in enumerate(
-                ("Line", "Shading", "Translucent", "Mesh lines")):
+        for text in ("Line", "Shading", "Translucent"):
             rb = QRadioButton(text, mode_box)
             self.mode_group.addButton(rb)
-            (row1 if i < 3 else row2).addWidget(rb)
+            ml.addWidget(rb)
             if text == "Shading":
                 rb.setChecked(True)
             rb.toggled.connect(self._on_mode)
-        ml.addLayout(row1)
-        ml.addLayout(row2)
-        tip = QLabel("Mesh lines = shading + part edges", mode_box)
-        tip.setStyleSheet("color: #666; font-size: 11px;")
-        ml.addWidget(tip)
         lay.addWidget(mode_box)
+        tip = QLabel(
+            "勾选 Part + Element division 可同时显示几何与网格线", page)
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color: #555; font-size: 11px;")
+        lay.addWidget(tip)
 
         sel_box = QGroupBox("Target of selection", page)
         sl = QVBoxLayout(sel_box)

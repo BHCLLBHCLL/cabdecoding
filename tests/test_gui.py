@@ -133,9 +133,16 @@ def test_drawing_mode_control(viewer):
     win._set_drawing_mode("Translucent")
     assert win._drawing_mode == "Translucent"
     assert win._translucent is True
-    win._set_drawing_mode("Mesh lines")
-    assert win._drawing_mode == "Mesh lines"
-    assert win.control.layer_on("mesh") is True
+    # STpre-style: Part + Element division simultaneous
+    assert "element" in win.control.layer_checks
+    assert "part" in win.control.layer_checks
+    win.control.layer_checks["element"].setChecked(True)
+    win.control.layer_checks["part"].setChecked(True)
+    assert win.control.layer_on("element") is True
+    assert win.control.layer_on("part") is True
+    win._set_drawing_mode("Mesh lines")  # compat → Shading + element
+    assert win._drawing_mode == "Shading"
+    assert win.control.layer_on("element") is True
 
 
 def test_edges_actor_extracts_lines():
