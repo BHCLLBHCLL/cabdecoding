@@ -133,6 +133,24 @@ def test_drawing_mode_control(viewer):
     win._set_drawing_mode("Translucent")
     assert win._drawing_mode == "Translucent"
     assert win._translucent is True
+    win._set_drawing_mode("Mesh lines")
+    assert win._drawing_mode == "Mesh lines"
+    assert win.control.layer_on("mesh") is True
+
+
+def test_edges_actor_extracts_lines():
+    if not cab_gui._HAS_GUI_DEPS:
+        pytest.skip("no gui deps")
+    import cab_vtk
+    from cab_container import CabArchive
+    from cabxml import StpreModel, parse_stpre
+    arch = CabArchive.parse(open(CAB, "rb").read())
+    members = {m.name: m.data for m in arch.fill_member_data()}
+    model = StpreModel(parse_stpre(members["ex4_e.xml"]))
+    boxes = cab_vtk.part_boxes(model)
+    pd = cab_vtk._make_box_polydata(boxes[0], wireframe=False)
+    actor = cab_vtk.edges_actor(pd)
+    assert actor.GetMapper().GetInput().GetNumberOfCells() > 0
 
 
 def test_nyi_logs(viewer):

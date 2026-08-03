@@ -281,3 +281,95 @@ def orientation_marker_widget(interactor, size_frac: float = 0.14):
     widget.SetEnabled(1)
     widget.InteractiveOff()
     return widget
+
+
+def edges_actor(pd, color: tuple[float, float, float] = (0.15, 0.15, 0.18),
+                opacity: float = 1.0, line_width: float = 1.2):
+    """Mesh-line overlay on a part polydata (from pph_vtk.edges_actor)."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    try:
+        ext = vtk.vtkFeatureEdges()
+        ext.SetInputData(pd)
+        ext.BoundaryEdgesOn()
+        ext.ManifoldEdgesOn()
+        ext.NonManifoldEdgesOff()
+        ext.FeatureEdgesOff()
+        ext.ColoringOff()
+        ext.Update()
+        edge_pd = ext.GetOutput()
+        if edge_pd is None or edge_pd.GetNumberOfCells() == 0:
+            raise RuntimeError("empty feature edges")
+    except Exception:
+        ext2 = vtk.vtkExtractEdges()
+        ext2.SetInputData(pd)
+        ext2.Update()
+        edge_pd = ext2.GetOutput()
+
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(edge_pd)
+    mapper.ScalarVisibilityOff()
+    try:
+        mapper.SetResolveCoincidentTopologyToPolygonOffset()
+        mapper.SetRelativeCoincidentTopologyLineOffsetParameters(-1, -4)
+    except Exception:
+        pass
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetColor(*color)
+    prop.SetOpacity(opacity)
+    prop.SetLineWidth(line_width)
+    prop.SetAmbient(1.0)
+    prop.SetDiffuse(0.0)
+    prop.LightingOff()
+    return actor
+
+
+def mesh_block_grid(model: StpreModel, stride: int = 1):
+    """Structured-mesh grid lines from ``mesh_block`` axes (meters).
+
+    ``stride`` > 1 thins lines for large grids (e.g. 99×243×63).
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return None
+    xs = [v / 1000.0 for v in axes["x"][::max(1, stride)]]
+    ys = [v / 1000.0 for v in axes["y"][::max(1, stride)]]
+    zs = [v / 1000.0 for v in axes["z"][::max(1, stride)]]
+    if len(xs) < 2 or len(ys) < 2 or len(zs) < 2:
+        return None
+    x0, x1 = xs[0], xs[-1]
+    y0, y1 = ys[0], ys[-1]
+    z0, z1 = zs[0], zs[-1]
+    pts: list[list[float]] = []
+    lines: list[list[int]] = []
+
+    def add_line(a, b):
+        i = len(pts)
+        pts.append(a)
+        pts.append(b)
+        lines.append([i, i + 1])
+
+    # faces of the domain AABB — full grid on each face (readable, not 3-D dense)
+    for y in ys:
+        for z in (z0, z1):
+            add_line([x0, y, z], [x1, y, z])
+        for x in (x0, x1):
+            add_line([x, y, z0], [x, y, z1])
+    for x in xs:
+        for z in (z0, z1):
+            add_line([x, y0, z], [x, y1, z])
+        for y in (y0, y1):
+            add_line([x, y, z0], [x, y, z1])
+    for z in zs:
+        for y in (y0, y1):
+            add_line([x0, y, z], [x1, y, z])
+        for x in (x0, x1):
+            add_line([x, y0, z], [x, y1, z])
+
+    arr_pts = np.asarray(pts, dtype=np.float64)
+    arr_lines = np.asarray(lines, dtype=np.int64)
+    return _polydata(arr_pts, arr_lines, "lines")

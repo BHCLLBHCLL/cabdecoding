@@ -313,9 +313,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         disp_label.setPixmap(AppIcons.get("display", 18).pixmap(18, 18))
         self.tb_disp.addWidget(disp_label)
         self.tb_display = QComboBox(self)
-        self.tb_display.addItems(["Line", "Shading", "Translucent"])
+        self.tb_display.addItems(
+            ["Line", "Shading", "Translucent", "Mesh lines"])
         self.tb_display.setCurrentText("Shading")
-        self.tb_display.setMinimumWidth(100)
+        self.tb_display.setMinimumWidth(110)
+        self.tb_display.setToolTip(
+            "Line=wireframe · Shading=solid · Translucent · "
+            "Mesh lines=solid + edges")
         self.tb_display.currentTextChanged.connect(self._toolbar_display)
         self.tb_disp.addWidget(self.tb_display)
         self.addToolBar(self.tb_disp)
@@ -472,18 +476,29 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._hidden_parts.add(part_name)
         if not self._enable_3d:
             return
+        part_on = self.control.layer_on("part")
+        show = bool(visible and part_on)
         for actor, pname in self.actors:
             if pname == part_name:
-                actor.SetVisibility(1 if visible else 0)
+                actor.SetVisibility(1 if show else 0)
+        for actor, pname in getattr(self, "_edge_actors", []):
+            if pname == part_name:
+                actor.SetVisibility(1 if show else 0)
         if self.renderer:
             self.renderer.GetRenderWindow().Render()
 
     def _on_layer_toggled(self, key: str, on: bool) -> None:
+        # Mesh / Mesh Block rebuild geometry; others toggle visibility.
+        if key in ("mesh", "mesh_block") and self.model is not None:
+            self._rebuild_scene()
+            return
         if key == "part":
             for actor, pname in self.actors:
-                if pname in self._hidden_parts:
-                    continue
-                actor.SetVisibility(1 if on else 0)
+                show = on and pname not in self._hidden_parts
+                actor.SetVisibility(1 if show else 0)
+            for actor, pname in getattr(self, "_edge_actors", []):
+                show = on and pname not in self._hidden_parts
+                actor.SetVisibility(1 if show else 0)
         elif key == "axis_global":
             self._set_orientation_marker(on)
         else:
@@ -642,30 +657,48 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._ensure_interactor()
         self.renderer.RemoveAllViewProps()
         self.actors.clear()
+        self._edge_actors: list[tuple] = []
         for k in self._layer_actors:
             self._layer_actors[k] = []
 
-        wire = self._drawing_mode == "Line"
-        translucent = self._drawing_mode == "Translucent"
+        mode = self._drawing_mode
+        wire = mode == "Line"
+        translucent = mode == "Translucent"
+        mesh_lines = mode == "Mesh lines" or self.control.layer_on("mesh")
         self._wireframe = wire
 
         boxes = cab_vtk.part_boxes(self.model)
         part_on = self.control.layer_on("part")
         for box in boxes:
-            pd = cab_vtk._make_box_polydata(box, wireframe=wire)
-            mapper = vtk.vtkPolyDataMapper()
-            mapper.SetInputData(pd)
-            actor = vtk.vtkActor()
-            actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(*box.color)
-            op = 0.35 if translucent else box.opacity
-            actor.GetProperty().SetOpacity(op)
-            if wire:
-                actor.GetProperty().SetRepresentationToWireframe()
+            # solid / translucent always use surface polys; Line uses edges only
+            pd = cab_vtk._make_box_polydata(box, wireframe=False)
             visible = part_on and box.name not in self._hidden_parts
-            actor.SetVisibility(1 if visible else 0)
-            self.renderer.AddActor(actor)
-            self.actors.append((actor, box.name))
+
+            if wire:
+                edge = cab_vtk.edges_actor(
+                    pd, color=box.color, line_width=1.4)
+                edge.SetVisibility(1 if visible else 0)
+                self.renderer.AddActor(edge)
+                self.actors.append((edge, box.name))
+                self._edge_actors.append((edge, box.name))
+                self._layer_actors["mesh"].append(edge)
+            else:
+                mapper = vtk.vtkPolyDataMapper()
+                mapper.SetInputData(pd)
+                actor = vtk.vtkActor()
+                actor.SetMapper(mapper)
+                actor.GetProperty().SetColor(*box.color)
+                op = 0.35 if translucent else 1.0
+                actor.GetProperty().SetOpacity(op)
+                actor.SetVisibility(1 if visible else 0)
+                self.renderer.AddActor(actor)
+                self.actors.append((actor, box.name))
+                if mesh_lines:
+                    edge = cab_vtk.edges_actor(pd, line_width=1.15)
+                    edge.SetVisibility(1 if visible else 0)
+                    self.renderer.AddActor(edge)
+                    self._edge_actors.append((edge, box.name))
+                    self._layer_actors["mesh"].append(edge)
 
         if self.control.layer_on("domain_frame"):
             frame = cab_vtk.domain_frame(self.model)
@@ -678,8 +711,27 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 actor.GetProperty().SetColor(*frame.color)
                 actor.GetProperty().SetOpacity(frame.opacity)
                 actor.GetProperty().SetRepresentationToWireframe()
+                actor.GetProperty().SetLineWidth(1.5)
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
+
+        if self.control.layer_on("mesh_block"):
+            # thin large grids: stride so faces stay readable
+            axes = self.model.mesh_axes()
+            nmax = max((len(v) for v in axes.values()), default=2)
+            stride = 1 if nmax <= 40 else max(1, nmax // 40)
+            grid = cab_vtk.mesh_block_grid(self.model, stride=stride)
+            if grid is not None and grid.GetNumberOfCells() > 0:
+                mapper = vtk.vtkPolyDataMapper()
+                mapper.SetInputData(grid)
+                actor = vtk.vtkActor()
+                actor.SetMapper(mapper)
+                actor.GetProperty().SetColor(0.35, 0.45, 0.55)
+                actor.GetProperty().SetOpacity(0.55)
+                actor.GetProperty().SetLineWidth(1.0)
+                actor.GetProperty().LightingOff()
+                self.renderer.AddActor(actor)
+                self._layer_actors["mesh_block"].append(actor)
 
         # Global axes → corner orientation marker (not a scene actor)
         self._set_orientation_marker(self.control.layer_on("axis_global"))
@@ -704,9 +756,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._drawing_mode = mode
         self._wireframe = mode == "Line"
         self._translucent = mode == "Translucent"
+        # Mesh lines mode implies Mesh layer for Show/Select sync
+        if mode == "Mesh lines" and not self.control.layer_on("mesh"):
+            cb = self.control.layer_checks.get("mesh")
+            if cb is not None:
+                cb.blockSignals(True)
+                cb.setChecked(True)
+                cb.blockSignals(False)
         if self.tb_display.currentText() != mode:
             self.tb_display.blockSignals(True)
-            self.tb_display.setCurrentText(mode)
+            idx = self.tb_display.findText(mode)
+            if idx >= 0:
+                self.tb_display.setCurrentIndex(idx)
             self.tb_display.blockSignals(False)
         self.control.set_drawing_mode(mode)
         if self.model is not None:

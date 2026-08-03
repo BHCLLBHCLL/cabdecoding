@@ -365,7 +365,7 @@ class ControlWindow(QWidget):
         ("Condition", "condition", False),
         ("Sketch plane", "sketch_plane", False),
         ("Domain frame", "domain_frame", True),
-        ("Mesh", "mesh", False),
+        ("Mesh", "mesh", True),   # part edge / mesh-line overlay
         ("Axis (Global)", "axis_global", True),   # corner triad marker
         ("Axis (Sketch)", "axis_sketch", False),
         ("Origin", "origin", False),
@@ -411,15 +411,23 @@ class ControlWindow(QWidget):
         lay.addWidget(draw_box)
 
         mode_box = QGroupBox("Drawing mode", page)
-        ml = QHBoxLayout(mode_box)
+        ml = QVBoxLayout(mode_box)
+        row1 = QHBoxLayout()
+        row2 = QHBoxLayout()
         self.mode_group = QButtonGroup(mode_box)
-        for text in ("Line", "Shading", "Translucent"):
+        for i, text in enumerate(
+                ("Line", "Shading", "Translucent", "Mesh lines")):
             rb = QRadioButton(text, mode_box)
             self.mode_group.addButton(rb)
-            ml.addWidget(rb)
+            (row1 if i < 3 else row2).addWidget(rb)
             if text == "Shading":
                 rb.setChecked(True)
             rb.toggled.connect(self._on_mode)
+        ml.addLayout(row1)
+        ml.addLayout(row2)
+        tip = QLabel("Mesh lines = shading + part edges", mode_box)
+        tip.setStyleSheet("color: #666; font-size: 11px;")
+        ml.addWidget(tip)
         lay.addWidget(mode_box)
 
         sel_box = QGroupBox("Target of selection", page)
