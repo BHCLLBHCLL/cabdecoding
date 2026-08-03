@@ -430,8 +430,16 @@ class _PsSession:
             for a in cast(attrs, POINTER(c_int * na.value)).contents:
                 s = c_char_p()
                 if pk.PK_ATTRIB_ask_string(a, 0, byref(s)) == 0 and s.value:
-                    text = s.value.decode("ascii", "replace")
-                    if len(text) > len(best):
+                    raw = s.value
+                    try:
+                        text = raw.decode("ascii")
+                    except UnicodeDecodeError:
+                        # Some non-string attributes return uninitialised
+                        # bytes through ask_string; ignore non-ASCII garbage
+                        # so a real name like "box" is not shadowed.
+                        continue
+                    if text and all(32 <= ord(ch) < 127 for ch in text) \
+                            and len(text) > len(best):
                         best = text
         return best or f"body_{tag}"
 

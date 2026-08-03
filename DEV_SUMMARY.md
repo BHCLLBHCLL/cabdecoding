@@ -202,9 +202,9 @@ P1–P3；P5 与各阶段并行推进。
 | P4 GUI | ✅ 完成 | `cab_gui.py`（PyQt5+VTK，四窗格）+ `requirements-gui.txt`；Part shading 使用 x_t 光滑曲面，Element division 使用网格盒线；5 项离屏测试 |
 | P5 扫描 | ✅ 基础就绪 | `tests/test_samples.py` 自动发现 `tests/**/*.cab` 跑结构不变量/往返/导出对拍；当前样本：ex4_e / box / tr03 |
 
-全仓测试：`python -m pytest tests -q` → 54 项通过、2 项跳过（`box.cab` /
-`tr03.cab` 无官方 `.s/.xemt` 对拍文件）。`test_samples.py` 已改为按项目名
-动态匹配成员，不再把新样例误判为 ex4_e。
+全仓测试：`python -m pytest tests -q` → 59 项通过、3 项跳过（`box.cab` /
+`tr03.cab` / `tr03_$$$.cab` 无官方 `.s/.xemt` 对拍文件）。
+`test_samples.py` 已改为按实际成员名动态匹配，不再把新样例误判为 ex4_e。
 剩余开放项（见 CAB_FORMAT_SPEC.md §10）：CFDATA 校验和算法、多样本覆盖
 （2024/2025.2 版本、多网格组、多材料/辐射/湿度/粒子案例）、.s 面分类的
 跨版本确认、Parasolid 完整 B-rep 拓扑（长期项；显示级已解决，见下节）。
@@ -259,3 +259,19 @@ GO 三角形本身解析正确（ex4_e 的 24 个 body 全部可解析，面片�
   - `part_boxes()` 对无 `element` 但有匹配 Parasolid body 的部件先建
     占位 `PartBox`，CAD 挂接成功后保留，否则丢弃；
   - 新增 `test_tessellate_cad_only_no_element_mesh` 回归。
+
+### 10.6 box 补充：根级 `<parts>` + SDL 名称脏字节（2026-08-04）
+
+- box.cab 的 `<parts type="body">` 直接放在 `<stpre>` 根下，**没有
+  `<group>`**；原 `StpreModel.parts()` 只从 group 内取部件，因此模型层
+  读不到 box。
+- x_t 中 `SDL/TYSA_NAME` 属性列表里有多个非字符串属性，`PK_ATTRIB_ask_string`
+  对它们返回未初始化字节（如 `b'\xd6\xd7\xd7'`），旧的 `body_name` 按
+  ASCII + replace 解码后得到 3 个替换字符，长度与真正的 `"box"` 相同但先
+  出现，导致 CAD 按名称挂接失败。
+- 修复：
+  - `StpreModel.parts()` 同时收集根级 `<parts>` 与所有 group 内部件；
+  - `ps_tessellate.body_name()` 只接受可打印 ASCII，过滤脏字节，
+    保证 `"box"` 能成为 body 名；
+  - Tree 增加“(ungrouped)”节点显示根级部件；
+  - 新增 `test_tessellate_root_level_parts_no_group` 回归。

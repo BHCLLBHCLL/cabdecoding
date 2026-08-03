@@ -201,7 +201,8 @@ UTF-8 BOM。文件头注释：
 
 `<group>` 可嵌套（如 tr03：`tr03 → tr02`），部件可出现在任意层级；未生成
 网格时 XML 可以**没有 `<element>` 章节**，部件几何仅由 `.x_t` body +
-`<transform>` 提供。
+`<transform>` 提供。也允许 `<parts>` 直接位于 `<stpre>` 根下、不包在任何
+`<group>` 中（如 box.cab）。
 
 `draw_control` 中与 3D 显示相关的关键开关：`parts_draw_type=shade` 对应
 Part 实体着色；`parts_facet=F` 表示不叠加 CAD 面片边；`mesh_element=T`
@@ -302,6 +303,11 @@ T51 : TRANSMIT FILE created by modeller version 340115323 SCH_3401153_34101_1300
 2. 对每个 body 调 `PK_TOPOL_render_facet`，通过 GO `GOSGMT` 回调收集面片；
 3. 实测面片段 `segtyp=2016`（SGTPFT），`lntp=[occ, 3007, 1, 3]`，即
    `L3TPFV` 单环三角形；解析为 `TessPart.points / triangles`。
+
+`body_name` 读取 `SDL/TYSA_NAME` 属性时只采用**可打印 ASCII**；`box.cab`
+的同类属性列表中含非字符串脏字节（如 `b'\xd6\xd7\xd7'`），旧逻辑会把它
+解码成替换字符并抢先成为最长名称，现已过滤，保证真实 body 名 `"box"` 能
+与 XML `<parts>/<name>` 匹配。
 
 `PK_TOPOL_render_facet` 选项结构为
 `PK_TOPOL_render_facet_o_t = control(PK_TOPOL_facet_mesh_o_t) + go_option`：

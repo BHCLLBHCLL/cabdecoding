@@ -187,10 +187,9 @@ class StpreModel:
 
     def parts(self) -> list[PartInfo]:
         out: list[PartInfo] = []
-        for grp in self.groups():
-            gname = (_first(grp, "name").text or "").strip() \
-                if _first(grp, "name") is not None else ""
-            for el in _children(grp, "parts"):
+
+        def collect(parent: ET.Element, gname: str) -> None:
+            for el in _children(parent, "parts"):
                 def t(tag: str) -> str:
                     c = _first(el, tag)
                     return c.text.strip() if c is not None and c.text else ""
@@ -209,6 +208,13 @@ class StpreModel:
                     size=t("size"),
                     group=gname,
                 ))
+
+        # box.cab stores <parts> directly under <stpre> with no <group>.
+        collect(self.root, "")
+        for grp in self.groups():
+            gname = (_first(grp, "name").text or "").strip() \
+                if _first(grp, "name") is not None else ""
+            collect(grp, gname)
         return out
 
     def find_part(self, name: str) -> Optional[ET.Element]:

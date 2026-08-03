@@ -40,8 +40,12 @@ def _archive(path: str) -> CabArchive:
 
 
 def _member_names(path: str) -> tuple[str, str, str]:
-    stem = os.path.splitext(os.path.basename(path))[0]
-    return (f"{stem}.xml", f"_{stem}_property.xml", f"_{stem}_all.x_t")
+    arch = _archive(path)
+    names = [m.name for m in arch.members]
+    xml_name = next(n for n in names if not n.startswith("_"))
+    prop_name = next(n for n in names if n.endswith("_property.xml"))
+    xt_name = next(n for n in names if n.endswith("_all.x_t"))
+    return (xml_name, prop_name, xt_name)
 
 
 def test_samples_present():

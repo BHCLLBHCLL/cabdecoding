@@ -175,6 +175,13 @@ class TreeListView(QWidget):
         self._add(domain, bname + axis_info, ("mesh_block", bname), "mesh")
 
         # groups / parts
+        root_parts = [p for p in model.parts() if not p.group]
+        if root_parts:
+            gnode = self._add(parts_root, "(ungrouped)", ("group", ""),
+                              "group", checkable=True)
+            for p in root_parts:
+                self._add(gnode, f"{p.name}  [{p.property}]",
+                          ("part", p.name), "part", checkable=True)
         for grp in model.groups():
             gname = ""
             n = _first(grp, "name")
