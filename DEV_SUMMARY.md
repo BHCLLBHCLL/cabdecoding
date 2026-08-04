@@ -398,8 +398,8 @@ pskernel.dll 段映射（objdump -h）：
 | pskernel 0x18044FCE0 | `PK_TOPOL_facet_2_r_f` | 释放表；`fctab-0x57B2` switch（跳表在 0x18044FDF0，25 项） |
 | pskernel 0x1804503FB..0x180451166 | 18 处 `mov [rax],0x57xx` | 写表 token 的顺序，仅能验证 token 集合，**不能**当名称映射 |
 | pskernel 0x1813C4380 | 表校验函数 | 逐个 `cmp [rax],0x57xx` 提取 fin_fin/fin_data/facet_fin/data_point_idx/data_normal_idx 等 |
-| pskernel 0x3F37840（.rdata） | 表名字符串 | 旧内部枚举名：`facet_fin, fin_fin, fin_vertex, vertex_point, vertex_normal, vertex_param, point_vec, normal_vec, param_uv, param_dp, param_d2p, facet_face, ...`；新名在 0x3F379C0 附近 |
-| ParasolidGW 0x180120E33 | STpre 表解码器循环 | 只挑 `0x57B6/0x57B7/0x57BB/0x57C2` 四张表；`facet_face` 按面筛选后 `fin_data→data_point_idx→坐标` |
+| pskernel .rdata 文件偏移 0x3F37840（≈RVA 0x3F38E40） | 表名字符串簇 | 旧名：`facet_fin, fin_fin, fin_vertex, vertex_point, vertex_normal, vertex_param, point_vec, normal_vec, param_uv, param_dp, param_d2p, facet_face, facet_occ, edge_fin, edge_occ, error_facet, ...`；新名从 0x3F37A88 起：`facet_topol, strip_face, strip_topol, fin_edge, point_topol, fin_topol, error_object, incr_faces`；0x3F37C20 起为 `table.<name>` 完整清单 |
+| ParasolidGW 0x180120E33 | STpre 表解码器循环 | 只挑 `0x57B6/0x57B7/0x57BB/0x57C2` 四张表；0x57C2 按目标 face/edge 筛出 fin 后走 `fin_data→data_point_idx→坐标` |
 | ParasolidGW 0x1801211EB | 坐标读取 | `point * 0x18 + [wrapper+0]`：**证明 24 字节坐标表就是 token 0x57BB** |
 | ParasolidGW 0x18018B290 | `?PKTopol_facet_2_r_f@...` | 18 项 switch 的 free 包装，统一调 vtable+0xC0，无表级差异 |
 
@@ -453,7 +453,10 @@ fin_data        4B int[]                    data[fin] = 数据索引
 data_point_idx  4B int[]                    point[data] = 点索引
 point_vec       24B {x,y,z} double[]         vec[point] = 坐标（token 0x57BB）
 normal_vec      24B double[]                 单位法向量（token 0x57BC）
-facet_face      8B {int facet; int face}     STpre 按 face 过滤用
+fin_edge        8B {int fin; PK_EDGE_t edge} token 0x57C2（实测语义，非 V35
+                                             文档的 facet_face）；只收边界 fin，
+                                             box 24 条 = 12 条边 × 2
+strip_face      8B                           token 0x57C3，实测恒为空
 ```
 
 陷阱清单（按踩坑顺序）：
@@ -473,6 +476,11 @@ facet_face      8B {int facet; int face}     STpre 按 face 过滤用
 7. **同一进程单会话**：`PK_SESSION_start` 第二次调用返回 932；两模块需共享
    会话（ps_tessellate 已会复用 ps_facet2_nodes 的会话）。
 8. **参数检查器**：`PK_SESSION_set_check_arguments(0)` 否则 5022。
+9. **0x57C2 ≠ facet_face**：V35 文档把 0x57C2 叫 facet_face（facet→face 索引
+   表），本内核实测是 fin_edge（`{fin, edge}` 查找表）。判别法：box 上
+   facet_face 表 24 条记录的第二列与同进程 `PK_BODY_ask_edges` 的 12 个边 tag
+   完全一致（每条边出现 2 次）；第一列是 fin 索引（每 facet 缺第 3 条 =
+   面内对角线）。STpre 的 `PKFaces_RenderV3` 解码器用这张表按面/边收集 fins。
 
 ### 12.6 快速复现探测流程（30 秒定位“表不对”）
 
@@ -544,3 +552,131 @@ def wrapper(ptr):
 
 回归测试：`tests/test_ps_facet2_nodes.py`（3 项）覆盖 box 坐标、
 tr03 与 GO 三角形数对照、cab_vtk 挂接与点法线。
+
+## 13. 复杂大面三角化过粗分析与自适应预防（2026-08-05）
+
+### 13.1 现象与量化
+
+`PK_TOPOL_facet_2` 默认只设 `surface_plane_tol=1e-4`、
+`surface_plane_ang=12°`（STpre 同源参数）。对曲率大的“复杂大面”，12° 角度
+容差意味着面片法向摆动可达 ~11.3°（实测 `upper_cover_01` 每个 128-facet
+曲面 max 面内二面角 = 11.29~11.48°，正好贴在容差上界），轮廓/高光处可见
+明显棱线。
+
+全局收紧容差的效果（`_ex4_e_all.x_t`，facet_2 直接调用）：
+
+| body | 默认 12°/1e-4 | 6°/1e-4 | 4°/1e-5 |
+|------|------|------|------|
+| lower_cover_02（diag≈0.115） | 4664 | 9052 | 15332 |
+| button（diag≈0.097） | 14538 | 48690 | 96138 |
+| upper_cover_01（diag≈0.114） | 2808 | 7814 | 17952 |
+
+结论：全局收紧能明显提升复杂面质量，但**小圆角/小曲面也全部加密**，button
+4°/1e-5 直接爆到 9.6 万三角形，代价不可接受——必须按面/按局部自适应。
+
+### 13.2 平滑度评价方法（二面角陷阱）
+
+- 朴素“全网格相邻三角形最大二面角”在所有配置下都是 ~90°（甚至 180°）：
+  跨 PK_FACE 的锐棱（台阶、倒角边）是真实几何，不是曲面粗糙度，会把信号
+  完全淹没。**只统计同一 face 内相邻三角形**才有意义。
+- 逐 face 度量方法：`PK_BODY_ask_faces` 拿 face tag → 对每个 face 单独调
+  `PK_TOPOL_facet_2` → 解码后按共享边收集面内相邻三角形 → 取法向量夹角
+  最大值。默认 12° 下曲面 face 该值 ≈ 11.3°；平面 face 为 0°（即使 facet
+  很多，如 `lower_cover_02` 的 585/551-facet 大平面，max 二面角仍为 0）。
+
+### 13.3 表语义纠错：token 0x57C2 是 fin_edge，不是 facet_face
+
+为做按面分组，复查了 `PK_TOPOL_fctab_facet_face_t`。官方 V35 头文件说它是
+“facet 索引 → PK_FACE 值”的索引表，但本内核 V5 的 0x57C2 实测是
+**`{int fin; PK_EDGE_t edge}` 查找表**：
+
+- box：24 条记录，第一列 = fin 索引 1,2,4,5,7,8,…（每个 facet 只含第 2、3 条
+  fin；第 1 条 fin 是面内对角线），第二列 = 12 个互异值、每个出现 2 次；
+- 同一进程 `PK_BODY_ask_edges` 返回 [59,82,87,91,95,97,99,101,103,105,107,110]，
+  与表第二列完全一致；
+- STpre 解码器（ParasolidGW 0x180120E33 起）从 0x57C2 按记录
+  `[rcx+rax*8+4]`（即 edge tag）筛出 fin，再走 `fin_data→data_point_idx→
+  坐标`，与“按面收集边界 fin”的用法吻合。
+
+因此本内核 V5 选项块里**没有 V35 文档的 facet_face/facet_topol 表**；按 face
+分组只能逐 face 调用 facet_2。文档已同步修正（CAB_FORMAT_SPEC §5.2.1/5.2.2、
+§12.5 陷阱 9）。
+
+### 13.4 原生局部容差机制（首选自适应方案）
+
+`PK_facet_local_tolerances_t`（5 个 double：curve_chord_tol/max/ang、
+surface_plane_tol/ang）可以挂到**单个/一组 PK_FACE 或 body** 上覆盖全局
+容差；字段为 0 时继续沿用全局值。V5 `_MeshControlV5` 偏移：
+
+```text
+0xF0 n_local_tols            0x100 n_topols_with_local_tols
+0xF8 local_tols*             0x108 topols_with_local_tols*
+                             0x110 local_tols_for_topols*（下标数组）
+```
+
+实测生效性（`upper_cover_01`，全局保持 12°/1e-4）：
+
+| 调用 | 三角形数 |
+|------|---------|
+| 全局 12°/1e-4（基准） | 2808 |
+| body 级局部 4°/1e-5 | 17952（= 全局 4°，证明 body 级覆盖生效） |
+| 仅 1 个大曲面 face 局部 4°/1e-5 | 3818（其余面保持 12°） |
+| 仅 4 个大曲面 face 局部 4°/1e-5 | 6872 |
+
+错误码速查：topol 不是 face/body → `PK_ERROR_unsuitable_topology`；
+`local_tols_for_topols` 下标越界 → `PK_ERROR_bad_value`。
+
+### 13.5 已实现的自适应算法（ps_facet2_nodes.py）
+
+`tessellate_xt(..., adaptive=True)` / `facet_body_adaptive()`：
+
+1. `PK_BODY_ask_faces` 取全部 face；
+2. 每个 face 按基准容差（默认 12°/1e-4）单独 facet，度量
+   `(facet 数, 面积, 面内最大二面角)`（见 §13.2）；
+3. 选出「面内最大二面角 > 8° 且 面积 ≥ 1e-4×body 包围盒表面积 且
+   facet ≥ 8」的 face——只挑又大又弯的复杂面；平面与小圆角不选；
+4. 最后一次 body 级 facet_2 调用，对选中 face 挂局部容差
+   `surface_plane_tol=1e-5、surface_plane_ang=6°`（默认，均可配置）。
+
+默认参数：`refine_angle_deg=6.0`、`refine_tol=1e-5`、`smooth_angle_deg=8.0`、
+`min_rel_area=1e-4`、`min_face_facets=8`。GUI 加载已默认开启 adaptive；
+库函数默认关闭（保持与 STpre/GO 计数一致的既有回归不变）。
+
+实测（ex4_e / tr03 / box）：
+
+| 样例 | body | 基准三角形 | adaptive 三角形 | 耗时 |
+|------|------|------|------|------|
+| ex4_e | upper_cover_01 | 2808 | 11018 | ~0.18s |
+| ex4_e | lower_cover_02 | 4664 | 10068 | ~0.28s |
+| ex4_e | button | 14538 | 23120 | ~0.70s |
+| tr03 | Case | 3142 | 16530 | ~0.5s |
+| tr03 | Impeller | 2132 | 2764 | — |
+| tr03 | Rotate | 200 | 200（无复杂面） | — |
+| box | box | 12 | 12（平面，不变） | — |
+
+### 13.6 其他可用的自适应/预防措施（按优先级）
+
+1. **逐 face 分次 facet + 坐标合并**：facet 的 topol 参数直接传 face tag，
+   每个 face 可用自己的容差/参数；`match=topol` 保证共享边顶点重合，合并按
+   坐标去重即可。当前实现用“探测 face + 一次 body 局部容差调用”，免去合并，
+   是同一思路的更优落地。
+2. **全局默认 12° → 8°/6°**：简单粗暴；代价是小圆角也加密（button 6° 已
+   4.9 万三角形）。可配合 `ignore` 忽略小特征使用。
+3. **后处理曲率监督细分**：输出后对“面内二面角超阈值”的区域做
+   Loop/midpoint 局部细分；只能让着色更平滑，不提高对原始曲面的几何拟合
+   （不如内核局部容差）。可用 `normal_vec` 表（0x57BC）做无拓扑细分的
+   法向插值。
+4. **`density` 选项**：按视图方向加密，需 view matrix；静态装配/离屏渲染
+   不适合。
+5. **`curve_chord_tol/curve_chord_max` 与 `max_facet_width`**：补充大半径
+   边缘的弦向精度；STpre 的 `PKFaces_RenderV3` 会按 body 尺寸缩放 chord
+   容差，本仓库目前只显式设置了 surface 两个容差。
+6. **`ignore` 小特征**：与自适应互补——先忽略纳米级圆角/倒角降面，再把
+   预算留给大曲面。
+
+### 13.7 回归与文档
+
+- 全仓 `pytest`：**64 通过 / 3 跳过**（新增 2 项自适应测试：tr03 复杂面
+  必须细化且不减面、box 平面保持不变；另有 face 度量健全性断言）。
+- 文档同步：CAB_FORMAT_SPEC §5.2（0x57C2=fin_edge 纠错）与新增 §5.3
+  （局部容差结构与自适应调用方式）；本节约 §13.1–13.6。

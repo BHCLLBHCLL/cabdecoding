@@ -391,7 +391,7 @@ choice 偏移（注意：**与 V35 文档顺序不同**，文档把 `data_curv_i
 | 0x145 | deriv_dp | 0x57BF |
 | 0x146 | deriv_d2p | 0x57C0 |
 | 0x147 | curv_dirs | 0x57C1 |
-| 0x148 | facet_face | 0x57C2 |
+| 0x148 | **fin_edge**（实测语义，非 V35 文档的 facet_face） | 0x57C2 |
 | 0x149 | strip_face | 0x57C3 |
 
 结论的三种交叉验证：
@@ -418,10 +418,74 @@ choice 偏移（注意：**与 V35 文档顺序不同**，文档把 `data_curv_i
 | data_point_idx | 4B int 数组 | `point[data] = 点索引` |
 | point_vec | 24B `{x,y,z}` 向量 | `vec[point] = 坐标` |
 | normal_vec | 24B 向量 | 单位面法向量 |
-| facet_face | 8B `{int facet; int face}` | 面追踪（STpre 用它按面过滤） |
+| fin_edge（token 0x57C2） | 8B `{int fin; PK_EDGE_t edge}` | **本内核 0x57C2 不是 V35 文档的 facet_face**；实测为“边界 fin → 模型边”查找表：只收录每个三角面片落在模型边上的 2 条 fin（每个 facet 的第 3 条 fin 是面内对角线，不在表中），box 上 24 条记录 = 12 条边 × 每条边 2 次出现，第二列与同进程 `PK_BODY_ask_edges` 返回的 12 个 PK_EDGE tag 完全一致 |
+| strip_face（token 0x57C3） | — | 实测恒为空（本调用组合 `max_facet_sides=3` + 默认 shape 不产生 strip） |
+
+> **注意**：V35 文档中的 `facet_face`（facet → face 的索引表）与 `facet_topol`
+> 在本内核 V5 选项块（0x138..0x149 共 18 个 choice）中**不可达**。要做按 face
+> 的分组/度量，用逐 face 调用 `PK_TOPOL_facet_2`（一次传一个 PK_FACE tag），
+> 或直接 `PK_BODY_ask_faces` 拿 face tag 后配合局部容差（见 §5.3）。
 
 组装链：`facet → facet_fin → fin → fin_data → data → data_point_idx →
 point → point_vec → 坐标`。`-1` 为洞环分隔符（`shape=any` 时出现），需跳过。
+
+### 5.3 自适应面片：`PK_facet_local_tolerances_t` 局部容差（2026-08-05）
+
+复杂大面在全局 `surface_plane_ang=12°` 下仍显“三角化过粗”（实测曲面最大
+面内二面角 ≈ 11.3°，正好贴住角度容差上界）。Parasolid 内核自带**按拓扑实体
+局部覆盖容差**的机制，是首选的自适应预防手段：
+
+```c
+typedef struct
+{
+    double curve_chord_tol;   /* 0.0 = 不覆盖全局 */
+    double curve_chord_max;
+    double curve_chord_ang;
+    double surface_plane_tol; /* 0.0 = 不覆盖全局 */
+    double surface_plane_ang; /* 0.0 = 不覆盖全局 */
+} PK_facet_local_tolerances_t;
+```
+
+`PK_TOPOL_facet_mesh_2_o_t`（V5 即 `_MeshControlV5`）相关字段及偏移：
+
+| 偏移 | 字段 | 语义 |
+|------|------|------|
+| 0xF0 | `n_local_tols` | 局部容差组数 |
+| 0xF8 | `local_tols*` | `PK_facet_local_tolerances_t[]` |
+| 0x100 | `n_topols_with_local_tols` | 挂局部容差的 topol（face/body）个数 |
+| 0x108 | `topols_with_local_tols*` | PK_TOPOL tag 数组（body 或 face 均可） |
+| 0x110 | `local_tols_for_topols*` | int 数组：每个 topol 使用 `local_tols` 的哪个下标 |
+
+调用约定：`local_tols_for_topols[i]` 取值必须在 `[0, n_local_tols)`；
+`local_tols` 某字段为 0.0 时该约束继续沿用全局值（只覆盖要改的约束）。
+错误码：`PK_ERROR_unsuitable_topology`（topol 不是 face/body）、
+`PK_ERROR_bad_value`（下标越界）。
+
+实测（`upper_cover_01`，默认全局 12°/1e-4 → 2808 三角形）：
+
+| 调用 | 三角形数 |
+|------|---------|
+| 全局 12°/1e-4 | 2808 |
+| 全局 4°/1e-5 | 17952 |
+| body 级局部 4°/1e-5（全局仍 12°） | 17952（与全局等价，机制生效） |
+| 局部仅 1 个大曲面 face | 3818（其余 face 保持 12°） |
+| 局部仅 4 个大曲面 face | 6872 |
+
+自适应策略（已在 `ps_facet2_nodes.py` 实现，`tessellate_xt(adaptive=True)`）：
+
+1. `PK_BODY_ask_faces` 取 body 全部 face；
+2. 每个 face 按基准容差（默认 12°/1e-4）单独 facet，度量
+   `(facet 数, 面积, 面内最大二面角)`——**只统计同一 face 内共享边的相邻
+   三角形**，跨 face 的锐棱（台阶/倒角，二面角≈90°）不参与；
+3. 选出「面内最大二面角 > 8° 且 面积 ≥ 1e-4×body 包围盒表面积 且
+   facet ≥ 8」的面（即又大又弯的复杂面；小圆角/平面不选，避免面片爆炸）；
+4. 最后一次 body 级 `PK_TOPOL_facet_2` 调用，对选中 face 挂
+   `surface_plane_tol=1e-5`、`surface_plane_ang=6°`（可配置）的局部容差。
+
+默认参数：`refine_angle_deg=6.0`、`refine_tol=1e-5`、
+`smooth_angle_deg=8.0`、`min_rel_area=1e-4`、`min_face_facets=8`。
+实测（ex4_e）：`upper_cover_01` 2808→11018、`lower_cover_02` 4664→10068、
+`button` 14538→23120，探测+加密总耗时 < 0.8 s/body；平面 box 不变（12）。
 
 #### 5.2.3 参数检查与调用前置
 

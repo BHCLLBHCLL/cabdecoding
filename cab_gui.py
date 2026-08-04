@@ -415,9 +415,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 import ps_facet2_nodes
                 if ps_facet2_nodes.available():
                     # STpre's own node path: PK_TOPOL_facet_2 tables
-                    # (facet -> fin -> data -> point -> coordinate).
+                    # (facet -> fin -> data -> point -> coordinate), with
+                    # per-face adaptive refinement for large curved faces.
                     self._cad_meshes = ps_facet2_nodes.tessellate_xt(
-                        members[xt_name])
+                        members[xt_name], adaptive=True)
             except Exception as exc:
                 self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
                          "WARN")
