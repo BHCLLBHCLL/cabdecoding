@@ -53,6 +53,7 @@
 | `cabxml.py` | `ex4_e.xml`（stpre）与 `_ex4_e_property.xml` 的解析/序列化（保留 BOM/注释/缩进）、模型对象 | pphdecoding `pphxml.py` 的 sanitize/round-trip 思路 |
 | `parasolid.py` | x_t 传输流头/属性行/schema/实体部分提取 | 直接移植 pphdecoding `parasolid.py` |
 | `ps_tessellate.py` | x_t body 经 Cradle `pskernel.dll` 接收 + `PK_TOPOL_render_facet` GO 面片化 → `TessPart`（点/三角形），显式面片容差 | Cradle Parasolid 内核 / GO 文档 |
+| `ps_facet2_nodes.py` | STpre 同源节点路径：`PK_TOPOL_facet_2` 表格化面片（facet→fin→data→point→坐标）→ `TessPart`；GO 仅作回退 | 反汇编 STpreBase/ParasolidGW/pskernel，见 CAB_FORMAT_SPEC §5.2 |
 | `s_export.py` | XML 模型 → SDAT `.s`（CXYZ/PARTS/REGION/条件/输出各段） | flddecoding `s_model.py` 的数据类与字段语义 |
 | `xemt_export.py` | 属性库+部件表 → EMT `.xemt` | flddecoding `xemt_model.py` 的逆写 |
 | `cab_vtk.py` | 部件几何（x_t GO 面片 + XML 列主序变换 + 点法线/锐边拆分）→ vtkPolyData，离屏可测 | pphdecoding `pph_vtk.py` |
@@ -66,8 +67,8 @@
 .cab ──cab_container──▶ 成员流（顺序拼接 + magic 校验）
         ├──ex4_e.xml──────────▶ cabxml.stpreModel ──┬─▶ s_export ──▶ .s
         ├──_ex4_e_property.xml▶ cabxml.propertyModel┼─▶ xemt_export ─▶ .xemt
-        └──_ex4_e_all.x_t─────▶ ps_tessellate（pskernel GO 面片化）──▶ TessPart
-                                       │
+        └──_ex4_e_all.x_t─────▶ ps_facet2_nodes（facet_2 表路径 ≡ STpre）──▶ TessPart
+                                       │  （失败时 ps_tessellate GO 回退）
                                        ├─▶ parasolid 部分提取（元数据/头部）
                                        └─▶ cab_vtk（列主序变换 + 点法线）──▶ GUI 3D
                              cab_container.write ◀── 编辑后模型（GUI/CLI）
@@ -197,13 +198,17 @@ P1–P3；P5 与各阶段并行推进。
 |------|------|------|
 | P0 容器层 | ✅ 完成 | `cab_container.py` + `cab_parser.py`；10 项测试；重压缩 cab 已由 Windows `expand` 解包逐字节验证 |
 | P1 XML 模型 | ✅ 完成 | `cabxml.py`；7 项测试；两个 XML 成员字节级往返，编辑→重打包→重解析闭环 |
-| P2 几何接入 | ✅ 完成 | `parasolid.py`（文本 x_t 部分提取）+ `ps_tessellate.py`（pskernel GO 面片化）+ `cab_vtk.py`（点法线/变换/离屏渲染）；8 项测试 |
+| P2 几何接入 | ✅ 完成 | `parasolid.py`（文本 x_t 部分提取）+ `ps_tessellate.py`（pskernel GO 面片化）+ `ps_facet2_nodes.py`（facet_2 表路径，STpre 同源）+ `cab_vtk.py`（点法线/变换/离屏渲染）；8+3 项测试 |
 | P3 导出 | ✅ 完成 | `s_export.py` + `xemt_export.py`；5 项测试；`.s` 与官方 1021 行**零结构差异**（仅 CXYZ 末位 1-ulp 舍入差），`.xemt` 仅日期注释不同；flddecoding `s_model` 消费一致 |
 | P4 GUI | ✅ 完成 | `cab_gui.py`（PyQt5+VTK，四窗格）+ `requirements-gui.txt`；Part shading 使用 x_t 光滑曲面，Element division 使用网格盒线；5 项离屏测试 |
 | P5 扫描 | ✅ 基础就绪 | `tests/test_samples.py` 自动发现 `tests/**/*.cab` 跑结构不变量/往返/导出对拍；当前样本：ex4_e / box / tr03 |
 
-全仓测试：`python -m pytest tests -q` → 59 项通过、3 项跳过（`box.cab` /
-`tr03.cab` / `tr03_$$$.cab` 无官方 `.s/.xemt` 对拍文件）。
+全仓测试：`python -m pytest -q` → **58 项通过、2 项跳过**（2 项为
+`test_samples.py` 缺少官方 `.s/.xemt` 对拍文件，与本改动无关）。
+新增 `tests/test_ps_facet2_nodes.py`（3 项）：box 8 节点/12 三角形坐标与 GO
+一致；tr03 三个 body 三角形数与 GO 完全相同；facet2 TessPart 可挂接
+cab_vtk 并生成点法线。临时文件已清理：`tests/tr03_$$$.cab`、`__pycache__`、
+`.pytest_cache`。
 `test_samples.py` 已改为按实际成员名动态匹配，不再把新样例误判为 ex4_e。
 剩余开放项（见 CAB_FORMAT_SPEC.md §10）：CFDATA 校验和算法、多样本覆盖
 （2024/2025.2 版本、多网格组、多材料/辐射/湿度/粒子案例）、.s 面分类的
@@ -275,3 +280,267 @@ GO 三角形本身解析正确（ex4_e 的 24 个 body 全部可解析，面片�
     保证 `"box"` 能成为 body 名；
   - Tree 增加“(ungrouped)”节点显示根级部件；
   - 新增 `test_tessellate_root_level_parts_no_group` 回归。
+
+## 11. Parasolid `PK_TOPOL_facet_2` 表路径逆向与修复（2026-08-04）
+
+### 11.1 定位
+
+遍历 `C:\Program Files\Cradle\CradleCFD2025.2\Programs_x64`，确认 STpre 从
+`.x_t` 生成显示节点的调用链（RVA 均相对 DLL 基址 0x180000000）：
+
+```text
+STpreBase_Bx64.dll
+  ?MakeFacet@PreBody@@QEAAHHPEAVFacetParam@@@Z        RVA 0x293A20
+  ?MakeFacetParam@PreBody@@QEAAPEAVFacetParam@@QEAN@Z RVA 0x293C20
+      ↓
+ParasolidGW_Bx64.dll
+  ?PKBody_GetTriangles@LocalParasolid@@...            RVA 0xA49A0 等
+  ?PKFaces_RenderV3@LocalParasolid@@...               RVA 0x1415C0 / 0x141850
+      ↓
+pskernel.dll
+  PK_TOPOL_facet_2                                    RVA 0x44DFA0
+  PK_TOPOL_facet_2_r_f                                RVA 0x44FCE0
+```
+
+输出独立脚本 [ps_facet2_nodes.py](ps_facet2_nodes.py)：纯 ctypes 复现
+`PK_TOPOL_facet_2` 表格化面片（facet→fin→data→point→坐标），GO 仅作回退。
+
+### 11.2 深层次根因（为什么之前 box/tr03 无曲面）
+
+1. **V5 选项结构此前只按“V35 文档顺序”猜测**：18 个 choice 字节确实在
+   0x138..0x149，但本内核的 `point_vec/normal_vec/data_curv_idx` 三者的
+   偏移与文档相反（文档：data_curv_idx 在前；内核：point_vec 0x141 /
+   normal_vec 0x142 / data_curv_idx 0x143）。按旧偏移 `opts.point_vec=1`
+   实际打开的是 normal_vec，拿到 6 个法向量而非坐标。
+2. **token 同样不按文档顺序**：坐标表 token 为 **0x57BB**（不是 0x57BC）；
+   0x57BC 是 normal_vec，0x57BD 才是 data_curv_idx。旧代码把 0x57BC 当
+   point_vec 解码，得到 6 个 ± 单位轴向量，三角形组装全部退化/越界，
+   `facet2()` 返回 None → GUI 退回结构化网格盒（阶梯状）或线框。
+3. **索引表解析错误**：`fin_data`/`data_point_idx` 是 4 字节 int 数组
+   （`data[fin]`、`point[data]`），旧代码按 8 字节 pair 解析，max 索引可达
+   26 亿，读取越界崩溃。
+4. **参数检查器**：外部进程必须 `PK_SESSION_set_check_arguments(0)`，否则
+   返回 `PK_ERROR_o_t_version_incorrect`(5022)。
+
+三个交叉验证锁定正确映射：逐字节单开 choice 探测；box 上 0x57BB 数据恰为
+8 个角点且与 GO 逐点一致；STpre 解码器（ParasolidGW `PKBody_GetTriangles`）
+按 24 字节步长从 0x57BB 读坐标。
+
+### 11.3 修复
+
+- `ps_facet2_nodes.py`：
+  - 修正 `CHOICE_OFFSET`（point_vec=0x141 / normal_vec=0x142 /
+    data_curv_idx=0x143）与 `FCTAB_*` 常量（POINT_VEC=0x57BB /
+    NORMAL_VEC=0x57BC / DATA_CURV_IDX=0x57BD）；
+  - `facet_fin` 按 8 字节 `{facet, fin}` 查找表解析；`fin_data` /
+    `data_point_idx` 按 4 字节索引数组解析；`point_vec` 按 24 字节向量解析，
+    并防御 `-1` 洞环分隔符与越界；
+  - 新增 `available()` 与 `tessellate_xt(bytes)` 供 GUI 使用。
+- `cab_gui.py`：加载时优先 `ps_facet2_nodes.tessellate_xt()`（STpre 同源），
+  失败退回 `ps_tessellate`（GO）。
+- `ps_tessellate.py`：`_get_session()` 复用已由 `ps_facet2_nodes` 启动的
+  pskernel 会话（同一进程只允许一个会话，否则 PK_SESSION_start 返回 932）。
+
+### 11.4 验证
+
+- box：8 节点 / 12 三角形，坐标 0..0.01 与 GO 逐点一致；
+- tr03：Case 1573/3142、Impeller 1030/2132、Rotate 102/200，三角形数与 GO
+  完全相同，节点数不增（共享顶点去重更优）；
+- ex4_e：24 个 body 全部经 facet2 生成，三角形数与 GO 完全一致；
+- 全仓 `pytest`：58 通过 / 2 跳过（跳过与本次无关）。
+
+格式细节（choice 偏移表、表 token、表编码、`set_check_arguments` 说明）已
+同步至 [CAB_FORMAT_SPEC.md](CAB_FORMAT_SPEC.md) §5.2。
+更完整的备查档案（工具、RVA 换算、逐字段偏移、探测脚本、错误码、基线数据）
+见 §12。
+
+## 12. 逆向详细档案（备查，减少后续定位成本）
+
+> 本节是把本次反汇编、探测、解码的**全部可复现细节**固化下来。后续遇到
+> Parasolid 曲面/面片相关问题，先按 §12.6 的探测流程复现，再对照 §12.5 的
+> 表编码和 §12.8 的基线数据，通常能直接定位是“结构偏移错”还是“表解码错”。
+
+### 12.1 工具与前置知识
+
+- 反汇编：`objdump -d -M intel --start-address=<VA> --stop-address=<VA>`，
+  或 Python capstone（本机已装 capstone 5.0.7）。
+- 二进制：`C:\Program Files\Cradle\CradleCFD2025.2\Programs_x64\`
+  - `pskernel.dll`（72 MB，真正的 Parasolid 内核）
+  - `ParasolidGW_Bx64.dll`（Cradle 对内核的 C++ 包装）
+  - `STpreBase_Bx64.dll`（STpre 上层，含 `PreBody::MakeFacet`）
+- 官方文档镜像（V35，可访问）：`http://www.q-solid.com/Parasolid_Docs_V35/`
+  - 表格化面片章节：`chapters/fd_chap.110.html`
+  - 表结构头文件：`headers/pk_topol_fctab_*_t.html`
+  - 注意：**文档只给字段顺序，不给枚举数值**；本内核的 token 数值与文档
+    顺序在中间 3 张表不一致（见 §12.4），一切以探测为准。
+
+### 12.2 RVA / 文件偏移换算
+
+```text
+pskernel.dll 段映射（objdump -h）：
+  .text  VMA 0x180001000  FileOff 0x400
+  .rdata VMA 0x183ED1000  FileOff 0x3ECFA00
+
+公式：VA = ImageBase(0x180000000) + RVA
+      FileOffset = RVA - 0x1000 + 0x400      （.text 内）
+      FileOffset = RVA - 0x3ED1000 + 0x3ECFA00（.rdata 内）
+```
+
+示例：`PK_TOPOL_facet_2_r_f` RVA 0x44FCE0 → VA 0x18044FCE0；
+`PK_TOPOL_facet_2` RVA 0x44DFA0 → VA 0x18044DFA0。
+
+### 12.3 关键反汇编点位（已确认，勿重复挖掘）
+
+| 位置（VA） | 内容 | 说明 |
+|------|------|------|
+| pskernel 0x180443550 | 选项转换器 | 对 `version-5..26` switch（22 项跳表）；把调用者 0x138..0x149 的 18 个 choice 字节拷入内部 0x1C8..0x1DF |
+| pskernel 0x18044DFA0 | `PK_TOPOL_facet_2` 主体 | 面片生成入口，写 `PK_TOPOL_facet_2_r_t` |
+| pskernel 0x18044FCE0 | `PK_TOPOL_facet_2_r_f` | 释放表；`fctab-0x57B2` switch（跳表在 0x18044FDF0，25 项） |
+| pskernel 0x1804503FB..0x180451166 | 18 处 `mov [rax],0x57xx` | 写表 token 的顺序，仅能验证 token 集合，**不能**当名称映射 |
+| pskernel 0x1813C4380 | 表校验函数 | 逐个 `cmp [rax],0x57xx` 提取 fin_fin/fin_data/facet_fin/data_point_idx/data_normal_idx 等 |
+| pskernel 0x3F37840（.rdata） | 表名字符串 | 旧内部枚举名：`facet_fin, fin_fin, fin_vertex, vertex_point, vertex_normal, vertex_param, point_vec, normal_vec, param_uv, param_dp, param_d2p, facet_face, ...`；新名在 0x3F379C0 附近 |
+| ParasolidGW 0x180120E33 | STpre 表解码器循环 | 只挑 `0x57B6/0x57B7/0x57BB/0x57C2` 四张表；`facet_face` 按面筛选后 `fin_data→data_point_idx→坐标` |
+| ParasolidGW 0x1801211EB | 坐标读取 | `point * 0x18 + [wrapper+0]`：**证明 24 字节坐标表就是 token 0x57BB** |
+| ParasolidGW 0x18018B290 | `?PKTopol_facet_2_r_f@...` | 18 项 switch 的 free 包装，统一调 vtable+0xC0，无表级差异 |
+
+### 12.4 V5 选项结构逐字段偏移（ctypes 实测）
+
+`PK_TOPOL_facet_2_o_t` v5 = `_MeshControlV5`（312 字节）+ 18 个 choice 字节：
+
+```text
+control 偏移（_MeshControlV5，sizeof=312）：
+ 0x00 o_t_version        0x40 max_facet_sides     0x90 is_surface_plane_tol
+ 0x04 shape              0x44 is_min_facet_width  0x98 surface_plane_tol
+ 0x08 match              0x48 min_facet_width     0xA0 is_surface_plane_ang
+ 0x0C density            0x50 is_max_facet_width  0xA8 surface_plane_ang
+ 0x10 n_view_directions  0x58 max_facet_width     0xB0 is_facet_plane_tol
+ 0x18 view_directions*   0x60 is_curve_chord_tol  0xB8 facet_plane_tol
+ 0x20 cull               0x68 curve_chord_tol     0xC0 is_facet_plane_ang
+ 0x24 n_cull_transfs     0x70 is_curve_chord_max  0xC8 facet_plane_ang
+ 0x28 cull_transfs*      0x78 curve_chord_max     0xD0 is_local_density_tol
+ 0x30 n_loops            0x80 is_curve_chord_ang  0xD8 local_density_tol
+ 0x38 loops*             0x88 curve_chord_ang     0xE0 is_local_density_ang
+                                                   0xE8 local_density_ang
+ 0xF0 n_local_tols       0x100 n_topols_with_local_tols
+ 0xF8 local_tols*        0x108 topols_with_local_tols*
+                          0x110 local_tols_for_topols*
+ 0x118 ignore            0x120 ignore_value        0x128 ignore_scope
+                         (double)                 0x12C wire_edges
+ 0x130 incremental_facetting  0x134 incremental_method
+（0x138 起为 18 个 choice 字节，见 CAB_FORMAT_SPEC §5.2.1）
+```
+
+`PK_TOPOL_facet_2_r_t`（返回结构，20 字节）：
+
+```text
+0x00 number_of_facets(int)  0x04 number_of_strips(int)
+0x08 number_of_fins(int)    0x0C number_of_tables(int)
+0x10 tables*(PK_TOPOL_facet_table_t[])
+```
+
+`PK_TOPOL_facet_table_t` 每项 16 字节：`{fctab int, pad int, ptr qword}`；
+`ptr` 指向 16 字节包装器 `PK_TOPOL_fctab_*_t = {void* data, int length}`。
+**易错点**：`tables[i].ptr` 是包装器指针，`data` 在包装器首 qword；不要把
+数据数组指针当包装器指针再解一次（本仓库早期 bug 即在此）。
+
+### 12.5 表编码与组装链（含全部已知陷阱）
+
+```text
+组装链：facet → facet_fin → fin → fin_data → data → data_point_idx → point → point_vec → 坐标
+
+facet_fin       8B {int facet; int fin}      查找表；三角面片每 facet 3 条连续记录
+fin_data        4B int[]                    data[fin] = 数据索引
+data_point_idx  4B int[]                    point[data] = 点索引
+point_vec       24B {x,y,z} double[]         vec[point] = 坐标（token 0x57BB）
+normal_vec      24B double[]                 单位法向量（token 0x57BC）
+facet_face      8B {int facet; int face}     STpre 按 face 过滤用
+```
+
+陷阱清单（按踩坑顺序）：
+
+1. **choice 偏移**：`point_vec=0x141 / normal_vec=0x142 / data_curv_idx=0x143`
+   （与 V35 文档相反）。按文档置 `opts.point_vec=1` 实际打开的是 normal_vec。
+2. **token**：坐标表是 **0x57BB**，法向量表 0x57BC，data_curv_idx 0x57BD；
+   不要按“0x57B2 起顺序编号”猜测。
+3. **索引表是 4 字节 int 数组**，不是 8 字节 pair；按 pair 解析 max 索引
+   可达 26 亿导致越界崩溃。
+4. **包装器 vs 数据指针**：`data[fctab]` 应存 `t.ptr`（包装器），再用
+   `string_at(t.ptr,16)` 读 `(data*, length)`。
+5. **point_vec 的 length 字段**：box 上真 point_vec len=8；曾误读的表 len=24
+   （实为 data_curv_idx 位置的浮点数据）不是坐标。
+6. **`-1` 洞环分隔符**：`shape=any` 时 facet_fin 中会出现 `fin=-1`，必须跳过；
+   索引查表前做 0 <= idx < len 防御。
+7. **同一进程单会话**：`PK_SESSION_start` 第二次调用返回 932；两模块需共享
+   会话（ps_tessellate 已会复用 ps_facet2_nodes 的会话）。
+8. **参数检查器**：`PK_SESSION_set_check_arguments(0)` 否则 5022。
+
+### 12.6 快速复现探测流程（30 秒定位“表不对”）
+
+```python
+import ctypes as C
+from ctypes import byref, memset, c_int, c_void_p, POINTER, cast, string_at, sizeof
+import struct
+import ps_facet2_nodes as m
+from pathlib import Path
+
+sess = m._get_session()
+tag = sess.receive_xt(Path('tests/box/_box_all.x_t').read_bytes())[0]
+pk = sess.pk
+pk.PK_TOPOL_facet_2.restype = c_int
+pk.PK_TOPOL_facet_2.argtypes = [
+    c_int, POINTER(c_int), c_void_p,
+    POINTER(m._Facet2OptionsV5), POINTER(m._Facet2Result)]
+
+# 1) 单 choice 探测：只置一个字节，看返回 token
+for off in range(0x138, 0x14A):
+    opts = m._Facet2OptionsV5(); memset(byref(opts), 0, sizeof(opts))
+    opts.control.o_t_version = 5
+    opts.control.max_facet_sides = 3
+    opts.control.is_surface_plane_tol = 1
+    opts.control.surface_plane_tol = 1e-4
+    opts.control.is_surface_plane_ang = 1
+    opts.control.surface_plane_ang = 12 * 0.017453292519943295
+    (C.c_char * sizeof(opts)).from_buffer(opts)[off] = b'\x01'
+    res = m._Facet2Result(); memset(byref(res), 0, sizeof(res))
+    rc = pk.PK_TOPOL_facet_2(1, (c_int*1)(tag), None, byref(opts), byref(res))
+    toks = []
+    if rc == 0 and res.tables:
+        tbl = cast(res.tables, POINTER(m._FacetTable * res.number_of_tables)).contents
+        toks = [hex(t.fctab) for t in tbl]
+    print(hex(off), toks, 'rc', rc)
+
+# 2) 数据语义验证：dump 指定 token 的包装器 (data*, length) 与首元素
+def wrapper(ptr):
+    return struct.unpack_from('<Qi', string_at(ptr, 16))
+# 例：0x57BB 应为 8 个 24B 向量（box 的 8 个角点）
+# q0, ln = wrapper(tables[i].ptr); vec = string_at(q0, ln*24)
+```
+
+判定标准（对照 §12.8 基线）：
+
+- rc=5022 → 先 `PK_SESSION_set_check_arguments(0)`；
+- rc=932 → 进程已有会话，复用而不是新建；
+- 返回 token 与 choice 映射不符 → 结构偏移错（核对 §12.4）；
+- 三角形退化/越界 → 先看 point_vec 是否 0x57BB、索引表是否按 4B int 解析；
+- 节点坐标是单位轴向量 → 拿到的其实是 normal_vec（0x57BC），choice 错了。
+
+### 12.7 常见错误码速查
+
+| 错误码 | 含义 | 处理 |
+|------|------|------|
+| 5022 | `PK_ERROR_o_t_version_incorrect` | `PK_SESSION_set_check_arguments(0)`（外部进程逆向调用时） |
+| 932 | `PK_SESSION_start` 失败 | 同进程已有 pskernel 会话；共享会话对象 |
+| 0x3A9B | 表校验失败（缺表组合） | 核对请求的 choice 组合是否合法（如 strip_face 需 strip_boundary/zigzag） |
+
+### 12.8 验证基线数据（facet2 vs GO）
+
+| 样例 | body | facet2 节点/三角形 | GO 节点/三角形 | 结论 |
+|------|------|------|------|------|
+| box | box | 8 / 12 | 8 / 12 | 坐标逐点一致（0..0.01 立方体） |
+| tr03 | Case | 1573 / 3142 | 1600 / 3142 | 三角形数相同，节点更少（共享顶点去重） |
+| tr03 | Impeller | 1030 / 2132 | 1030 / 2132 | 一致 |
+| tr03 | Rotate | 102 / 200 | 102 / 200 | 一致 |
+| ex4_e | 24 bodies | 全部生成 | 全部生成 | 三角形数全部一致 |
+
+回归测试：`tests/test_ps_facet2_nodes.py`（3 项）覆盖 box 坐标、
+tr03 与 GO 三角形数对照、cab_vtk 挂接与点法线。

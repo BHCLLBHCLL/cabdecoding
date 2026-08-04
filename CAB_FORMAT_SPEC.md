@@ -338,6 +338,109 @@ part_boxes ─────────────▶ attach_cad_meshes ──�
 无网格盒的 body 部件：只要存在同名 Parasolid body，就先保留占位并在 CAD
 挂接成功后显示 x_t 曲面；没有 CAD 的占位项会被清理。
 
+### 5.2 `PK_TOPOL_facet_2` 表格化面片（STpre 节点生成路径）逆向（2026-08-04）
+
+scSTREAM Pre 实际生成显示节点走的是 **表格化面片** 路径，而不是 GO 回调：
+
+```text
+STpreBase_Bx64.dll
+  ?MakeFacet@PreBody@@QEAAHHPEAVFacetParam@@@Z        RVA 0x293A20
+  ?MakeFacetParam@PreBody@@QEAAPEAVFacetParam@@QEAN@Z RVA 0x293C20
+      |
+      v
+ParasolidGW_Bx64.dll
+  ?PKBody_GetTriangles@LocalParasolid@@...            RVA 0xA49A0 等
+  ?PKFaces_RenderV3@LocalParasolid@@...               RVA 0x1415C0 / 0x141850
+      |  （填充 PK_TOPOL_facet_2_o_t 后经 vtable+0x1C50 调内核）
+      v
+pskernel.dll
+  PK_TOPOL_facet_2                                    RVA 0x44DFA0
+  PK_TOPOL_facet_2_r_f                                RVA 0x44FCE0
+```
+
+独立脚本 [ps_facet2_nodes.py](ps_facet2_nodes.py) 用纯 ctypes 复现该路径，
+可直接对任意 `.x_t` 生成 `TessPart`（点/三角形）：
+
+```text
+python ps_facet2_nodes.py tests/box/_box_all.x_t            # 8 节点 / 12 三角形
+python ps_facet2_nodes.py --obj out.obj tests/tr03/_tr03_all.x_t
+```
+
+#### 5.2.1 V5 选项结构布局（反汇编 pskernel RVA 0x443550）
+
+`PK_TOPOL_facet_2_o_t` 的 version-5 布局为 **312 字节 mesh control 块 +
+18 个连续 choice 字节**（0x138..0x149）。逐字节单开探测得到本内核的真实
+choice 偏移（注意：**与 V35 文档顺序不同**，文档把 `data_curv_idx` 放在
+`point_vec/normal_vec` 之前，本内核恰好相反）：
+
+| choice 偏移 | 表 | token |
+|------|------|------|
+| 0x138 | facet_fin | 0x57B2 |
+| 0x139 | strip_boundary | 0x57B3 |
+| 0x13A | strip_zigzag | 0x57B4 |
+| 0x13B | fin_fin | 0x57B5 |
+| 0x13C | fin_data | 0x57B6 |
+| 0x13D | data_point_idx | 0x57B7 |
+| 0x13E | data_normal_idx | 0x57B8 |
+| 0x13F | data_param_idx | 0x57B9 |
+| 0x140 | data_deriv_idx | 0x57BA |
+| **0x141** | **point_vec** | **0x57BB** |
+| **0x142** | **normal_vec** | **0x57BC** |
+| **0x143** | **data_curv_idx** | **0x57BD** |
+| 0x144 | param_uv | 0x57BE |
+| 0x145 | deriv_dp | 0x57BF |
+| 0x146 | deriv_d2p | 0x57C0 |
+| 0x147 | curv_dirs | 0x57C1 |
+| 0x148 | facet_face | 0x57C2 |
+| 0x149 | strip_face | 0x57C3 |
+
+结论的三种交叉验证：
+
+1. **单 choice 探测**：只置 0x141 返回 token 0x57BB，只置 0x142 返回
+   0x57BC，只置 0x143 返回 0x57BD。
+2. **数据语义**：0x57BB 在 box 上返回 8 个 24 字节向量，恰为
+   `(0,0,0)~(0.01,0.01,0.01)` 立方体 8 角点，与 GO 路径逐点一致；
+   0x57BC 返回 6 个单位法向量（±X/±Y/±Z），与 `data_normal_idx` 最大值 5 吻合。
+3. **STpre 自身解码器**：ParasolidGW `PKBody_GetTriangles` 内循环只挑
+   `0x57B6/0x57B7/0x57BB/0x57C2` 四张表，其中按 `point*0x18` 步长读坐标的
+   正是 token 0x57BB 的表——即 STpre 眼中的“坐标表”。
+
+#### 5.2.2 表编码（V35 header `pk_topol_fctab_*_t`）
+
+`PK_TOPOL_facet_2_r_t.tables[]` 每项 16 字节：
+`{ fctab(int), pad(int), ptr(qword) }`，`ptr` 指向 16 字节包装器
+`{ void* data; int length; }`（`PK_TOPOL_fctab_*_t`）。
+
+| 表 | 元素 | 说明 |
+|------|------|------|
+| facet_fin | 8B `{int facet; int fin}` | 查找表，三角面片每 facet 3 条连续记录 |
+| fin_data | 4B int 数组 | `data[fin] = 数据索引` |
+| data_point_idx | 4B int 数组 | `point[data] = 点索引` |
+| point_vec | 24B `{x,y,z}` 向量 | `vec[point] = 坐标` |
+| normal_vec | 24B 向量 | 单位面法向量 |
+| facet_face | 8B `{int facet; int face}` | 面追踪（STpre 用它按面过滤） |
+
+组装链：`facet → facet_fin → fin → fin_data → data → data_point_idx →
+point → point_vec → 坐标`。`-1` 为洞环分隔符（`shape=any` 时出现），需跳过。
+
+#### 5.2.3 参数检查与调用前置
+
+外部进程调用前必须 `PK_SESSION_set_check_arguments(0)`，否则
+`PK_TOPOL_facet_2` 返回 `PK_ERROR_o_t_version_incorrect`(5022)——不是内核
+不支持 v5，而是参数检查器用当前 SDK 的结构版本比对调用者结构导致。
+STpre 自身版本匹配，无需关闭检查。
+
+#### 5.2.4 验证
+
+- box：8 节点 / 12 三角形，坐标 0..0.01 与 GO 逐点一致；
+- tr03：Case 1573 节点/3142 三角形、Impeller 1030/2132、Rotate 102/200，
+  三角形数与 GO 完全相同，节点数不增（facet_2 共享顶点去重）；
+- ex4_e：24 个 body 全部生成，三角形数与 GO 完全一致。
+
+GUI 加载时优先使用 `ps_facet2_nodes.tessellate_xt()`（facet_2 表路径），失败
+再退回 `ps_tessellate`（GO 路径）；同一进程只能启动一个 pskernel 会话，
+`ps_tessellate._get_session()` 会复用已由 `ps_facet2_nodes` 启动的会话。
+
 ---
 
 ## 6. 导出格式 `.s`（SDAT，STsolver 输入）
@@ -428,7 +531,8 @@ mat=1）与 `group/parts`（part no 按出现顺序，mat 由 `<parts>/<property
   parse/serialize；写回时保持 UTF-8 BOM、注释头、缩进风格（2 空格，文本节点
   带首尾空格——序列化需自定义以逐字节稳定）。
 - `.x_t`：头部 `**PART1` 属性行（FRU/APPL/SITE/DATE 等）可文本级编辑；
-  实体几何显示级通过 `pskernel.dll` GO 面片化（见 §5.1），不做字节级改写。
+  实体几何显示级通过 `pskernel.dll` 面片化（GO 回调见 §5.1；STpre 同源的
+  `PK_TOPOL_facet_2` 表格路径见 §5.2），不做字节级改写。
 
 ---
 
@@ -465,4 +569,5 @@ mat=1）与 `group/parts`（part no 按出现顺序，mat 由 `<parts>/<property
    仍需更多样例。
 6. **Parasolid 完整 B-rep 拓扑**：完整拓扑还原仍留作长期项
    （商业内核 / 超长逆向）；**显示级曲面已通过 Cradle `pskernel.dll`
-   `PK_TOPOL_render_facet` GO 面片化解决**（2026-08-04，见 §5.1）。
+   `PK_TOPOL_render_facet` GO 面片化与 `PK_TOPOL_facet_2` 表格化面片解决**
+   （2026-08-04，见 §5.1 / §5.2）。

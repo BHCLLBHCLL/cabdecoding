@@ -516,6 +516,17 @@ def _get_session() -> _PsSession:
     global _session
     if _session is not None:
         return _session
+    try:
+        # PK_SESSION_start is process-global: only one pskernel session can
+        # exist per process.  If ps_facet2_nodes already started one, reuse
+        # it (same receive_xt/body_name/facet_body contract; it prefers the
+        # STpre PK_TOPOL_facet_2 table path and falls back to GO).
+        import ps_facet2_nodes as _f2
+        if _f2._session is not None:
+            _session = _f2._session
+            return _session
+    except Exception:
+        pass
     prog = find_cradle_programs()
     if prog is None:
         raise RuntimeError(

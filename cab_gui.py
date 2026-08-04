@@ -412,13 +412,26 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         xt_name = next((n for n in members if n.endswith(".x_t")), None)
         if xt_name:
             try:
-                import ps_tessellate
-                if ps_tessellate.available():
-                    self._cad_meshes = ps_tessellate.tessellate_xt(
+                import ps_facet2_nodes
+                if ps_facet2_nodes.available():
+                    # STpre's own node path: PK_TOPOL_facet_2 tables
+                    # (facet -> fin -> data -> point -> coordinate).
+                    self._cad_meshes = ps_facet2_nodes.tessellate_xt(
                         members[xt_name])
             except Exception as exc:
-                self.log(f"Parasolid tessellation skipped: {exc}", "WARN")
+                self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
+                         "WARN")
                 self._cad_meshes = None
+            if not self._cad_meshes:
+                try:
+                    import ps_tessellate
+                    if ps_tessellate.available():
+                        self._cad_meshes = ps_tessellate.tessellate_xt(
+                            members[xt_name])
+                except Exception as exc:
+                    self.log(
+                        f"Parasolid GO tessellation skipped: {exc}", "WARN")
+                    self._cad_meshes = None
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
         self.control.clear_property()
