@@ -259,6 +259,114 @@ class StpreModel:
     def analysis_region(self) -> Optional[ET.Element]:
         return _first(self.root, "analysis_region")
 
+    # -- computational domain (M2) ----------------------------------------
+
+    def domain_base(self) -> Optional[tuple[float, float, float]]:
+        ar = self.analysis_region()
+        el = _first(ar, "base") if ar is not None else None
+        if el is None or not el.text:
+            return None
+        try:
+            vals = [float(x.strip()) for x in el.text.split(",")[:3]]
+        except ValueError:
+            return None
+        return (vals[0], vals[1], vals[2]) if len(vals) == 3 else None
+
+    def domain_size(self) -> Optional[tuple[float, float, float]]:
+        ar = self.analysis_region()
+        el = _first(ar, "size") if ar is not None else None
+        if el is None or not el.text:
+            return None
+        try:
+            vals = [float(x.strip()) for x in el.text.split(",")[:3]]
+        except ValueError:
+            return None
+        return (vals[0], vals[1], vals[2]) if len(vals) == 3 else None
+
+    def domain_unit(self) -> str:
+        ar = self.analysis_region()
+        el = _first(ar, "base") if ar is not None else None
+        return (el.attrib.get("unit", "mm") if el is not None else "mm")
+
+    def domain_material(self) -> str:
+        ar = self.analysis_region()
+        el = _first(ar, "property") if ar is not None else None
+        return (el.text or "").strip() if el is not None and el.text else ""
+
+    def set_domain_geometry(self, base: tuple[float, float, float],
+                            size: tuple[float, float, float],
+                            unit: str = "mm") -> bool:
+        """Update ``<analysis_region><base>/<size>`` (values in ``unit``)."""
+        ar = self.analysis_region()
+        if ar is None:
+            return False
+        for tag, vals in (("base", base), ("size", size)):
+            el = _first(ar, tag)
+            if el is None:
+                el = ET.SubElement(ar, tag)
+                el.tail = "\n   "
+            set_text(el, ",".join(f"{v:.17g}" for v in vals))
+            el.attrib["unit"] = unit
+        return True
+
+    def set_domain_material(self, name: str) -> bool:
+        ar = self.analysis_region()
+        if ar is None:
+            return False
+        el = _first(ar, "property")
+        if el is None:
+            el = ET.SubElement(ar, "property")
+            el.tail = "\n   "
+        set_text(el, name)
+        return True
+
+    def ensure_domain(self, *, name: str = "Domain(cuboid)",
+                      base: tuple[float, float, float] = (0.0, 0.0, 0.0),
+                      size: tuple[float, float, float] = (1.0, 1.0, 1.0),
+                      unit: str = "mm",
+                      material: str = "") -> ET.Element:
+        """Create a cube ``<analysis_region>`` when none exists."""
+        ar = self.analysis_region()
+        if ar is not None:
+            self.set_domain_geometry(base, size, unit)
+            if material:
+                self.set_domain_material(material)
+            return ar
+        ar = ET.Element("analysis_region")
+        ar.attrib["type"] = "cube"
+        ar.tail = "\n"
+        fields = [
+            ("name", name, {}),
+            ("visible_count", "0", {}),
+            ("base", ",".join(f"{v:.17g}" for v in base), {"unit": unit}),
+            ("size", ",".join(f"{v:.17g}" for v in size), {"unit": unit}),
+            ("color", "0,255,255,255", {}),
+            ("property", material, {}),
+            ("monitor", "T", {}),
+            ("heat_balance", "F,F", {}),
+        ]
+        for tag, text, attrs in fields:
+            e = ET.SubElement(ar, tag)
+            e.text = f" {text} "
+            e.tail = "\n   "
+            for k, v in attrs.items():
+                e.attrib[k] = v
+        # six boundary face_list regions (face numbering matches ex4_e)
+        faces = [("Ymin", "1"), ("Xmax", "2"), ("Ymax", "3"),
+                 ("Xmin", "4"), ("Zmin", "5"), ("Zmax", "6")]
+        for fname, fno in faces:
+            r = ET.SubElement(ar, "region")
+            r.attrib["type"] = "face_list"
+            r.tail = "\n   "
+            for tag, text in (("name", fname), ("kind", "aset"),
+                              ("base", name), ("face", f"{name},{fno}"),
+                              ("rad_group_num", "0")):
+                e = ET.SubElement(r, tag)
+                e.text = f" {text} "
+                e.tail = "\n      "
+        self.root.append(ar)
+        return ar
+
     def values(self) -> list[ET.Element]:
         return _children(self.root, "value")
 

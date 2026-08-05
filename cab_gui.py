@@ -15,7 +15,10 @@ from __future__ import annotations
 import os
 import sys
 
+import numpy as np
+
 import cab_vtk
+import cab_domain
 import xemt_export
 from cab_container import CabArchive
 from cab_icons import AppIcons
@@ -48,6 +51,174 @@ except Exception:  # pragma: no cover - headless environments
 
 ST_MANUAL = (r"C:\Program Files\Cradle\CradleCFD2025.2"
              r"\Manuals\ST\HTML\Pre_eng\index.html")
+
+
+class _DomainDialog(QtWidgets.QDialog if _HAS_GUI_DEPS else object):
+    """Edit -> Reset Computational Domain (M2)."""
+
+    _FACTOR = {"mm": 1.0, "m": 1000.0, "cm": 10.0}  # value -> mm
+
+    def __init__(self, model, props, cad_meshes, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Reset Computational Domain")
+        self.model = model
+        self.props = props
+        self.cad_meshes = cad_meshes
+        self.old_spec = cab_domain.domain_from_xml(model) \
+            or cab_domain.DomainSpec()
+        self._build_ui()
+        self._load_spec(self.old_spec)
+
+    # -- UI ---------------------------------------------------------------
+
+    def _build_ui(self) -> None:
+        from PyQt5.QtWidgets import (
+            QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox,
+            QFormLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
+        )
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.coord = QComboBox()
+        self.coord.addItems(["Cartesian", "Cylindrical", "Axial"])
+        self.unit = QComboBox()
+        self.unit.addItems(["mm", "m", "cm"])
+        self.unit.currentTextChanged.connect(self._on_unit_changed)
+        form.addRow("Coordinate system", self.coord)
+        form.addRow("Coordinate value unit", self.unit)
+        self.spins: dict[str, QDoubleSpinBox] = {}
+        for ax, label in (("x", "X"), ("y", "Y"), ("z", "Z")):
+            row = QHBoxLayout()
+            for side in ("min", "max"):
+                sb = QDoubleSpinBox()
+                sb.setRange(-1.0e9, 1.0e9)
+                sb.setDecimals(6)
+                sb.setSingleStep(1.0)
+                self.spins[f"{ax}{side}"] = sb
+                row.addWidget(sb)
+                if side == "min":
+                    row.addWidget(QLabel("~"))
+            form.addRow(f"Rectangular box subdomain {label}", row)
+        self.mat = QComboBox()
+        self.mat.setEditable(True)
+        if self.props is not None:
+            self.mat.addItems(self.props.material_names())
+        form.addRow("Material of computational domain", self.mat)
+        self.extend_chk = QCheckBox("Extend surroundings")
+        self.extend_margin = QDoubleSpinBox()
+        self.extend_margin.setRange(0.0, 1.0e6)
+        self.extend_margin.setDecimals(4)
+        self.extend_margin.setValue(10.0)
+        exrow = QHBoxLayout()
+        exrow.addWidget(self.extend_chk)
+        exrow.addWidget(QLabel("margin"))
+        exrow.addWidget(self.extend_margin)
+        exrow.addStretch(1)
+        form.addRow(exrow)
+        self.auto_y = QCheckBox(
+            "Maximum length in Y direction: Auto setting (axial)")
+        form.addRow(self.auto_y)
+        lay.addLayout(form)
+
+        btns = QHBoxLayout()
+        self.btn_cad = QPushButton("CAD Data Size")
+        self.btn_cad.clicked.connect(self._cad_data_size)
+        self.btn_preview = QPushButton("Preview")
+        self.btn_preview.clicked.connect(lambda: self._apply(True))
+        dlg_btns = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        dlg_btns.accepted.connect(lambda: self._apply(False))
+        dlg_btns.rejected.connect(self._revert)
+        btns.addWidget(self.btn_cad)
+        btns.addWidget(self.btn_preview)
+        btns.addStretch(1)
+        btns.addWidget(dlg_btns)
+        lay.addLayout(btns)
+
+    # -- spec -------------------------------------------------------------
+
+    def _load_spec(self, spec: cab_domain.DomainSpec) -> None:
+        self.coord.setCurrentText(
+            {"cartesian": "Cartesian", "cylindrical": "Cylindrical",
+             "axial": "Axial"}.get(spec.coordinate, "Cartesian"))
+        self.unit.blockSignals(True)
+        self.unit.setCurrentText(spec.unit if spec.unit in self._FACTOR
+                                 else "mm")
+        self.unit.blockSignals(False)
+        self._current_unit = self.unit.currentText()
+        for i, ax in enumerate("xyz"):
+            self.spins[f"{ax}min"].setValue(spec.xyz_min[i])
+            self.spins[f"{ax}max"].setValue(spec.xyz_max[i])
+        if self.mat.count() == 0 or spec.material:
+            self.mat.setCurrentText(spec.material)
+        self.extend_chk.setChecked(any(v != 0.0 for v in spec.extend))
+        self.auto_y.setChecked(spec.auto_y_for_axial)
+
+    def _on_unit_changed(self, new_unit: str) -> None:
+        old_unit = getattr(self, "_current_unit", "mm")
+        if old_unit == new_unit or old_unit not in self._FACTOR \
+                or new_unit not in self._FACTOR:
+            self._current_unit = new_unit
+            return
+        ratio = self._FACTOR[old_unit] / self._FACTOR[new_unit]
+        for sb in self.spins.values():
+            sb.setValue(sb.value() * ratio)
+        self._current_unit = new_unit
+
+    def _current_spec(self) -> cab_domain.DomainSpec:
+        unit = self.unit.currentText()
+        return cab_domain.DomainSpec(
+            coordinate=("cartesian", "cylindrical", "axial")[
+                self.coord.currentIndex()],
+            unit=unit,
+            xyz_min=(self.spins["xmin"].value(), self.spins["ymin"].value(),
+                     self.spins["zmin"].value()),
+            xyz_max=(self.spins["xmax"].value(), self.spins["ymax"].value(),
+                     self.spins["zmax"].value()),
+            material=self.mat.currentText().strip(),
+            extend=(self.extend_margin.value() if self.extend_chk.isChecked()
+                    else 0.0, 0.0, 0.0),
+            auto_y_for_axial=self.auto_y.isChecked(),
+        )
+
+    def _apply(self, preview: bool) -> None:
+        spec = self._current_spec()
+        if self.extend_chk.isChecked() and spec.extend[0] > 0.0:
+            m = spec.extend[0]
+            spec.xyz_min = tuple(v - m for v in spec.xyz_min)
+            spec.xyz_max = tuple(v + m for v in spec.xyz_max)
+            spec.extend = (0.0, 0.0, 0.0)
+        cab_domain.apply_domain(self.model, spec)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+            parent.log(
+                f"Domain preview: {spec.coordinate} "
+                f"min={spec.xyz_min} max={spec.xyz_max} unit={spec.unit}")
+        if not preview:
+            self._current_unit = spec.unit
+            self.accept()
+
+    def _revert(self) -> None:
+        cab_domain.apply_domain(self.model, self.old_spec)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+        self.reject()
+
+    def _cad_data_size(self) -> None:
+        lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
+        if not np.isfinite(lo).all():
+            self.parent().log("CAD Data Size: no tessellated parts", "WARN")
+            return
+        unit = self.unit.currentText()
+        factor = self._FACTOR.get(unit, 1.0)
+        # part_bounds returns metres; convert to the dialog unit (mm factor)
+        scale = 1000.0 / factor
+        for i, ax in enumerate("xyz"):
+            self.spins[f"{ax}min"].setValue(lo[i] * scale)
+            self.spins[f"{ax}max"].setValue(hi[i] * scale)
+        self.parent().log(f"CAD Data Size: {lo * scale} ~ {hi * scale} "
+                          f"[{unit}]")
 
 
 class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
@@ -216,8 +387,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addSeparator()
         add(m, "Deletion of Parts")
         add(m, "Group")
-        add(m, "Reset Computational Domain",
-            lambda: self._on_item_selected("domain", None))
+        add(m, "Reset Computational Domain", self._domain_dialog)
 
         m = mb.addMenu("View(&V)")
         add(m, "Fit to DrawWindow", self._fit_view, "Ctrl+F")
@@ -1140,6 +1310,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Materials: {len(self.props.material_names()) if self.props else 0}"
         )
         QMessageBox.information(self, "Initial Setting (read-only)", msg)
+
+    def _domain_dialog(self) -> None:
+        """Edit -> Reset Computational Domain (M2)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        dlg = _DomainDialog(
+            self.model, self.props, self._cad_meshes, self)
+        if dlg.exec_():
+            self._mark_dirty()
+            self._update_title()
+            self.log("Computational domain updated; save the cab to persist.")
 
     def _wizard_condition(self) -> None:
         self.tree_view.tabs.setCurrentWidget(self.tree_view.cond_tree)

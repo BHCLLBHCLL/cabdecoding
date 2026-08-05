@@ -726,3 +726,34 @@ STpre 的 cab 用一个 `_<project>_all.x_t` 承载全部 body。直接“把导
 后续（M2+）在 `body_files` 基础上扩展：部件 `<file>` 引用可细化到具体
 成员名；导入对话框二期支持 STL/MDL/DXF（`ImportStlFile` 等入口已定位，
 见 DEV_PLAN §3.2）。
+
+## 15. M2：计算域设置实现（2026-08-06）
+
+### 15.1 数据与语义
+
+- 域数据在 `<analysis_region type="cube">`：`<base unit="mm">` +
+  `<size unit="mm">`（min = base，max = base + size），`<property>` 为域材料；
+- 六个边界 `face_list` region（Ymin=1/Xmax=2/Ymax=3/Xmin=4/Zmin=5/Zmax=6）
+  必须保留——`set_domain_geometry` 只改 base/size/property；
+- 无域项目（如新建工程）用 `ensure_domain` 创建完整 cube 域 + 六个
+  face_list region。
+
+### 15.2 新增/修改代码
+
+- `cabxml.py`：`domain_base()/domain_size()/domain_unit()/
+  domain_material()/set_domain_geometry()/set_domain_material()/
+  ensure_domain()`；
+- `cab_domain.py`（新）：`DomainSpec`（coordinate/unit/min/max/material/
+  extend/auto_y）、`domain_from_xml()`、`apply_domain()`、
+  `part_bounds()`（对 tess 应用 XML 列主序 transform 求世界坐标包围盒）；
+- `cab_gui.py`：`_DomainDialog`——坐标系/单位（mm/m/cm 换算）/六轴 min-max/
+  域材料/CAD Data Size（取部件包围盒）/Extend surroundings/轴向 Y 自动/
+  Preview（应用+刷新，不关闭）/OK 写回置脏/Cancel 回退原域；Edit→Reset
+  Computational Domain 菜单接入。
+
+### 15.3 验证
+
+- `tests/test_domain.py`（5 项）：ex4_e 域读取（base/size/material）、
+  修改后序列化重解析、face_list 保留、无域创建、box 包围盒（0..0.01 m →
+  对话框 mm 显示 0..10）、对话框 smoke（CAD Data Size + Preview + Revert）。
+- 全仓 `pytest`：**79 通过 / 4 跳过**。

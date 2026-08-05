@@ -236,7 +236,7 @@ element（XML）
 回归：`tests/test_import.py` 3 项通过；全仓 74 通过 / 4 跳过。
 文档：DEV_SUMMARY §14；CAB_FORMAT_SPEC §5.4。
 
-### M2 计算域设置（1 周）
+### M2 计算域设置（1 周）✅ 已完成（2026-08-06）
 
 **目标**：Edit→Reset Computational Domain 完整可用。
 
@@ -255,6 +255,22 @@ element（XML）
 - 改域范围/材料 → 3D 域框与 XML 同步 → 保存重开一致；
 - “CAD Data Size”结果与 `tess_parts` 包围盒一致；
 - 导出的 `.s` 中与域相关的 REGION 范围正确。
+
+#### M2 实施记录（2026-08-06）
+
+- 新增 `cab_domain.py`：`DomainSpec`、`domain_from_xml`、`apply_domain`、
+  `part_bounds`（应用 XML 列主序 transform 求世界包围盒）；
+- `cabxml.StpreModel` 增加域读写与 `ensure_domain`（无域项目自动创建
+  cube 域 + 6 个 face_list region，面编号对齐 ex4_e：Ymin=1/Xmax=2/
+  Ymax=3/Xmin=4/Zmin=5/Zmax=6）；
+- GUI `_DomainDialog`：坐标系/单位（含 mm↔m↔cm 换算）/min-max/域材料/
+  CAD Data Size/Extend surroundings/轴向 Y 自动/Preview 应用不关闭/
+  Cancel 回退；Edit→Reset Computational Domain 已接入；
+- 一期限制：cylindrical 仅把 `analysis_region@type` 置为 cylinder 并保留
+  cube 几何语义；axial 复用 cube 类型；坐标系细化留待 M5 与 STpre 对拍。
+
+回归：`tests/test_domain.py` 5 项通过；全仓 79 通过 / 4 跳过。
+文档：DEV_SUMMARY §15；CAB_FORMAT_SPEC §5.5。
 
 ### M3 gridding（2–3 周）
 

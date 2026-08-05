@@ -532,6 +532,26 @@ File→Import 导入的 `.x_t` **不拼接**进 `_<project>_all.x_t`（多段 PA
 约束：成员名 ASCII；`add_body_file` 幂等；保存使用
 `archive.to_bytes(preserve_source_blocks=False)` 重建 CFFILE/CFFOLDER。
 
+### 5.5 计算域编辑规则（M2，2026-08-06）
+
+`<analysis_region type="cube">` 的几何与材料字段：
+
+| 子元素 | 语义 | 单位 |
+|---|---|---|
+| `<base unit="mm"> x,y,z </base>` | 域最小角（min） | mm（可 m/cm） |
+| `<size unit="mm"> dx,dy,dz </size>` | 域尺寸 | 同 unit |
+| `<property>` | 域材料名（对应属性库 entry） | — |
+| `<region type="face_list">` × 6 | 边界 region：Ymin=1 / Xmax=2 / Ymax=3 / Xmin=4 / Zmin=5 / Zmax=6 | — |
+
+编辑规则：
+
+- 只改 `base`/`size`/`property`，六个 face_list region 必须保留；
+- `base` 与 `size` 的 `unit` 属性同步修改；读端按 unit 换算成 m 使用；
+- 项目没有 `<analysis_region>` 时（新建工程/纯 x_t 项目），`ensure_domain`
+  创建完整 cube 域并补齐 6 个 face_list region（face 编号见上表）；
+- 坐标类型：一期 `cartesian`（cube）；`cylindrical` 仅切换
+  `analysis_region@type=cylinder`；`axial` 暂沿用 cube 语义。
+
 ---
 
 ## 6. 导出格式 `.s`（SDAT，STsolver 输入）
