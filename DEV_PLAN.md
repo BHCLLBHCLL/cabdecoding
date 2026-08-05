@@ -348,7 +348,7 @@ element（XML）
 回归：`tests/test_mesh.py` 5 项通过；全仓 90 通过 / 4 跳过。
 文档：DEV_SUMMARY §17；CAB_FORMAT_SPEC §5.7。
 
-### M5 验证与文档（1 周）
+### M5 验证与文档（1 周）✅ 已完成（2026-08-06）
 
 任务分解：
 
@@ -358,6 +358,18 @@ element（XML）
 | 5.2 逆向档案 | `DEV_SUMMARY.md` 新增：`ImportXtFile/ExportPartsXtFile/ImportStlFile` RVA 与签名还原、`MeshControl/MeshBlock` 对象布局（`MeshSet*`/`Get*` 偏移表）、`CmdControl::Meshing` 调用链 |
 | 5.3 格式规范 | `CAB_FORMAT_SPEC.md` 补：`mesh_control`（RootBlock 属性表）、`element` 生成规范（i/j/k 盒语义、属性优先级）、导入成员合并规则 |
 | 5.4 使用文档 | `README.md`/`CAB_GUI_DESIGN.md` 更新菜单功能说明与操作流程 |
+
+#### M5 实施记录（2026-08-06）
+
+- `tests/test_workflow.py`（2 项）：box 与 tr03 全流程
+  「导入→建域→Gridding→Meshing→导出 .s/.xemt→cab 往返」通过；
+- 修复 `s_export._child_text` 对缺失 `radiation` 节点的容错（box/tr03
+  导出不再抛 TypeError）；
+- DEV_SUMMARY §18 固化逆向档案（DLL/RVA 表、MeshControl 偏移、STprePMesh
+  worker、5 项黄金对拍清单）；
+- README 更新使用流程（见 §14 之后新增操作说明）。
+
+全仓 `pytest`：**92 通过 / 4 跳过**。
 
 ---
 

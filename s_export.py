@@ -22,6 +22,8 @@ from cabxml import PropertyModel, StpreModel
 
 def _child_text(el, tag: str, default: str = "") -> str:
     from cabxml import _first
+    if el is None:
+        return default
     c = _first(el, tag)
     return c.text.strip() if c is not None and c.text else default
 

@@ -817,3 +817,51 @@ STpre 的 cab 用一个 `_<project>_all.x_t` 承载全部 body。直接“把导
 - `tests/test_mesh.py`（5 项）：box 全域/子集占用（含共享边扰动修正）、
   `apply_elements` 序列化重解析、盒合并、Meshing 对话框 smoke。
 - 全仓 `pytest`：**90 通过 / 4 跳过**。
+
+## 18. M5：端到端验证与逆向档案补全（2026-08-06）
+
+### 18.1 端到端工作流
+
+新增 `tests/test_workflow.py`（2 项）覆盖完整闭环：
+
+```text
+导入 x_t → part_bounds 建域 → Gridding（num_elements）→
+Meshing（element）→ build_sdat/build_emt → cab 重打包重解析
+```
+
+- box：导出 `.s` 含 SDAT/CXYZ/PARTS，`.xemt` 含 EMT，cab 往返后
+  `analysis_boxes` 与网格尺寸一致；
+- tr03（无 element 的纯 x_t 项目）：自动建域 → 网格 → 生成 3 个部件的
+  `element` 盒表 → `.s` PARTS 段含 Case/Impeller/Rotate。
+
+顺带修复 `s_export._child_text`：`analysis_set` 缺 `radiation` 节点（box/tr03
+类项目）时不再抛 `TypeError`，返回默认值。
+
+全仓 `pytest`：**92 通过 / 4 跳过**。
+
+### 18.2 逆向档案补全（供后续 STpre 精确对拍）
+
+STpre = `STpre_Bx64net.exe`（.NET 启动器）+ 原生 C++ DLL。关键导出：
+
+| DLL | 导出（RVA） | 用途 |
+|---|---|---|
+| `STpreBase_Bx64.dll` | `ImportXtFile`(0x32AAB0)、`ImportXtFile2`(0x3E6A70)、`ImportStlFile`(0xCB8C0)、`ImportDxfFile` 等；`ExportAllPartsXtFile`(0x331E50)、`ExportPartsXtFile`(0x20F630)；`MeshControl/MeshBlock/MeshCoord` 类全套；`MeshReset`(0x1F5C70)、`MeshSetElementMax`(0x1F5CD0)、`SetInitialLengthByDomain`(0x8F6B0)、`ImportCabFile` | 格式导入/导出；网格核心 |
+| `STpreTool_Bx64.dll` | `CmdControl::SetXyzDomain/SetCylDomain/SetDomainDefaultSize/SetDomainRange/PreviewDomainRange/UpdateDomainRange`；`CmdControl::Meshing`、`ImportFile`；`OpenGridSetDlg/UpdateGridSetDlg/SendGridSetDlg`、`OpenMeshBlockDlg`、`SetMeshParam/GetMeshParam`、`InitialMesh` | 菜单命令层 |
+| `STpreFile_Bx64.dll` | `LoadLibraryXtFile/LoadLibraryStlFile/LoadLibraryCabFile/Save_S_File/ImportCsvFile` | 文件/库导入、S 输出 |
+| `STpreMesh_Bx64.dll` | `SViewer/CCelControl/CCelBlock/LoadS/LoadEMT/LoadPropFile/SetDisplayDomain/SetCoordinate/Cxyz` | 网格显示（读 CEL/S） |
+| `STprePMesh_Bx64net.exe` | `PMesh execution: rank/size` | 分布式 meshing worker |
+
+已确认的 MeshControl 全局实例偏移（ctypes 探测 + 反汇编）：
+
+- `MeshSetElementMax(xmm0)` → 全局 MeshControl `+0x98`（element 上限）；
+- `MeshReset()` → 读全局 MeshControl `+0xA0`；
+- `MeshSetElementThreshold` 系列在 0x1F5D20 起，写全局 MeshControl（偏移待
+  完整还原）。
+
+与 STpre 精确对拍的后续项（黄金数据）：
+
+1. `representative`/`axis_plane` 顶点检测的精确特征面识别；
+2. 内/外几何比分区的 `outer_range` 语义逐项核对；
+3. 圆柱/轴对称坐标系的 R/θ 网格；
+4. cut-cell 表面单元处理与 STpre 的精确行程编码；
+5. panel/sheet（开放曲面）占用规则。
