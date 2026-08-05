@@ -363,6 +363,88 @@ class StpreModel:
                 return boxes
         return []
 
+    # -- body files / import (M1) -----------------------------------------
+
+    def body_files(self) -> list[str]:
+        """Names of the ``<body_files><file type="xt">`` references."""
+        bf = _first(self.root, "body_files")
+        if bf is None:
+            return []
+        return [(c.text or "").strip() for c in _children(bf, "file")
+                if c.attrib.get("type", "xt") == "xt" and c.text]
+
+    def add_body_file(self, name: str, unit: str = "m") -> bool:
+        """Register an additional ``.x_t`` member; no-op when already listed."""
+        bf = _first(self.root, "body_files")
+        if bf is None:
+            bf = ET.Element("body_files")
+            bf.attrib["unit"] = unit
+            bf.text = "\n   "
+            bf.tail = "\n"
+            self.root.append(bf)
+        for c in _children(bf, "file"):
+            if c.attrib.get("type", "xt") == "xt" \
+                    and (c.text or "").strip() == name:
+                return False
+        e = ET.SubElement(bf, "file")
+        e.attrib["type"] = "xt"
+        e.text = f" {name} "
+        e.tail = "\n   "
+        return True
+
+    def add_part(self, *, name: str, name2: str = "", kind: str = "body",
+                 property_: Optional[str] = None,
+                 attribute: str = "solid", color: str = "25,25,255,255",
+                 volume: str = "", transform: Optional[str] = None,
+                 group: Optional[str] = None, file_ref: str = "x_t",
+                 facet_kind: str = "2", layer: str = "1") -> Optional[ET.Element]:
+        """Append a ``<parts>`` element (STpre part metadata layout).
+
+        The element is inserted under ``<group name=group>`` when given,
+        otherwise directly under the document root.  Text/tail whitespace is
+        set to match the ex4_e serialization style so edited files stay
+        human-readable and parseable by the byte-stable serializer.
+        """
+        if self.find_part(name) is not None:
+            return None
+        parent: ET.Element = self.root
+        if group:
+            for grp in self.groups():
+                g = _first(grp, "name")
+                if g is not None and (g.text or "").strip() == group:
+                    parent = grp
+                    break
+        parts = ET.Element("parts")
+        parts.attrib["type"] = kind
+        identity = ("1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1")
+        fields = [
+            ("name", name),
+            ("name2", name2 or name),
+            ("property", property_ if property_ is not None else ""),
+            ("attribute", attribute),
+            ("volume", volume),
+            ("color", color),
+            ("mode", "global"),
+            ("visible_count", "1"),
+            ("tree_expand", "F"),
+            ("layer", layer),
+            ("monitor", "T"),
+            ("rad_group_num", "0"),
+            ("heat_balance", "F,F"),
+            ("VF_balance", "F"),
+            ("facet_kind", facet_kind),
+            ("def_axis", "+Z"),
+            ("file", file_ref),
+            ("transform", transform if transform is not None else identity),
+        ]
+        for tag, value in fields:
+            e = ET.SubElement(parts, tag)
+            e.text = f" {value} "
+            e.tail = "\n         "
+        parts.tail = "\n      "
+        parent.append(parts)
+        return parts
+
 
 class PropertyModel:
     """Typed view over :class:`PropertyDoc` (materials)."""

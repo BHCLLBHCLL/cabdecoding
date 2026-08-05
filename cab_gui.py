@@ -200,7 +200,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Save", self._save, "Ctrl+S")
         add(m, "Save As…", self._save_dialog, "Ctrl+Shift+S")
         m.addSeparator()
-        add(m, "Import…")
+        add(m, "Import…", self._import_dialog)
         add(m, "Export…", self._export_dialog, "Ctrl+E")
         m.addSeparator()
         add(m, "Print")
@@ -293,6 +293,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tb_file = tb("File")
         act(self.tb_file, "Open", "open", "Open Project (CAB)",
             self._open_dialog)
+        act(self.tb_file, "Import", "import", "Import XT File",
+            self._import_dialog)
         act(self.tb_file, "Save", "save", "Save CAB", self._save)
         act(self.tb_file, "Export", "export", "Export .s / .xemt",
             self._export_dialog)
@@ -414,16 +416,24 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Default: Domain face mode ON (matches tree checkbox checked=True)
         self._domain_face_mode = set(self.model.analysis_names())
         self._cad_meshes = None
-        xt_name = next((n for n in members if n.endswith(".x_t")), None)
-        if xt_name:
+        xt_names = [n for n in members if n.endswith(".x_t")]
+        if xt_names:
             try:
                 import ps_facet2_nodes
                 if ps_facet2_nodes.available():
                     # STpre's own node path: PK_TOPOL_facet_2 tables
                     # (facet -> fin -> data -> point -> coordinate), with
                     # per-face adaptive refinement for large curved faces.
-                    self._cad_meshes = ps_facet2_nodes.tessellate_xt(
-                        members[xt_name], adaptive=True)
+                    meshes: list = []
+                    for xt_name in xt_names:
+                        try:
+                            meshes += ps_facet2_nodes.tessellate_xt(
+                                members[xt_name], adaptive=True)
+                        except Exception as exc:
+                            self.log(
+                                f"facet_2 tessellation skipped {xt_name}: "
+                                f"{exc}", "WARN")
+                    self._cad_meshes = meshes or None
             except Exception as exc:
                 self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
                          "WARN")
@@ -432,8 +442,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 try:
                     import ps_tessellate
                     if ps_tessellate.available():
-                        self._cad_meshes = ps_tessellate.tessellate_xt(
-                            members[xt_name])
+                        meshes = []
+                        for xt_name in xt_names:
+                            try:
+                                meshes += ps_tessellate.tessellate_xt(
+                                    members[xt_name])
+                            except Exception as exc:
+                                self.log(
+                                    f"GO tessellation skipped {xt_name}: "
+                                    f"{exc}", "WARN")
+                        self._cad_meshes = meshes or None
                 except Exception as exc:
                     self.log(
                         f"Parasolid GO tessellation skipped: {exc}", "WARN")
@@ -971,6 +989,47 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self, "打开 cab", "", "scSTREAM project (*.cab);;All (*)")
         if path:
             self.load(path)
+
+    def _import_dialog(self) -> None:
+        """File -> Import: add an .x_t file as new parts + cab member."""
+        if self.model is None or self.archive is None:
+            self.log("No project open.", "WARN")
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Import XT", "",
+            "Parasolid XT (*.x_t *.xmt_txt);;All files (*)")
+        if not path:
+            return
+        try:
+            import cab_import
+            if not cab_import.available():
+                QMessageBox.warning(
+                    self, "导入不可用",
+                    "未找到 Cradle pskernel.dll，无法导入 x_t。")
+                return
+            bodies = cab_import.import_xt_file(path)
+            if not bodies:
+                QMessageBox.warning(
+                    self, "导入失败", "x_t 中没有可显示的 body。")
+                return
+            with open(path, "rb") as fh:
+                raw = fh.read()
+            member = cab_import.add_xt_member(self.archive, raw)
+            self.model.add_body_file(member.name)
+            added = cab_import.register_parts(self.model, bodies)
+            self._cad_meshes = list(self._cad_meshes or []) + \
+                [b.tess for b in bodies]
+            self.tree_view.populate(self.model, self.archive.members)
+            self._rebuild_scene()
+            self._mark_dirty()
+            skipped = len(bodies) - len(added)
+            self.log(
+                f"Imported {path}: {len(bodies)} bodies -> {member.name}, "
+                f"parts added: {', '.join(added) or '-'}"
+                + (f", {skipped} duplicate name(s) skipped" if skipped else ""))
+        except Exception as exc:
+            QMessageBox.critical(self, "导入失败", str(exc))
+            self.log(f"Import failed: {exc}", "ERROR")
 
     def _reload(self) -> None:
         if self.current_path:

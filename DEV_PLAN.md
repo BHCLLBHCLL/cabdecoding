@@ -191,7 +191,7 @@ element（XML）
 
 ## 6. 分阶段开发计划
 
-### M1 命令框架 + x_t 导入（1–2 周）
+### M1 命令框架 + x_t 导入（1–2 周）✅ 已完成（2026-08-06）
 
 **目标**：File→Import 可用；导入的几何能显示、保存、重开一致。
 
@@ -211,6 +211,30 @@ element（XML）
 - 导入 `tests/tr03/_tr03_all.x_t` 类文件 → 树新增部件、3D 显示光滑曲面；
 - Save As → 重开 cab：部件、x_t 成员、曲面一致；
 - 导入一个外部 x_t 到 ex4_e 项目后，`_all.x_t` 仍可被 pskernel 接收。
+
+#### M1 实施记录（2026-08-06）
+
+按计划完成，两处实现细节已按可行性调整：
+
+1. **持久化方式改为“独立成员”**：导入的 x_t 原样存为
+   `<project>_import_NNNN.x_t` 并在 `<body_files>` 登记，而不是字节级合并进
+   `_all.x_t`（多段 PART1 头拼接的传输流无法被 `PK_PART_receive` 解析）。
+   GUI 加载时遍历全部 x_t 成员逐个接收，保存/重开一致。
+2. **部件注册字段**：`add_part` 按 ex4_e 官方 `<parts type="body">` 的 18
+   个子字段生成（含 name2/property/attribute/color/transform 等），并保持
+   字节稳定序列化器兼容（text/tail 空白对齐）。
+
+实际接口（与 §7.1 草案一致，签名见代码）：
+
+- `cab_import.import_xt_bytes(raw, adaptive=True, **kw) -> list[ImportedBody]`
+- `cab_import.import_xt_file(path, adaptive=True, **kw) -> list[ImportedBody]`
+- `cab_import.add_xt_member(archive, xt_bytes, name=None) -> CabMember`
+- `cab_import.register_parts(model, bodies, *, group/material/color/transform)
+  -> list[str]`
+- `cabxml.StpreModel.add_part(...)` / `body_files()` / `add_body_file()`
+
+回归：`tests/test_import.py` 3 项通过；全仓 74 通过 / 4 跳过。
+文档：DEV_SUMMARY §14；CAB_FORMAT_SPEC §5.4。
 
 ### M2 计算域设置（1 周）
 

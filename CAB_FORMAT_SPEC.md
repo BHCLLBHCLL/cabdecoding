@@ -505,6 +505,33 @@ GUI 加载时优先使用 `ps_facet2_nodes.tessellate_xt()`（facet_2 表路径�
 再退回 `ps_tessellate`（GO 路径）；同一进程只能启动一个 pskernel 会话，
 `ps_tessellate._get_session()` 会复用已由 `ps_facet2_nodes` 启动的会话。
 
+### 5.4 多 x_t 成员与 body_files 引用（M1 导入，2026-08-06）
+
+File→Import 导入的 `.x_t` **不拼接**进 `_<project>_all.x_t`（多段 PART1 头
+拼接会使 `PK_PART_receive` 解析失败），而是：
+
+1. 原始传输流存为独立成员：`<project>_import_0001.x_t`（`cab_import`
+   自动递增编号，避免与已有成员重名）；
+2. `ex4_e.xml` 的 `<body_files unit="m">` 追加引用：
+
+   ```xml
+   <body_files unit="m">
+      <file type="xt"> _ex4_e_all.x_t </file>
+      <file type="xt"> _ex4_e_import_0001.x_t </file>
+   </body_files>
+   ```
+
+3. 读取端必须**遍历全部 `<file type="xt">` 对应成员**逐个
+   `PK_PART_receive`，把各成员导出的 body 合并显示；部件仍按
+   `SDL/TYSA_NAME` 与 `<parts>/<name>` 匹配，与几何文件归属无关；
+4. 每个导入 body 注册为 `<parts type="body">`，字段布局对齐官方样式：
+   `name/name2/property/attribute/volume/color/mode/visible_count/
+   tree_expand/layer/monitor/rad_group_num/heat_balance/VF_balance/
+   facet_kind/def_axis/file/transform`（transform 缺省为单位阵）。
+
+约束：成员名 ASCII；`add_body_file` 幂等；保存使用
+`archive.to_bytes(preserve_source_blocks=False)` 重建 CFFILE/CFFOLDER。
+
 ---
 
 ## 6. 导出格式 `.s`（SDAT，STsolver 输入）

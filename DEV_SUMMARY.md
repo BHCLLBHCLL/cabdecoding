@@ -680,3 +680,49 @@ surface_plane_tol/ang）可以挂到**单个/一组 PK_FACE 或 body** 上覆盖
   必须细化且不减面、box 平面保持不变；另有 face 度量健全性断言）。
 - 文档同步：CAB_FORMAT_SPEC §5.2（0x57C2=fin_edge 纠错）与新增 §5.3
   （局部容差结构与自适应调用方式）；本节约 §13.1–13.6。
+
+## 14. M1：File→Import x_t 导入实现（2026-08-06）
+
+### 14.1 设计决策：独立 x_t 成员，不做字节级拼接
+
+STpre 的 cab 用一个 `_<project>_all.x_t` 承载全部 body。直接“把导入文件的
+原始字节追加到该成员”会得到多个 PART1 头/T51 记录拼接的非法传输流，
+`PK_PART_receive` 无法解析。因此 M1 采用：
+
+1. 每个导入的 `.x_t` 文件**原样**作为新 cab 成员保存：
+   `<project>_import_0001.x_t`、`_0002.x_t` …（`cab_import.add_xt_member`）；
+2. `ex4_e.xml` 的 `<body_files>` 追加 `<file type="xt">` 引用
+   （`StpreModel.add_body_file`，幂等）；
+3. GUI 加载时**遍历全部 `.x_t` 成员**逐个 `PK_PART_receive` 并三角化，
+   导入部件因此能保存/重开一致；
+4. 每个 body 注册为 `<parts type="body">`（`StpreModel.add_part`），字段
+   布局对齐 ex4_e 官方样式（name/name2/property/attribute/volume/color/
+   mode/visible_count/tree_expand/layer/monitor/rad_group_num/
+   heat_balance/VF_balance/facet_kind/def_axis/file/transform）。
+
+### 14.2 新增/修改代码
+
+- `cab_import.py`（新）：`ImportedBody`、`import_xt_bytes()`、
+  `import_xt_file()`、`add_xt_member()`、`register_parts()`、`available()`。
+  导入走共享 pskernel 会话，三角化默认 `adaptive=True`（facet_2 表路径 +
+  每 face 局部容差），失败时可关。
+- `cabxml.py`（扩展）：`StpreModel.body_files()` / `add_body_file()` /
+  `add_part()`；新元素 text/tail 空白按 ex4_e 缩进风格设置，兼容字节稳定
+  序列化器。
+- `cab_gui.py`：`load()` 改为遍历所有 `x_t` 成员（facet_2 与 GO 两条路径
+  都循环）；File→Import… 菜单与 File 工具栏 Import 按钮接入
+  `_import_dialog()`：选文件 → 导入/三角化 → 追加成员 → 注册部件 →
+  刷新树与 3D → 置脏。
+
+### 14.3 验证
+
+- `tests/test_import.py`（3 项）：
+  - box x_t 导入 → 1 body、8 节点/12 三角形；
+  - 追加成员 + `body_files` 幂等 + `add_part` 序列化重解析 + cab 重打包
+    往返（成员数 +1）；
+  - GUI 加载含两个 x_t 成员的 cab → 两个成员都被三角化、树含导入部件。
+- 全仓 `pytest`：**74 通过 / 4 跳过**。
+
+后续（M2+）在 `body_files` 基础上扩展：部件 `<file>` 引用可细化到具体
+成员名；导入对话框二期支持 STL/MDL/DXF（`ImportStlFile` 等入口已定位，
+见 DEV_PLAN §3.2）。
