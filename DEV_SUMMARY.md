@@ -785,3 +785,35 @@ STpre 的 cab 用一个 `_<project>_all.x_t` 承载全部 body。直接“把导
   几何比单调性与阈值、目标单元数换算、`set_mesh` 序列化重解析（grid 数、
   mesh_axes 一致）、Gridding 对话框 smoke。
 - 全仓 `pytest`：**85 通过 / 4 跳过**。
+
+## 17. M4：Meshing 实现（2026-08-06）
+
+### 17.1 算法
+
+- `cab_mesh.py`（新）：
+  - `classify_part_cells()`：以 `mesh_block` 单元中心为射线原点，对每个
+    部件的三角化曲面做 **+X 偶数-奇数射线判定**（每三角形只处理其 yz 投影
+    包围盒覆盖的单元切片，`numpy` 向量化）；
+  - 射线恰好穿过三角形共享边时两个三角形都会命中导致奇偶翻转——对射线
+    原点加 `1e-11/2e-11 × 域尺度` 的扰动，保证共享边只被一个三角形计数
+    （box 全域 10³ 单元从 940 修正到 1000）；
+  - `_merge_boxes()`：占用单元按 i 行程 + j/k 邻接贪心合并为轴对齐盒；
+  - `classify_cells()`：部件 bbox 预过滤 + 逐部件判定，返回 Domain
+    `<analysis>` 盒与各部件盒表；
+  - `apply_elements()`：写 `<element>`（1-based 闭区间
+    `i1,i2,j1,j2,k1,k2,0,1,1`），替换旧 `<element>`。
+- `cab_gui._meshing_dialog()`：Mesh→Meshing 执行入口；状态栏进度；
+  完成后刷新 3D（Element division 显示）并置脏。进度用状态栏而非模态
+  QProgressDialog（offscreen 下模态框会阻塞）。
+
+### 17.2 一期限制（待黄金对拍）
+
+- 表面单元以 epsilon 判定，未做 STpre 的精确 cut-cell 表面处理；
+- panel/sheet（开放曲面）未特殊处理（奇偶法只适用于封闭体）；
+- 盒表合并是贪心近似，不是 STpre 的精确行程编码。
+
+### 17.3 验证
+
+- `tests/test_mesh.py`（5 项）：box 全域/子集占用（含共享边扰动修正）、
+  `apply_elements` 序列化重解析、盒合并、Meshing 对话框 smoke。
+- 全仓 `pytest`：**90 通过 / 4 跳过**。

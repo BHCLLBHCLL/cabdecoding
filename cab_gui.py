@@ -566,7 +566,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m = mb.addMenu("Mesh(&G)")
         add(m, "Gridding…", self._gridding_dialog)
         add(m, "Checking S-File", self._check_sfile)
-        add(m, "Meshing")
+        add(m, "Meshing", self._meshing_dialog)
         add(m, "Editing Mesh")
 
         m = mb.addMenu("Option(&O)")
@@ -1487,6 +1487,47 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._mark_dirty()
             self._update_title()
             self.log("Grid saved; save the cab to persist.")
+
+    def _meshing_dialog(self) -> None:
+        """Mesh -> Meshing (M4): generate element occupancy from CAD."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        axes = self.model.mesh_axes()
+        if not axes or any(len(v) < 2 for v in axes.values()):
+            QMessageBox.warning(
+                self, "Meshing", "No mesh_block found. Run Mesh -> Gridding "
+                                 "first.")
+            return
+        meshes = self._cad_meshes or []
+        if not meshes:
+            QMessageBox.warning(
+                self, "Meshing", "No tessellated CAD parts available.")
+            return
+        try:
+            import cab_mesh
+            transforms = {p.name: p.transform for p in self.model.parts()}
+
+            def tick(done: int, total: int) -> None:
+                self.statusBar().showMessage(
+                    f"Meshing: classifying part {done}/{total} …")
+
+            analysis_box, part_boxes = cab_mesh.classify_cells(
+                axes, meshes, transforms=transforms, progress=tick)
+            analysis_name = (self.model.analysis_names() or
+                             ["Domain(cuboid)"])[0]
+            cab_mesh.apply_elements(
+                self.model, analysis_name, analysis_box, part_boxes)
+            self._rebuild_scene()
+            self._mark_dirty()
+            self._update_title()
+            total = sum(len(v) for v in part_boxes.values())
+            self.log(
+                f"Meshing done: {len(part_boxes)} part(s), {total} box "
+                f"list(s); domain {analysis_box}. Save to persist.")
+        except Exception as exc:
+            QMessageBox.critical(self, "Meshing failed", str(exc))
+            self.log(f"Meshing failed: {exc}", "ERROR")
 
     def _check_sfile(self) -> None:
         if self.model is None or self.props is None:

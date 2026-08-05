@@ -590,6 +590,36 @@ File→Import 导入的 `.x_t` **不拼接**进 `_<project>_all.x_t`（多段 PA
 `num`。一期近似项（representative/axis_plane、num_elements 均匀分布、
 圆柱坐标）见 DEV_SUMMARY §16.2。
 
+### 5.7 element 占用表生成规范（M4，2026-08-06）
+
+`<element>` 由 `cab_mesh` 从 `mesh_block` 轴 + 三角化 CAD 曲面生成：
+
+```xml
+<element>
+  <analysis name="Domain(cuboid)">
+    <body num="1">
+      <list no="1"> 1,98,1,242,1,62,0,1,1 </list>
+    </body>
+  </analysis>
+  <parts name="lower_cover_01">
+    <body num="N">
+      <list no="1"> i1,i2,j1,j2,k1,k2,0,1,1 </list>
+      ...
+    </body>
+  </parts>
+</element>
+```
+
+规则：
+
+- 盒表为 **1-based 闭区间** `i1,i2,j1,j2,k1,k2`，固定尾随 `0,1,1`；
+- Domain `<analysis>` 盒 = 全域 `1,nx,1,ny,1,nz`（nx/ny/nz 为单元数 =
+  `mesh_block` 点数 − 1）；
+- 部件占用 = 单元中心对部件三角曲面做 +X 偶数-奇数射线判定（封闭体）；
+  射线过共享边时用微小扰动保证只计一次；
+- 占用单元按 i 行程 + j/k 邻接贪心合并；一期不是 STpre 的精确行程编码；
+- 表面单元以 epsilon 判定，panel/open surface 未特殊处理（M5 对拍项）。
+
 ---
 
 ## 6. 导出格式 `.s`（SDAT，STsolver 输入）

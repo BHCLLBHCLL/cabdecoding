@@ -312,7 +312,7 @@ element（XML）
 回归：`tests/test_grid.py` 6 项通过；全仓 85 通过 / 4 跳过。
 文档：DEV_SUMMARY §16；CAB_FORMAT_SPEC §5.6。
 
-### M4 meshing（2–3 周）
+### M4 meshing（2–3 周）✅ 已完成（2026-08-06）
 
 **目标**：Mesh→Meshing 生成 `element`，完成导入→网格→导出闭环。
 
@@ -333,6 +333,20 @@ element（XML）
   `<element>`（数量可不同，但结构/属性一致）；
 - `.s` 导出后 flddecoding 能正常生成 FLD；
 - 大模型（>100 万单元）有进度条且内存可控（稀疏盒表）。
+
+#### M4 实施记录（2026-08-06）
+
+- 新增 `cab_mesh.py`：+X 偶数-奇数射线判定（按三角形 yz 投影切片向量化）、
+  共享边扰动修正、贪心盒合并、`apply_elements` 写 `<element>`；
+- `cab_gui._meshing_dialog()`：Mesh→Meshing 执行入口，状态栏进度；
+  进度实现从模态 QProgressDialog 改为状态栏（offscreen 模态会阻塞）；
+- 一期限制：表面单元 epsilon 判定、开放曲面未处理、盒合并非 STpre 精确
+  行程编码（DEV_SUMMARY §17.2，M5 黄金对拍项）；
+- 大模型性能：每三角形只处理投影覆盖的单元切片 + bbox 预过滤，仍为
+  O(面数×覆盖单元)，百万单元/万面级模型需在 M5 做进一步加速评估。
+
+回归：`tests/test_mesh.py` 5 项通过；全仓 90 通过 / 4 跳过。
+文档：DEV_SUMMARY §17；CAB_FORMAT_SPEC §5.7。
 
 ### M5 验证与文档（1 周）
 
