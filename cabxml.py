@@ -331,6 +331,38 @@ class StpreModel:
             return boxes
         return []
 
+    def analysis_names(self) -> list[str]:
+        """Names of ``element/analysis`` blocks (computational domains)."""
+        el = self.elements()
+        if el is None:
+            return []
+        return [a.attrib.get("name", "") for a in _children(el, "analysis")
+                if a.attrib.get("name")]
+
+    def analysis_boxes(self, name: Optional[str] = None) -> list[list[int]]:
+        """Body index boxes from ``element/analysis`` (Domain occupancy).
+
+        If ``name`` is None, return boxes for the first analysis block.
+        """
+        el = self.elements()
+        if el is None:
+            return []
+        for an in _children(el, "analysis"):
+            aname = an.attrib.get("name", "")
+            if name is not None and aname != name:
+                continue
+            body = _first(an, "body")
+            if body is None:
+                continue
+            boxes: list[list[int]] = []
+            for lst in _children(body, "list"):
+                if not lst.text:
+                    continue
+                boxes.append([int(x) for x in lst.text.split(",")])
+            if boxes:
+                return boxes
+        return []
+
 
 class PropertyModel:
     """Typed view over :class:`PropertyDoc` (materials)."""

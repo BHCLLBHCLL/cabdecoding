@@ -378,30 +378,36 @@ def edges_actor(pd, color: tuple[float, float, float] = (0.15, 0.15, 0.18),
     """Mesh-line overlay on a part polydata (from pph_vtk.edges_actor)."""
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
-    try:
-        ext = vtk.vtkFeatureEdges()
-        ext.SetInputData(pd)
-        ext.BoundaryEdgesOn()
-        ext.ManifoldEdgesOn()
-        ext.NonManifoldEdgesOff()
-        ext.FeatureEdgesOff()
-        ext.ColoringOff()
-        ext.Update()
-        edge_pd = ext.GetOutput()
-        if edge_pd is None or edge_pd.GetNumberOfCells() == 0:
-            raise RuntimeError("empty feature edges")
-    except Exception:
-        ext2 = vtk.vtkExtractEdges()
-        ext2.SetInputData(pd)
-        ext2.Update()
-        edge_pd = ext2.GetOutput()
+    # Already a line set (e.g. element_division_lines) — map directly.
+    if pd is not None and pd.GetNumberOfLines() > 0 and pd.GetNumberOfPolys() == 0:
+        edge_pd = pd
+    else:
+        try:
+            ext = vtk.vtkFeatureEdges()
+            ext.SetInputData(pd)
+            ext.BoundaryEdgesOn()
+            ext.ManifoldEdgesOn()
+            ext.NonManifoldEdgesOff()
+            ext.FeatureEdgesOff()
+            ext.ColoringOff()
+            ext.Update()
+            edge_pd = ext.GetOutput()
+            if edge_pd is None or edge_pd.GetNumberOfCells() == 0:
+                raise RuntimeError("empty feature edges")
+        except Exception:
+            ext2 = vtk.vtkExtractEdges()
+            ext2.SetInputData(pd)
+            ext2.Update()
+            edge_pd = ext2.GetOutput()
 
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputData(edge_pd)
     mapper.ScalarVisibilityOff()
     try:
         mapper.SetResolveCoincidentTopologyToPolygonOffset()
-        mapper.SetRelativeCoincidentTopologyLineOffsetParameters(-1, -4)
+        # Pull lines in front of opaque CAD shading (STpre-like overlay).
+        mapper.SetRelativeCoincidentTopologyLineOffsetParameters(-2, -8)
+        mapper.SetRelativeCoincidentTopologyPolygonOffsetParameters(-1, -4)
     except Exception:
         pass
     actor = vtk.vtkActor()
@@ -413,6 +419,240 @@ def edges_actor(pd, color: tuple[float, float, float] = (0.15, 0.15, 0.18),
     prop.SetAmbient(1.0)
     prop.SetDiffuse(0.0)
     prop.LightingOff()
+    try:
+        prop.SetRepresentationToWireframe()
+    except Exception:
+        pass
+    return actor
+
+
+def _axis_slice_m(axes: dict[str, list[float]], axis: str,
+                  i1: int, i2: int) -> Optional[list[float]]:
+    """Node coordinates (m) covering element index range ``i1..i2`` (1-based)."""
+    coords = axes.get(axis) or []
+    if not (1 <= i1 <= len(coords) and 0 <= i2 < len(coords)):
+        return None
+    lo = min(i1 - 1, i2)
+    hi = max(i1 - 1, i2)
+    # include both ends of the occupied cell span (same as _ijk_box_to_bounds)
+    return [coords[k] / 1000.0 for k in range(lo, hi + 1)]
+
+
+def element_division_lines(model: StpreModel, part_name: str | None = None,
+                           max_lines: int = 250_000,
+                           surface_eps: float = 1e-5,
+                           boxes: list | None = None,
+                           interior_stride: int = 0):
+    """Structured-mesh lines for STpre **Element division**.
+
+    Unlike occupancy-box FeatureEdges (coarse stair outlines), this draws the
+    ``mesh_block`` grid on every face of each ``element`` index box — the dense
+    body mesh lines STpre shows when Element division is on.
+
+    Pass ``part_name`` for ``element/parts``, or ``boxes`` for a pre-fetched
+    index list (e.g. Domain from ``element/analysis``).
+
+    ``surface_eps`` (meters) nudges each face grid slightly outward so lines
+    remain visible over opaque CAD shading.
+
+    ``interior_stride`` > 0 also draws sparse internal grid planes (volume
+    mesh) every N node lines — used for Domain(cuboid) body.
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return None
+    if boxes is None:
+        if not part_name:
+            return None
+        boxes = model.part_boxes(part_name)
+    if not boxes:
+        return None
+
+    pts: list[list[float]] = []
+    lines: list[list[int]] = []
+    eps = max(0.0, float(surface_eps))
+    stride_i = max(0, int(interior_stride))
+
+    def add_line(a, b):
+        i = len(pts)
+        pts.append(a)
+        pts.append(b)
+        lines.append([i, i + 1])
+
+    for box in boxes:
+        if len(box) < 6:
+            continue
+        xs = _axis_slice_m(axes, "x", box[0], box[1])
+        ys = _axis_slice_m(axes, "y", box[2], box[3])
+        zs = _axis_slice_m(axes, "z", box[4], box[5])
+        if not xs or not ys or not zs:
+            continue
+        if len(xs) < 2 or len(ys) < 2 or len(zs) < 2:
+            continue
+        x0, x1 = xs[0], xs[-1]
+        y0, y1 = ys[0], ys[-1]
+        z0, z1 = zs[0], zs[-1]
+        # outward nudge so overlay clears shaded CAD
+        xl, xh = x0 - eps, x1 + eps
+        yl, yh = y0 - eps, y1 + eps
+        zl, zh = z0 - eps, z1 + eps
+
+        # 6 faces of this occupancy brick — full structured grid on each face
+        for y in ys:
+            add_line([xl, y, zl], [xh, y, zl])
+            add_line([xl, y, zh], [xh, y, zh])
+            add_line([xl, y, zl], [xl, y, zh])
+            add_line([xh, y, zl], [xh, y, zh])
+        for x in xs:
+            add_line([x, yl, zl], [x, yh, zl])
+            add_line([x, yl, zh], [x, yh, zh])
+            add_line([x, yl, zl], [x, yl, zh])
+            add_line([x, yh, zl], [x, yh, zh])
+        for z in zs:
+            add_line([xl, yl, z], [xh, yl, z])
+            add_line([xl, yh, z], [xh, yh, z])
+            add_line([xl, yl, z], [xl, yh, z])
+            add_line([xh, yl, z], [xh, yh, z])
+
+        # sparse interior planes for volume domain mesh
+        if stride_i > 0:
+            for x in xs[stride_i:-stride_i:stride_i]:
+                for y in ys:
+                    add_line([x, y, zl], [x, y, zh])
+                for z in zs:
+                    add_line([x, yl, z], [x, yh, z])
+            for y in ys[stride_i:-stride_i:stride_i]:
+                for x in xs:
+                    add_line([x, y, zl], [x, y, zh])
+                for z in zs:
+                    add_line([xl, y, z], [xh, y, z])
+            for z in zs[stride_i:-stride_i:stride_i]:
+                for x in xs:
+                    add_line([x, yl, z], [x, yh, z])
+                for y in ys:
+                    add_line([xl, y, z], [xh, y, z])
+
+        if len(lines) > max_lines:
+            break
+
+    if not lines:
+        return None
+    return _polydata(np.asarray(pts, dtype=np.float64),
+                     np.asarray(lines, dtype=np.int64), "lines")
+
+
+def element_division_shell(model: StpreModel, part_name: str | None = None,
+                           boxes: list | None = None,
+                           max_quads: int = 500_000,
+                           surface_eps: float = 0.0):
+    """Opaque structured quads on occupancy-box faces (STpre Element shading).
+
+    Builds the closed outer shell of each index brick as mesh_block face
+    quads so Domain/Part element division can be drawn opaque (not wireframe).
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return None
+    if boxes is None:
+        if not part_name:
+            return None
+        boxes = model.part_boxes(part_name)
+    if not boxes:
+        return None
+
+    pts: list[list[float]] = []
+    quads: list[list[int]] = []
+    eps = max(0.0, float(surface_eps))
+
+    def add_quad(a, b, c, d):
+        i = len(pts)
+        pts.extend((a, b, c, d))
+        quads.append([i, i + 1, i + 2, i + 3])
+
+    for box in boxes:
+        if len(box) < 6:
+            continue
+        xs = _axis_slice_m(axes, "x", box[0], box[1])
+        ys = _axis_slice_m(axes, "y", box[2], box[3])
+        zs = _axis_slice_m(axes, "z", box[4], box[5])
+        if not xs or not ys or not zs:
+            continue
+        if len(xs) < 2 or len(ys) < 2 or len(zs) < 2:
+            continue
+        x0, x1 = xs[0] - eps, xs[-1] + eps
+        y0, y1 = ys[0] - eps, ys[-1] + eps
+        z0, z1 = zs[0] - eps, zs[-1] + eps
+        # Keep face grids on the nudged planes but use original node spacing
+        # in-plane (map xs/ys/zs onto [x0,x1] only at ends).
+        xs_f = list(xs)
+        ys_f = list(ys)
+        zs_f = list(zs)
+        xs_f[0], xs_f[-1] = x0, x1
+        ys_f[0], ys_f[-1] = y0, y1
+        zs_f[0], zs_f[-1] = z0, z1
+
+        # z = const faces
+        for z in (zs_f[0], zs_f[-1]):
+            for i in range(len(xs_f) - 1):
+                for j in range(len(ys_f) - 1):
+                    add_quad(
+                        [xs_f[i], ys_f[j], z],
+                        [xs_f[i + 1], ys_f[j], z],
+                        [xs_f[i + 1], ys_f[j + 1], z],
+                        [xs_f[i], ys_f[j + 1], z],
+                    )
+        # y = const faces
+        for y in (ys_f[0], ys_f[-1]):
+            for i in range(len(xs_f) - 1):
+                for k in range(len(zs_f) - 1):
+                    add_quad(
+                        [xs_f[i], y, zs_f[k]],
+                        [xs_f[i + 1], y, zs_f[k]],
+                        [xs_f[i + 1], y, zs_f[k + 1]],
+                        [xs_f[i], y, zs_f[k + 1]],
+                    )
+        # x = const faces
+        for x in (xs_f[0], xs_f[-1]):
+            for j in range(len(ys_f) - 1):
+                for k in range(len(zs_f) - 1):
+                    add_quad(
+                        [x, ys_f[j], zs_f[k]],
+                        [x, ys_f[j + 1], zs_f[k]],
+                        [x, ys_f[j + 1], zs_f[k + 1]],
+                        [x, ys_f[j], zs_f[k + 1]],
+                    )
+
+        if len(quads) > max_quads:
+            break
+
+    if not quads:
+        return None
+    return _polydata(np.asarray(pts, dtype=np.float64),
+                     np.asarray(quads, dtype=np.int64), "quads")
+
+
+def shaded_poly_actor(pd, color: tuple[float, float, float],
+                      opacity: float = 1.0):
+    """Opaque (or translucent) surface actor for element/domain shells."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(pd)
+    mapper.ScalarVisibilityOff()
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetColor(*color)
+    prop.SetOpacity(opacity)
+    prop.SetInterpolationToFlat()
+    prop.SetAmbient(0.45)
+    prop.SetDiffuse(0.55)
+    prop.SetSpecular(0.05)
+    prop.EdgeVisibilityOff()
     return actor
 
 

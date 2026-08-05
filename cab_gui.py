@@ -74,6 +74,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._translucent = False
         self._drawing_mode = "Shading"
         self._hidden_parts: set[str] = set()
+        # Domain names in opaque "face mode" (tree checkbox checked)
+        self._domain_face_mode: set[str] = set()
         self._recent: list[str] = []
         self._orientation = None
         self._trackball_style = None
@@ -400,6 +402,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.current_path = path
         self._dirty = False
         self._hidden_parts.clear()
+        self._domain_face_mode.clear()
         members = {m.name: m.data for m in archive.members}
         xml_name = next(n for n in members if n.endswith(".xml")
                         and not n.startswith("_"))
@@ -408,6 +411,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.props = PropertyModel(parse_property(members[prop_name]))
         self._xml_member = xml_name
         self._prop_member = prop_name
+        # Default: Domain face mode ON (matches tree checkbox checked=True)
+        self._domain_face_mode = set(self.model.analysis_names())
         self._cad_meshes = None
         xt_name = next((n for n in members if n.endswith(".x_t")), None)
         if xt_name:
@@ -448,7 +453,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if n_cad:
             self.log(
                 f"Part shading uses Parasolid .x_t tessellation "
-                f"({n_cad} bodies). Element division still uses mesh boxes.",
+                f"({n_cad} bodies). Domain tree check: ON=opaque face mesh, "
+                f"OFF=volume wireframe (STpre Layout of Parts).",
                 "INFO")
         else:
             self.log(
@@ -502,20 +508,28 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if action == "refer":
             self._on_item_selected(kind, name)
 
-    def _on_visibility(self, part_name: str, visible: bool) -> None:
+    def _on_visibility(self, kind: str, name: str, visible: bool) -> None:
+        if kind == "domain":
+            if visible:
+                self._domain_face_mode.add(name)
+            else:
+                self._domain_face_mode.discard(name)
+            if self.model is not None:
+                self._rebuild_scene()
+            return
         if visible:
-            self._hidden_parts.discard(part_name)
+            self._hidden_parts.discard(name)
         else:
-            self._hidden_parts.add(part_name)
+            self._hidden_parts.add(name)
         if not self._enable_3d:
             return
         part_on = self.control.layer_on("part")
         elem_on = self.control.layer_on("element")
         for actor, pname in self.actors:
-            if pname == part_name:
+            if pname == name:
                 actor.SetVisibility(1 if (visible and part_on) else 0)
         for actor, pname in getattr(self, "_edge_actors", []):
-            if pname == part_name:
+            if pname == name:
                 # Element division independent of Part shading (STpre)
                 actor.SetVisibility(1 if (visible and elem_on) else 0)
         if self.renderer:
@@ -710,12 +724,22 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             pd_part = cab_vtk.part_polydata(box, for_part=True)
             pd_elem = cab_vtk.part_polydata(box, for_part=False)
             tree_vis = box.name not in self._hidden_parts
+            # STpre Line + Element division = structured face mesh on occupancy
+            pd_elem_lines = None
+            if element_on or wire:
+                pd_elem_lines = cab_vtk.element_division_lines(
+                    self.model, box.name)
 
             # --- Part geometry (Line / Shading / Translucent) ---
             if wire:
-                # Line mode: colored wireframe as the Part representation
+                # Line + Element division (STpre): structured face mesh.
+                # Line alone: CAD/occupancy edges.
+                if element_on and pd_elem_lines is not None:
+                    pd_line = pd_elem_lines
+                else:
+                    pd_line = pd_part
                 edge = cab_vtk.edges_actor(
-                    pd_part, color=box.color, line_width=1.4)
+                    pd_line, color=box.color, line_width=1.35)
                 edge.SetVisibility(1 if (part_on and tree_vis) else 0)
                 self.renderer.AddActor(edge)
                 self.actors.append((edge, box.name))
@@ -736,20 +760,86 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.renderer.AddActor(actor)
                 self.actors.append((actor, box.name))
 
-            # --- Element division: mesh lines (can show with Part) ---
-            if element_on or face_on:
-                # face division uses same cell edges for now (no separate
-                # face-list tessellation without Parasolid)
-                line_w = 1.0 if face_on and not element_on else 1.2
-                col = (0.08, 0.08, 0.1) if element_on else (0.2, 0.35, 0.55)
+            # --- Element division overlay (Shading/Translucent only) ---
+            # In Line mode the part actor already IS the face mesh.
+            if (element_on or face_on) and not wire:
+                line_w = 1.0 if face_on and not element_on else 1.15
+                col = (0.12, 0.12, 0.14) if element_on else (0.2, 0.35, 0.55)
+                if element_on:
+                    pd_lines = pd_elem_lines if pd_elem_lines is not None \
+                        else pd_elem
+                else:
+                    pd_lines = pd_elem
                 mesh_edge = cab_vtk.edges_actor(
-                    pd_elem, color=col, line_width=line_w)
+                    pd_lines, color=col, line_width=line_w)
                 show_e = tree_vis and (element_on or face_on)
                 mesh_edge.SetVisibility(1 if show_e else 0)
                 self.renderer.AddActor(mesh_edge)
                 self._edge_actors.append((mesh_edge, box.name))
                 key = "element" if element_on else "face"
                 self._layer_actors[key].append(mesh_edge)
+
+        # Domain(cuboid) tree checkbox (STpre Layout of Parts):
+        #   checked   → opaque face mesh (面模式)
+        #   unchecked → hidden-line volume wireframe (体网格线框)
+        mesh_on = self.control.layer_on("mesh")
+        mesh_block_on = self.control.layer_on("mesh_block")
+        if element_on or mesh_on or mesh_block_on:
+            for aname in self.model.analysis_names():
+                aboxes = self.model.analysis_boxes(aname)
+                if not aboxes:
+                    continue
+                face_mode = aname in self._domain_face_mode
+                if face_mode and not wire and (element_on or mesh_on):
+                    # Opaque cyan shell — hides interior parts
+                    pd_shell = cab_vtk.element_division_shell(
+                        self.model, boxes=aboxes)
+                    if pd_shell is not None:
+                        shell = cab_vtk.shaded_poly_actor(
+                            pd_shell, color=(0.55, 0.78, 0.88),
+                            opacity=1.0)
+                        shell.SetVisibility(1)
+                        self.renderer.AddActor(shell)
+                        key = "element" if element_on else "mesh"
+                        self._layer_actors[key].append(shell)
+                    pd_dom = cab_vtk.element_division_lines(
+                        self.model, boxes=aboxes, interior_stride=0,
+                        surface_eps=1e-5)
+                    if pd_dom is not None:
+                        dom_edge = cab_vtk.edges_actor(
+                            pd_dom, color=(0.08, 0.10, 0.14),
+                            line_width=1.0)
+                        self.renderer.AddActor(dom_edge)
+                        self._edge_actors.append((dom_edge, aname))
+                        key = "element" if element_on else "mesh"
+                        self._layer_actors[key].append(dom_edge)
+                elif not face_mode and (element_on or mesh_on):
+                    # STpre Domain unchecked: dense face-grid cage (see-through).
+                    # All 6 faces of the domain brick — no opaque shell, Part
+                    # stays visible in the center (matches curvedbox screenshot).
+                    pd_dom = cab_vtk.element_division_lines(
+                        self.model, boxes=aboxes,
+                        interior_stride=0, surface_eps=0.0)
+                    if pd_dom is not None:
+                        dom_edge = cab_vtk.edges_actor(
+                            pd_dom, color=(0.42, 0.54, 0.66),
+                            line_width=1.0, opacity=0.9)
+                        self.renderer.AddActor(dom_edge)
+                        self._edge_actors.append((dom_edge, aname))
+                        key = "element" if element_on else "mesh"
+                        self._layer_actors[key].append(dom_edge)
+                if mesh_block_on and not face_mode:
+                    # Coarser magenta Mesh-block overlay (STpre Mesh block)
+                    axes = self.model.mesh_axes()
+                    nmax = max((len(v) for v in axes.values()), default=2)
+                    stride = max(6, nmax // 10)
+                    grid = cab_vtk.mesh_block_grid(self.model, stride=stride)
+                    if grid is not None and grid.GetNumberOfCells() > 0:
+                        mb_actor = cab_vtk.edges_actor(
+                            grid, color=(0.82, 0.22, 0.58),
+                            line_width=1.8, opacity=0.95)
+                        self.renderer.AddActor(mb_actor)
+                        self._layer_actors["mesh_block"].append(mb_actor)
 
         if self.control.layer_on("domain_frame"):
             frame = cab_vtk.domain_frame(self.model)
@@ -759,32 +849,27 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 mapper.SetInputData(pd)
                 actor = vtk.vtkActor()
                 actor.SetMapper(mapper)
-                actor.GetProperty().SetColor(*frame.color)
+                # Bright green outer edges (STpre Domain frame)
+                actor.GetProperty().SetColor(0.12, 0.78, 0.28)
                 actor.GetProperty().SetOpacity(frame.opacity)
                 actor.GetProperty().SetRepresentationToWireframe()
-                actor.GetProperty().SetLineWidth(1.5)
+                actor.GetProperty().SetLineWidth(2.4)
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
 
-        if self.control.layer_on("mesh") or self.control.layer_on("mesh_block"):
-            axes = self.model.mesh_axes()
-            nmax = max((len(v) for v in axes.values()), default=2)
-            stride = 1 if nmax <= 40 else max(1, nmax // 40)
-            grid = cab_vtk.mesh_block_grid(self.model, stride=stride)
-            if grid is not None and grid.GetNumberOfCells() > 0:
-                mapper = vtk.vtkPolyDataMapper()
-                mapper.SetInputData(grid)
-                actor = vtk.vtkActor()
-                actor.SetMapper(mapper)
-                actor.GetProperty().SetColor(0.35, 0.45, 0.55)
-                actor.GetProperty().SetOpacity(0.55)
-                actor.GetProperty().SetLineWidth(1.0)
-                actor.GetProperty().LightingOff()
-                self.renderer.AddActor(actor)
-                if self.control.layer_on("mesh"):
-                    self._layer_actors["mesh"].append(actor)
-                if self.control.layer_on("mesh_block"):
-                    self._layer_actors["mesh_block"].append(actor)
+        # Mesh Block overview when Domain is in face mode (or alone)
+        if mesh_block_on:
+            face_any = bool(self._domain_face_mode)
+            if face_any or not (element_on or mesh_on):
+                axes = self.model.mesh_axes()
+                nmax = max((len(v) for v in axes.values()), default=2)
+                stride = 1 if nmax <= 80 else max(1, nmax // 40)
+                grid = cab_vtk.mesh_block_grid(self.model, stride=stride)
+                if grid is not None and grid.GetNumberOfCells() > 0:
+                    mesh_actor = cab_vtk.edges_actor(
+                        grid, color=(0.75, 0.25, 0.55), line_width=1.4)
+                    self.renderer.AddActor(mesh_actor)
+                    self._layer_actors["mesh_block"].append(mesh_actor)
 
         self._set_orientation_marker(self.control.layer_on("axis_global"))
 

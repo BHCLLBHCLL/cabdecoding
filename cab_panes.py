@@ -82,7 +82,7 @@ class MessageWindow(QWidget):
 class TreeListView(QWidget):
     """Tree/List View Window: Layout of Parts / Conditions / Archive."""
 
-    visibility_changed = pyqtSignal(str, bool)       # part name, visible
+    visibility_changed = pyqtSignal(str, str, bool)  # kind, name, visible
     item_selected = pyqtSignal(str, object)          # kind, name
     status_requested = pyqtSignal(str)               # message
     context_action = pyqtSignal(str, str, object)    # action, kind, name
@@ -159,7 +159,8 @@ class TreeListView(QWidget):
             n = _first(ar, "name")
             if n is not None and n.text:
                 dname = n.text.strip()
-        self._add(domain, dname, ("domain", dname), "domain")
+        self._add(domain, dname, ("domain", dname), "domain",
+                  checkable=True, checked=True)
         mb = model.mesh_block()
         bname = "RootBlock"
         if mb is not None:
@@ -288,7 +289,10 @@ class TreeListView(QWidget):
         kind, name = data
         checked = item.checkState(0) == Qt.Checked
         if kind == "part" and name:
-            self.visibility_changed.emit(name, checked)
+            self.visibility_changed.emit("part", name, checked)
+        elif kind == "domain" and name:
+            # Checked = opaque face mode; unchecked = volume wireframe
+            self.visibility_changed.emit("domain", name, checked)
         elif kind == "group":
             self._block = True
             for i in range(item.childCount()):
@@ -296,7 +300,7 @@ class TreeListView(QWidget):
                 child.setCheckState(0, Qt.Checked if checked else Qt.Unchecked)
                 cdata = child.data(0, Qt.UserRole)
                 if cdata and cdata[0] == "part":
-                    self.visibility_changed.emit(cdata[1], checked)
+                    self.visibility_changed.emit("part", cdata[1], checked)
             self._block = False
         elif kind == "parts_root":
             self._block = True
@@ -369,13 +373,13 @@ class ControlWindow(QWidget):
     LAYER_KEYS = [
         # Aligned with STpre Show/Select — Part + Element division can both be ON
         ("Part", "part", True),
-        ("Mesh Block", "mesh_block", False),
-        ("Element division", "element", True),   # mesh lines on part cells
+        ("Mesh Block", "mesh_block", True),     # magenta coarse grid (STpre)
+        ("Element division", "element", True),  # mesh lines on part + domain
         ("Face division", "face", False),
         ("Condition", "condition", False),
         ("Sketch plane", "sketch_plane", False),
         ("Domain frame", "domain_frame", True),
-        ("Mesh", "mesh", False),                # domain structured grid
+        ("Mesh", "mesh", True),                 # with Element: domain wireframe
         ("Axis (Global)", "axis_global", True),
         ("Axis (Sketch)", "axis_sketch", False),
         ("Origin", "origin", False),
@@ -432,7 +436,9 @@ class ControlWindow(QWidget):
             rb.toggled.connect(self._on_mode)
         lay.addWidget(mode_box)
         tip = QLabel(
-            "勾选 Part + Element division 可同时显示几何与网格线", page)
+            "Line + Element = 结构化面网格线；"
+            "勾选 Domain(cuboid)=面模式；取消=体网格线框（同 STpre Layout）",
+            page)
         tip.setWordWrap(True)
         tip.setStyleSheet("color: #555; font-size: 11px;")
         lay.addWidget(tip)
