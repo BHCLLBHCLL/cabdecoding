@@ -272,7 +272,7 @@ element（XML）
 回归：`tests/test_domain.py` 5 项通过；全仓 79 通过 / 4 跳过。
 文档：DEV_SUMMARY §15；CAB_FORMAT_SPEC §5.5。
 
-### M3 gridding（2–3 周）
+### M3 gridding（2–3 周）✅ 已完成（2026-08-06）
 
 **目标**：Mesh→Gridding 生成 `mesh_control` + `mesh_block`。
 
@@ -293,6 +293,24 @@ element（XML）
 - 默认参数下 ex4_e 的 `mesh_axes()` 点数/范围与官方一致（或可解释的差异）；
 - `.s` 的 CXYZ 段可被 flddecoding 消费；
 - 修改参数后网格线预览即时更新。
+
+#### M3 实施记录（2026-08-06）
+
+- 新增 `cab_grid.py`：`GridSpec`/`rough_grids`/`refine_grids`/
+  `build_axes`，覆盖六种顶点检测、三种网格化方法（含目标单元数反推）；
+  `representative`/`axis_plane` 为一期近似（all/minmax 顶点集），
+  `num_elements` 按轴长比例均匀分布，圆柱/轴对称未实现——均已在
+  DEV_SUMMARY §16.2 记录，待与 STpre 黄金对拍细化；
+- `cabxml.set_mesh()`：生成与 ex4_e 同构的 `mesh_control`（RootBlock
+  min/max/limit/grid/subblock、select_vertex、divide_method、
+  divide_ratio2、outer_range 等）与 `mesh_block`（x/y/z `<g>` 表，
+  首末 `B` 标记）；
+- GUI `_GriddingDialog`：Basic Settings 子集（顶点检测/方法/标准长度/
+  阈值/内外部几何比/目标单元数），应用后刷新 3D 网格线并置脏；
+- 后续 M4 将消费 `mesh_axes()` 生成 `element`，M5 做 `.s` CXYZ 黄金对拍。
+
+回归：`tests/test_grid.py` 6 项通过；全仓 85 通过 / 4 跳过。
+文档：DEV_SUMMARY §16；CAB_FORMAT_SPEC §5.6。
 
 ### M4 meshing（2–3 周）
 

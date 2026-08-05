@@ -553,6 +553,144 @@ class StpreModel:
         parent.append(parts)
         return parts
 
+    # -- mesh generation output (M3) --------------------------------------
+
+    @staticmethod
+    def _vec_text(vals: tuple[float, float, float]) -> str:
+        return ",".join(f"{v:.17g}" for v in vals)
+
+    def _mesh_child(self, parent: ET.Element, tag: str, text: str,
+                    attrs: Optional[dict] = None) -> ET.Element:
+        e = _first(parent, tag)
+        if e is None:
+            e = ET.SubElement(parent, tag)
+            e.tail = "\n   "
+        set_text(e, text)
+        if attrs:
+            e.attrib.update(attrs)
+        return e
+
+    def set_mesh(self, axes: dict[str, list[float]], *,
+                 unit: str = "mm",
+                 domain_min: tuple[float, float, float],
+                 domain_max: tuple[float, float, float],
+                 threshold: tuple[float, float, float] = (0.1, 0.1, 0.1),
+                 ratio: tuple[float, float, float] = (1.2, 1.2, 1.2),
+                 detection: int = 3,
+                 method: int = 1,
+                 element_max: int = 100_000_000,
+                 part_min: Optional[tuple[float, float, float]] = None,
+                 part_max: Optional[tuple[float, float, float]] = None,
+                 ) -> None:
+        """Write ``<mesh_control>`` + ``<mesh_block>`` from generated axes."""
+        counts = tuple(len(axes.get(a, [])) for a in "xyz")
+        grid_text = ",".join(str(v) for v in counts)
+        mc = _first(self.root, "mesh_control")
+        if mc is None:
+            mc = ET.Element("mesh_control")
+            mc.tail = "\n"
+            self.root.append(mc)
+            ET.SubElement(mc, "system")
+            block = ET.SubElement(mc, "block")
+            block.attrib["name"] = "RootBlock"
+            block.tail = "\n   "
+            for tag, text in (("kind", "domain"), ("min", ""), ("max", ""),
+                              ("limit", ""), ("grid", "")):
+                e = ET.SubElement(block, tag)
+                e.text = f" {text} "
+                e.tail = "\n      "
+            sub = ET.SubElement(block, "subblock")
+            sub.attrib["divide"] = "1,1,1"
+            sub.tail = "\n      "
+            area = ET.SubElement(sub, "area")
+            area.attrib["no"] = "0"
+            area.tail = "\n         "
+            for tag in ("valid", "min", "max"):
+                e = ET.SubElement(area, tag)
+                e.text = "  "
+                e.tail = "\n            "
+            for tag, text in (
+                    ("element_max", str(element_max)),
+                    ("domain_kind", "1"),
+                    ("select_vertex", str(detection)),
+                    ("divide_method", str(method)),
+                    ("divide_scale", "2"),
+                    ("divide_ratio2", self._vec_text(ratio)),
+                    ("default_extend", "0,0,0"),
+                    ("outer_flag", "T,T,T,T,T,T"),
+                    ("outer_range", "0,0,0,0,0,0"),
+                    ("grid_outer_check", "0"),
+                    ("edge_eps", "0.0001"),
+                    ("element_threshold", "0.5"),
+                    ("edge_contact", "0"),
+                    ("grid_generate_type", "0"),
+                    ("grid_generate_gerber", "0"),
+                    ("grid_move_option", "0"),
+                    ("block_boundary", "0"),
+                    ("panel_block_face", "1"),
+                    ("solid_scheme", "1"),
+                    ("panel_scheme", "0"),
+                    ("check_scheme", "1"),
+            ):
+                e = ET.SubElement(mc, tag)
+                e.text = f" {text} "
+                e.tail = "\n   "
+        block = _first(mc, "block")
+        if block is None:
+            block = ET.SubElement(mc, "block")
+            block.attrib["name"] = "RootBlock"
+            block.tail = "\n   "
+        block.attrib["name"] = "RootBlock"
+        self._mesh_child(block, "kind", "domain")
+        self._mesh_child(block, "min", self._vec_text(domain_min),
+                         {"unit": unit})
+        self._mesh_child(block, "max", self._vec_text(domain_max),
+                         {"unit": unit})
+        self._mesh_child(block, "limit", self._vec_text(threshold),
+                         {"unit": unit})
+        self._mesh_child(block, "grid", grid_text)
+        self._mesh_child(mc, "select_vertex", str(detection))
+        self._mesh_child(mc, "divide_method", str(method))
+        self._mesh_child(mc, "divide_ratio2", self._vec_text(ratio))
+        self._mesh_child(mc, "element_max", str(element_max))
+        if part_min is not None and part_max is not None:
+            outer = ",".join(
+                f"{a:.17g},{b:.17g}" for a, b in zip(part_min, part_max))
+            self._mesh_child(mc, "outer_range", outer)
+
+        mb = _first(self.root, "mesh_block")
+        if mb is None:
+            mb = ET.Element("mesh_block")
+            mb.tail = "\n"
+            self.root.append(mb)
+        for tag, text, attrs in (
+                ("name", "RootBlock", {}),
+                ("system", "0", {}),
+                ("visible", "T", {}),
+                ("tree_expand", "T", {}),
+                ("min", self._vec_text(domain_min), {"unit": unit}),
+                ("max", self._vec_text(domain_max), {"unit": unit}),
+                ("extend_min", "0,0,0", {"unit": unit}),
+                ("extend_max", "0,0,0", {"unit": unit}),
+        ):
+            self._mesh_child(mb, tag, text, attrs)
+        for axis in "xyz":
+            el = _first(mb, axis)
+            if el is None:
+                el = ET.SubElement(mb, axis)
+                el.tail = "\n   "
+            el.attrib["num"] = str(len(axes.get(axis, [])))
+            el.attrib["unit"] = unit
+            for child in list(el):
+                el.remove(child)
+            vals = axes.get(axis, [])
+            for i, v in enumerate(vals, start=1):
+                mark = "B" if i in (1, len(vals)) else ""
+                g = ET.SubElement(el, "g")
+                g.attrib["no"] = str(i)
+                g.text = f" {v:.17g}" + (f",{mark}" if mark else "") + " "
+                g.tail = "\n      "
+
 
 class PropertyModel:
     """Typed view over :class:`PropertyDoc` (materials)."""

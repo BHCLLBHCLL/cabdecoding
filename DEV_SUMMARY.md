@@ -757,3 +757,31 @@ STpre 的 cab 用一个 `_<project>_all.x_t` 承载全部 body。直接“把导
   修改后序列化重解析、face_list 保留、无域创建、box 包围盒（0..0.01 m →
   对话框 mm 显示 0..10）、对话框 smoke（CAD Data Size + Preview + Revert）。
 - 全仓 `pytest`：**79 通过 / 4 跳过**。
+
+## 16. M3：Gridding 实现（2026-08-06）
+
+### 16.1 算法与 XML
+
+- `cab_grid.py`（新）：`GridSpec`、`rough_grids()`（顶点检测
+  all/representative/axis_plane/minmax/not_considered/uniform）、
+  `refine_grids()`（标准长度 + 几何比内/外部、threshold 下限）、
+  `_target_counts()`（按目标单元数反推各轴点数）、`build_axes()`；
+- `cabxml.StpreModel.set_mesh()`：写 `mesh_control`（RootBlock 的
+  min/max/limit/grid/subblock、select_vertex/divide_method/divide_ratio2/
+  outer_range/element_max 等）与 `mesh_block`（x/y/z 坐标表，首末点 `B`
+  标记），结构对齐 ex4_e 官方 XML；
+- GUI `_GriddingDialog`：顶点检测/网格化方法/标准长度/阈值/几何比
+  （内外部）/目标单元数；应用后 `_rebuild_scene()` 预览网格线并置脏。
+
+### 16.2 一期近似（已记录，待黄金对拍）
+
+- `representative` 与 `axis_plane` 暂时分别用 `all`/`minmax` 的顶点集近似；
+- `num_elements` 模式按各轴长度比例均匀分布（不叠加粗网格顶点）；
+- 圆柱/轴对称坐标系的 R/θ 网格生成未实现，仍按笛卡尔处理。
+
+### 16.3 验证
+
+- `tests/test_grid.py`（6 项）：minmax/all/uniform/not_considered 粗网格、
+  几何比单调性与阈值、目标单元数换算、`set_mesh` 序列化重解析（grid 数、
+  mesh_axes 一致）、Gridding 对话框 smoke。
+- 全仓 `pytest`：**85 通过 / 4 跳过**。

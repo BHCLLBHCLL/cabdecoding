@@ -221,6 +221,145 @@ class _DomainDialog(QtWidgets.QDialog if _HAS_GUI_DEPS else object):
                           f"[{unit}]")
 
 
+class _GriddingDialog(QtWidgets.QDialog if _HAS_GUI_DEPS else object):
+    """Mesh -> Gridding (M3): basic settings tab."""
+
+    _DETECTIONS = [
+        ("All", "all"), ("Representative", "representative"),
+        ("Axis plane", "axis_plane"), ("Min/Max", "minmax"),
+        ("Not considered", "not_considered"), ("Uniform", "uniform"),
+    ]
+    _METHODS = [
+        ("Rough grids only", "rough_only"),
+        ("Rough grids and detailed mesh", "rough_and_detail"),
+        ("By number of elements", "num_elements"),
+    ]
+
+    def __init__(self, model, cad_meshes, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mesh: Gridding")
+        self.model = model
+        self.cad_meshes = cad_meshes or []
+        self._build_ui()
+        self._load_defaults()
+
+    def _build_ui(self) -> None:
+        from PyQt5.QtWidgets import (
+            QComboBox, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
+            QHBoxLayout, QLabel, QVBoxLayout,
+        )
+        lay = QVBoxLayout(self)
+        form = QFormLayout()
+        self.detection = QComboBox()
+        for label, _key in self._DETECTIONS:
+            self.detection.addItem(label)
+        self.method = QComboBox()
+        for label, _key in self._METHODS:
+            self.method.addItem(label)
+        self.method.currentIndexChanged.connect(self._on_method)
+        form.addRow("Vertex detection", self.detection)
+        form.addRow("Method of Gridding", self.method)
+        self.std = self._axis_spins(form, "Standard length of root block")
+        self.thr = self._axis_spins(form, "Threshold length")
+        self.ratio = self._axis_spins(form, "Geometric ratio (internal)")
+        self.ratio_ext = self._axis_spins(
+            form, "Geometric ratio (external)")
+        self.target = QDoubleSpinBox()
+        self.target.setRange(1.0, 1.0e12)
+        self.target.setDecimals(0)
+        self.target.setValue(1000000)
+        form.addRow("Total number of elements", self.target)
+        lay.addLayout(form)
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(self._apply)
+        btns.rejected.connect(self.reject)
+        lay.addWidget(btns)
+        self._on_method()
+
+    def _axis_spins(self, form, label) -> dict[str, "QDoubleSpinBox"]:
+        from PyQt5.QtWidgets import QDoubleSpinBox, QHBoxLayout
+
+        row = QHBoxLayout()
+        spins: dict[str, QDoubleSpinBox] = {}
+        for ax in "xyz":
+            sb = QDoubleSpinBox()
+            sb.setRange(1.0e-6, 1.0e9)
+            sb.setDecimals(6)
+            spins[ax] = sb
+            row.addWidget(sb)
+        form.addRow(label, row)
+        return spins
+
+    def _on_method(self) -> None:
+        enabled = self.method.currentIndex() == 2
+        self.target.setEnabled(enabled)
+
+    def _load_defaults(self) -> None:
+        spec = cab_domain.domain_from_xml(self.model)
+        self._dom_min = list(spec.xyz_min) if spec is not None \
+            else [-100.0, -100.0, -100.0]
+        self._dom_max = list(spec.xyz_max) if spec is not None \
+            else [150.0, 300.0, 315.0]
+        for sb in self.std.values():
+            sb.setValue(2.0)
+        for sb in self.thr.values():
+            sb.setValue(0.1)
+        for sb in self.ratio.values():
+            sb.setValue(1.2)
+        for sb in self.ratio_ext.values():
+            sb.setValue(1.2)
+
+    def _apply(self) -> None:
+        import cab_grid
+
+        detection = self._DETECTIONS[self.detection.currentIndex()][1]
+        method = self._METHODS[self.method.currentIndex()][1]
+        spec = cab_grid.GridSpec(
+            unit="mm",
+            domain_min=tuple(self._dom_min),
+            domain_max=tuple(self._dom_max),
+            vertex_detection=detection,
+            method=method,
+            standard_length=tuple(sb.value() for sb in self.std.values()),
+            threshold_length=tuple(sb.value() for sb in self.thr.values()),
+            geometric_ratio=tuple(sb.value() for sb in self.ratio.values()),
+            geometric_ratio_external=tuple(
+                sb.value() for sb in self.ratio_ext.values()),
+            target_elements=int(self.target.value()) if method ==
+            "num_elements" else None,
+        )
+        part_points = {
+            p.name: np.asarray(p.points, dtype=np.float64) * 1000.0
+            for p in self.cad_meshes
+        }
+        _rough, detailed = cab_grid.build_axes(part_points, spec)
+        lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
+        part_min = tuple(float(v) * 1000.0 for v in lo) \
+            if np.isfinite(lo).all() else None
+        part_max = tuple(float(v) * 1000.0 for v in hi) \
+            if np.isfinite(hi).all() else None
+        self.model.set_mesh(
+            detailed,
+            unit="mm",
+            domain_min=tuple(self._dom_min),
+            domain_max=tuple(self._dom_max),
+            threshold=tuple(sb.value() for sb in self.thr.values()),
+            ratio=tuple(sb.value() for sb in self.ratio.values()),
+            detection=cab_grid.detection_index(spec),
+            method=cab_grid.method_index(spec),
+            part_min=part_min,
+            part_max=part_max,
+        )
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+            counts = tuple(len(v) for v in detailed.values())
+            parent.log(
+                f"Gridding: {detection}/{method} -> "
+                f"{counts[0]}x{counts[1]}x{counts[2]} grid points")
+        self.accept()
+
+
 class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     """Main window: load / browse / edit / export / rebuild a cab file."""
 
@@ -425,7 +564,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Condition Setting…", self._wizard_condition)
 
         m = mb.addMenu("Mesh(&G)")
-        add(m, "Gridding (read-only)", self._mesh_info)
+        add(m, "Gridding…", self._gridding_dialog)
         add(m, "Checking S-File", self._check_sfile)
         add(m, "Meshing")
         add(m, "Editing Mesh")
@@ -1336,6 +1475,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Mesh block: "
             f"{len(axes.get('x', []))}×{len(axes.get('y', []))}×"
             f"{len(axes.get('z', []))} points")
+
+    def _gridding_dialog(self) -> None:
+        """Mesh -> Gridding (M3)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        dlg = _GriddingDialog(
+            self.model, self._cad_meshes, self)
+        if dlg.exec_():
+            self._mark_dirty()
+            self._update_title()
+            self.log("Grid saved; save the cab to persist.")
 
     def _check_sfile(self) -> None:
         if self.model is None or self.props is None:

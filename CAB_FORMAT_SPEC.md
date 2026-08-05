@@ -552,6 +552,44 @@ File→Import 导入的 `.x_t` **不拼接**进 `_<project>_all.x_t`（多段 PA
 - 坐标类型：一期 `cartesian`（cube）；`cylindrical` 仅切换
   `analysis_region@type=cylinder`；`axial` 暂沿用 cube 语义。
 
+### 5.6 mesh_control / mesh_block 生成规范（M3，2026-08-06）
+
+`cab_grid` 生成的网格写回两份 XML 结构（与 ex4_e 官方同构）：
+
+`<mesh_control>` 关键字段：
+
+| 字段 | 语义 |
+|---|---|
+| `<block name="RootBlock"><kind>domain</kind>` | 根块（域块） |
+| `<min>/<max unit="mm">` | 域范围（与 `analysis_region` 一致） |
+| `<limit unit="mm">` | 单元宽度下限（threshold） |
+| `<grid>` | 各轴网格点数 `nx,ny,nz` |
+| `<subblock divide="1,1,1"><area no="0">` | 根块占位子区（valid/min/max） |
+| `<select_vertex>` | 顶点检测：All=0/Representative=1/Axis plane=2/MinMax=3/Not considered=4/Uniform=5 |
+| `<divide_method>` | 网格化方法：rough only=0/rough+detail=1/num elements=2 |
+| `<divide_ratio2>` | 几何比（内区） |
+| `<outer_range>` | 部件包围盒 min/max（外区划分依据） |
+| `<element_max>` 等 | 单元上限/检查开关（沿用 ex4_e 默认） |
+
+`<mesh_block>` 坐标表：
+
+```xml
+<mesh_block>
+  <name> RootBlock </name>
+  <min unit="mm"> ... </min><max unit="mm"> ... </max>
+  <x num="nx" unit="mm">
+     <g no="1"> -100,B </g>      <!-- 首末点为 B -->
+     <g no="2"> -82.9 </g>
+  </x>
+  <y num="ny" unit="mm">...</y>
+  <z num="nz" unit="mm">...</z>
+</mesh_block>
+```
+
+读取端 `mesh_axes()` 取 `g` 文本首字段为坐标；写回时重建 `g` 子元素并更新
+`num`。一期近似项（representative/axis_plane、num_elements 均匀分布、
+圆柱坐标）见 DEV_SUMMARY §16.2。
+
 ---
 
 ## 6. 导出格式 `.s`（SDAT，STsolver 输入）
