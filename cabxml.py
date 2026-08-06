@@ -103,6 +103,69 @@ def parse_property(data: bytes) -> PropertyDoc:
     return PropertyDoc(data)
 
 
+def new_stpre_bytes(name: str = "Untitled") -> bytes:
+    """Minimal but complete-enough empty project XML (UTF-8 BOM, CRLF)."""
+    text = (
+        '<?xml version="1.0" encoding="UTF-8"?>\r\n'
+        '<!-- scSTREAM V2025.2 -->\r\n'
+        '<!-- created by cabdecoding (new project) -->\r\n'
+        '<stpre>\r\n'
+        '   <version no="2025.2" />\r\n'
+        '   <property_db>\r\n'
+        '      <file> _new_property.xml </file>\r\n'
+        '   </property_db>\r\n'
+        '   <unit>\r\n'
+        '      <temperature> C </temperature>\r\n'
+        '   </unit>\r\n'
+        '   <project>\r\n'
+        f'      <project> {name} </project>\r\n'
+        '      <comment> created by cabdecoding </comment>\r\n'
+        '      <ambient_temperature> 20 </ambient_temperature>\r\n'
+        '      <cxyz_scale> 1 </cxyz_scale>\r\n'
+        '   </project>\r\n'
+        '   <body_files unit="m">\r\n'
+        '   </body_files>\r\n'
+        '   <analysis_set>\r\n'
+        '   </analysis_set>\r\n'
+        '   <output>\r\n'
+        '   </output>\r\n'
+        '   <steady_param>\r\n'
+        '   </steady_param>\r\n'
+        '</stpre>\r\n'
+    )
+    return b"\xef\xbb\xbf" + text.encode("utf-8")
+
+
+def new_property_bytes() -> bytes:
+    """Minimal property library with one air(incompressible/20C) entry."""
+    text = (
+        '<?xml version="1.0" encoding="UTF-8"?>\r\n'
+        '<!-- property table -->\r\n'
+        '<property>\r\n'
+        '   <group>\r\n'
+        '      <type> fluid </type>\r\n'
+        '      <name> gas(incompressible) </name>\r\n'
+        '      <entry>\r\n'
+        '         <name> air(incompressible/20C) </name>\r\n'
+        '         <density> 1.206 </density>\r\n'
+        '         <ref_density> 1.206 </ref_density>\r\n'
+        '         <ref_temperature unit="C"> 20 </ref_temperature>\r\n'
+        '         <viscosity> 1.83e-05 </viscosity>\r\n'
+        '         <capacity> 1007 </capacity>\r\n'
+        '         <conductivity> 0.0256 </conductivity>\r\n'
+        '         <expansion> 0.003495 </expansion>\r\n'
+        '         <radiation field="T">\r\n'
+        '            <absorption> 0 </absorption>\r\n'
+        '            <scattering> 0 </scattering>\r\n'
+        '         </radiation>\r\n'
+        '         <surf_tension> 0 </surf_tension>\r\n'
+        '      </entry>\r\n'
+        '   </group>\r\n'
+        '</property>\r\n'
+    )
+    return b"\xef\xbb\xbf" + text.encode("utf-8")
+
+
 # --------------------------------------------------------------------------
 # Model layer (convenience accessors + edit helpers)
 # --------------------------------------------------------------------------

@@ -236,6 +236,11 @@ element（XML）
 回归：`tests/test_import.py` 3 项通过；全仓 74 通过 / 4 跳过。
 文档：DEV_SUMMARY §14；CAB_FORMAT_SPEC §5.4。
 
+补充（2026-08-06）：无参数启动自动初始化空工程（`cabxml.new_stpre_bytes/
+new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随时
+新建；空工程下可直接 Import x_t → 域设置 → Gridding → Meshing，保存后
+重开一致。详见 DEV_SUMMARY §19。
+
 ### M2 计算域设置（1 周）✅ 已完成（2026-08-06）
 
 **目标**：Edit→Reset Computational Domain 完整可用。

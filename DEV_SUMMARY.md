@@ -865,3 +865,31 @@ STpre = `STpre_Bx64net.exe`（.NET 启动器）+ 原生 C++ DLL。关键导出�
 3. 圆柱/轴对称坐标系的 R/θ 网格；
 4. cut-cell 表面单元处理与 STpre 的精确行程编码；
 5. panel/sheet（开放曲面）占用规则。
+
+## 19. 空工程初始化（2026-08-06）
+
+### 19.1 问题
+
+直接 `python cab_gui.py`（不带 cab 路径）启动后，File→Import 提示
+`No project open`——因为没有初始化任何工程对象，导入/域设置/网格生成
+无法开始。
+
+### 19.2 修复
+
+- `cabxml.new_stpre_bytes(name)` / `new_property_bytes()`：生成最小但完整的
+  空工程 XML（`version/property_db/unit/project/body_files/analysis_set/
+  output/steady_param`）与属性库（含 `air(incompressible/20C)` 一个流体
+  条目），UTF-8 BOM + CRLF，可被 `parse_stpre/parse_property` 正常解析，
+  `.s/.xemt` 导出器可空跑；
+- `cab_gui.CabViewer._new_project(silent=True)`：启动无路径时自动创建内存
+  工程（archive 含 2 个 XML 成员，`current_path=None`）；
+- File→New…（Ctrl+N）与 File 工具栏 New 按钮：随时新建空工程；
+- 空工程下 Import x_t 走原有 M1 管线：追加成员 → `body_files` 登记 →
+  `<parts>` 注册 → 保存为 cab 后重开一致。
+
+### 19.3 验证
+
+- `tests/test_import.py` 新增 2 项：空工程模板可解析（project/body_files/
+  material）、无路径启动 → 导入 box → `_rebuild_to` 保存 → 重开
+  （部件/x_t 成员/三角化都在）。
+- 全仓 `pytest`：**94 通过 / 4 跳过**。

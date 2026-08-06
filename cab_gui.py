@@ -20,12 +20,15 @@ import numpy as np
 import cab_vtk
 import cab_domain
 import xemt_export
-from cab_container import CabArchive
+from cab_container import CabArchive, CabFolder, CabMember
 from cab_icons import AppIcons
 from cab_panes import (
     ControlWindow, MessageWindow, PaneFrame, TreeListView,
 )
-from cabxml import PropertyModel, StpreModel, parse_property, parse_stpre
+from cabxml import (
+    PropertyModel, StpreModel, new_property_bytes, new_stpre_bytes,
+    parse_property, parse_stpre,
+)
 from s_export import build_sdat
 
 try:
@@ -399,6 +402,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.log("Ready. Open a .cab project to begin.")
         if path:
             self.load(path)
+        else:
+            self._new_project(silent=True)
 
     # ------------------------------------------------------------------ UI
 
@@ -506,6 +511,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return act
 
         m = mb.addMenu("File(&F)")
+        add(m, "New…", self._new_project, "Ctrl+N")
         add(m, "Open…", self._open_dialog, "Ctrl+O")
         add(m, "Save", self._save, "Ctrl+S")
         add(m, "Save As…", self._save_dialog, "Ctrl+Shift+S")
@@ -600,6 +606,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return a
 
         self.tb_file = tb("File")
+        act(self.tb_file, "New", "save", "New Project", self._new_project)
         act(self.tb_file, "Open", "open", "Open Project (CAB)",
             self._open_dialog)
         act(self.tb_file, "Import", "import", "Import XT File",
@@ -699,6 +706,55 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """)
 
     # ------------------------------------------------------------ loading
+
+    def _new_project(self, silent: bool = False) -> None:
+        """File -> New: initialise an empty cab project in memory.
+
+        The project already contains the two XML members (project definition
+        + property library), so File -> Import x_t / domain / gridding /
+        meshing can run immediately; Save As persists it as a cab.
+        """
+        name = "Untitled"
+        archive = CabArchive()
+        archive.version_minor = 0
+        archive.version_major = 0
+        archive.cfolders = 1
+        archive.cfiles = 0
+        archive.flags = 0
+        archive.set_id = 0
+        archive.i_cabinet = 0
+        archive.folders = [CabFolder(coff_cab_start=0, c_cfdata=0,
+                                     type_compress=1)]
+        xml_name = f"{name}.xml"
+        prop_name = f"_{name}_property.xml"
+        date, time = 0x575F, 0xA32D
+        archive.members = [
+            CabMember(name=xml_name, cb_file=0, uoff_folder_start=0,
+                      i_folder=0, date=date, time=time, attribs=0x00A0,
+                      data=new_stpre_bytes(name)),
+            CabMember(name=prop_name, cb_file=0, uoff_folder_start=0,
+                      i_folder=0, date=date, time=time, attribs=0x00A0,
+                      data=new_property_bytes()),
+        ]
+        self.archive = archive
+        self.current_path = None
+        self.model = StpreModel(parse_stpre(archive.members[0].data))
+        self.props = PropertyModel(parse_property(archive.members[1].data))
+        self._xml_member = xml_name
+        self._prop_member = prop_name
+        self._cad_meshes = None
+        self._hidden_parts.clear()
+        self._domain_face_mode = set()
+        self._dirty = False
+        self.tree_view.populate(self.model, archive.members)
+        self.control.populate_library(self.props)
+        self.control.clear_property()
+        self._rebuild_scene()
+        self._update_title()
+        if not silent:
+            self.log(
+                "New project created: import an .x_t (File -> Import), "
+                "then set the domain, gridding and meshing.")
 
     def load(self, path: str) -> bool:
         try:

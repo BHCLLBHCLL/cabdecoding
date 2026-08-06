@@ -24,6 +24,7 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
 ## 操作流程
 
 ```text
+（无参数启动自动创建空工程；也可 File→New… / Ctrl+N）
 File→Open 打开 cab（或新建后导入）
   → File→Import… 导入 x_t
   → Edit→Reset Computational Domain（可用 CAD Data Size 自动取包围盒）
