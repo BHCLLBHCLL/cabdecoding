@@ -301,8 +301,22 @@ class StpreModel:
         if el is None:
             return False
         c = _first(el, "property")
-        if c is not None:
-            set_text(c, material)
+        if c is None:
+            c = ET.SubElement(el, "property")
+            c.tail = "\n      "
+        set_text(c, material)
+        return True
+
+    def set_part_monitor(self, name: str, on: bool) -> bool:
+        """Create/update ``<parts>/<monitor>`` (T/F)."""
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "monitor")
+        if c is None:
+            c = ET.SubElement(el, "monitor")
+            c.tail = "\n      "
+        set_text(c, "T" if on else "F")
         return True
 
     def set_part_color(self, name: str, rgba: tuple[int, int, int, int]) -> bool:
@@ -355,6 +369,97 @@ class StpreModel:
         ar = self.analysis_region()
         el = _first(ar, "property") if ar is not None else None
         return (el.text or "").strip() if el is not None and el.text else ""
+
+    def domain_name(self) -> str:
+        ar = self.analysis_region()
+        el = _first(ar, "name") if ar is not None else None
+        return (el.text or "").strip() if el is not None and el.text else ""
+
+    def set_domain_name(self, name: str) -> bool:
+        """Rename the domain and fix the six face_list region refs."""
+        ar = self.analysis_region()
+        if ar is None or not name:
+            return False
+        old = self.domain_name()
+        el = _first(ar, "name")
+        if el is None:
+            el = ET.SubElement(ar, "name")
+        set_text(el, name)
+        for reg in _children(ar, "region"):
+            b = _first(reg, "base")
+            if b is not None and (b.text or "").strip() == old:
+                set_text(b, name)
+            f = _first(reg, "face")
+            if f is not None and f.text:
+                parts = f.text.strip().split(",")
+                if parts and parts[0].strip() == old:
+                    rest = [p.strip() for p in parts[1:]]
+                    set_text(f, ",".join([name] + rest))
+        return True
+
+    def domain_color(self) -> Optional[tuple[int, int, int, int]]:
+        ar = self.analysis_region()
+        el = _first(ar, "color") if ar is not None else None
+        if el is None or not el.text:
+            return None
+        try:
+            vals = [int(float(x.strip())) for x in el.text.split(",")[:4]]
+        except ValueError:
+            return None
+        return tuple(vals) if len(vals) == 4 else None  # type: ignore
+
+    def set_domain_color(self, rgba: tuple[int, int, int, int]) -> bool:
+        ar = self.analysis_region()
+        if ar is None:
+            return False
+        el = _first(ar, "color")
+        if el is None:
+            el = ET.SubElement(ar, "color")
+            el.tail = "\n   "
+        set_text(el, ",".join(str(int(v)) for v in rgba))
+        return True
+
+    def domain_monitor(self) -> bool:
+        """``<monitor> T/F </monitor>`` — Output temperature to Monitor."""
+        ar = self.analysis_region()
+        el = _first(ar, "monitor") if ar is not None else None
+        if el is None or not el.text:
+            return True
+        return el.text.strip().upper() != "F"
+
+    def set_domain_monitor(self, on: bool) -> bool:
+        ar = self.analysis_region()
+        if ar is None:
+            return False
+        el = _first(ar, "monitor")
+        if el is None:
+            el = ET.SubElement(ar, "monitor")
+            el.tail = "\n   "
+        set_text(el, "T" if on else "F")
+        return True
+
+    def ambient_temperature(self) -> Optional[float]:
+        """Project-level fluid initial temperature (degC)."""
+        p = self.project
+        el = _first(p, "ambient_temperature") if p is not None else None
+        if el is None or not el.text:
+            return None
+        try:
+            return float(el.text.strip())
+        except ValueError:
+            return None
+
+    def set_ambient_temperature(self, value: float) -> bool:
+        p = self.project
+        if p is None:
+            return False
+        el = _first(p, "ambient_temperature")
+        if el is None:
+            el = ET.SubElement(p, "ambient_temperature")
+            el.tail = "\n      "
+        set_text(el, f"{value:.17g}")
+        return True
+
 
     def set_domain_geometry(self, base: tuple[float, float, float],
                             size: tuple[float, float, float],
@@ -480,6 +585,95 @@ class StpreModel:
                     pass
             out[axis] = vals
         return out
+
+    # -- mesh grid editing (M5: Mesh:Set division tabs) -------------------
+    #
+    # Grid-line type marks in ``<g> value,MARK </g>`` (observed in ex4_e):
+    #   B = block boundary (domain/block min/max)
+    #   N = general line (Normal)
+    #   S = rough line through part vertices (Surface/vertex)
+    #   F = fixed line (user-fixed; never re-divided)  [cab extension]
+
+    def mesh_axis_entries(self, axis: str) -> list[tuple[float, str]]:
+        """``(coordinate, mark)`` pairs of one mesh_block axis."""
+        mb = self.mesh_block()
+        el = _first(mb, axis) if mb is not None else None
+        out: list[tuple[float, str]] = []
+        if el is None:
+            return out
+        for g in _children(el, "g"):
+            parts = (g.text or "").split(",")
+            try:
+                val = float(parts[0].strip())
+            except (ValueError, IndexError):
+                continue
+            mark = parts[1].strip().upper() if len(parts) > 1 else "N"
+            out.append((val, mark or "N"))
+        return out
+
+    def set_mesh_axis(self, axis: str, entries: list[tuple[float, str]],
+                      unit: str = "mm") -> bool:
+        """Rewrite one mesh_block axis from ``(coordinate, mark)`` pairs."""
+        mb = self.mesh_block()
+        if mb is None or axis not in ("x", "y", "z"):
+            return False
+        el = _first(mb, axis)
+        if el is None:
+            el = ET.SubElement(mb, axis)
+            el.tail = "\n   "
+        el.attrib["num"] = str(len(entries))
+        el.attrib["unit"] = unit
+        for child in list(el):
+            el.remove(child)
+        for i, (val, mark) in enumerate(entries, start=1):
+            g = ET.SubElement(el, "g")
+            g.attrib["no"] = str(i)
+            g.text = f" {val:.17g},{mark or 'N'} "
+            g.tail = "\n      "
+        self.sync_mesh_grid_counts()
+        return True
+
+    def sync_mesh_grid_counts(self) -> None:
+        """Sync ``mesh_control/block/grid`` with the mesh_block counts."""
+        counts = [str(len(self.mesh_axis_entries(a))) for a in "xyz"]
+        mc = _first(self.root, "mesh_control")
+        block = _first(mc, "block") if mc is not None else None
+        grid = _first(block, "grid") if block is not None else None
+        if grid is not None:
+            set_text(grid, ",".join(counts))
+
+    def mesh_control_value(self, tag: str) -> Optional[str]:
+        mc = _first(self.root, "mesh_control")
+        el = _first(mc, tag) if mc is not None else None
+        return (el.text or "").strip() if el is not None and el.text else None
+
+    def set_mesh_control_value(self, tag: str, text: str) -> bool:
+        mc = _first(self.root, "mesh_control")
+        if mc is None:
+            return False
+        el = _first(mc, tag)
+        if el is None:
+            el = ET.SubElement(mc, tag)
+            el.tail = "\n   "
+        set_text(el, text)
+        return True
+
+    def part_mesh_option(self, name: str) -> Optional[str]:
+        """Per-part vertex detection (``<parts>/<select_vertex>``)."""
+        el = self.find_part(name)
+        c = _first(el, "select_vertex") if el is not None else None
+        return (c.text or "").strip() if c is not None and c.text else None
+
+    def set_part_mesh_option(self, name: str, detection: str) -> bool:
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "select_vertex")
+        if c is None:
+            c = ET.SubElement(el, "select_vertex")
+            c.tail = "\n         "
+        set_text(c, detection)
+        return True
 
     def elements(self) -> Optional[ET.Element]:
         return _first(self.root, "element")

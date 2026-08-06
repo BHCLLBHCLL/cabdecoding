@@ -29,8 +29,14 @@ class DomainSpec:
     xyz_min: tuple[float, float, float] = (-100.0, -100.0, -100.0)
     xyz_max: tuple[float, float, float] = (150.0, 300.0, 315.0)
     material: str = ""
-    extend: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    extend: tuple[float, float, float] = (0.0, 0.0, 0.0)  # legacy uniform
+    extend_min: tuple[float, float, float] = (0.0, 0.0, 0.0)  # per-axis min
+    extend_max: tuple[float, float, float] = (0.0, 0.0, 0.0)  # per-axis max
     auto_y_for_axial: bool = False
+    name: str = "Domain(cuboid)"
+    color: tuple[int, int, int, int] = (0, 255, 255, 255)  # RGBA 0-255
+    monitor: bool = True                # Output temperature to Monitor
+    initial_temperature: Optional[float] = None  # degC; None = keep as-is
 
 
 def domain_from_xml(model: StpreModel) -> Optional[DomainSpec]:
@@ -47,24 +53,34 @@ def domain_from_xml(model: StpreModel) -> Optional[DomainSpec]:
         xyz_min=base,
         xyz_max=(base[0] + size[0], base[1] + size[1], base[2] + size[2]),
         material=model.domain_material(),
+        name=model.domain_name() or "Domain(cuboid)",
+        color=model.domain_color() or (0, 255, 255, 255),
+        monitor=model.domain_monitor(),
+        initial_temperature=model.ambient_temperature(),
     )
 
 
 def apply_domain(model: StpreModel, spec: DomainSpec,
-                 *, name: str = "Domain(cuboid)") -> bool:
+                 *, name: str | None = None) -> bool:
     """Write a domain back to the XML; creates it when missing."""
     base = spec.xyz_min
     size = (spec.xyz_max[0] - base[0],
             spec.xyz_max[1] - base[1],
             spec.xyz_max[2] - base[2])
     model.ensure_domain(
-        name=name, base=base, size=size, unit=spec.unit,
-        material=spec.material)
+        name=name or spec.name or "Domain(cuboid)", base=base, size=size,
+        unit=spec.unit, material=spec.material)
     if spec.coordinate != "cartesian":
         ar = model.analysis_region()
         if ar is not None:
             ar.attrib["type"] = "cylinder" if spec.coordinate == "cylindrical" \
                 else "cube"
+    if name is None and spec.name:
+        model.set_domain_name(spec.name)
+    model.set_domain_color(spec.color)
+    model.set_domain_monitor(spec.monitor)
+    if spec.initial_temperature is not None:
+        model.set_ambient_temperature(spec.initial_temperature)
     return True
 
 

@@ -18,7 +18,6 @@ import sys
 import numpy as np
 
 import cab_vtk
-import cab_domain
 import xemt_export
 from cab_container import CabArchive, CabFolder, CabMember
 from cab_icons import AppIcons
@@ -56,311 +55,14 @@ ST_MANUAL = (r"C:\Program Files\Cradle\CradleCFD2025.2"
              r"\Manuals\ST\HTML\Pre_eng\index.html")
 
 
-class _DomainDialog(QtWidgets.QDialog if _HAS_GUI_DEPS else object):
-    """Edit -> Reset Computational Domain (M2)."""
+# M5: dialogs live in cab_dialogs (STpre-style framework, aligned with the
+# [Edit Computational Domain] screenshot / Pre_eng manual / STpreParts DLL
+# strings).  Aliases keep the historical private names used by tests.
+import cab_dialogs  # noqa: E402
 
-    _FACTOR = {"mm": 1.0, "m": 1000.0, "cm": 10.0}  # value -> mm
-
-    def __init__(self, model, props, cad_meshes, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Reset Computational Domain")
-        self.model = model
-        self.props = props
-        self.cad_meshes = cad_meshes
-        self.old_spec = cab_domain.domain_from_xml(model) \
-            or cab_domain.DomainSpec()
-        self._build_ui()
-        self._load_spec(self.old_spec)
-
-    # -- UI ---------------------------------------------------------------
-
-    def _build_ui(self) -> None:
-        from PyQt5.QtWidgets import (
-            QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox,
-            QFormLayout, QHBoxLayout, QLabel, QPushButton, QVBoxLayout,
-        )
-        lay = QVBoxLayout(self)
-        form = QFormLayout()
-        self.coord = QComboBox()
-        self.coord.addItems(["Cartesian", "Cylindrical", "Axial"])
-        self.unit = QComboBox()
-        self.unit.addItems(["mm", "m", "cm"])
-        self.unit.currentTextChanged.connect(self._on_unit_changed)
-        form.addRow("Coordinate system", self.coord)
-        form.addRow("Coordinate value unit", self.unit)
-        self.spins: dict[str, QDoubleSpinBox] = {}
-        for ax, label in (("x", "X"), ("y", "Y"), ("z", "Z")):
-            row = QHBoxLayout()
-            for side in ("min", "max"):
-                sb = QDoubleSpinBox()
-                sb.setRange(-1.0e9, 1.0e9)
-                sb.setDecimals(6)
-                sb.setSingleStep(1.0)
-                self.spins[f"{ax}{side}"] = sb
-                row.addWidget(sb)
-                if side == "min":
-                    row.addWidget(QLabel("~"))
-            form.addRow(f"Rectangular box subdomain {label}", row)
-        self.mat = QComboBox()
-        self.mat.setEditable(True)
-        if self.props is not None:
-            self.mat.addItems(self.props.material_names())
-        form.addRow("Material of computational domain", self.mat)
-        self.extend_chk = QCheckBox("Extend surroundings")
-        self.extend_margin = QDoubleSpinBox()
-        self.extend_margin.setRange(0.0, 1.0e6)
-        self.extend_margin.setDecimals(4)
-        self.extend_margin.setValue(10.0)
-        exrow = QHBoxLayout()
-        exrow.addWidget(self.extend_chk)
-        exrow.addWidget(QLabel("margin"))
-        exrow.addWidget(self.extend_margin)
-        exrow.addStretch(1)
-        form.addRow(exrow)
-        self.auto_y = QCheckBox(
-            "Maximum length in Y direction: Auto setting (axial)")
-        form.addRow(self.auto_y)
-        lay.addLayout(form)
-
-        btns = QHBoxLayout()
-        self.btn_cad = QPushButton("CAD Data Size")
-        self.btn_cad.clicked.connect(self._cad_data_size)
-        self.btn_preview = QPushButton("Preview")
-        self.btn_preview.clicked.connect(lambda: self._apply(True))
-        dlg_btns = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        dlg_btns.accepted.connect(lambda: self._apply(False))
-        dlg_btns.rejected.connect(self._revert)
-        btns.addWidget(self.btn_cad)
-        btns.addWidget(self.btn_preview)
-        btns.addStretch(1)
-        btns.addWidget(dlg_btns)
-        lay.addLayout(btns)
-
-    # -- spec -------------------------------------------------------------
-
-    def _load_spec(self, spec: cab_domain.DomainSpec) -> None:
-        self.coord.setCurrentText(
-            {"cartesian": "Cartesian", "cylindrical": "Cylindrical",
-             "axial": "Axial"}.get(spec.coordinate, "Cartesian"))
-        self.unit.blockSignals(True)
-        self.unit.setCurrentText(spec.unit if spec.unit in self._FACTOR
-                                 else "mm")
-        self.unit.blockSignals(False)
-        self._current_unit = self.unit.currentText()
-        for i, ax in enumerate("xyz"):
-            self.spins[f"{ax}min"].setValue(spec.xyz_min[i])
-            self.spins[f"{ax}max"].setValue(spec.xyz_max[i])
-        if self.mat.count() == 0 or spec.material:
-            self.mat.setCurrentText(spec.material)
-        self.extend_chk.setChecked(any(v != 0.0 for v in spec.extend))
-        self.auto_y.setChecked(spec.auto_y_for_axial)
-
-    def _on_unit_changed(self, new_unit: str) -> None:
-        old_unit = getattr(self, "_current_unit", "mm")
-        if old_unit == new_unit or old_unit not in self._FACTOR \
-                or new_unit not in self._FACTOR:
-            self._current_unit = new_unit
-            return
-        ratio = self._FACTOR[old_unit] / self._FACTOR[new_unit]
-        for sb in self.spins.values():
-            sb.setValue(sb.value() * ratio)
-        self._current_unit = new_unit
-
-    def _current_spec(self) -> cab_domain.DomainSpec:
-        unit = self.unit.currentText()
-        return cab_domain.DomainSpec(
-            coordinate=("cartesian", "cylindrical", "axial")[
-                self.coord.currentIndex()],
-            unit=unit,
-            xyz_min=(self.spins["xmin"].value(), self.spins["ymin"].value(),
-                     self.spins["zmin"].value()),
-            xyz_max=(self.spins["xmax"].value(), self.spins["ymax"].value(),
-                     self.spins["zmax"].value()),
-            material=self.mat.currentText().strip(),
-            extend=(self.extend_margin.value() if self.extend_chk.isChecked()
-                    else 0.0, 0.0, 0.0),
-            auto_y_for_axial=self.auto_y.isChecked(),
-        )
-
-    def _apply(self, preview: bool) -> None:
-        spec = self._current_spec()
-        if self.extend_chk.isChecked() and spec.extend[0] > 0.0:
-            m = spec.extend[0]
-            spec.xyz_min = tuple(v - m for v in spec.xyz_min)
-            spec.xyz_max = tuple(v + m for v in spec.xyz_max)
-            spec.extend = (0.0, 0.0, 0.0)
-        cab_domain.apply_domain(self.model, spec)
-        parent = self.parent()
-        if parent is not None and hasattr(parent, "_rebuild_scene"):
-            parent._rebuild_scene()
-            parent.log(
-                f"Domain preview: {spec.coordinate} "
-                f"min={spec.xyz_min} max={spec.xyz_max} unit={spec.unit}")
-        if not preview:
-            self._current_unit = spec.unit
-            self.accept()
-
-    def _revert(self) -> None:
-        cab_domain.apply_domain(self.model, self.old_spec)
-        parent = self.parent()
-        if parent is not None and hasattr(parent, "_rebuild_scene"):
-            parent._rebuild_scene()
-        self.reject()
-
-    def _cad_data_size(self) -> None:
-        lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
-        if not np.isfinite(lo).all():
-            self.parent().log("CAD Data Size: no tessellated parts", "WARN")
-            return
-        unit = self.unit.currentText()
-        factor = self._FACTOR.get(unit, 1.0)
-        # part_bounds returns metres; convert to the dialog unit (mm factor)
-        scale = 1000.0 / factor
-        for i, ax in enumerate("xyz"):
-            self.spins[f"{ax}min"].setValue(lo[i] * scale)
-            self.spins[f"{ax}max"].setValue(hi[i] * scale)
-        self.parent().log(f"CAD Data Size: {lo * scale} ~ {hi * scale} "
-                          f"[{unit}]")
-
-
-class _GriddingDialog(QtWidgets.QDialog if _HAS_GUI_DEPS else object):
-    """Mesh -> Gridding (M3): basic settings tab."""
-
-    _DETECTIONS = [
-        ("All", "all"), ("Representative", "representative"),
-        ("Axis plane", "axis_plane"), ("Min/Max", "minmax"),
-        ("Not considered", "not_considered"), ("Uniform", "uniform"),
-    ]
-    _METHODS = [
-        ("Rough grids only", "rough_only"),
-        ("Rough grids and detailed mesh", "rough_and_detail"),
-        ("By number of elements", "num_elements"),
-    ]
-
-    def __init__(self, model, cad_meshes, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Mesh: Gridding")
-        self.model = model
-        self.cad_meshes = cad_meshes or []
-        self._build_ui()
-        self._load_defaults()
-
-    def _build_ui(self) -> None:
-        from PyQt5.QtWidgets import (
-            QComboBox, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-            QHBoxLayout, QLabel, QVBoxLayout,
-        )
-        lay = QVBoxLayout(self)
-        form = QFormLayout()
-        self.detection = QComboBox()
-        for label, _key in self._DETECTIONS:
-            self.detection.addItem(label)
-        self.method = QComboBox()
-        for label, _key in self._METHODS:
-            self.method.addItem(label)
-        self.method.currentIndexChanged.connect(self._on_method)
-        form.addRow("Vertex detection", self.detection)
-        form.addRow("Method of Gridding", self.method)
-        self.std = self._axis_spins(form, "Standard length of root block")
-        self.thr = self._axis_spins(form, "Threshold length")
-        self.ratio = self._axis_spins(form, "Geometric ratio (internal)")
-        self.ratio_ext = self._axis_spins(
-            form, "Geometric ratio (external)")
-        self.target = QDoubleSpinBox()
-        self.target.setRange(1.0, 1.0e12)
-        self.target.setDecimals(0)
-        self.target.setValue(1000000)
-        form.addRow("Total number of elements", self.target)
-        lay.addLayout(form)
-        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        btns.accepted.connect(self._apply)
-        btns.rejected.connect(self.reject)
-        lay.addWidget(btns)
-        self._on_method()
-
-    def _axis_spins(self, form, label) -> dict[str, "QDoubleSpinBox"]:
-        from PyQt5.QtWidgets import QDoubleSpinBox, QHBoxLayout
-
-        row = QHBoxLayout()
-        spins: dict[str, QDoubleSpinBox] = {}
-        for ax in "xyz":
-            sb = QDoubleSpinBox()
-            sb.setRange(1.0e-6, 1.0e9)
-            sb.setDecimals(6)
-            spins[ax] = sb
-            row.addWidget(sb)
-        form.addRow(label, row)
-        return spins
-
-    def _on_method(self) -> None:
-        enabled = self.method.currentIndex() == 2
-        self.target.setEnabled(enabled)
-
-    def _load_defaults(self) -> None:
-        spec = cab_domain.domain_from_xml(self.model)
-        self._dom_min = list(spec.xyz_min) if spec is not None \
-            else [-100.0, -100.0, -100.0]
-        self._dom_max = list(spec.xyz_max) if spec is not None \
-            else [150.0, 300.0, 315.0]
-        for sb in self.std.values():
-            sb.setValue(2.0)
-        for sb in self.thr.values():
-            sb.setValue(0.1)
-        for sb in self.ratio.values():
-            sb.setValue(1.2)
-        for sb in self.ratio_ext.values():
-            sb.setValue(1.2)
-
-    def _apply(self) -> None:
-        import cab_grid
-
-        detection = self._DETECTIONS[self.detection.currentIndex()][1]
-        method = self._METHODS[self.method.currentIndex()][1]
-        spec = cab_grid.GridSpec(
-            unit="mm",
-            domain_min=tuple(self._dom_min),
-            domain_max=tuple(self._dom_max),
-            vertex_detection=detection,
-            method=method,
-            standard_length=tuple(sb.value() for sb in self.std.values()),
-            threshold_length=tuple(sb.value() for sb in self.thr.values()),
-            geometric_ratio=tuple(sb.value() for sb in self.ratio.values()),
-            geometric_ratio_external=tuple(
-                sb.value() for sb in self.ratio_ext.values()),
-            target_elements=int(self.target.value()) if method ==
-            "num_elements" else None,
-        )
-        part_points = {
-            p.name: np.asarray(p.points, dtype=np.float64) * 1000.0
-            for p in self.cad_meshes
-        }
-        _rough, detailed = cab_grid.build_axes(part_points, spec)
-        lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
-        part_min = tuple(float(v) * 1000.0 for v in lo) \
-            if np.isfinite(lo).all() else None
-        part_max = tuple(float(v) * 1000.0 for v in hi) \
-            if np.isfinite(hi).all() else None
-        self.model.set_mesh(
-            detailed,
-            unit="mm",
-            domain_min=tuple(self._dom_min),
-            domain_max=tuple(self._dom_max),
-            threshold=tuple(sb.value() for sb in self.thr.values()),
-            ratio=tuple(sb.value() for sb in self.ratio.values()),
-            detection=cab_grid.detection_index(spec),
-            method=cab_grid.method_index(spec),
-            part_min=part_min,
-            part_max=part_max,
-        )
-        parent = self.parent()
-        if parent is not None and hasattr(parent, "_rebuild_scene"):
-            parent._rebuild_scene()
-            counts = tuple(len(v) for v in detailed.values())
-            parent.log(
-                f"Gridding: {detection}/{method} -> "
-                f"{counts[0]}x{counts[1]}x{counts[2]} grid points")
-        self.accept()
+_DomainDialog = cab_dialogs.DomainDialog
+_GriddingDialog = cab_dialogs.GriddingDialog
+_PartDialog = cab_dialogs.PartDialog
 
 
 class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
@@ -882,11 +584,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_item_activated(self, kind: str, name) -> None:
         """Double-click behaviour (STpre tree): Domain -> edit dialog;
-        mesh block -> gridding dialog."""
+        mesh block -> gridding dialog; part -> part edit dialog."""
         if kind == "domain":
             self._domain_dialog()
         elif kind == "mesh_block":
             self._gridding_dialog()
+        elif kind == "part" and name:
+            self._part_dialog(name)
 
     def _on_lib_selected(self) -> None:
         items = self.control.lib_tree.selectedItems()
@@ -902,6 +606,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self._domain_dialog()
             elif kind == "mesh_block":
                 self._gridding_dialog()
+            elif kind == "part" and name:
+                self._part_dialog(name)
             else:
                 self._on_item_selected(kind, name)
 
@@ -1535,6 +1241,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _wizard_condition(self) -> None:
         self.tree_view.tabs.setCurrentWidget(self.tree_view.cond_tree)
         self.log("Condition Setting — select an item in Conditions tab")
+
+    def _part_dialog(self, name: str) -> None:
+        """Double-click a part -> STpre-style part edit dialog (M5)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        dlg = _PartDialog(self.model, self.props, name, self)
+        if dlg.exec_():
+            self._mark_dirty()
+            self._update_title()
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self.log(f"Part '{dlg.part_name}' updated; "
+                     f"save the cab to persist.")
 
     def _mesh_info(self) -> None:
         if self.model is None:

@@ -910,3 +910,112 @@ STpre = `STpre_Bx64net.exe`（.NET 启动器）+ 原生 C++ DLL。关键导出�
 
 验证：`tests/test_domain.py` 新增 1 项（双击/右键路由 smoke，
 monkeypatch 对话框记录调用）。全仓 `pytest`：**95 通过 / 4 跳过**。
+
+## 21. STpre 风格对话框框架 + 域编辑对话框对齐（2026-08-06）
+
+参照 STpre 双击 Domain(cuboid) 的 [Edit Computational Domain] 对话框
+（实机截图 + Pre_eng 手册 + `STpreParts_Bx64.dll` 提取的 UI 字符串，
+确认了 "Calculate Part Region" / "<Rectangular box subdomain>" /
+"Reference coordinate system" / "Attribute/Condition" /
+"Output temperature to Monitor" / "Configure..." 等原文标签）。
+
+### 21.1 新模块 `cab_dialogs.py`（可复用框架）
+
+- `DialogHeader`：图标 + 粗体标题 + 分隔线（对话框顶带）；
+- `ColorButton`：`[Color...]` 按钮 + RGBA 色块；
+- `AttributePanel`：[Attribute/Condition] 组——Attribute 下拉、
+  Material + [Configure...]、Initial temperature（chk+值+单位）、
+  Heat source（可选）、Output temperature to Monitor、Virtual part（可选）；
+- `CuboidSchematic`：QPainter 等轴立方体示意（绿面/红原点/X·Y·Z 轴箭头）；
+- `StpreDialogBase`：通用外壳——顶带、Part Name+Color 行、左参数列 +
+  右 Attribute/Condition 列、底部 `[Preview] [Apply] [OK] [Cancel]`；
+  子类只需实现 `_build_left()` 与 `_on_apply()`；
+- `MaterialListDialog`：[List of Materials] 选择器（Configure... 目标，
+  带过滤）。
+
+### 21.2 具体对话框
+
+- `DomainDialog`（双击 Domain(cuboid) / Edit→Reset Computational Domain /
+  右键 Reference）：完全对齐截图布局——左 [Scale]（立方体示意、
+  Calculate Part Region、轴向 Y 自动、Reference coordinate system、
+  X/Y/Z Minimum/Maximum、Extend surroundings 逐轴扩展、Unit），
+  右 [Attribute/Condition]（Fluid 固定、Material+Configure、
+  初始温度、Monitor）。写回 XML：base/size/property/color/monitor/
+  ambient_temperature；重命名域会同步修复 6 个 face_list region 的
+  base/face 引用；Cancel 完整回滚；
+- `PartDialog`（双击部件 / 右键 Reference (Edit Part)）：同一框架的
+  部件编辑器——Location/Size（box 参数存在时可编辑，否则只读提示）、
+  Attribute（Obstacle/Solid/Condition region/Fluid）、Material、
+  Heat source、Virtual part；支持重命名（查重）、材料、颜色、monitor；
+- `GriddingDialog`：迁入框架（顶带 + OK/Cancel），行为不变。
+
+### 21.3 模型层新增（cabxml.StpreModel）
+
+`domain_name/set_domain_name`（同步 face_list 引用）、`domain_color/
+set_domain_color`、`domain_monitor/set_domain_monitor`、
+`ambient_temperature/set_ambient_temperature`、`set_part_monitor`；
+`set_part_property` 缺元素时自动创建。`cab_domain.DomainSpec` 扩展
+`extend_min/extend_max/name/color/monitor/initial_temperature`。
+
+### 21.4 兼容与验证
+
+- `cab_gui._DomainDialog/_GriddingDialog/_PartDialog` 别名保留，旧测试
+  接口（dlg.unit/dlg.spins/_cad_data_size/_apply/_revert）不变；
+- `tests/test_dialogs.py` 新增 8 项：STpre 布局冒烟、逐轴扩展+回滚、
+  monitor/color 写回、域重命名修复 region 引用、材料选择器、部件编辑、
+  部件双击路由、框架基类 smoke；
+- 全仓 `pytest`：**114 通过 / 4 跳过**（清理残留 `tests/tmp*` 沙箱目录后
+  全绿；此前记录的 7 项 Windows 沙箱 safe-delete/文件锁失败均为该残留
+  目录导致的收集错误，与本次改动无关）。
+
+## 22. Mesh:Set division 六标签 Gridding 对话框（2026-08-06）
+
+参照 STpre [Mesh]-[Gridding] 的 Mesh:Set division 对话框（用户截图 +
+Pre_eng 手册六页：Basic_Settings/Parameters/Detail_meshing/Edit/Deletion/
+Others + 官方对话框 PNG），将原单页 GriddingDialog 重写为六标签 +
+底部 [Gridding] [Meshing] [Close] + `Element #` 状态行：
+
+- **Basic Setting**：Vertex detection 六单选（select_vertex）、Method of
+  Gridding 三档（第三档展开 Specifying the numbers of elements：总数 /
+  逐轴数 / Sub-block mesh refinement factor→divide_scale）、Division
+  parameters of root block（Standard/Threshold/Geometric ratio 内外，
+  带 Common 勾选三轴联动）、生成选项（discarding existing / internal
+  region→不使用外区比 / 两个 multiblock 选项禁用 NYI / remove edge
+  contact→edge_contact）、Interference（Execute reconstruction +
+  [Reconstruct]→干涉检测/修复 + ? 打开手册页）；
+- **Parameter**：Multiblock 树（RootBlock 参数，右键 Edit mesh block
+  对话框；创建/插入/取消等 multiblock 操作 NYI 记日志）+ Mesh option of
+  each part 表（Select Vertex 下拉逐部件持久化到 `<parts>/<select_vertex>`）；
+- **Detail meshing**：ActiveBlock、Direction of axis/division
+  （-->/→←/<--）、Number of element、Geometric ratio 滑杆、retain rough /
+  threshold 选项；cab 以 From/To 下拉替代鼠标拾取 + [Divide] 按钮 →
+  `cab_grid.divide_interval`（forward/symmetric/backward 几何级数，
+  retain 保留粗网格、threshold 丢弃过密线）；
+- **Edit**：坐标轴 + Grid type（General=N/Fixed=F/Rough=S）+ Coord
+  输入 + Select(NYI)/Preview/Delete/Edit/Add + 阈值勾选 +
+  No./Coordinates/Type/Referred parts 列表（block 边界行禁止删改，
+  Referred parts 由部件 min/max 匹配）；读写 `<g> value,MARK </g>`；
+- **Deletion**：Selected（用 Edit 页选择）/ All but rough grids（保留
+  B/S/F）/ All（仅保留过部件 min/max 的线）+ Fixed Type is cancelled +
+  retain rough → `cab_grid.delete_grid_lines`；
+- **Others**：edge-contact 调查/移除（`cab_mesh.find_interferences` /
+  `resolve_interferences`——AABB 重叠检测 + 低优先级部件盒裁剪）、
+  指定部件 Meshing（`update_part_elements` 单部件重分类）、Edge
+  tolerance/Element threshold/Search range（edge_eps/element_threshold/
+  face_search 即时持久化）、域边界面（panel_block_face）、flux 面查重
+  （check_scheme）、V8 网格化（solid_scheme/panel_scheme）、并行度显示。
+
+模型层：`StpreModel.mesh_axis_entries/set_mesh_axis`（含类型标记读写）、
+`sync_mesh_grid_counts`、`mesh_control_value/set_mesh_control_value`、
+`part_mesh_option/set_part_mesh_option`；`cab_mesh.update_part_elements/
+find_interferences/resolve_interferences`。
+
+修复：
+- PyQt5 下 slot 内 AttributeError 会静默终止进程——radio 默认勾选移到
+  tab 构建末尾（待依赖控件就绪）；
+- `apply_elements` 的 `root.append(el)` 在编辑中被挤成死代码，已复位。
+
+验证：`tests/test_gridding_tabs.py` 新增 11 项（六标签结构、逐轴
+element 数、Common 联动、Edit 增删改/边界保护、Deletion 语义、Detail
+等比划分、Others 持久化、干涉检测修复）。全仓 `pytest`：**114 通过 /
+4 跳过**（残留 `tests/tmp*` 目录已清理，见 §21.4）。

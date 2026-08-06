@@ -232,3 +232,92 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec
         return rough, {ax: list(v) for ax, v in rough.items()}
     detailed = refine_grids(rough, spec)
     return rough, detailed
+
+
+def divide_interval(axis_vals: list[float], a: float, b: float, n: int,
+                    ratio: float = 1.0, mode: str = "forward",
+                    threshold: float = 0.0,
+                    retain: Optional[list[float]] = None
+                    ) -> list[float]:
+    """Re-divide the ``(a, b)`` interval of an axis into ``n`` elements.
+
+    ``mode`` selects the geometric-ratio direction (STpre Detail meshing):
+    ``forward`` (-->), ``symmetric`` (--><--), ``backward`` (<--).
+    ``retain`` lists rough-grid coordinates inside the range that must be
+    kept (sub-intervals are divided proportionally).  Lines closer than
+    ``threshold`` to a neighbour are dropped.
+    """
+    if n < 1 or b - a <= 1e-12:
+        return sorted(axis_vals)
+    keep = sorted(v for v in (retain or []) if a + 1e-9 < v < b - 1e-9)
+    bounds = [a] + keep + [b]
+    counts = [max(1, int(round(n * (bounds[i + 1] - bounds[i]) / (b - a))))
+              for i in range(len(bounds) - 1)]
+    # fix rounding so the total is exactly n
+    while sum(counts) > n and max(counts) > 1:
+        counts[counts.index(max(counts))] -= 1
+    while sum(counts) < n:
+        counts[counts.index(min(counts))] += 1
+    ratio = ratio if ratio > 0.0 else 1.0
+    new_pts: list[float] = []
+    for i, cnt in enumerate(counts):
+        lo, hi = bounds[i], bounds[i + 1]
+        length = hi - lo
+        if abs(ratio - 1.0) < 1e-9:
+            xs = np.linspace(lo, hi, cnt + 1)[1:-1]
+        elif mode == "symmetric":
+            half = cnt // 2
+            first = (length / 2.0) * (1.0 - ratio) / (1.0 - ratio ** half) \
+                if half > 0 else 0.0
+            left = lo + first * (1.0 - ratio ** np.arange(1, half + 1)) \
+                / (1.0 - ratio)
+            right = hi - (left - lo)[::-1]
+            xs = np.concatenate([left, right]) if cnt % 2 == 0 else \
+                np.concatenate([left, [(lo + hi) / 2.0], right])
+        elif mode == "backward":
+            first = length * (1.0 - ratio) / (1.0 - ratio ** cnt)
+            xs = hi - first * (1.0 - ratio ** np.arange(1, cnt)) \
+                / (1.0 - ratio)
+        else:  # forward
+            first = length * (1.0 - ratio) / (1.0 - ratio ** cnt)
+            xs = lo + first * (1.0 - ratio ** np.arange(1, cnt)) \
+                / (1.0 - ratio)
+        new_pts.extend(float(x) for x in xs)
+    out: list[float] = []
+    for v in sorted(axis_vals):
+        if a + 1e-9 < v < b - 1e-9 and v not in keep:
+            continue  # old interior lines of the range are replaced
+        out.append(v)
+    for x in new_pts:
+        if all(abs(x - v) >= max(threshold, 1e-9) for v in out):
+            out.append(x)
+    return sorted(out)
+
+
+def delete_grid_lines(entries: list[tuple[float, str]], target: str,
+                      part_minmax: Optional[list[float]] = None
+                      ) -> list[tuple[float, str]]:
+    """STpre Deletion tab semantics on one axis' ``(value, mark)`` list.
+
+    ``target``: ``all_but_rough`` keeps B/S/F lines; ``all`` keeps block
+    boundaries and lines through part min/max coordinates (``part_minmax``);
+    fixed marks are cancelled (F -> N) before filtering when requested by
+    the caller.
+    """
+    if len(entries) <= 2:
+        return entries
+    keep: list[tuple[float, str]] = []
+    refs = set()
+    for v in (part_minmax or []):
+        refs.add(round(float(v), 9))
+    for i, (val, mark) in enumerate(entries):
+        boundary = i == 0 or i == len(entries) - 1 or mark == "B"
+        if target == "all_but_rough":
+            if boundary or mark in ("S", "F"):
+                keep.append((val, mark))
+        elif target == "all":
+            if boundary or round(val, 9) in refs:
+                keep.append((val, mark))
+        else:
+            keep.append((val, mark))
+    return keep

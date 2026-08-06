@@ -376,6 +376,27 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 
 全仓 `pytest`：**92 通过 / 4 跳过**。
 
+#### M5 补充：STpre 风格对话框框架 + Mesh:Set division 六标签对话框（2026-08-06）
+
+- 新模块 `cab_dialogs.py`（STpre 对话框框架）：`DialogHeader`、
+  `ColorButton`、`AttributePanel`、`CuboidSchematic`、`StpreDialogBase`、
+  `MaterialListDialog`；
+- `DomainDialog`：对齐 [Edit Computational Domain] 截图/手册（左 Scale +
+  右 Attribute/Condition，逐轴 Extend、CAD Data Size、重命名修复 face_list
+  引用、Cancel 回滚）；`PartDialog`：部件编辑（属性/材料/颜色/monitor/
+  重命名）；树中双击部件/域/RootBlock 与右键 Reference 全部接入；
+- `GriddingDialog` 重写为 **Mesh:Set division 六标签**（Basic Setting /
+  Parameter / Detail meshing / Edit / Deletion / Others），底部
+  [Gridding] [Meshing] [Close] + `Element #` 状态行；模型层新增
+  `mesh_axis_entries/set_mesh_axis`（`<g>` 的 N/F/S/B 标记）、
+  `mesh_control_value/set_mesh_control_value`、部件 `select_vertex`、
+  `cab_mesh.update_part_elements/find_interferences/resolve_interferences`、
+  `cab_grid.divide_interval/delete_grid_lines`；
+- 已知 NYI（已记日志，不阻塞）：multiblock 创建/插入、Edit 页鼠标拾取
+  （用列表选择代替）；
+- 回归：`tests/test_dialogs.py`（8 项）+ `tests/test_gridding_tabs.py`
+  （11 项）；清理残留 `tests/tmp*` 目录后全仓 **114 通过 / 4 跳过**。
+
 ---
 
 ## 7. 关键接口设计（草案）

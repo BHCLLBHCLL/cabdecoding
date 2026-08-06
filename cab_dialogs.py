@@ -1,0 +1,2077 @@
+"""M5: STpre-style dialog framework for cab_gui.
+
+Chrome reverse-engineered from Cradle STpre (CradleCFD2025.2):
+
+- Screenshot of the [Edit Computational Domain] dialog (double-click
+  ``Domain(cuboid)`` in [Layout of Parts]);
+- Pre_eng manual dialog pages ([Edit Computational Domain] dialog,
+  [Part] - [Cuboid], [Gridding] dialog, ...);
+- UI label strings extracted from ``STpreParts_Bx64.dll``
+  ("Calculate Part Region", "<Rectangular box subdomain>",
+  "Reference coordinate system", "Attribute/Condition",
+  "Output temperature to Monitor", "Configure...", ...).
+
+Framework pieces (reusable for every other settings dialog):
+
+- :class:`DialogHeader`     — icon + caption band on top of a dialog;
+- :class:`ColorButton`      — ``[Color...]`` button with RGBA swatch;
+- :class:`AttributePanel`   — the [Attribute/Condition] group:
+  Attribute / Material+[Configure...] / Initial temperature /
+  Heat source / Output temperature to Monitor / Virtual part;
+- :class:`CuboidSchematic`  — isometric box sketch with axis arrows,
+  drawn in the [Scale] group of STpre part dialogs;
+- :class:`StpreDialogBase`  — common QDialog chrome: header, optional
+  [Part Name + Color] row, left/right column body and the bottom
+  button row ``[Preview] [Apply] [OK] [Cancel]``;
+- :class:`MaterialListDialog` — [List of Materials] chooser opened by
+  [Configure...].
+
+Concrete dialogs:
+
+- :class:`DomainDialog`   — [Edit Computational Domain], STpre layout;
+- :class:`PartDialog`     — [Part] - [Cuboid]-style part editor;
+- :class:`GriddingDialog` — [Gridding] Basic Settings on the framework.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+import numpy as np
+
+import cab_domain
+from cab_icons import AppIcons
+from cabxml import PropertyModel, StpreModel
+
+try:
+    from PyQt5 import QtWidgets
+    from PyQt5.QtCore import Qt, pyqtSignal
+    from PyQt5.QtGui import QColor, QPainter, QPen, QBrush, QPolygon
+    from PyQt5.QtCore import QPoint, QPointF
+    from PyQt5.QtWidgets import (
+        QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFrame,
+        QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
+        QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSlider,
+        QSpinBox, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+        QWidget,
+    )
+    _HAS_GUI_DEPS = True
+except Exception:  # pragma: no cover - headless environments
+    _HAS_GUI_DEPS = False
+    QtWidgets = None
+    QDialog = object  # type: ignore
+    QWidget = object  # type: ignore
+    QGroupBox = object  # type: ignore
+
+_UNIT_FACTOR = {"mm": 1.0, "m": 1000.0, "cm": 10.0}  # value -> mm
+
+
+# ---------------------------------------------------------------- framework
+
+
+class DialogHeader(QWidget if _HAS_GUI_DEPS else object):
+    """Icon + bold caption + separator line (STpre dialog header band)."""
+
+    def __init__(self, caption: str, icon: str = "domain", parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 2)
+        lay.setSpacing(2)
+        row = QHBoxLayout()
+        row.setContentsMargins(2, 2, 2, 0)
+        if icon:
+            ic = QLabel(self)
+            ic.setPixmap(AppIcons.get(icon, 20).pixmap(20, 20))
+            row.addWidget(ic)
+        text = QLabel(caption, self)
+        text.setStyleSheet("font-weight: bold; font-size: 12px;")
+        row.addWidget(text)
+        row.addStretch(1)
+        lay.addLayout(row)
+        self.caption_label = text
+        line = QFrame(self)
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        lay.addWidget(line)
+
+    def set_caption(self, caption: str) -> None:
+        self.caption_label.setText(caption)
+
+
+class ColorButton(QWidget if _HAS_GUI_DEPS else object):
+    """``[Color...]`` button followed by an RGBA color swatch."""
+
+    color_changed = pyqtSignal(tuple)   # (r, g, b, a) 0-255
+
+    def __init__(self, rgba=(0, 255, 255, 255), parent=None):
+        super().__init__(parent)
+        self._rgba = tuple(int(v) for v in rgba)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        self.button = QPushButton("Color...", self)
+        self.button.clicked.connect(self._pick)
+        lay.addWidget(self.button)
+        self.swatch = QFrame(self)
+        self.swatch.setFixedSize(22, 22)
+        self.swatch.setFrameShape(QFrame.Box)
+        self.swatch.setAutoFillBackground(True)
+        lay.addWidget(self.swatch)
+        self._refresh()
+
+    def rgba(self) -> tuple[int, int, int, int]:
+        return self._rgba
+
+    def set_rgba(self, rgba) -> None:
+        self._rgba = tuple(int(v) for v in rgba)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        r, g, b, _a = self._rgba
+        self.swatch.setStyleSheet(
+            f"background-color: rgb({r},{g},{b}); border: 1px solid #666;")
+
+    def _pick(self) -> None:
+        r, g, b, a = self._rgba
+        col = QtWidgets.QColorDialog.getColor(
+            QColor(r, g, b, a), self, "Color",
+            QtWidgets.QColorDialog.ShowAlphaChannel)
+        if col.isValid():
+            self.set_rgba(col.getRgb())
+            self.color_changed.emit(self._rgba)
+
+
+class CuboidSchematic(QWidget if _HAS_GUI_DEPS else object):
+    """Isometric cuboid sketch with origin dot + X/Y/Z axis arrows.
+
+    Mimics the figure in the [Scale] group of STpre part/domain dialogs.
+    """
+
+    def __init__(self, parent=None, face="#cfe8a9"):
+        super().__init__(parent)
+        self.setMinimumSize(150, 120)
+        self._face = QColor(face)
+
+    def paintEvent(self, _ev) -> None:  # noqa: N802 (Qt naming)
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        ox, oy = w * 0.52, h * 0.78          # origin (min corner, front)
+        ux, uy = w * 0.36, 0.0               # X axis vector (right)
+        vx, vy = 0.0, -h * 0.42              # Y axis vector (up)
+        zx, zy = -w * 0.20, -h * 0.16        # Z axis vector (up-left)
+
+        def pt(x, y, z):
+            return QPointF(ox + x * ux + y * vx + z * zx,
+                           oy + x * uy + y * vy + z * zy)
+
+        c000 = pt(0, 0, 0)
+        c100, c010, c001 = pt(1, 0, 0), pt(0, 1, 0), pt(0, 0, 1)
+        c110, c101, c011 = pt(1, 1, 0), pt(1, 0, 1), pt(0, 1, 1)
+        c111 = pt(1, 1, 1)
+
+        edge = QPen(QColor("#4a6b2a"), 1.4)
+        p.setPen(edge)
+        # hidden faces first (back / right / top, darker)
+        p.setBrush(QBrush(self._face.darker(112)))
+        p.drawPolygon(QPolygon([c001.toPoint(), c101.toPoint(),
+                                c111.toPoint(), c011.toPoint()]))
+        p.drawPolygon(QPolygon([c100.toPoint(), c110.toPoint(),
+                                c111.toPoint(), c101.toPoint()]))
+        p.drawPolygon(QPolygon([c010.toPoint(), c011.toPoint(),
+                                c111.toPoint(), c110.toPoint()]))
+        # visible faces: left / bottom / front
+        p.setBrush(QBrush(self._face.darker(106)))
+        p.drawPolygon(QPolygon([c000.toPoint(), c001.toPoint(),
+                                c011.toPoint(), c010.toPoint()]))
+        p.drawPolygon(QPolygon([c000.toPoint(), c100.toPoint(),
+                                c101.toPoint(), c001.toPoint()]))
+        p.setBrush(QBrush(self._face))
+        p.drawPolygon(QPolygon([c000.toPoint(), c100.toPoint(),
+                                c110.toPoint(), c010.toPoint()]))
+        # origin dot
+        p.setPen(Qt.NoPen)
+        p.setBrush(QBrush(QColor("#d62728")))
+        p.drawEllipse(c000, 3.5, 3.5)
+        # axis arrows beyond the box
+        p.setPen(QPen(QColor("#1f4ed8"), 1.6))
+        p.setBrush(QBrush(QColor("#1f4ed8")))
+        for start, tip, label, dx, dy in (
+                (c100, pt(1.18, 0, 0), "X", -2, 12),
+                (c010, pt(0, 1.30, 0), "Y", 2, -2),
+                (c001, pt(0, 0, 1.40), "Z", -12, 10)):
+            p.drawLine(start, tip)
+            p.drawText(QPointF(tip.x() + dx, tip.y() + dy), label)
+        p.end()
+
+
+class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
+    """STpre [Attribute/Condition] group (right column of part dialogs)."""
+
+    configure_requested = pyqtSignal()
+    attribute_changed = pyqtSignal(str)
+
+    def __init__(self, parent=None, *,
+                 attributes=("Fluid",),
+                 attribute_enabled=True,
+                 heat_source=False,
+                 virtual_part=False,
+                 temperature_unit="C"):
+        super().__init__("Attribute/Condition", parent)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(6)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Attribute", self))
+        self.attribute = QComboBox(self)
+        self.attribute.addItems(list(attributes))
+        self.attribute.setEnabled(attribute_enabled and len(attributes) > 0)
+        self.attribute.currentTextChanged.connect(self.attribute_changed)
+        row.addWidget(self.attribute, 1)
+        lay.addLayout(row)
+
+        lay.addWidget(QLabel("Material", self))
+        mrow = QHBoxLayout()
+        self.material = QLineEdit(self)
+        self.material.setReadOnly(True)
+        mrow.addWidget(self.material, 1)
+        self.configure = QPushButton("Configure...", self)
+        self.configure.clicked.connect(self.configure_requested)
+        mrow.addWidget(self.configure)
+        lay.addLayout(mrow)
+
+        trow = QHBoxLayout()
+        self.init_temp_chk = QCheckBox("Initial temperature", self)
+        trow.addWidget(self.init_temp_chk)
+        self.init_temp = QDoubleSpinBox(self)
+        self.init_temp.setRange(-273.15, 1.0e6)
+        self.init_temp.setDecimals(2)
+        self.init_temp.setValue(20.0)
+        trow.addWidget(self.init_temp)
+        trow.addWidget(QLabel(temperature_unit, self))
+        trow.addStretch(1)
+        lay.addLayout(trow)
+        self.init_temp_chk.toggled.connect(self.init_temp.setEnabled)
+        self.init_temp.setEnabled(False)
+
+        self.heat_chk = None
+        self.heat = None
+        if heat_source:
+            hrow = QHBoxLayout()
+            self.heat_chk = QCheckBox("Heat source", self)
+            hrow.addWidget(self.heat_chk)
+            self.heat = QDoubleSpinBox(self)
+            self.heat.setRange(0.0, 1.0e12)
+            self.heat.setDecimals(3)
+            hrow.addWidget(self.heat)
+            hrow.addWidget(QLabel("W", self))
+            hrow.addStretch(1)
+            lay.addLayout(hrow)
+            self.heat_chk.toggled.connect(self.heat.setEnabled)
+            self.heat.setEnabled(False)
+
+        self.monitor_chk = QCheckBox("Output temperature to Monitor", self)
+        self.monitor_chk.setChecked(True)
+        lay.addWidget(self.monitor_chk)
+
+        self.virtual_chk = None
+        if virtual_part:
+            self.virtual_chk = QCheckBox("Virtual part", self)
+            lay.addWidget(self.virtual_chk)
+        lay.addStretch(1)
+
+    # -- value helpers -----------------------------------------------------
+
+    def set_material(self, name: str) -> None:
+        self.material.setText(name)
+
+    def material_name(self) -> str:
+        return self.material.text().strip()
+
+    def set_initial_temperature(self, value: Optional[float],
+                                checked: bool = True) -> None:
+        self.init_temp_chk.setChecked(checked)
+        if value is not None:
+            self.init_temp.setValue(float(value))
+
+    def initial_temperature(self) -> Optional[float]:
+        return self.init_temp.value() if self.init_temp_chk.isChecked() \
+            else None
+
+    def set_monitor(self, on: bool) -> None:
+        self.monitor_chk.setChecked(on)
+
+    def monitor(self) -> bool:
+        return self.monitor_chk.isChecked()
+
+
+class MaterialListDialog(QDialog if _HAS_GUI_DEPS else object):
+    """[List of Materials] dialog — target of the [Configure...] button."""
+
+    def __init__(self, props: Optional[PropertyModel], parent=None,
+                 current: str = ""):
+        super().__init__(parent)
+        self.setWindowTitle("List of Materials")
+        self.resize(360, 420)
+        lay = QVBoxLayout(self)
+        self.filter = QLineEdit(self)
+        self.filter.setPlaceholderText("Filter…")
+        self.filter.textChanged.connect(self._refilter)
+        lay.addWidget(self.filter)
+        self.list = QListWidget(self)
+        self._names = props.material_names() if props is not None else []
+        for name in self._names:
+            QListWidgetItem(name, self.list)
+        if current:
+            hits = self.list.findItems(current, Qt.MatchExactly)
+            if hits:
+                self.list.setCurrentItem(hits[0])
+        lay.addWidget(self.list, 1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        ok = QPushButton("OK", self)
+        ok.setDefault(True)
+        ok.clicked.connect(self.accept)
+        cancel = QPushButton("Cancel", self)
+        cancel.clicked.connect(self.reject)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+        self.list.itemDoubleClicked.connect(lambda _i: self.accept())
+
+    def _refilter(self, text: str) -> None:
+        for i in range(self.list.count()):
+            item = self.list.item(i)
+            item.setHidden(text.lower() not in item.text().lower())
+
+    def selected_material(self) -> str:
+        item = self.list.currentItem()
+        return item.text() if item is not None else ""
+
+
+class StpreDialogBase(QDialog if _HAS_GUI_DEPS else object):
+    """Common STpre dialog chrome.
+
+    Layout (aligned with the [Edit Computational Domain] screenshot)::
+
+        +------------------------------------------------------+
+        | [icon] Caption                                       |
+        | ---------------------------------------------------  |
+        | Part Name [..........]              [Color...] [sw]  |
+        | +-- <left group> --------+  +-- Attribute/Condition+ |
+        | | ...                    |  | ...                  | |
+        | +------------------------+  +----------------------+ |
+        |          [Preview] [Apply] [OK] [Cancel]             |
+        +------------------------------------------------------+
+
+    Subclasses fill the left column in :meth:`_build_left` and implement
+    :meth:`_on_apply`; override :meth:`_on_ok` / :meth:`_on_cancel` when
+    the default ``_on_apply`` + accept/reject behaviour is not enough.
+    """
+
+    def __init__(self, title: str, header: str, *, icon: str = "domain",
+                 parent=None, name_row: bool = True,
+                 attribute_panel: Optional[AttributePanel] = None,
+                 left_title: str = "Scale",
+                 buttons=("Preview", "Apply", "OK", "Cancel")):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self._applied = False
+        lay = QVBoxLayout(self)
+        lay.setSpacing(6)
+        self.header = DialogHeader(header, icon, self)
+        lay.addWidget(self.header)
+
+        if name_row:
+            nrow = QHBoxLayout()
+            nrow.addWidget(QLabel("Part Name", self))
+            self.name_edit = QLineEdit(self)
+            nrow.addWidget(self.name_edit, 1)
+            nrow.addStretch(1)
+            self.color_btn = ColorButton(parent=self)
+            nrow.addWidget(self.color_btn)
+            lay.addLayout(nrow)
+        else:
+            self.name_edit = None
+            self.color_btn = None
+
+        cols = QHBoxLayout()
+        cols.setSpacing(8)
+        self.left_box = QGroupBox(left_title, self)
+        self.left_layout = QVBoxLayout(self.left_box)
+        self.left_layout.setSpacing(6)
+        cols.addWidget(self.left_box, 3)
+        self.attr_panel = attribute_panel
+        if attribute_panel is not None:
+            cols.addWidget(attribute_panel, 2)
+        lay.addLayout(cols, 1)
+        self._build_left(self.left_layout)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        self._buttons = {}
+        for label in buttons:
+            btn = QPushButton(label, self)
+            if label == "Preview":
+                btn.clicked.connect(self._on_preview)
+            elif label == "Apply":
+                btn.clicked.connect(self._on_apply)
+            elif label == "OK":
+                btn.setDefault(True)
+                btn.clicked.connect(self._on_ok)
+            elif label == "Cancel":
+                btn.clicked.connect(self._on_cancel)
+            else:  # custom button -> _on_custom_<label>()
+                handler = getattr(self, f"_on_{label.lower()}", None)
+                if handler is not None:
+                    btn.clicked.connect(handler)
+            brow.addWidget(btn)
+            self._buttons[label] = btn
+        lay.addLayout(brow)
+
+    # -- subclass hooks ----------------------------------------------------
+
+    def _build_left(self, layout: QVBoxLayout) -> None:
+        """Fill the left column (override)."""
+
+    def _on_preview(self) -> None:
+        self._on_apply()
+
+    def _on_apply(self) -> None:
+        """Apply current widget values (override)."""
+        self._applied = True
+
+    def _on_ok(self) -> None:
+        self._on_apply()
+        self.accept()
+
+    def _on_cancel(self) -> None:
+        self.reject()
+
+    def button(self, label: str) -> QPushButton:
+        return self._buttons[label]
+
+
+# ------------------------------------------------------- computational domain
+
+
+class DomainDialog(StpreDialogBase):
+    """[Edit Computational Domain] — STpre layout (double-click Domain).
+
+    Left column  [Scale]: cuboid sketch, [Calculate Part Region],
+    <Rectangular box subdomain> min/max, [Extend surroundings],
+    Reference coordinate system, unit.
+    Right column [Attribute/Condition]: Attribute=Fluid, Material with
+    [Configure...], Initial temperature, Output temperature to Monitor.
+    """
+
+    def __init__(self, model: StpreModel, props: Optional[PropertyModel],
+                 cad_meshes, parent=None):
+        self.model = model
+        self.props = props
+        self.cad_meshes = cad_meshes
+        self.old_spec = cab_domain.domain_from_xml(model) \
+            or cab_domain.DomainSpec()
+        attr = AttributePanel(
+            attributes=("Fluid",), attribute_enabled=False, parent=None)
+        attr.configure_requested.connect(self._configure_material)
+        super().__init__(
+            "Edit Computational Domain", "Computational Domain",
+            icon="domain", parent=parent, attribute_panel=attr,
+            left_title="Scale")
+        self._load_spec(self.old_spec)
+
+    # -- left column (Scale) ------------------------------------------------
+
+    def _build_left(self, lay: QVBoxLayout) -> None:
+        lay.addWidget(CuboidSchematic(self), 0, Qt.AlignHCenter)
+        self.btn_cad = QPushButton("Calculate Part Region", self)
+        self.btn_cad.clicked.connect(self._cad_data_size)
+        lay.addWidget(self.btn_cad)
+        self.auto_y = QCheckBox(
+            "Maximum length in Y direction: Auto setting", self)
+        self.auto_y.setVisible(self.old_spec.coordinate == "axial")
+        lay.addWidget(self.auto_y)
+        caption = QLabel("<Rectangular box subdomain>", self)
+        caption.setStyleSheet("color: #444;")
+        lay.addWidget(caption)
+
+        ref = QHBoxLayout()
+        ref.addWidget(QLabel("Reference\ncoordinate system", self))
+        self.ref_coord = QComboBox(self)
+        self.ref_coord.addItem("Global coordinate system")
+        self.ref_coord.addItem("Sketch coordinate system")
+        self.ref_coord.model().item(1).setEnabled(False)
+        ref.addWidget(self.ref_coord, 1)
+        lay.addLayout(ref)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(4)
+        for i, ax in enumerate(("X", "Y", "Z")):
+            lab = QLabel(ax, self)
+            lab.setAlignment(Qt.AlignCenter)
+            grid.addWidget(lab, 0, i + 1)
+        grid.addWidget(QLabel("Minimum", self), 1, 0)
+        grid.addWidget(QLabel("Maximum", self), 2, 0)
+        self.spins: dict[str, QDoubleSpinBox] = {}
+        for i, ax in enumerate("xyz"):
+            for row, side in ((1, "min"), (2, "max")):
+                sb = self._make_spin()
+                grid.addWidget(sb, row, i + 1)
+                self.spins[f"{ax}{side}"] = sb
+        lay.addLayout(grid)
+
+        self.extend_chk = QCheckBox("Extend surroundings", self)
+        lay.addWidget(self.extend_chk)
+        egrid = QGridLayout()
+        egrid.setHorizontalSpacing(4)
+        egrid.addWidget(QLabel("Minimum", self), 0, 0)
+        egrid.addWidget(QLabel("Maximum", self), 1, 0)
+        self.extend_spins: dict[str, QDoubleSpinBox] = {}
+        for i, ax in enumerate("xyz"):
+            for row, side in ((0, "min"), (1, "max")):
+                sb = self._make_spin()
+                sb.setRange(0.0, 1.0e9)
+                egrid.addWidget(sb, row, i + 1)
+                self.extend_spins[f"{ax}{side}"] = sb
+        lay.addLayout(egrid)
+        self.extend_chk.toggled.connect(self._on_extend_toggled)
+        self._on_extend_toggled(False)
+
+        urow = QHBoxLayout()
+        urow.addStretch(1)
+        urow.addWidget(QLabel("Unit:", self))
+        self.unit = QComboBox(self)
+        self.unit.addItems(["mm", "m", "cm"])
+        self.unit.currentTextChanged.connect(self._on_unit_changed)
+        urow.addWidget(self.unit)
+        lay.addLayout(urow)
+        lay.addStretch(1)
+
+    def _make_spin(self) -> QDoubleSpinBox:
+        sb = QDoubleSpinBox(self)
+        sb.setRange(-1.0e9, 1.0e9)
+        sb.setDecimals(6)
+        sb.setSingleStep(1.0)
+        sb.setMinimumWidth(64)
+        return sb
+
+    def _on_extend_toggled(self, on: bool) -> None:
+        for sb in self.extend_spins.values():
+            sb.setEnabled(on)
+
+    # -- spec <-> widgets ----------------------------------------------------
+
+    def _load_spec(self, spec: cab_domain.DomainSpec) -> None:
+        self.name_edit.setText(spec.name)
+        self.color_btn.set_rgba(spec.color)
+        self.unit.blockSignals(True)
+        self.unit.setCurrentText(spec.unit if spec.unit in _UNIT_FACTOR
+                                 else "mm")
+        self.unit.blockSignals(False)
+        self._current_unit = self.unit.currentText()
+        for i, ax in enumerate("xyz"):
+            self.spins[f"{ax}min"].setValue(spec.xyz_min[i])
+            self.spins[f"{ax}max"].setValue(spec.xyz_max[i])
+            self.extend_spins[f"{ax}min"].setValue(spec.extend_min[i])
+            self.extend_spins[f"{ax}max"].setValue(spec.extend_max[i])
+        self.extend_chk.setChecked(
+            any(v != 0.0 for v in spec.extend_min)
+            or any(v != 0.0 for v in spec.extend_max)
+            or any(v != 0.0 for v in spec.extend))
+        self.auto_y.setChecked(spec.auto_y_for_axial)
+        attr = self.attr_panel
+        attr.set_material(spec.material)
+        attr.set_initial_temperature(spec.initial_temperature, checked=True)
+        attr.set_monitor(spec.monitor)
+
+    def _current_spec(self) -> cab_domain.DomainSpec:
+        unit = self.unit.currentText()
+        extending = self.extend_chk.isChecked()
+        return cab_domain.DomainSpec(
+            coordinate=self.old_spec.coordinate,
+            unit=unit,
+            xyz_min=(self.spins["xmin"].value(), self.spins["ymin"].value(),
+                     self.spins["zmin"].value()),
+            xyz_max=(self.spins["xmax"].value(), self.spins["ymax"].value(),
+                     self.spins["zmax"].value()),
+            material=self.attr_panel.material_name(),
+            extend_min=tuple(self.extend_spins[f"{ax}min"].value()
+                             if extending else 0.0 for ax in "xyz"),
+            extend_max=tuple(self.extend_spins[f"{ax}max"].value()
+                             if extending else 0.0 for ax in "xyz"),
+            auto_y_for_axial=self.auto_y.isChecked(),
+            name=self.name_edit.text().strip() or "Domain(cuboid)",
+            color=self.color_btn.rgba(),
+            monitor=self.attr_panel.monitor(),
+            initial_temperature=self.attr_panel.initial_temperature(),
+        )
+
+    # -- unit conversion ------------------------------------------------------
+
+    def _on_unit_changed(self, new_unit: str) -> None:
+        old_unit = getattr(self, "_current_unit", "mm")
+        if old_unit == new_unit or old_unit not in _UNIT_FACTOR \
+                or new_unit not in _UNIT_FACTOR:
+            self._current_unit = new_unit
+            return
+        ratio = _UNIT_FACTOR[old_unit] / _UNIT_FACTOR[new_unit]
+        for sb in list(self.spins.values()) + list(self.extend_spins.values()):
+            sb.setValue(sb.value() * ratio)
+        self._current_unit = new_unit
+
+    # -- buttons / actions -----------------------------------------------------
+
+    def _configure_material(self) -> None:
+        dlg = MaterialListDialog(self.props, self,
+                                 current=self.attr_panel.material_name())
+        if dlg.exec_() and dlg.selected_material():
+            self.attr_panel.set_material(dlg.selected_material())
+
+    def _apply(self, preview: bool = False) -> None:
+        spec = self._current_spec()
+        if self.extend_chk.isChecked():
+            spec.xyz_min = tuple(
+                v - m for v, m in zip(spec.xyz_min, spec.extend_min))
+            spec.xyz_max = tuple(
+                v + m for v, m in zip(spec.xyz_max, spec.extend_max))
+            spec.extend_min = (0.0, 0.0, 0.0)
+            spec.extend_max = (0.0, 0.0, 0.0)
+        cab_domain.apply_domain(self.model, spec)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+            parent.log(
+                f"Domain preview: {spec.coordinate} "
+                f"min={spec.xyz_min} max={spec.xyz_max} unit={spec.unit}")
+        if not preview:
+            self._current_unit = spec.unit
+            self.accept()
+
+    def _revert(self) -> None:
+        cab_domain.apply_domain(self.model, self.old_spec)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+        self.reject()
+
+    # StpreDialogBase hooks: Preview -> preview, Apply -> apply, OK -> apply
+    # + close, Cancel -> revert.
+    def _on_preview(self) -> None:
+        self._apply(True)
+
+    def _on_apply(self) -> None:
+        self._apply(True)
+
+    def _on_ok(self) -> None:
+        self._apply(False)
+
+    def _on_cancel(self) -> None:
+        self._revert()
+
+    def _cad_data_size(self) -> None:
+        """[Calculate Part Region]: bounding box of all registered parts."""
+        lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
+        parent = self.parent()
+        if not np.isfinite(lo).all():
+            if parent is not None and hasattr(parent, "log"):
+                parent.log("Calculate Part Region: no tessellated parts",
+                           "WARN")
+            return
+        unit = self.unit.currentText()
+        factor = _UNIT_FACTOR.get(unit, 1.0)
+        # part_bounds returns metres; convert to the dialog unit
+        scale = 1000.0 / factor
+        for i, ax in enumerate("xyz"):
+            self.spins[f"{ax}min"].setValue(lo[i] * scale)
+            self.spins[f"{ax}max"].setValue(hi[i] * scale)
+        if parent is not None and hasattr(parent, "log"):
+            parent.log(f"Calculate Part Region: {lo * scale} ~ {hi * scale} "
+                       f"[{unit}]")
+
+
+# ------------------------------------------------------------------ parts
+
+
+class PartDialog(StpreDialogBase):
+    """[Part] - [Cuboid]-style part editor built on the framework.
+
+    Demonstrates the reusable chrome for other settings dialogs:
+    [Scale] (Reference coordinate system / Location / Size) on the left,
+    [Attribute/Condition] on the right, Preview/Apply/OK/Cancel below.
+    Geometry fields are read-only for parts whose box parameters are not
+    stored in the cab XML (body parts); name/material/color/monitor are
+    always editable.
+    """
+
+    def __init__(self, model: StpreModel, props: Optional[PropertyModel],
+                 part_name: str, parent=None):
+        self.model = model
+        self.props = props
+        self.part_name = part_name
+        self._part = next(
+            (p for p in model.parts() if p.name == part_name), None)
+        attr = AttributePanel(
+            attributes=("Obstacle", "Solid", "Condition region", "Fluid"),
+            attribute_enabled=True, heat_source=True, virtual_part=True)
+        attr.configure_requested.connect(self._configure_material)
+        super().__init__(
+            f"Part — {part_name}", "Cuboid" if self._is_box() else "Part",
+            icon="cube" if self._is_box() else "part", parent=parent,
+            attribute_panel=attr, left_title="Scale")
+        self._load_part()
+
+    def _is_box(self) -> bool:
+        return self._part is not None and self._part.kind in (
+            "cube", "box", "cuboid")
+
+    def _build_left(self, lay: QVBoxLayout) -> None:
+        lay.addWidget(CuboidSchematic(self, face="#bdd7ee"), 0,
+                      Qt.AlignHCenter)
+        ref = QHBoxLayout()
+        ref.addWidget(QLabel("Reference\ncoordinate system", self))
+        self.ref_coord = QComboBox(self)
+        self.ref_coord.addItem("Global coordinate system")
+        self.ref_coord.addItem("Sketch coordinate system")
+        self.ref_coord.model().item(1).setEnabled(False)
+        ref.addWidget(self.ref_coord, 1)
+        lay.addLayout(ref)
+
+        self.loc: dict[str, QDoubleSpinBox] = {}
+        self.size: dict[str, QDoubleSpinBox] = {}
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(4)
+        for i, ax in enumerate(("X", "Y", "Z")):
+            lab = QLabel(ax, self)
+            lab.setAlignment(Qt.AlignCenter)
+            grid.addWidget(lab, 0, i + 1)
+        grid.addWidget(QLabel("Location", self), 1, 0)
+        grid.addWidget(QLabel("Size", self), 2, 0)
+        for i, ax in enumerate("xyz"):
+            for row, store in ((1, self.loc), (2, self.size)):
+                sb = QDoubleSpinBox(self)
+                sb.setRange(-1.0e9, 1.0e9)
+                sb.setDecimals(6)
+                sb.setMinimumWidth(64)
+                grid.addWidget(sb, row, i + 1)
+                store[ax] = sb
+        lay.addLayout(grid)
+        self.geom_note = QLabel("", self)
+        self.geom_note.setStyleSheet("color: #555; font-size: 11px;")
+        self.geom_note.setWordWrap(True)
+        lay.addWidget(self.geom_note)
+        lay.addStretch(1)
+
+    def _load_part(self) -> None:
+        if self._part is None:
+            self.geom_note.setText(f"Part '{self.part_name}' not found.")
+            return
+        p = self._part
+        self.name_edit.setText(p.name)
+        try:
+            rgba = tuple(int(float(v)) for v in p.color.split(",")[:4])
+            if len(rgba) == 4:
+                self.color_btn.set_rgba(rgba)
+        except (ValueError, TypeError):
+            pass
+        base = self._triple(p.base)
+        size = self._triple(p.size)
+        editable = base is not None and size is not None
+        for i, ax in enumerate("xyz"):
+            self.loc[ax].setValue(base[i] if base else 0.0)
+            self.loc[ax].setEnabled(editable)
+            self.size[ax].setValue(size[i] if size else 0.0)
+            self.size[ax].setEnabled(editable)
+        if not editable:
+            self.geom_note.setText(
+                "Geometry of this part is stored in the CAD file "
+                "(body part); edit Location/Size via transform only.")
+        attr = self.attr_panel
+        attr.set_material(p.property)
+        if p.attribute:
+            idx = attr.attribute.findText(p.attribute)
+            if idx >= 0:
+                attr.attribute.setCurrentIndex(idx)
+        mon = self.model.find_part(p.name)
+        if mon is not None:
+            from cabxml import _first
+            mel = _first(mon, "monitor")
+            attr.set_monitor(
+                mel is None or not mel.text
+                or mel.text.strip().upper() != "F")
+
+    @staticmethod
+    def _triple(text: str) -> Optional[tuple[float, float, float]]:
+        if not text:
+            return None
+        try:
+            vals = [float(v.strip()) for v in text.split(",")[:3]]
+        except ValueError:
+            return None
+        return tuple(vals) if len(vals) == 3 else None  # type: ignore
+
+    def _configure_material(self) -> None:
+        dlg = MaterialListDialog(self.props, self,
+                                 current=self.attr_panel.material_name())
+        if dlg.exec_() and dlg.selected_material():
+            self.attr_panel.set_material(dlg.selected_material())
+
+    # -- framework hooks -----------------------------------------------------
+
+    def _on_preview(self) -> None:
+        self._commit(preview=True)
+
+    def _on_apply(self) -> None:
+        self._commit(preview=True)
+
+    def _on_ok(self) -> None:
+        self._commit(preview=False)
+        self.accept()
+
+    def _commit(self, preview: bool) -> None:
+        if self._part is None:
+            return
+        new_name = self.name_edit.text().strip()
+        if new_name and new_name != self._part.name:
+            if self.model.find_part(new_name) is not None:
+                parent = self.parent()
+                if parent is not None and hasattr(parent, "log"):
+                    parent.log(f"Part with the same name exists: {new_name}",
+                               "WARN")
+                return
+            self.model.rename_part(self._part.name, new_name)
+            self.part_name = new_name
+        self.model.set_part_property(
+            self.part_name, self.attr_panel.material_name())
+        self.model.set_part_color(self.part_name, self.color_btn.rgba())
+        self.model.set_part_monitor(
+            self.part_name, self.attr_panel.monitor())
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+            parent.log(
+                f"Part '{self.part_name}' updated "
+                f"(material={self.attr_panel.material_name()})")
+
+
+class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
+    """[Mesh] - [Gridding]: the STpre ``Mesh:Set division`` dialog.
+
+    Six tabs aligned with the Pre_eng manual and the STpre screenshots:
+
+    - **Basic Setting** — Vertex detection, Method of Gridding (incl.
+      Specifying the numbers of elements + Sub-block mesh refinement
+      factor), Division parameters of root block (Standard/Threshold/
+      Geometric ratio internal+external with [Common]), generation
+      options, [Interference] with [Reconstruct];
+    - **Parameter** — Multiblock tree + Mesh option of each part
+      (per-part vertex detection persisted to ``<parts>/<select_vertex>``);
+    - **Detail meshing** — re-divide a grid-line range (direction of
+      axis/division, element count, geometric ratio, retain rough grids,
+      threshold of active block);
+    - **Edit** — per-axis grid-line list (No./Coordinates/Type/Referred
+      parts) with Add/Delete/Edit/Preview and General/Fixed/Rough types;
+    - **Deletion** — Selected / All but rough grids / All (keep lines
+      through part min/max), optional Fixed-type cancel;
+    - **Others** — edge-contact tools, meshing of a specified part,
+      meshing parameters (edge tolerance / face search / element
+      threshold), domain-boundary element faces, flux-face duplication
+      check, V8 meshing method, parallel degree.
+
+    Bottom row: [Gridding] [Meshing] [Close] + ``Element #`` status.
+    """
+
+    _DETECTIONS = [
+        ("All", "all"), ("Representative", "representative"),
+        ("Axis plane", "axis_plane"), ("Min/Max", "minmax"),
+        ("Not considered", "not_considered"), ("Uniform", "uniform"),
+    ]
+    _METHODS = [
+        ("Rough grids only", "rough_only"),
+        ("Rough grids and detailed mesh", "rough_and_detail"),
+        ("Rough grids and detailed mesh by specifying the number of "
+         "elements", "num_elements"),
+    ]
+    _GRID_TYPES = [("General", "N"), ("Fixed", "F"), ("Rough", "S")]
+    _MARK_LABEL = {"B": "block", "N": "", "F": "fixed", "S": "rough",
+                   "C": "child_block"}
+
+    def __init__(self, model: StpreModel, cad_meshes, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Mesh:Set division")
+        self.model = model
+        self.cad_meshes = cad_meshes or []
+        self._build_ui()
+        self._load_from_model()
+
+    # ================================================================ UI
+
+    def _build_ui(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.setSpacing(6)
+        self.tabs = QTabWidget(self)
+        self.tabs.addTab(self._build_basic_tab(), "Basic Setting")
+        self.tabs.addTab(self._build_parameter_tab(), "Parameter")
+        self.tabs.addTab(self._build_detail_tab(), "Detail meshing")
+        self.tabs.addTab(self._build_edit_tab(), "Edit")
+        self.tabs.addTab(self._build_deletion_tab(), "Deletion")
+        self.tabs.addTab(self._build_others_tab(), "Others")
+        lay.addWidget(self.tabs, 1)
+
+        brow = QHBoxLayout()
+        self.btn_gridding = QPushButton("Gridding", self)
+        self.btn_gridding.clicked.connect(self._gridding)
+        self.btn_meshing = QPushButton("Meshing", self)
+        self.btn_meshing.clicked.connect(self._meshing)
+        self.btn_close = QPushButton("Close", self)
+        self.btn_close.clicked.connect(self.accept)
+        brow.addWidget(self.btn_gridding)
+        brow.addWidget(self.btn_meshing)
+        brow.addStretch(1)
+        brow.addWidget(self.btn_close)
+        lay.addLayout(brow)
+        self.element_label = QLabel(self)
+        self.element_label.setStyleSheet(
+            "border: 1px solid #aaa; padding: 2px 6px; background: #fff;")
+        lay.addWidget(self.element_label)
+        self.resize(430, 760)
+
+    # ---------------------------------------------------------- helpers
+
+    def _radio_group(self, parent_layout, items, key_attr,
+                     cols=3) -> dict[str, QRadioButton]:
+        """Create radio buttons in a grid; store in ``self.<key_attr>``."""
+        radios: dict[str, QRadioButton] = {}
+        grid = QGridLayout()
+        for i, (label, key) in enumerate(items):
+            rb = QRadioButton(label, self)
+            grid.addWidget(rb, i // cols, i % cols)
+            radios[key] = rb
+        parent_layout.addLayout(grid)
+        setattr(self, key_attr, radios)
+        return radios
+
+    def _axis_spins(self, minimum=1.0e-6, decimals=6, value=0.0
+                    ) -> dict[str, QDoubleSpinBox]:
+        spins: dict[str, QDoubleSpinBox] = {}
+        for ax in "xyz":
+            sb = QDoubleSpinBox(self)
+            sb.setRange(minimum, 1.0e9)
+            sb.setDecimals(decimals)
+            sb.setValue(value)
+            sb.setMinimumWidth(58)
+            spins[ax] = sb
+        return spins
+
+    def _active_block_row(self, lay: QVBoxLayout) -> None:
+        box = QGroupBox("ActiveBlock", self)
+        row = QHBoxLayout(box)
+        row.addWidget(QLabel("Block name", box))
+        edit = QLineEdit("RootBlock", box)
+        edit.setReadOnly(True)
+        row.addWidget(edit, 1)
+        dots = QPushButton("...", box)
+        dots.setFixedWidth(28)
+        dots.clicked.connect(self._select_active_block)
+        row.addWidget(dots)
+        lay.addWidget(box)
+
+    def _select_active_block(self) -> None:
+        # [Selection of Active mesh block] — cab currently stores a single
+        # RootBlock, so the dialog is informational.
+        QMessageBox.information(
+            self, "Selection of Active mesh block",
+            "RootBlock\n\n(Only the root block exists in this project; "
+            "multiblock editing is not supported by the cab viewer yet.)")
+
+    def _log(self, msg: str, level: str = "INFO") -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "log"):
+            parent.log(msg, level)
+
+    # ------------------------------------------------------ Basic Setting
+
+    def _build_basic_tab(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        lay.setSpacing(6)
+
+        vd = QGroupBox("Vertex detection", page)
+        vl = QVBoxLayout(vd)
+        self._radio_group(vl, self._DETECTIONS, "detection_radios")
+        lay.addWidget(vd)
+
+        mg = QGroupBox("Method of Gridding", page)
+        ml = QVBoxLayout(mg)
+        self.method_radios: dict[str, QRadioButton] = {}
+        for label, key in self._METHODS:
+            rb = QRadioButton(label, mg)
+            ml.addWidget(rb)
+            self.method_radios[key] = rb
+            rb.toggled.connect(self._on_method_changed)
+        self.num_box = QGroupBox("Specifying the numbers of elements", mg)
+        nl = QVBoxLayout(self.num_box)
+        self.num_total_radio = QRadioButton("Total number of elements",
+                                            self.num_box)
+        trow = QHBoxLayout()
+        trow.addWidget(self.num_total_radio)
+        trow.addStretch(1)
+        self.target = QDoubleSpinBox(self.num_box)
+        self.target.setRange(8, 1.0e12)
+        self.target.setDecimals(0)
+        self.target.setValue(125000)
+        self.target.setGroupSeparatorShown(True)
+        trow.addWidget(self.target)
+        nl.addLayout(trow)
+        self.num_axis_radio = QRadioButton(
+            "The number of elements in each axis direction", self.num_box)
+        nl.addWidget(self.num_axis_radio)
+        arow = QHBoxLayout()
+        arow.addStretch(1)
+        self.target_axes: dict[str, QSpinBox] = {}
+        for i, ax in enumerate("xyz"):
+            sb = QSpinBox(self.num_box)
+            sb.setRange(2, 100000)
+            sb.setValue((253, 152, 54)[i])
+            self.target_axes[ax] = sb
+            arow.addWidget(sb)
+            if ax != "z":
+                arow.addWidget(QLabel("x", self.num_box))
+        nl.addLayout(arow)
+        self.num_total_radio.setChecked(True)
+        srow = QHBoxLayout()
+        srow.addWidget(QLabel("Sub-block mesh refinement factor",
+                              self.num_box))
+        srow.addStretch(1)
+        self.subblock_factor = QSpinBox(self.num_box)
+        self.subblock_factor.setRange(1, 16)
+        self.subblock_factor.setValue(2)
+        srow.addWidget(self.subblock_factor)
+        nl.addLayout(srow)
+        ml.addWidget(self.num_box)
+        lay.addWidget(mg)
+
+        dp = QGroupBox("Division parameters of root block", page)
+        dl = QGridLayout(dp)
+        for i, ax in enumerate(("X", "Y", "Z")):
+            lab = QLabel(ax, dp)
+            lab.setAlignment(Qt.AlignCenter)
+            dl.addWidget(lab, 0, i + 1)
+        self.std = self._axis_spins(value=0.5)
+        self.thr = self._axis_spins(value=0.1)
+        self.ratio = self._axis_spins(value=1.0)
+        self.ratio_ext = self._axis_spins(value=1.1)
+        rows = (
+            ("Standard length", self.std, "std_common", False),
+            ("Threshold length", self.thr, "thr_common", False),
+            ("Geometric ratio\n(internal)", self.ratio, "ratio_common", True),
+            ("(external)", self.ratio_ext, "ratio_ext_common", True),
+        )
+        for r, (label, spins, common_attr, checked) in enumerate(rows, 1):
+            dl.addWidget(QLabel(label, dp), r, 0)
+            for i, ax in enumerate("xyz"):
+                dl.addWidget(spins[ax], r, i + 1)
+            common = QCheckBox("Common", dp)
+            common.setChecked(checked)
+            setattr(self, common_attr, common)
+            dl.addWidget(common, r, 4)
+            common.toggled.connect(
+                lambda on, s=spins: self._on_common_toggled(s, on))
+            for ax in "yz":
+                spins[ax].setEnabled(not checked)
+        for spins in (self.std, self.thr, self.ratio, self.ratio_ext):
+            spins["x"].valueChanged.connect(
+                lambda v, s=spins: self._on_common_value(s, v))
+        lay.addWidget(dp)
+
+        opt = QVBoxLayout()
+        self.chk_discard = QCheckBox(
+            "Generate mesh discarding the existing mesh", page)
+        self.chk_discard.setChecked(True)
+        self.chk_internal = QCheckBox(
+            "Generate mesh as internal region", page)
+        self.chk_child_only = QCheckBox(
+            "Consider only child-blocks for gridding", page)
+        self.chk_child_only.setEnabled(False)   # multiblock NYI
+        self.chk_lower_level = QCheckBox(
+            "Consider rough grid of lower level block", page)
+        self.chk_lower_level.setEnabled(False)  # multiblock NYI
+        self.chk_remove_edge_all = QCheckBox(
+            "Remove edge contact elements of all parts", page)
+        for cb in (self.chk_discard, self.chk_internal, self.chk_child_only,
+                   self.chk_lower_level, self.chk_remove_edge_all):
+            opt.addWidget(cb)
+        urow = QHBoxLayout()
+        urow.addLayout(opt)
+        urow.addStretch(1)
+        self.basic_unit_label = QLabel("Unit : mm", page)
+        urow.addWidget(self.basic_unit_label)
+        lay.addLayout(urow)
+
+        intf = QGroupBox("Interference", page)
+        il = QHBoxLayout(intf)
+        self.chk_reconstruct = QCheckBox(
+            "Execute reconstruction of interfering parts", intf)
+        self.chk_reconstruct.setChecked(True)
+        il.addWidget(self.chk_reconstruct)
+        il.addStretch(1)
+        self.btn_reconstruct = QPushButton("Reconstruct", intf)
+        self.btn_reconstruct.clicked.connect(self._reconstruct)
+        il.addWidget(self.btn_reconstruct)
+        help_btn = QPushButton("?", intf)
+        help_btn.setFixedWidth(24)
+        help_btn.setStyleSheet("color: red; font-weight: bold;")
+        help_btn.clicked.connect(self._open_gridding_manual)
+        il.addWidget(help_btn)
+        lay.addWidget(intf)
+        lay.addStretch(1)
+        return page
+
+    def _open_gridding_manual(self) -> None:
+        import os as _os
+        path = (r"C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML"
+                r"\Pre_eng\St_pre_Mesh-Gridding.html")
+        if _os.path.isfile(path):
+            _os.startfile(path)  # noqa: S606
+        else:
+            self._log(f"Manual not found: {path}", "WARN")
+
+    def _on_method_changed(self) -> None:
+        by_num = self.method_radios["num_elements"].isChecked()
+        self.num_box.setEnabled(by_num)
+        rough_only = self.method_radios["rough_only"].isChecked()
+        if rough_only:
+            for spins in (self.std, self.thr, self.ratio, self.ratio_ext):
+                for sb in spins.values():
+                    sb.setEnabled(False)
+        else:
+            self._restore_common_state()
+
+    def _restore_common_state(self) -> None:
+        for spins, common in (
+                (self.std, self.std_common), (self.thr, self.thr_common),
+                (self.ratio, self.ratio_common),
+                (self.ratio_ext, self.ratio_ext_common)):
+            spins["x"].setEnabled(True)
+            for ax in "yz":
+                spins[ax].setEnabled(not common.isChecked())
+
+    def _on_common_toggled(self, spins, on: bool) -> None:
+        for ax in "yz":
+            spins[ax].setEnabled(not on)
+        if on:
+            v = spins["x"].value()
+            spins["y"].setValue(v)
+            spins["z"].setValue(v)
+
+    def _on_common_value(self, spins, value: float) -> None:
+        common = {id(self.std): self.std_common, id(self.thr):
+                  self.thr_common, id(self.ratio): self.ratio_common,
+                  id(self.ratio_ext): self.ratio_ext_common}[id(spins)]
+        if common.isChecked():
+            spins["y"].setValue(value)
+            spins["z"].setValue(value)
+
+    # ---------------------------------------------------------- Parameter
+
+    def _build_parameter_tab(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        mb_box = QGroupBox("Multiblock", page)
+        ml = QVBoxLayout(mb_box)
+        self.block_tree = QTreeWidget(mb_box)
+        self.block_tree.setHeaderLabels(
+            ["Block", "Standard length", "Geometric ratio",
+             "Threshold length"])
+        self.block_tree.setRootIsDecorated(False)
+        self.block_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.block_tree.customContextMenuRequested.connect(
+            self._block_context)
+        self.block_tree.itemDoubleClicked.connect(
+            lambda *_: self._edit_mesh_block())
+        ml.addWidget(self.block_tree)
+        note = QLabel("(The block parameter can be set in the dialog "
+                      "opened by right-clicking a block name)", mb_box)
+        note.setStyleSheet("color: #555; font-size: 11px;")
+        ml.addWidget(note)
+        lay.addWidget(mb_box, 1)
+
+        lay.addWidget(QLabel("Mesh option of each part", page))
+        self.part_mesh_tree = QTreeWidget(page)
+        self.part_mesh_tree.setHeaderLabels(
+            ["PartsName", "Select Vertex", "NumGridLines",
+             "Priority of rough grid", "Priority of part"])
+        self.part_mesh_tree.setRootIsDecorated(False)
+        lay.addWidget(self.part_mesh_tree, 2)
+        note2 = QLabel("(The vertex detection type and the number of mesh "
+                       "grid lines placed on each part can be set in the "
+                       "dialog opened by right-clicking a part name)", page)
+        note2.setStyleSheet("color: #555; font-size: 11px;")
+        note2.setWordWrap(True)
+        lay.addWidget(note2)
+        return page
+
+    def _populate_parameter_tab(self) -> None:
+        self.block_tree.clear()
+        std = "/".join(f"{self.std[a].value():g}" for a in "xyz")
+        ratio = "/".join(f"{self.ratio[a].value():g}" for a in "xyz")
+        thr = "/".join(f"{self.thr[a].value():g}" for a in "xyz")
+        QTreeWidgetItem(self.block_tree, ["RootBlock", std, ratio, thr])
+
+        self.part_mesh_tree.clear()
+        self._part_vertex_combos: dict[str, QComboBox] = {}
+        options = ["default"] + [k for _l, k in self._DETECTIONS]
+        for p in self.model.parts():
+            item = QTreeWidgetItem([p.name, "", "---", "3", "0"])
+            self.part_mesh_tree.addTopLevelItem(item)
+            combo = QComboBox(self.part_mesh_tree)
+            combo.addItems(options)
+            current = self.model.part_mesh_option(p.name) or "default"
+            idx = combo.findText(current)
+            combo.setCurrentIndex(idx if idx >= 0 else 0)
+            combo.currentTextChanged.connect(
+                lambda text, name=p.name: self._on_part_vertex(name, text))
+            self.part_mesh_tree.setItemWidget(item, 1, combo)
+            self._part_vertex_combos[p.name] = combo
+
+    def _on_part_vertex(self, name: str, detection: str) -> None:
+        if detection == "default":
+            return
+        self.model.set_part_mesh_option(name, detection)
+        self._log(f"Mesh option: {name} vertex detection = {detection}")
+
+    def _block_context(self, pos) -> None:
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction("Edit mesh block", self._edit_mesh_block)
+        for label in ("Create mesh block", "Insert mesh block",
+                      "Cancel mesh block", "Create connected block",
+                      "Create bounding block"):
+            menu.addAction(
+                label, lambda l=label: self._log(
+                    f"[{l}] multiblock editing not supported in cab viewer.",
+                    "WARN"))
+        menu.exec_(self.block_tree.viewport().mapToGlobal(pos))
+
+    def _edit_mesh_block(self) -> None:
+        """[Mesh: Block] dialog (subset): RootBlock std/ratio/threshold."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Mesh: Block")
+        lay = QVBoxLayout(dlg)
+        grid = QGridLayout()
+        for i, ax in enumerate(("X", "Y", "Z")):
+            grid.addWidget(QLabel(ax, dlg), 0, i + 1)
+        rows = (("Standard length", self.std),
+                ("Threshold length", self.thr),
+                ("Geometric ratio", self.ratio))
+        spins: list[tuple[str, QDoubleSpinBox]] = []
+        for r, (label, src) in enumerate(rows, 1):
+            grid.addWidget(QLabel(label, dlg), r, 0)
+            for i, ax in enumerate("xyz"):
+                sb = QDoubleSpinBox(dlg)
+                sb.setRange(1.0e-6, 1.0e9)
+                sb.setDecimals(6)
+                sb.setValue(src[ax].value())
+                grid.addWidget(sb, r, i + 1)
+                spins.append((ax + str(r), sb))
+        lay.addLayout(grid)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        ok = QPushButton("OK", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel", dlg)
+        cancel.clicked.connect(dlg.reject)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+        if dlg.exec_():
+            for r, (_label, src) in enumerate(rows, 1):
+                for i, ax in enumerate("xyz"):
+                    sb = dict(spins)[ax + str(r)]
+                    src[ax].setValue(sb.value())
+            self._populate_parameter_tab()
+            self._log("Mesh block RootBlock parameters updated.")
+
+    # ------------------------------------------------------ Detail meshing
+
+    def _build_detail_tab(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self._active_block_row(lay)
+
+        mid = QHBoxLayout()
+        ax_box = QGroupBox("Direction of axis", page)
+        al = QHBoxLayout(ax_box)
+        self.detail_axis: dict[str, QRadioButton] = {}
+        for ax in "XYZ":
+            rb = QRadioButton(ax, ax_box)
+            al.addWidget(rb)
+            self.detail_axis[ax.lower()] = rb
+            rb.toggled.connect(self._refresh_detail_ranges)
+        mid.addWidget(ax_box)
+        n_box = QGroupBox("Number of element", page)
+        nl = QHBoxLayout(n_box)
+        self.detail_n = QSpinBox(n_box)
+        self.detail_n.setRange(1, 10000)
+        self.detail_n.setValue(5)
+        nl.addWidget(self.detail_n)
+        mid.addWidget(n_box)
+        lay.addLayout(mid)
+
+        dd = QGroupBox("Direction of division", page)
+        dl = QHBoxLayout(dd)
+        self.detail_dir: dict[str, QRadioButton] = {}
+        for label, key in (("-->", "forward"), ("--><--", "symmetric"),
+                           ("<--", "backward")):
+            rb = QRadioButton(label, dd)
+            dl.addWidget(rb)
+            self.detail_dir[key] = rb
+        self.detail_dir["forward"].setChecked(True)
+        lay.addWidget(dd)
+
+        gr = QGroupBox("Geometric ratio", page)
+        gl = QHBoxLayout(gr)
+        self.detail_ratio_slider = QSlider(Qt.Horizontal, gr)
+        self.detail_ratio_slider.setRange(10, 1000)
+        self.detail_ratio_slider.setValue(100)
+        gl.addWidget(self.detail_ratio_slider, 1)
+        self.detail_ratio = QDoubleSpinBox(gr)
+        self.detail_ratio.setRange(0.1, 10.0)
+        self.detail_ratio.setDecimals(3)
+        self.detail_ratio.setValue(1.0)
+        gl.addWidget(self.detail_ratio)
+        self.detail_ratio_slider.valueChanged.connect(
+            lambda v: self.detail_ratio.setValue(v / 100.0))
+        self.detail_ratio.valueChanged.connect(
+            lambda v: self.detail_ratio_slider.setValue(int(v * 100)))
+        lay.addWidget(gr)
+
+        self.detail_retain = QCheckBox(
+            "Retain rough grids within the range", page)
+        lay.addWidget(self.detail_retain)
+        self.detail_thr_chk = QCheckBox(
+            "Consider a threshold element size", page)
+        lay.addWidget(self.detail_thr_chk)
+
+        ms = QGroupBox("Method of selection", page)
+        msl = QVBoxLayout(ms)
+        txt = QLabel("Pick the range with the two combo boxes below "
+                     "(cab viewer substitutes mouse picking).", ms)
+        txt.setWordWrap(True)
+        msl.addWidget(txt)
+        rng = QHBoxLayout()
+        rng.addWidget(QLabel("From", ms))
+        self.detail_from = QComboBox(ms)
+        self.detail_from.setEditable(True)
+        rng.addWidget(self.detail_from, 1)
+        rng.addWidget(QLabel("To", ms))
+        self.detail_to = QComboBox(ms)
+        self.detail_to.setEditable(True)
+        rng.addWidget(self.detail_to, 1)
+        self.btn_divide = QPushButton("Divide", ms)
+        self.btn_divide.clicked.connect(self._divide_range)
+        rng.addWidget(self.btn_divide)
+        msl.addLayout(rng)
+        lay.addWidget(ms)
+
+        th = QGroupBox("Threshold element size of active block", page)
+        tg = QGridLayout(th)
+        self.detail_thr = self._axis_spins(value=0.1)
+        for i, ax in enumerate(("X", "Y", "Z")):
+            lab = QLabel(ax, th)
+            lab.setAlignment(Qt.AlignCenter)
+            tg.addWidget(lab, 0, i * 2)
+        for i, ax in enumerate("xyz"):
+            tg.addWidget(self.detail_thr[ax], 1, i * 2)
+            tg.addWidget(QLabel("mm", th), 1, i * 2 + 1)
+        lay.addWidget(th)
+        lay.addStretch(1)
+        # default axis last: the slot touches detail_from/detail_to
+        self.detail_axis["x"].setChecked(True)
+        return page
+
+    def _current_axis(self, radios: dict[str, QRadioButton]) -> str:
+        for ax, rb in radios.items():
+            if rb.isChecked():
+                return ax
+        return "x"
+
+    def _refresh_detail_ranges(self) -> None:
+        ax = self._current_axis(self.detail_axis)
+        entries = self.model.mesh_axis_entries(ax)
+        for combo in (self.detail_from, self.detail_to):
+            combo.clear()
+            for val, _mark in entries:
+                combo.addItem(f"{val:g}")
+        if entries:
+            self.detail_from.setCurrentIndex(0)
+            self.detail_to.setCurrentIndex(len(entries) - 1)
+
+    def _divide_range(self) -> None:
+        import cab_grid
+
+        ax = self._current_axis(self.detail_axis)
+        try:
+            a = float(self.detail_from.currentText())
+            b = float(self.detail_to.currentText())
+        except ValueError:
+            self._log("Detail meshing: invalid range.", "WARN")
+            return
+        if a >= b:
+            self._log("Detail meshing: From must be smaller than To.",
+                      "WARN")
+            return
+        entries = self.model.mesh_axis_entries(ax)
+        if not entries:
+            self._log("Detail meshing: no mesh block.", "WARN")
+            return
+        vals = [v for v, _m in entries]
+        retain = None
+        if self.detail_retain.isChecked():
+            retain = [v for v, m in entries if m in ("S", "B", "F")]
+        threshold = self.detail_thr[ax].value() \
+            if self.detail_thr_chk.isChecked() else 0.0
+        mode = self._current_axis(self.detail_dir)
+        new_vals = cab_grid.divide_interval(
+            vals, a, b, self.detail_n.value(),
+            ratio=self.detail_ratio.value(), mode=mode,
+            threshold=threshold, retain=retain)
+        marks = {round(v, 9): m for v, m in entries}
+        self.model.set_mesh_axis(
+            ax, [(v, marks.get(round(v, 9), "N")) for v in new_vals])
+        self._after_grid_edit(
+            f"Detail meshing: {ax} [{a:g}, {b:g}] -> "
+            f"{self.detail_n.value()} elements ({mode})")
+
+    # --------------------------------------------------------------- Edit
+
+    def _build_edit_tab(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self._active_block_row(lay)
+
+        top = QHBoxLayout()
+        ax_box = QGroupBox("Coordinate axis", page)
+        al = QHBoxLayout(ax_box)
+        self.edit_axis: dict[str, QRadioButton] = {}
+        for ax in "XYZ":
+            rb = QRadioButton(ax, ax_box)
+            al.addWidget(rb)
+            self.edit_axis[ax.lower()] = rb
+            rb.toggled.connect(self._refresh_edit_list)
+        top.addWidget(ax_box)
+        ty_box = QGroupBox("Grid type", page)
+        tl = QHBoxLayout(ty_box)
+        self.edit_type: dict[str, QRadioButton] = {}
+        for label, mark in self._GRID_TYPES:
+            rb = QRadioButton(label, ty_box)
+            tl.addWidget(rb)
+            self.edit_type[mark] = rb
+        self.edit_type["N"].setChecked(True)
+        top.addWidget(ty_box)
+        lay.addLayout(top)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Coord.", page))
+        self.edit_coord = QDoubleSpinBox(page)
+        self.edit_coord.setRange(-1.0e9, 1.0e9)
+        self.edit_coord.setDecimals(6)
+        row.addWidget(self.edit_coord)
+        for label in ("Select", "Preview", "Delete", "Edit", "Add"):
+            btn = QPushButton(label, page)
+            btn.clicked.connect(getattr(self, f"_edit_{label.lower()}"))
+            row.addWidget(btn)
+            setattr(self, f"btn_{label.lower()}", btn)
+        lay.addLayout(row)
+        self.edit_thr_chk = QCheckBox(
+            "Consider a threshold element size (unit mm)", page)
+        lay.addWidget(self.edit_thr_chk)
+
+        self.edit_list = QTreeWidget(page)
+        self.edit_list.setHeaderLabels(
+            ["No.", "Coordinates", "Type", "Referred parts"])
+        self.edit_list.setRootIsDecorated(False)
+        self.edit_list.setSelectionMode(
+            QTreeWidget.ExtendedSelection)
+        self.edit_list.itemSelectionChanged.connect(self._on_edit_selected)
+        lay.addWidget(self.edit_list, 1)
+        # default axis last: the slot touches edit_list
+        self.edit_axis["x"].setChecked(True)
+        return page
+
+    def _refresh_edit_list(self) -> None:
+        ax = self._current_axis(self.edit_axis)
+        entries = self.model.mesh_axis_entries(ax)
+        self.edit_list.clear()
+        refs = self._part_reference_coords(ax)
+        for i, (val, mark) in enumerate(entries, start=1):
+            referred = [name for c, name in refs
+                        if abs(c - val) < 1e-6]
+            QTreeWidgetItem(self.edit_list, [
+                str(i), f"{val:.10g}", self._MARK_LABEL.get(mark, mark),
+                ",".join(referred)])
+        self.edit_list.resizeColumnToContents(0)
+
+    def _part_reference_coords(self, axis: str) -> list[tuple[float, str]]:
+        """(coordinate, part name) for part min/max along ``axis`` (mm)."""
+        ax_i = "xyz".index(axis)
+        refs: list[tuple[float, str]] = []
+        for part in self.cad_meshes or []:
+            pts = np.asarray(part.points, dtype=np.float64)
+            if len(pts) == 0:
+                continue
+            col = pts[:, ax_i] * 1000.0   # m -> mm
+            refs.append((float(col.min()), part.name))
+            refs.append((float(col.max()), part.name))
+        return refs
+
+    def _on_edit_selected(self) -> None:
+        items = self.edit_list.selectedItems()
+        if items:
+            self.edit_coord.setValue(float(items[0].text(1)))
+
+    def _edit_entries(self) -> tuple[str, list[tuple[float, str]]]:
+        ax = self._current_axis(self.edit_axis)
+        return ax, self.model.mesh_axis_entries(ax)
+
+    def _selected_rows(self) -> list[int]:
+        return sorted(int(i.text(0)) - 1
+                      for i in self.edit_list.selectedItems())
+
+    def _edit_select(self) -> None:
+        self._log("[Select] mouse vertex picking not available in cab "
+                  "viewer; select a row in the list instead.", "WARN")
+
+    def _edit_preview(self) -> None:
+        self._log(f"Preview grid line: {self._current_axis(self.edit_axis)}"
+                  f" = {self.edit_coord.value():g} mm")
+
+    def _edit_add(self) -> None:
+        ax, entries = self._edit_entries()
+        val = self.edit_coord.value()
+        if any(abs(v - val) < 1e-9 for v, _m in entries):
+            self._log("A grid line on an already existing grid can not "
+                      "be added.", "WARN")
+            return
+        mark = self._current_axis(self.edit_type)
+        entries.append((val, mark))
+        entries.sort(key=lambda e: e[0])
+        if self.edit_thr_chk.isChecked():
+            thr = self.thr[ax].value()
+            entries = [e for i, e in enumerate(entries)
+                       if i == 0 or e[0] - entries[i - 1][0] >= thr]
+        self.model.set_mesh_axis(ax, entries)
+        self._after_grid_edit(f"Grid line added: {ax} = {val:g} [{mark}]")
+
+    def _edit_delete(self) -> None:
+        ax, entries = self._edit_entries()
+        rows = self._selected_rows()
+        if not rows:
+            self._log("Delete: select grid line(s) in the list.", "WARN")
+            return
+        keep = [e for i, e in enumerate(entries)
+                if i not in rows or e[1] == "B"
+                or i == 0 or i == len(entries) - 1]
+        removed = len(entries) - len(keep)
+        self.model.set_mesh_axis(ax, keep)
+        self._after_grid_edit(f"Deleted {removed} grid line(s) on {ax}")
+
+    def _edit_edit(self) -> None:
+        ax, entries = self._edit_entries()
+        rows = self._selected_rows()
+        if len(rows) != 1:
+            self._log("Edit: select exactly one grid line.", "WARN")
+            return
+        i = rows[0]
+        if entries[i][1] == "B":
+            self._log("Block boundary lines can not be edited.", "WARN")
+            return
+        mark = self._current_axis(self.edit_type)
+        entries[i] = (self.edit_coord.value(), mark)
+        entries.sort(key=lambda e: e[0])
+        self.model.set_mesh_axis(ax, entries)
+        self._after_grid_edit(
+            f"Grid line edited: {ax} = {self.edit_coord.value():g} [{mark}]")
+
+    def _after_grid_edit(self, message: str) -> None:
+        self._refresh_edit_list()
+        self._refresh_detail_ranges()
+        self._update_element_label()
+        self._log(message)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+
+    # ----------------------------------------------------------- Deletion
+
+    def _build_deletion_tab(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        self._active_block_row(lay)
+
+        top = QHBoxLayout()
+        ax_box = QGroupBox("Direction to select", page)
+        al = QHBoxLayout(ax_box)
+        self.del_axis: dict[str, QRadioButton] = {}
+        for ax in "XYZ":
+            rb = QRadioButton(ax, ax_box)
+            al.addWidget(rb)
+            self.del_axis[ax.lower()] = rb
+        self.del_axis["x"].setChecked(True)
+        top.addWidget(ax_box)
+        self.btn_delete = QPushButton("Executing Deletion", page)
+        self.btn_delete.clicked.connect(self._delete_grids)
+        top.addWidget(self.btn_delete)
+        lay.addLayout(top)
+
+        tg = QGroupBox("Target of deletion", page)
+        tl = QVBoxLayout(tg)
+        self.del_target: dict[str, QRadioButton] = {}
+        for label, key in (
+                ("Selected\n(Selected grid lines, all mesh grids within "
+                 "selected range)", "selected"),
+                ("All but rough grids", "all_but_rough"),
+                ("All  ( all but grid lines through maximum/minimum "
+                 "coordinate\nof each part )", "all")):
+            rb = QRadioButton(label, tg)
+            tl.addWidget(rb)
+            self.del_target[key] = rb
+        self.del_target["all_but_rough"].setChecked(True)
+        self.del_cancel_fixed = QCheckBox("Fixed Type is cancelled.", tg)
+        tl.addWidget(self.del_cancel_fixed)
+        lay.addWidget(tg)
+
+        ms = QGroupBox("Method of Selection", page)
+        msl = QVBoxLayout(ms)
+        txt = QLabel("By mouse to select a range, select the second mesh "
+                     "while holding Shift key.\n(cab viewer: 'Selected' "
+                     "uses the current selection of the Edit tab list.)", ms)
+        txt.setWordWrap(True)
+        msl.addWidget(txt)
+        lay.addWidget(ms)
+        self.del_retain = QCheckBox(
+            "Retain rough division mesh within the range.", page)
+        lay.addWidget(self.del_retain)
+        lay.addStretch(1)
+        return page
+
+    def _delete_grids(self) -> None:
+        import cab_grid
+
+        ax = self._current_axis(self.del_axis)
+        entries = self.model.mesh_axis_entries(ax)
+        if not entries:
+            self._log("Deletion: no mesh block.", "WARN")
+            return
+        if self.del_cancel_fixed.isChecked():
+            entries = [(v, "N" if m == "F" else m) for v, m in entries]
+        target = self._current_axis(self.del_target)
+        if target == "selected":
+            rows = self._selected_rows()
+            if not rows:
+                self._log("Deletion (Selected): select grid line(s) in "
+                          "the Edit tab list first.", "WARN")
+                return
+            keep_marks = ("S", "B", "F") if self.del_retain.isChecked() \
+                else ("B",)
+            keep = [e for i, e in enumerate(entries)
+                    if i not in rows or e[1] in keep_marks
+                    or i == 0 or i == len(entries) - 1]
+        else:
+            refs = None
+            if target == "all":
+                refs = [c for c, _n in self._part_reference_coords(ax)]
+            keep = cab_grid.delete_grid_lines(entries, target, refs)
+        removed = len(entries) - len(keep)
+        self.model.set_mesh_axis(ax, keep)
+        self._after_grid_edit(
+            f"Deletion ({target}) on {ax}: removed {removed} line(s), "
+            f"{len(keep)} remain")
+
+    # ------------------------------------------------------------- Others
+
+    def _build_others_tab(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+
+        ec = QGroupBox("Remove edge-contacts of specified part", page)
+        el = QVBoxLayout(ec)
+        nrow = QHBoxLayout()
+        nrow.addWidget(QLabel("Part name", ec))
+        self.edge_part = QLineEdit(ec)
+        nrow.addWidget(self.edge_part, 1)
+        el.addLayout(nrow)
+        brow = QHBoxLayout()
+        self.btn_investigate = QPushButton(
+            "Investigate the number of\nedge-contact elements", ec)
+        self.btn_investigate.clicked.connect(self._investigate_edge_contact)
+        brow.addWidget(self.btn_investigate)
+        brow.addWidget(QLabel("=>", ec))
+        self.btn_remove_edge = QPushButton("Remove edge-contacts", ec)
+        self.btn_remove_edge.clicked.connect(self._remove_edge_contacts)
+        brow.addWidget(self.btn_remove_edge)
+        el.addLayout(brow)
+        lay.addWidget(ec)
+
+        mp = QGroupBox("Meshing of specified part", page)
+        ml = QVBoxLayout(mp)
+        prow = QHBoxLayout()
+        prow.addWidget(QLabel("Part name", mp))
+        self.mesh_part = QLineEdit(mp)
+        prow.addWidget(self.mesh_part, 1)
+        ml.addLayout(prow)
+        mrow = QHBoxLayout()
+        self.btn_part_meshing = QPushButton("Meshing", mp)
+        self.btn_part_meshing.clicked.connect(self._mesh_single_part)
+        mrow.addWidget(self.btn_part_meshing)
+        self.chk_part_edge = QCheckBox("Remove edge-contacts", mp)
+        self.chk_part_interf = QCheckBox("Element interferences", mp)
+        mrow.addWidget(self.chk_part_edge)
+        mrow.addWidget(self.chk_part_interf)
+        ml.addLayout(mrow)
+        lay.addWidget(mp)
+
+        prm = QGroupBox("Meshing parameter", page)
+        pl = QGridLayout(prm)
+        pl.addWidget(QLabel("Edge tolerance", prm), 0, 0)
+        self.p_edge_tol = QDoubleSpinBox(prm)
+        self.p_edge_tol.setDecimals(6)
+        self.p_edge_tol.setRange(0.0, 1.0)
+        self.p_edge_tol.setValue(0.0001)
+        self.p_edge_tol.setSingleStep(0.0001)
+        pl.addWidget(self.p_edge_tol, 0, 1)
+        pl.addWidget(QLabel("Search range\nfor element face", prm), 0, 2)
+        self.p_face_search = QDoubleSpinBox(prm)
+        self.p_face_search.setRange(0.0, 100.0)
+        self.p_face_search.setValue(1.0)
+        pl.addWidget(self.p_face_search, 0, 3)
+        pl.addWidget(QLabel("Element threshold", prm), 1, 0)
+        self.p_elem_thr = QDoubleSpinBox(prm)
+        self.p_elem_thr.setRange(0.0, 1.0)
+        self.p_elem_thr.setSingleStep(0.05)
+        self.p_elem_thr.setValue(0.5)
+        pl.addWidget(self.p_elem_thr, 1, 1)
+        lay.addWidget(prm)
+        self.p_edge_tol.valueChanged.connect(
+            lambda v: self.model.set_mesh_control_value(
+                "edge_eps", f"{v:g}"))
+        self.p_elem_thr.valueChanged.connect(
+            lambda v: self.model.set_mesh_control_value(
+                "element_threshold", f"{v:g}"))
+        self.p_face_search.valueChanged.connect(
+            lambda v: self.model.set_mesh_control_value(
+                "face_search", f"{v:g}"))
+
+        bf = QGroupBox(
+            "Generate element face on computational domain boundary", page)
+        bl = QHBoxLayout(bf)
+        self.boundary_face: dict[str, QRadioButton] = {}
+        for label, key in (("Normal", "normal"),
+                           ("Exclude symmetrical face", "excl_symm"),
+                           ("Exclude all", "excl_all")):
+            rb = QRadioButton(label, bf)
+            bl.addWidget(rb)
+            self.boundary_face[key] = rb
+            rb.toggled.connect(self._on_boundary_face)
+        self.boundary_face["normal"].setChecked(True)
+        lay.addWidget(bf)
+
+        dup = QGroupBox("Check duplication of flux condition faces", page)
+        dupl = QVBoxLayout(dup)
+        self.chk_flux_dup = QCheckBox("Activate", dup)
+        self.chk_flux_dup.toggled.connect(
+            lambda on: self.model.set_mesh_control_value(
+                "check_scheme", "1" if on else "0"))
+        dupl.addWidget(self.chk_flux_dup)
+        lay.addWidget(dup)
+
+        mm = QGroupBox("Meshing method", page)
+        mml = QVBoxLayout(mm)
+        mml.addWidget(QLabel(
+            "Convert the element shape to that of the block in the "
+            "upper level.", mm))
+        srow = QHBoxLayout()
+        self.chk_v8_solid = QCheckBox("Solid parts", mm)
+        self.chk_v8_panel = QCheckBox("Panel parts", mm)
+        self.chk_v8_panel.setChecked(True)
+        self.chk_v8_solid.toggled.connect(
+            lambda on: self.model.set_mesh_control_value(
+                "solid_scheme", "0" if on else "1"))
+        self.chk_v8_panel.toggled.connect(
+            lambda on: self.model.set_mesh_control_value(
+                "panel_scheme", "0" if on else "1"))
+        srow.addWidget(self.chk_v8_solid)
+        srow.addWidget(self.chk_v8_panel)
+        srow.addStretch(1)
+        mml.addLayout(srow)
+        lay.addWidget(mm)
+
+        par = QGroupBox("Parallel number on mesh division", page)
+        parl = QHBoxLayout(par)
+        parl.addWidget(QLabel("Degree of parallelism", par))
+        import os as _os
+        self.p_parallel = QSpinBox(par)
+        self.p_parallel.setRange(1, 256)
+        self.p_parallel.setValue(min(2, _os.cpu_count() or 1))
+        parl.addWidget(self.p_parallel)
+        parl.addWidget(QLabel("( Thread )", par))
+        parl.addStretch(1)
+        lay.addWidget(par)
+        lay.addStretch(1)
+        return page
+
+    def _on_boundary_face(self) -> None:
+        key = self._current_axis(self.boundary_face)
+        code = {"normal": "1", "excl_symm": "2", "excl_all": "0"}[key]
+        self.model.set_mesh_control_value("panel_block_face", code)
+
+    def _investigate_edge_contact(self) -> None:
+        name = self.edge_part.text().strip()
+        if not name:
+            self._log("Investigate: enter a part name.", "WARN")
+            return
+        boxes = self.model.part_boxes(name)
+        if not boxes:
+            self._log(f"Investigate: no elements for part '{name}' "
+                      f"(run Meshing first).", "WARN")
+            return
+        import cab_mesh
+        pairs = [pair for pair in cab_mesh.find_interferences(self.model)
+                 if name in pair]
+        cells = sum((b[1] - b[0] + 1) * (b[3] - b[2] + 1) * (b[5] - b[4] + 1)
+                    for b in boxes)
+        self._log(f"Edge-contact investigation: {name}: {len(boxes)} box "
+                  f"list(s), ~{cells} element(s); interfering neighbours: "
+                  f"{len(pairs)} "
+                  f"{[p[1] if p[0] == name else p[0] for p in pairs]}")
+
+    def _remove_edge_contacts(self) -> None:
+        import cab_mesh
+        changed = cab_mesh.resolve_interferences(self.model)
+        self._after_grid_edit(
+            f"Remove edge-contacts: resolved overlaps for {changed} "
+            f"part(s)")
+
+    def _mesh_single_part(self) -> None:
+        name = self.mesh_part.text().strip()
+        if not name:
+            self._log("Meshing of specified part: enter a part name.",
+                      "WARN")
+            return
+        axes = self.model.mesh_axes()
+        if not axes or any(len(v) < 2 for v in axes.values()):
+            self._log("Meshing: no mesh_block. Run Gridding first.", "WARN")
+            return
+        meshes = {p.name: p for p in self.cad_meshes or []}
+        if name not in meshes:
+            self._log(f"Meshing: no tessellated geometry for '{name}'.",
+                      "WARN")
+            return
+        import cab_mesh
+        transforms = {p.name: p.transform for p in self.model.parts()}
+        _abox, boxes = cab_mesh.classify_cells(
+            axes, [meshes[name]], transforms=transforms)
+        cab_mesh.update_part_elements(
+            self.model, name, boxes.get(name, []))
+        msg = f"Meshing of specified part: {name} -> " \
+              f"{len(boxes.get(name, []))} box list(s)"
+        if self.chk_part_edge.isChecked():
+            changed = cab_mesh.resolve_interferences(self.model)
+            msg += f"; edge-contacts removed for {changed} part(s)"
+        if self.chk_part_interf.isChecked():
+            pairs = cab_mesh.find_interferences(self.model)
+            msg += f"; interferences: {len(pairs)} pair(s)"
+        self._after_grid_edit(msg)
+
+    # ------------------------------------------------------- interference
+
+    def _reconstruct(self) -> None:
+        import cab_mesh
+        pairs = cab_mesh.find_interferences(self.model)
+        if not pairs:
+            QMessageBox.information(
+                self, "List of Parts Interferences after Meshing",
+                "No interfering parts.")
+            self._log("Reconstruct: no interfering parts.")
+            return
+        text = "Interfering part pairs:\n\n" + "\n".join(
+            f"  {a}  <->  {b}" for a, b in pairs)
+        ret = QMessageBox.question(
+            self, "List of Parts Interferences after Meshing",
+            text + "\n\nReconstruct elements to remove interferences?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if ret == QMessageBox.Yes:
+            changed = cab_mesh.resolve_interferences(self.model)
+            self._after_grid_edit(
+                f"Reconstruct: resolved {len(pairs)} interfering pair(s), "
+                f"{changed} part(s) changed")
+
+    # ---------------------------------------------------- load / gridding
+
+    def _load_from_model(self) -> None:
+        spec = cab_domain.domain_from_xml(self.model)
+        self._dom_min = list(spec.xyz_min) if spec is not None \
+            else [-100.0, -100.0, -100.0]
+        self._dom_max = list(spec.xyz_max) if spec is not None \
+            else [150.0, 300.0, 315.0]
+        if spec is not None:
+            self.basic_unit_label.setText(f"Unit : {spec.unit}")
+
+        def _int(tag, default):
+            try:
+                return int(self.model.mesh_control_value(tag) or default)
+            except ValueError:
+                return default
+
+        det_idx = _int("select_vertex", 3)
+        det_keys = [k for _l, k in self._DETECTIONS]
+        self.detection_radios[
+            det_keys[det_idx] if 0 <= det_idx < len(det_keys)
+            else "minmax"].setChecked(True)
+        method_idx = _int("divide_method", 1)
+        method_keys = [k for _l, k in self._METHODS]
+        self.method_radios[
+            method_keys[method_idx] if 0 <= method_idx < len(method_keys)
+            else "rough_and_detail"].setChecked(True)
+        self.subblock_factor.setValue(_int("divide_scale", 2))
+        from cabxml import _first as _f1
+        mc = _f1(self.model.root, "mesh_control")
+        mc_block = _f1(mc, "block") if mc is not None else None
+        limit_el = _f1(mc_block, "limit") if mc_block is not None else None
+        if limit_el is not None and limit_el.text:
+            for i, ax in enumerate("xyz"):
+                try:
+                    self.thr[ax].setValue(
+                        float(limit_el.text.split(",")[i].strip()))
+                except (ValueError, IndexError):
+                    pass
+        ratio = (self.model.mesh_control_value("divide_ratio2")
+                 or "1.2,1.2,1.2").split(",")
+        for i, ax in enumerate("xyz"):
+            if i < len(ratio):
+                try:
+                    self.ratio[ax].setValue(float(ratio[i]))
+                except ValueError:
+                    pass
+        edge_contact = self.model.mesh_control_value("edge_contact")
+        self.chk_remove_edge_all.setChecked(edge_contact == "1")
+        for tag, spin in (("edge_eps", self.p_edge_tol),
+                          ("element_threshold", self.p_elem_thr),
+                          ("face_search", self.p_face_search)):
+            val = self.model.mesh_control_value(tag)
+            if val:
+                try:
+                    spin.setValue(float(val))
+                except ValueError:
+                    pass
+        pbf = self.model.mesh_control_value("panel_block_face")
+        for key, code in (("normal", "1"), ("excl_symm", "2"),
+                          ("excl_all", "0")):
+            if pbf == code:
+                self.boundary_face[key].setChecked(True)
+        chk = self.model.mesh_control_value("check_scheme")
+        self.chk_flux_dup.setChecked(chk == "1")
+        self.chk_v8_solid.setChecked(
+            self.model.mesh_control_value("solid_scheme") == "0")
+        self.chk_v8_panel.setChecked(
+            self.model.mesh_control_value("panel_scheme") == "0")
+        self._on_method_changed()
+        self._populate_parameter_tab()
+        self._refresh_edit_list()
+        self._refresh_detail_ranges()
+        self._update_element_label()
+
+    def _update_element_label(self) -> None:
+        axes = self.model.mesh_axes()
+        if axes and all(axes.get(a) for a in "xyz"):
+            nx, ny, nz = (len(axes[a]) for a in "xyz")
+            self.element_label.setText(
+                f"Element #   {nx * ny * nz:,} = {nx} x {ny} x {nz}")
+        else:
+            self.element_label.setText("Element #   1 = 1 x 1 x 1")
+
+    def _detection_key(self) -> str:
+        return self._current_axis(self.detection_radios)
+
+    def _method_key(self) -> str:
+        return self._current_axis(self.method_radios)
+
+    def _gridding(self) -> None:
+        """[Gridding]: generate mesh grids from the current parameters."""
+        import cab_grid
+
+        detection = self._detection_key()
+        method = self._method_key()
+        spec = cab_grid.GridSpec(
+            unit="mm",
+            domain_min=tuple(self._dom_min),
+            domain_max=tuple(self._dom_max),
+            vertex_detection=detection,
+            method=method,
+            standard_length=tuple(sb.value() for sb in self.std.values()),
+            threshold_length=tuple(sb.value() for sb in self.thr.values()),
+            geometric_ratio=tuple(sb.value() for sb in self.ratio.values()),
+            geometric_ratio_external=tuple(
+                sb.value() for sb in self.ratio_ext.values()),
+            target_elements=int(self.target.value())
+            if method == "num_elements"
+            and self.num_total_radio.isChecked() else None,
+            target_per_axis=tuple(self.target_axes[a].value() for a in "xyz")
+            if method == "num_elements"
+            and self.num_axis_radio.isChecked() else None,
+            discard_existing=self.chk_discard.isChecked(),
+        )
+        part_points = {
+            p.name: np.asarray(p.points, dtype=np.float64) * 1000.0
+            for p in self.cad_meshes
+        }
+        _rough, detailed = cab_grid.build_axes(part_points, spec)
+        internal = self.chk_internal.isChecked()
+        lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
+        part_min = tuple(float(v) * 1000.0 for v in lo) \
+            if np.isfinite(lo).all() and not internal else None
+        part_max = tuple(float(v) * 1000.0 for v in hi) \
+            if np.isfinite(hi).all() and not internal else None
+        self.model.set_mesh(
+            detailed,
+            unit="mm",
+            domain_min=tuple(self._dom_min),
+            domain_max=tuple(self._dom_max),
+            threshold=tuple(sb.value() for sb in self.thr.values()),
+            ratio=tuple(sb.value() for sb in self.ratio.values()),
+            detection=cab_grid.detection_index(spec),
+            method=cab_grid.method_index(spec),
+            part_min=part_min,
+            part_max=part_max,
+        )
+        self.model.set_mesh_control_value(
+            "divide_scale", str(self.subblock_factor.value()))
+        self.model.set_mesh_control_value(
+            "edge_contact",
+            "1" if self.chk_remove_edge_all.isChecked() else "0")
+        counts = tuple(len(v) for v in detailed.values())
+        self._update_element_label()
+        self._refresh_edit_list()
+        self._refresh_detail_ranges()
+        self._populate_parameter_tab()
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+        self._log(
+            f"Gridding: {detection}/{method} -> "
+            f"{counts[0]}x{counts[1]}x{counts[2]} grid points"
+            + (" (internal region)" if internal else ""))
+
+    def _apply(self) -> None:
+        """Backward-compatible alias for the [Gridding] button."""
+        self._gridding()
+
+    def _meshing(self) -> None:
+        """[Meshing]: generate elements from the current grids."""
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_meshing_dialog"):
+            parent._meshing_dialog()
+            self._update_element_label()
+        else:
+            self._log("Meshing requires the CabViewer parent window.",
+                      "WARN")

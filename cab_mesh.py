@@ -234,3 +234,145 @@ def apply_elements(model: StpreModel, analysis_name: str,
             l.text = " " + ",".join(str(v) for v in box) + " "
             l.tail = "\n      "
     model.doc.root.append(el)
+
+
+def update_part_elements(model: StpreModel, part_name: str,
+                         boxes: list[tuple[int, int, int, int, int, int]]
+                         ) -> bool:
+    """Create/replace the ``<element>/<parts name=...>`` entry of one part.
+
+    Used by [Meshing of specified part] (Gridding dialog, Others tab).
+    Returns False when no ``<element>`` section exists yet (run full
+    Meshing first).
+    """
+    import xml.etree.ElementTree as ET
+
+    el = model.elements()
+    if el is None:
+        return False
+    for parts in el.findall("parts"):
+        if parts.attrib.get("name") == part_name:
+            el.remove(parts)
+    p = ET.SubElement(el, "parts")
+    p.attrib["name"] = part_name
+    p.tail = "\n   "
+    pb = ET.SubElement(p, "body")
+    pb.attrib["num"] = str(len(boxes))
+    pb.tail = "\n      "
+    for n, box in enumerate(boxes, start=1):
+        l = ET.SubElement(pb, "list")
+        l.attrib["no"] = str(n)
+        l.text = " " + ",".join(str(v) for v in box) + " "
+        l.tail = "\n      "
+    return True
+
+
+def find_interferences(model: StpreModel) -> list[tuple[str, str]]:
+    """Pairs of parts whose ``element`` index boxes overlap (AABB test).
+
+    Used by the Gridding dialog [Reconstruct] button: interference check
+    between meshed parts, like STpre's [List of Parts Interferences after
+    Meshing].
+    """
+    el = model.elements()
+    if el is None:
+        return []
+    import xml.etree.ElementTree as ET  # noqa: F401
+    boxes: dict[str, list[list[int]]] = {}
+    for parts in el.findall("parts"):
+        name = parts.attrib.get("name", "")
+        if name:
+            b = model.part_boxes(name)
+            if b:
+                boxes[name] = b
+
+    def overlap(a: list[int], b: list[int]) -> bool:
+        return all(a[i] <= b[i + 1] and b[i] <= a[i + 1] for i in (0, 2, 4))
+
+    out: list[tuple[str, str]] = []
+    keys = sorted(boxes)
+    for i, na in enumerate(keys):
+        for nb in keys[i + 1:]:
+            if any(overlap(ba, bb) for ba in boxes[na] for bb in boxes[nb]):
+                out.append((na, nb))
+    return out
+
+
+def resolve_interferences(model: StpreModel) -> int:
+    """Trim overlapping cells from lower-priority parts (tree order wins).
+
+    Cell-level resolution: for every interfering pair, the later part's
+    boxes are clipped against the earlier part's boxes axis by axis.
+    Returns the number of part entries changed.
+    """
+    import xml.etree.ElementTree as ET
+
+    el = model.elements()
+    if el is None:
+        return 0
+    order = [p.name for p in model.parts()]
+    prio = {n: i for i, n in enumerate(order)}
+    entries: list[tuple[str, ET.Element, list[list[int]]]] = []
+    for parts in el.findall("parts"):
+        name = parts.attrib.get("name", "")
+        body = parts.find("body")
+        if body is None:
+            continue
+        boxes = [[int(x) for x in lst.text.split(",")]
+                 for lst in body.findall("list") if lst.text]
+        # unregistered parts keep element-section order after real parts
+        prio.setdefault(name, len(order) + len(entries))
+        entries.append((name, body, boxes))
+    changed = 0
+
+    def clip(box: list[int], other: list[int]) -> list[list[int]]:
+        """Subtract ``other`` from ``box`` -> up to 6 residual boxes."""
+        if not all(box[i] <= other[i + 1] and other[i] <= box[i + 1]
+                   for i in (0, 2, 4)):
+            return [box]
+        res: list[list[int]] = []
+        rem = box
+        for axis in (0, 2, 4):
+            lo, hi = other[axis], other[axis + 1]
+            if rem[axis] < lo:  # slab below
+                slab = list(rem)
+                slab[axis + 1] = lo - 1
+                res.append(slab)
+                rem = list(rem)
+                rem[axis] = lo
+            if rem[axis + 1] > hi:  # slab above
+                slab = list(rem)
+                slab[axis] = hi + 1
+                res.append(slab)
+                rem = list(rem)
+                rem[axis + 1] = hi
+            if rem[axis] > rem[axis + 1]:
+                return res
+        return res
+
+    fixed: dict[str, list[list[int]]] = {}
+    for name, _body, boxes in entries:
+        cur = [list(b) for b in boxes]
+        for other, _obody, oboxes in entries:
+            if prio.get(other, 0) >= prio.get(name, 0):
+                continue
+            for ob in oboxes:
+                nxt: list[list[int]] = []
+                for b in cur:
+                    nxt.extend(clip(b, ob))
+                cur = nxt
+        fixed[name] = [b for b in cur if b[0] <= b[1] and b[2] <= b[3]
+                       and b[4] <= b[5]]
+    for name, body, boxes in entries:
+        if fixed.get(name) == boxes:
+            continue
+        for lst in list(body):
+            body.remove(lst)
+        body.attrib["num"] = str(len(fixed[name]))
+        for n, box in enumerate(fixed[name], start=1):
+            l = ET.SubElement(body, "list")
+            l.attrib["no"] = str(n)
+            l.text = " " + ",".join(str(v) for v in box) + " "
+            l.tail = "\n      "
+        changed += 1
+    return changed

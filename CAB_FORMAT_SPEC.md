@@ -620,6 +620,36 @@ File→Import 导入的 `.x_t` **不拼接**进 `_<project>_all.x_t`（多段 PA
 - 占用单元按 i 行程 + j/k 邻接贪心合并；一期不是 STpre 的精确行程编码；
 - 表面单元以 epsilon 判定，panel/open surface 未特殊处理（M5 对拍项）。
 
+### 5.8 Gridding 对话框 ↔ mesh_control / 网格行标记映射（2026-08-06）
+
+Mesh:Set division 六标签对话框（`cab_dialogs.GriddingDialog`）与 XML 的
+对应关系：
+
+| 对话框控件 | XML 字段 | 说明 |
+|---|---|---|
+| Basic→Vertex detection | `mesh_control/select_vertex` | All=0/Representative=1/Axis plane=2/MinMax=3/Not considered=4/Uniform=5 |
+| Basic→Method of Gridding | `mesh_control/divide_method` | rough only=0/rough+detail=1/num elements=2 |
+| Basic→Sub-block mesh refinement factor | `mesh_control/divide_scale` | 子块细化系数 |
+| Basic→Standard/Threshold/Geometric ratio | `mesh_control/block/limit`、`divide_ratio2` | 外区比仅用于 `outer_range` 区间 |
+| Basic→remove edge contact | `mesh_control/edge_contact` | 1=执行 |
+| Parameter→部件 Select Vertex | `<parts>/<select_vertex>` | 逐部件覆盖全局 |
+| Others→Edge tolerance / Element threshold / Search range | `mesh_control/edge_eps` / `element_threshold` / `face_search` | 即时持久化 |
+| Others→域边界面 | `mesh_control/panel_block_face` | normal=1/excl_symm=2/excl_all=0 |
+| Others→flux 查重 / V8 网格化 | `check_scheme` / `solid_scheme`、`panel_scheme` | 0/1 开关 |
+
+`mesh_block/<x|y|z>/<g>` 行的类型标记（第二个逗号字段）：
+
+| 标记 | 含义 | Edit 页 Grid type |
+|---|---|---|
+| `B` | block 边界（禁止删改） | — |
+| `S` | rough 网格线（顶点检测生成） | Rough |
+| `F` | fixed（手动添加/固定） | Fixed |
+| `N` | general（细网格线） | General |
+
+读写 API：`StpreModel.mesh_axis_entries/set_mesh_axis`（保留标记）、
+`mesh_control_value/set_mesh_control_value`（字段读写）、
+`part_mesh_option/set_part_mesh_option`（部件级 select_vertex）。
+
 ---
 
 ## 6. 导出格式 `.s`（SDAT，STsolver 输入）

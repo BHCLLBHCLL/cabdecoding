@@ -342,7 +342,7 @@ class TreeListView(QWidget):
         kind, name = data
         menu = QMenu(self)
         if kind == "part":
-            menu.addAction("Refer to Part",
+            menu.addAction("Reference (Edit Part)",
                            lambda: self.context_action.emit(
                                "refer", kind, name))
             menu.addAction("Display Part",
@@ -362,7 +362,7 @@ class TreeListView(QWidget):
 
     def _on_double_click(self, item, _col) -> None:
         data = item.data(0, Qt.UserRole)
-        if data and data[0] in ("domain", "mesh_block"):
+        if data and data[0] in ("domain", "mesh_block", "part"):
             self.item_activated.emit(data[0], data[1])
 
     def _set_checked(self, item, on: bool) -> None:
