@@ -893,3 +893,20 @@ STpre = `STpre_Bx64net.exe`（.NET 启动器）+ 原生 C++ DLL。关键导出�
   material）、无路径启动 → 导入 box → `_rebuild_to` 保存 → 重开
   （部件/x_t 成员/三角化都在）。
 - 全仓 `pytest`：**94 通过 / 4 跳过**。
+
+## 20. 树中双击 Domain 编辑计算域（2026-08-06）
+
+对齐 STpre 手册 *Tree/List View Window*（Layout of Parts 树选中计算域 →
+右键 [Reference] 打开 [Edit Computational Domain]）：
+
+- `cab_panes.TreeListView` 新增 `item_activated` 信号与
+  `itemDoubleClicked` 处理：`domain`/`mesh_block` 节点双击触发；
+- `cab_gui._on_item_activated()`：Domain(cuboid) 双击 → `_domain_dialog()`
+  （Edit→Reset Computational Domain 同一对话框）；RootBlock 双击 →
+  `_gridding_dialog()`（对应 STpre 双击 mesh block 打开块编辑）；
+- 右键菜单：Domain → “Reference (Edit Computational Domain)”；
+  RootBlock → “Gridding…”；`_on_context_action` 按 kind 路由到对应对话框
+  （部件仍走 Property）。
+
+验证：`tests/test_domain.py` 新增 1 项（双击/右键路由 smoke，
+monkeypatch 对话框记录调用）。全仓 `pytest`：**95 通过 / 4 跳过**。

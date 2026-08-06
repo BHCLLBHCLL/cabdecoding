@@ -84,6 +84,7 @@ class TreeListView(QWidget):
 
     visibility_changed = pyqtSignal(str, str, bool)  # kind, name, visible
     item_selected = pyqtSignal(str, object)          # kind, name
+    item_activated = pyqtSignal(str, object)         # kind, name (double-click)
     status_requested = pyqtSignal(str)               # message
     context_action = pyqtSignal(str, str, object)    # action, kind, name
 
@@ -97,6 +98,7 @@ class TreeListView(QWidget):
         self.layout_tree.setIconSize(QSize(16, 16))
         self.layout_tree.itemChanged.connect(self._on_item_changed)
         self.layout_tree.itemSelectionChanged.connect(self._on_selection)
+        self.layout_tree.itemDoubleClicked.connect(self._on_double_click)
         self.layout_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.layout_tree.customContextMenuRequested.connect(
             self._layout_context)
@@ -348,15 +350,20 @@ class TreeListView(QWidget):
             menu.addAction("Hide Part",
                            lambda: self._set_checked(item, False))
         elif kind == "domain":
-            menu.addAction("Reference",
+            menu.addAction("Reference (Edit Computational Domain)",
                            lambda: self.context_action.emit(
                                "refer", kind, name))
         elif kind == "mesh_block":
-            menu.addAction("Edit block (read-only)",
+            menu.addAction("Gridding…",
                            lambda: self.context_action.emit(
                                "refer", kind, name))
         if not menu.isEmpty():
             menu.exec_(self.layout_tree.viewport().mapToGlobal(pos))
+
+    def _on_double_click(self, item, _col) -> None:
+        data = item.data(0, Qt.UserRole)
+        if data and data[0] in ("domain", "mesh_block"):
+            self.item_activated.emit(data[0], data[1])
 
     def _set_checked(self, item, on: bool) -> None:
         item.setCheckState(0, Qt.Checked if on else Qt.Unchecked)

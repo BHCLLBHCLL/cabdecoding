@@ -425,6 +425,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tree_view = TreeListView(self)
         self.tree_view.visibility_changed.connect(self._on_visibility)
         self.tree_view.item_selected.connect(self._on_item_selected)
+        self.tree_view.item_activated.connect(self._on_item_activated)
         self.tree_view.context_action.connect(self._on_context_action)
         # compat alias for older tests
         self.model_tree = self.tree_view.layout_tree
@@ -879,6 +880,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.prop_fields = self.control.prop_fields
         self._mode_label.setText("Part" if kind == "part" else kind)
 
+    def _on_item_activated(self, kind: str, name) -> None:
+        """Double-click behaviour (STpre tree): Domain -> edit dialog;
+        mesh block -> gridding dialog."""
+        if kind == "domain":
+            self._domain_dialog()
+        elif kind == "mesh_block":
+            self._gridding_dialog()
+
     def _on_lib_selected(self) -> None:
         items = self.control.lib_tree.selectedItems()
         if not items:
@@ -889,7 +898,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_context_action(self, action: str, kind: str, name) -> None:
         if action == "refer":
-            self._on_item_selected(kind, name)
+            if kind == "domain":
+                self._domain_dialog()
+            elif kind == "mesh_block":
+                self._gridding_dialog()
+            else:
+                self._on_item_selected(kind, name)
 
     def _on_visibility(self, kind: str, name: str, visible: bool) -> None:
         if kind == "domain":

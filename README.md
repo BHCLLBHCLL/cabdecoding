@@ -21,6 +21,9 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
 - `Mesh → Meshing` 基于三角化曲面生成 `element` 占用盒表；
 - 3D：Part shading（光滑曲面）、Element division 网格线、域框/网格块预览。
 
+操作提示：在 Layout of Parts 树中**双击 `Domain(cuboid)`**（或右键
+`Reference`）即可编辑计算域；双击 `RootBlock` 打开 Gridding。
+
 ## 操作流程
 
 ```text
