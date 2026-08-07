@@ -105,9 +105,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._undo_stack: list[tuple] = []
         self._redo_stack: list[tuple] = []
         self._undo_limit = 50
+        self._log_level = "INFO"
 
         self._build_ui()
         self._apply_style()
+        self._apply_stored_options()
         self.log("Ready. Open a .cab project to begin.")
         if path:
             self.load(path)
@@ -117,6 +119,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     # ------------------------------------------------------------------ UI
 
     def log(self, msg: str, level: str = "INFO") -> None:
+        order = {"INFO": 0, "WARN": 1, "ERROR": 2}
+        if order.get(level, 0) < order.get(self._log_level, 0):
+            return
         if hasattr(self, "message_win"):
             self.message_win.log(msg, level)
         self.statusBar().showMessage(msg, 8000)
@@ -310,8 +315,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             lambda: self._set_mouse_mode("trackball"))
         add(m, "(Mouse) Rubber Band Zoom",
             lambda: self._set_mouse_mode("rubber"))
-        add(m, "Environment Settings")
-        add(m, "Detailed Program Settings")
+        add(m, "Environment Settings", self._environment_settings)
+        add(m, "Detailed Program Settings", self._detailed_settings)
 
         m = mb.addMenu("Help(&H)")
         add(m, "User's Guide", self._open_manual)
@@ -418,6 +423,73 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _toggle_status_bar(self, on: bool) -> None:
         self.statusBar().setVisible(on)
+
+    # ----------------------------------------------------- Option menu
+
+    def _environment_settings(self) -> None:
+        """Option -> Environment Settings."""
+        try:
+            from cab_options import OptionsDialog
+        except Exception:
+            self.log("cab_options unavailable.", "ERROR")
+            return
+        dlg = OptionsDialog(self, props=self.props, detailed=False)
+        if dlg.exec_():
+            self._apply_options(dlg.values())
+
+    def _detailed_settings(self) -> None:
+        """Option -> Detailed Program Settings."""
+        try:
+            from cab_options import OptionsDialog
+        except Exception:
+            self.log("cab_options unavailable.", "ERROR")
+            return
+        dlg = OptionsDialog(self, props=self.props, detailed=True)
+        if dlg.exec_():
+            self._apply_options(dlg.values())
+
+    def _apply_options(self, values: dict) -> None:
+        self._undo_limit = int(values.get("undo_levels", 50))
+        self._log_level = str(values.get("log_level", "INFO"))
+        self.message_win.set_max_blocks(
+            int(values.get("message_max_blocks", 2000)))
+        mode = values.get("drawing_mode")
+        if mode and mode in ("Line", "Shading", "Translucent"):
+            self._set_drawing_mode(mode)
+        self._toggle_status_bar(bool(values.get("show_status_bar", True)))
+        bg = values.get("background", "Gradation")
+        if self.renderer is not None:
+            if bg == "Black":
+                self.renderer.SetBackground(0.0, 0.0, 0.0)
+                self.renderer.GradientBackgroundOff()
+            elif bg == "White":
+                self.renderer.SetBackground(1.0, 1.0, 1.0)
+                self.renderer.GradientBackgroundOff()
+            else:
+                self.renderer.SetBackground(0.93, 0.93, 0.94)
+                self.renderer.SetBackground2(0.78, 0.82, 0.90)
+                self.renderer.GradientBackgroundOn()
+            if self.vtk_widget is not None:
+                self.vtk_widget.GetRenderWindow().Render()
+        self.log(
+            f"Options applied: undo={self._undo_limit}, "
+            f"log={self._log_level}, mode={mode}")
+
+    def _apply_stored_options(self) -> None:
+        try:
+            from cab_options import get_setting
+            self._apply_options({
+                "undo_levels": int(get_setting("undo_levels", 50)),
+                "log_level": str(get_setting("log_level", "INFO")),
+                "message_max_blocks": int(
+                    get_setting("message_max_blocks", 2000)),
+                "drawing_mode": str(get_setting("drawing_mode", "Shading")),
+                "show_status_bar":
+                    str(get_setting("show_status_bar", "True")) == "True",
+                "background": str(get_setting("background", "Gradation")),
+            })
+        except Exception:
+            pass
 
     def _apply_style(self) -> None:
         self.setStyleSheet("""
@@ -580,13 +652,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not xt_names:
             return None
         try:
+            from cab_options import get_setting
+            facet_tol = float(get_setting("facet_tol", 1e-4))
+            facet_angle = float(get_setting("facet_angle", 12.0))
+        except Exception:
+            facet_tol, facet_angle = 1e-4, 12.0
+        try:
             import ps_facet2_nodes
             if ps_facet2_nodes.available():
                 meshes: list = []
                 for xt_name in xt_names:
                     try:
                         meshes += ps_facet2_nodes.tessellate_xt(
-                            members[xt_name], adaptive=True)
+                            members[xt_name], adaptive=True,
+                            facet_tol=facet_tol,
+                            facet_angle_deg=facet_angle)
                     except Exception as exc:
                         self.log(
                             f"facet_2 tessellation skipped {xt_name}: "
@@ -603,7 +683,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 for xt_name in xt_names:
                     try:
                         meshes += ps_tessellate.tessellate_xt(
-                            members[xt_name])
+                            members[xt_name], facet_tol=facet_tol,
+                            facet_angle_deg=facet_angle)
                     except Exception as exc:
                         self.log(
                             f"GO tessellation skipped {xt_name}: {exc}",

@@ -75,6 +75,9 @@ class MessageWindow(QWidget):
         self.text.verticalScrollBar().setValue(
             self.text.verticalScrollBar().maximum())
 
+    def set_max_blocks(self, n: int) -> None:
+        self.text.setMaximumBlockCount(max(100, int(n)))
+
     def clear(self) -> None:
         self.text.clear()
 

@@ -1144,3 +1144,26 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 
 验证：`tests/test_menus_other.py` 新增 3 项（四种基本体面片数、
 注册→重建→序列化往返、创建对话框 spec）。全仓 **144 通过 / 4 跳过**。
+
+### 24.5 Option 菜单（Environment / Detailed Program Settings）
+
+- 新模块 `cab_options.py`：`OptionsDialog` 五标签
+  （Basic Setting / Parts / Mesh / Message Window / User Interface），
+  对应手册 Environment Setting 各页的子集：
+  - Basic：User name、Undo 层数、Auto save 间隔、显示/内部长度单位、
+    背景色（Gradation/Black/White）、有效数字位数；
+  - Parts：默认 Attribute/Material；
+  - Mesh：facet 默认容差/角度（加载 x_t 三角化时生效）；
+  - Message：字体、日志级别、最大消息块数；
+  - User Interface：默认 Drawing mode、状态栏开关；
+- 持久化：QSettings（`cabdecoding/options`）+ 进程内内存覆盖
+  （沙箱内注册表不可写时测试/运行仍稳定）；
+- `CabViewer._environment_settings/_detailed_settings`：两个入口共用
+  `OptionsDialog`（标题不同，对应手册 Detailed 的 13 页子集）；
+  `_apply_options` 即时生效（undo 深度、日志过滤、消息块数、显示模式、
+  状态栏、背景色）；`_apply_stored_options` 启动时应用；
+- `_tessellate_members` 读取 facet 默认值传给 facet_2/GO 路径；
+  `MessageWindow.set_max_blocks` 新增。
+
+验证：`tests/test_menus_other.py` 新增 2 项（选项对话框 values+持久化、
+`_apply_options` 即时生效）。全仓 **146 通过 / 4 跳过**。
