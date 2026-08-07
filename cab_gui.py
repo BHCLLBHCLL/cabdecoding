@@ -283,9 +283,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addAction(self._act_status)
 
         m = mb.addMenu("Part(&P)")
-        for label in ("Cuboid", "Cylinder", "Sphere", "Panel",
-                      "Sketch Part", "Fan"):
-            add(m, label)
+        for label, kind in (("Cuboid", "cube"), ("Cylinder", "cylinder"),
+                            ("Sphere", "sphere"), ("Panel", "panel"),
+                            ("Sketch Part", ""), ("Fan", "")):
+            if kind:
+                add(m, label,
+                    lambda _=False, k=kind: self._create_part_dialog(k))
+            else:
+                add(m, label)
 
         m = mb.addMenu("Wizard(&W)")
         add(m, "Initial Setting…", self._wizard_initial)
@@ -371,10 +376,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.addToolBar(self.tb_disp)
 
         self.tb_parts = tb("Parts")
-        for text, icon in (("Cube", "cube"), ("Cylinder", "cylinder"),
-                           ("Sphere", "sphere"), ("Panel", "panel")):
+        for text, kind, icon in (("Cube", "cube", "cube"),
+                                 ("Cylinder", "cylinder", "cylinder"),
+                                 ("Sphere", "sphere", "sphere"),
+                                 ("Panel", "panel", "panel")):
             act(self.tb_parts, text, icon, f"Create {text}",
-                lambda _=False, t=text: self._nyi(f"Part — {t}"))
+                lambda _=False, k=kind: self._create_part_dialog(k))
         self.addToolBar(self.tb_parts)
         self.tb_parts.setVisible(False)
 
@@ -514,6 +521,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Default: Domain face mode ON (matches tree checkbox checked=True)
         self._domain_face_mode = set(self.model.analysis_names())
         self._cad_meshes = self._tessellate_members(members)
+        self._append_primitive_tess()
         self._clear_undo()
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
@@ -621,6 +629,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         members = {m.name: m.data for m in self.archive.members} \
             if self.archive is not None else {}
         self._cad_meshes = self._tessellate_members(members)
+        self._append_primitive_tess()
         self.tree_view.populate(
             self.model, self.archive.members if self.archive else [])
         self.control.populate_library(self.props)
@@ -1624,6 +1633,58 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.model, self.archive.members if self.archive else [])
             self.log(f"Part '{dlg.part_name}' updated; "
                      f"save the cab to persist.")
+
+    def _append_primitive_tess(self) -> None:
+        """Regenerate primitive (cube/cylinder/sphere/panel) previews."""
+        try:
+            import cab_parts
+            prim = cab_parts.primitives_from_model(self.model)
+        except Exception:
+            prim = []
+        if prim:
+            self._cad_meshes = list(self._cad_meshes or []) + prim
+
+    def _create_part_dialog(self, kind: str) -> None:
+        """Part -> Cuboid/Cylinder/Sphere/Panel creation dialog (M7)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        try:
+            import cab_parts
+        except Exception:
+            self.log("cab_parts unavailable.", "ERROR")
+            return
+        dlg = cab_parts.CreatePartDialog(
+            self.model, self.props, initial_kind=kind, parent=self)
+        if not dlg.exec_():
+            return
+        spec = dlg.spec()
+        if not spec["name"]:
+            self.log("Create Part: a part name is required.", "WARN")
+            return
+        if self.model.find_part(spec["name"]) is not None:
+            QMessageBox.warning(
+                self, "Create Part", f"Part '{spec['name']}' already exists.")
+            return
+        snap = self._snapshot()
+        if not cab_parts.register_primitive(
+                self.model, name=spec["name"], kind=spec["kind"],
+                params=spec["params"], material=spec["material"],
+                attribute=spec["attribute"]):
+            self.log("Create Part: registration failed.", "ERROR")
+            return
+        tess = cab_parts.tess_for_spec(spec["kind"], spec["params"])
+        tess.name = spec["name"]
+        self._cad_meshes = list(self._cad_meshes or []) + [tess]
+        self._push_undo(snap)
+        self._mark_dirty()
+        self._update_title()
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self._rebuild_scene()
+        self.log(
+            f"Created {spec['kind']} part '{spec['name']}' "
+            f"(attribute={spec['attribute']}, material={spec['material']})")
 
     def _mesh_info(self) -> None:
         if self.model is None:

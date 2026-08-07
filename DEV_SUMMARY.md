@@ -1125,3 +1125,22 @@ delete_part 联动清除 element/condition、move_parts_to_group 建组/回根�
 
 验证：`tests/test_menus_other.py` 新增 2 项（Message/Status 显隐、
 git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块）。
+
+### 24.4 Part 菜单（Cuboid/Cylinder/Sphere/Panel 创建）
+
+- 新模块 `cab_parts.py`：
+  - 基本体几何生成：`cube_tess`（8 点/12 三角）、`cylinder_tess`（底心/
+    半径/高/方向/圆分度数，旋转到任意轴）、`sphere_tess`（UV 球，
+    支持三轴不等半径）、`panel_tess`（方向法向平面矩形，2 三角）；
+  - `register_primitive`：写 `<parts type="cube|cylinder|sphere|panel">`
+    + 几何参数（base/size、center/radius/height/direction/divisions）；
+  - `tess_for_part/primitives_from_model`：重开 cab 时按 XML 参数重建
+    预览几何（**不依赖 x_t 成员**），可继续参与 Meshing 占用判定；
+  - `CreatePartDialog`：四标签创建对话框（Part name + Attribute +
+    Material），与手册 [Part]-[Cuboid/Cylinder/Sphere/Panel] 控件对齐；
+- `cab_gui`：Part 菜单与 Parts 工具栏四个按钮接入
+  `_create_part_dialog(kind)`；创建后入 undo 栈、刷新树/3D；`Sketch
+  Part`/`Fan` 保持 NYI 记日志；`load/_restore_snapshot` 追加基本体预览。
+
+验证：`tests/test_menus_other.py` 新增 3 项（四种基本体面片数、
+注册→重建→序列化往返、创建对话框 spec）。全仓 **144 通过 / 4 跳过**。
