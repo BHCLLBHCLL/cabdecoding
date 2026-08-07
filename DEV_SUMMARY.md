@@ -1167,3 +1167,13 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 
 验证：`tests/test_menus_other.py` 新增 2 项（选项对话框 values+持久化、
 `_apply_options` 即时生效）。全仓 **146 通过 / 4 跳过**。
+
+### 24.6 M7 收尾
+
+- 除 Mesh/Wizard 外，File/Edit/View/Part/Option/Help 六个菜单全部从
+  NYI/占位升级为可用功能；仅 `Part → Sketch Part / Fan` 保留 NYI（记日志，
+  复杂草图/风机建模留作长期项）；
+- 文档：DEV_PLAN M7 计划表全部 ✅、CAB_GUI_DESIGN §4 状态表刷新、
+  README 功能清单更新、`.gitignore` 忽略 `session-*.md`；
+- 回归：`tests/test_menus_other.py` 共 14 项（File 4、Edit 3、View/Help 2、
+  Part 3、Option 2）；全仓 **146 通过 / 4 跳过**。

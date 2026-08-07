@@ -137,10 +137,11 @@
 | Open… | Ctrl+O | ✅ | 打开 `.cab` |
 | Save | Ctrl+S | ✅ | 写回当前路径（若无则 Save As） |
 | Save As… | Ctrl+Shift+S | ✅ | 重打包 CAB |
-| Import… | | ⬜ | |
+| Import… | | ✅ | x_t 导入（独立成员 + `<body_files>` 登记 + 自动三角化）；STL 等格式后续扩展 |
 | Export… | Ctrl+E | ✅ | 对话框：S File / XEMT File（手册 Export 子集） |
-| Print / Copy to clipboard | | ⬜ / ◐ | 可选：Draw 截图到剪贴板 |
-| Execute Solver / Post | | ⬜ | |
+| Print | | ✅ | Draw 窗口截图预览 + Save PNG + 系统打印（QPrinter） |
+| Execute Solver | | ✅ | 确认后导出临时 `.s/.xemt` 并启动 `stsol_Dx64net.exe` |
+| Execute Post | | ✅ | 确认后启动 `scPOST_Dx64net.exe` |
 | Recent Files | | ◐ | `QSettings` 最近 8 个 |
 | Exit | Alt+F4 | ✅ | |
 
@@ -148,10 +149,10 @@
 
 | 项 | 状态 | 映射 |
 |----|------|------|
-| Undo / Redo | ⬜ | 预留命令栈 |
-| Delete Part | ◐ | 从 XML 移除部件（需确认对话框） |
-| Reset Computational Domain | ◐ | 只读展示域范围；编辑后期 |
-| Group / Boolean / Sketch 系 | ⬜ | |
+| Undo / Redo | ✅ Ctrl+Z/Y | XML 快照栈（50 层），覆盖导入/域/部件/网格/向导等全部改动 |
+| Deletion of Parts | ✅ | 多选删除对话框（移除 `<parts>`/`<element>`/关联 condition） |
+| Reset Computational Domain | ✅ | STpre 风格 [Edit Computational Domain] 对话框（Scale + Attribute/Condition） |
+| Group | ✅ | 建组/移动部件对话框（空组名=回到根） |
 
 ### 4.3 View(&V)
 
@@ -160,13 +161,16 @@
 | Fit to DrawWindow | ✅ Ctrl+F | `ResetCamera` 到可见部件 |
 | Reset DrawWindow | ✅ | 相机到计算域整体 |
 | XY / XZ / YZ Plane | ✅ | 正交视图 |
-| (Toolbar) File/Edit/Parts/Mouse/Status | ✅ | `QToolBar.setVisible` |
-| Show Message Window | ✅ | |
+| (Toolbar) File/Edit/Parts/Mouse/Display | ✅ | `QToolBar.setVisible` |
+| Show Message Window / Show Status Bar | ✅ | checkable 开关 |
 
 ### 4.4 Part(&P)
 
-对齐手册标准件入口（Cube/Cylinder/…）。  
-cab 阶段：⬜ NYI；工具栏仅保留常用图标占位，避免空菜单。可选后续：从 XML `element` 盒参数「伪创建」占位盒。
+对齐手册标准件入口（Cube/Cylinder/Sphere/Panel）。  
+✅ Cuboid/Cylinder/Sphere/Panel：`cab_parts.CreatePartDialog` 创建对话框，
+写入 `<parts type="cube|cylinder|sphere|panel">` + 几何参数，生成 TessPart
+3D 预览并参与 Meshing；重开时按 XML 参数重建几何（不依赖 x_t）。
+⬜ Sketch Part / Fan：保持 NYI（记日志）。
 
 ### 4.5 Wizard(&W)
 
@@ -191,15 +195,16 @@ cab 阶段：⬜ NYI；工具栏仅保留常用图标占位，避免空菜单。
 | 项 | 状态 | 行为 |
 |----|------|------|
 | (Mouse) | ◐ | Cradle 3-Button / 1-Button 切换（见 §7） |
-| Environment Settings | ◐ | 子集：Message 级别、默认 Drawing mode |
-| Detailed Program Settings | ⬜ | |
+| Environment Settings | ✅ | `OptionsDialog`（Basic/Parts/Mesh/Message/User Interface），QSettings 持久化 + 即时生效 |
+| Detailed Program Settings | ✅ | 同一 `OptionsDialog`（详细标题），覆盖手册 13 页的子集 |
 
 ### 4.8 Help(&H)
 
 | 项 | 状态 | 行为 |
 |----|------|------|
 | User's Guide | ✅ | `os.startfile` → ST `Pre_eng\index.html` |
-| Version / About | ✅ | 版本 + 布局说明 |
+| Version | ✅ | cabdecoding git 短哈希 / Python / Qt / VTK / pskernel 内核版本 |
+| About | ✅ | 版本 + 布局说明 |
 
 ---
 

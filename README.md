@@ -26,6 +26,11 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
   Purpose→Boundary→Confirm）；`Wizard → Condition Setting`：Condition
   Wizard 子集（导航树 + Analysis Types/Basic/Fluid/Flow/Heat/Initial/
   BC/Analysis Control/File/Condition List/Confirm）；
+- `File`：Print（Draw 截图/系统打印）、Execute Solver/Post（启动
+  stsol/scPOST）；`Edit`：Undo/Redo（Ctrl+Z/Y 快照栈）、Deletion of
+  Parts、Group；`Part`：Cuboid/Cylinder/Sphere/Panel 创建（含 3D 预览，
+  重开按 XML 参数重建）；`Option`：Environment/Detailed Program Settings
+  （QSettings 持久化）；`Help`：Version（含 pskernel 内核版本）；
 - 3D：Part shading（光滑曲面）、Element division 网格线、域框/网格块预览、
   单元截面。
 

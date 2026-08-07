@@ -11,3 +11,4 @@ dist/
 tests/*
 cases/*
 .workbuddy/
+session-*.md
