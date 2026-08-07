@@ -1079,3 +1079,20 @@ element 数、Common 联动、Edit 增删改/边界保护、Deletion 语义、De
   forced-convection 自动边界、ConditionWizard 树结构/写回/BC 对话框/
   取消回滚。
 - 全仓 `pytest --basetemp=.pytest_tmp`：**132 通过 / 4 跳过**。
+
+## 24. M7：其余菜单补齐（File/Edit/View/Part/Option/Help）（2026-08-08）
+
+### 24.1 File 菜单（Print / Execute Solver / Execute Post）
+
+- `Print`：Draw 窗口经 `vtkWindowToImageFilter`+`vtkPNGWriter` 截图为 PNG，
+  对话框内预览 + Save PNG… + 系统打印（QPrinter/QPrintDialog）；
+  `_print_to_png(path)` 可无头调用（3D 禁用时返回 False）；
+- `Execute Solver`：确认后把当前工程导出临时 `.s/.xemt`，查找
+  `stsol_Dx64net.exe`（备选 `stsol_Sx64net.exe`/`stsol.exe`）并启动；
+  未找到时提示并保留已导出的 S 文件路径；
+- `Execute Post`：确认后查找 `scPOST_Dx64net.exe`（备选
+  `scPOST_Sx64net.exe`/`scPOST.exe`）并启动；
+- 程序查找优先 `pskernel` 所在 Cradle `Programs_x64`，再试 PATH。
+
+验证：`tests/test_menus_other.py` 4 项（headless 截图返回 False、程序查找
+缺失、启动缺失程序 False、临时 S 文件导出）。全仓待 M7 结束后统一回归。

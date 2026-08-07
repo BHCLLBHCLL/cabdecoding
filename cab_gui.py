@@ -13,7 +13,10 @@ Icons, PaneFrame, MessageWindow patterns ported from pph_gui.
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 
 import numpy as np
 
@@ -223,9 +226,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Import…", self._import_dialog)
         add(m, "Export…", self._export_dialog, "Ctrl+E")
         m.addSeparator()
-        add(m, "Print")
-        add(m, "Execute Solver")
-        add(m, "Execute Post")
+        add(m, "Print", self._print_dialog)
+        add(m, "Execute Solver", self._execute_solver)
+        add(m, "Execute Post", self._execute_post)
         m.addSeparator()
         self._recent_menu = m.addMenu("Recent Files")
         add(m, "Exit", self.close, "Alt+F4")
@@ -1205,6 +1208,172 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 fh.write(xemt_export.build_emt(self.model, self.props))
             wrote.append(base + ".xemt")
         self.log("Exported " + ", ".join(wrote))
+
+    # ------------------------------------------------------ File: Print
+
+    def _render_window_png(self) -> Optional[bytes]:
+        """Snapshot of the Draw window as PNG bytes (None when no 3D)."""
+        if self.renderer is None or self.vtk_widget is None:
+            return None
+        w2i = vtk.vtkWindowToImageFilter()
+        w2i.SetInput(self.vtk_widget.GetRenderWindow())
+        w2i.Update()
+        writer = vtk.vtkPNGWriter()
+        writer.SetWriteToMemory(True)
+        writer.SetInputConnection(w2i.GetOutputPort())
+        writer.Write()
+        res = writer.GetResult()
+        return bytes(res) if res is not None else None
+
+    def _print_to_png(self, path: str) -> bool:
+        png = self._render_window_png()
+        if png is None:
+            self.log("Print: 3D view is disabled.", "WARN")
+            return False
+        with open(path, "wb") as fh:
+            fh.write(png)
+        self.log(f"Print: saved Draw window snapshot to {path}")
+        return True
+
+    def _print_dialog(self) -> None:
+        """File -> Print: snapshot preview + Save PNG / system print."""
+        png = self._render_window_png()
+        if png is None:
+            QMessageBox.warning(self, "Print", "3D 视图不可用，无法打印。")
+            return
+        from PyQt5.QtGui import QImage, QPixmap
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Print")
+        lay = QtWidgets.QVBoxLayout(dlg)
+        img = QImage.fromData(png)
+        lab = QLabel(dlg)
+        lab.setPixmap(QPixmap.fromImage(img).scaled(
+            720, 480, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        lay.addWidget(lab)
+        row = QtWidgets.QHBoxLayout()
+        btn_png = QtWidgets.QPushButton("Save PNG…", dlg)
+        btn_print = QtWidgets.QPushButton("Print…", dlg)
+        btn_close = QtWidgets.QPushButton("Close", dlg)
+        row.addStretch(1)
+        for b in (btn_png, btn_print, btn_close):
+            row.addWidget(b)
+        lay.addLayout(row)
+
+        def _save_png() -> None:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Save snapshot", "draw.png", "PNG (*.png)")
+            if path:
+                self._print_to_png(path)
+
+        def _print() -> None:
+            try:
+                from PyQt5.QtPrintSupport import QPrintDialog, QPrinter
+            except Exception:
+                QMessageBox.warning(
+                    self, "Print", "QtPrintSupport 不可用。")
+                return
+            printer = QPrinter(QPrinter.HighResolution)
+            d = QPrintDialog(printer, dlg)
+            if d.exec_() == QtWidgets.QDialog.Accepted:
+                from PyQt5.QtGui import QPainter
+                painter = QPainter(printer)
+                rect = painter.viewport()
+                pix = QPixmap.fromImage(img)
+                scaled = pix.scaled(rect.size(), Qt.KeepAspectRatio,
+                                    Qt.SmoothTransformation)
+                painter.drawPixmap(0, 0, scaled)
+                painter.end()
+
+        btn_png.clicked.connect(_save_png)
+        btn_print.clicked.connect(_print)
+        btn_close.clicked.connect(dlg.accept)
+        dlg.exec_()
+
+    # ------------------------------------------------- File: execute
+
+    def _find_program(self, names: list[str]) -> Optional[str]:
+        prog = None
+        try:
+            import ps_facet2_nodes
+            prog = ps_facet2_nodes.find_cradle_programs()
+        except Exception:
+            pass
+        if prog is not None:
+            for name in names:
+                p = prog / name
+                if p.is_file():
+                    return str(p)
+        for name in names:
+            hit = shutil.which(name)
+            if hit:
+                return hit
+        return None
+
+    def _export_temp_s_files(self) -> Optional[str]:
+        if self.model is None or self.props is None:
+            return None
+        tmp = tempfile.mkdtemp(prefix="cab_solve_")
+        base = os.path.join(tmp, self.model.project_name or "model")
+        with open(base + ".s", "w", encoding="utf-8-sig",
+                  newline="") as fh:
+            fh.write(build_sdat(self.model, self.props))
+        with open(base + ".xemt", "w", encoding="utf-8-sig",
+                  newline="") as fh:
+            fh.write(xemt_export.build_emt(self.model, self.props))
+        return base + ".s"
+
+    def _launch_program(self, exe: Optional[str], args: list[str]) -> bool:
+        if not exe:
+            self.log("Program not found (Cradle CFD 2025.2).", "WARN")
+            return False
+        try:
+            subprocess.Popen([exe] + args)
+            self.log(f"Launched {os.path.basename(exe)}")
+            return True
+        except Exception as exc:
+            self.log(f"Launch failed: {exc}", "ERROR")
+            return False
+
+    def _execute_solver(self) -> None:
+        """File -> Execute Solver: confirm, export temp S files, launch."""
+        if self.model is None or self.props is None:
+            self.log("No project open.", "WARN")
+            return
+        ret = QMessageBox.question(
+            self, "Execute Solver",
+            "Solver 将读取当前工程的 S 文件并启动。继续？",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if ret != QMessageBox.Yes:
+            return
+        sfile = self._export_temp_s_files()
+        if sfile is None:
+            self.log("Execute Solver: export failed.", "ERROR")
+            return
+        exe = self._find_program(
+            ["stsol_Dx64net.exe", "stsol_Sx64net.exe", "stsol.exe"])
+        if self._launch_program(exe, [sfile]):
+            self.log(f"Execute Solver: {sfile}")
+        else:
+            QMessageBox.warning(
+                self, "Execute Solver",
+                "未找到 stsol 求解器；S 文件已导出到:\n" + sfile)
+
+    def _execute_post(self) -> None:
+        """File -> Execute Post: confirm and launch Postprocessor."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        ret = QMessageBox.question(
+            self, "Execute Post",
+            "启动 Postprocessor？", QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes)
+        if ret != QMessageBox.Yes:
+            return
+        exe = self._find_program(
+            ["scPOST_Dx64net.exe", "scPOST_Sx64net.exe", "scPOST.exe"])
+        args = [self.current_path] if self.current_path else []
+        if not self._launch_program(exe, args):
+            QMessageBox.warning(self, "Execute Post", "未找到 scPOST 后处理。")
 
     def _wizard_initial(self) -> None:
         """Wizard -> Initial Setting: the STpre Initial Wizard (M6)."""
