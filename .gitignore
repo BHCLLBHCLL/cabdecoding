@@ -12,3 +12,4 @@ tests/*
 cases/*
 .workbuddy/
 session-*.md
+.pytest_tmp/
