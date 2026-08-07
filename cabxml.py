@@ -985,6 +985,72 @@ class StpreModel:
         parent.append(parts)
         return parts
 
+    # -- parts deletion / grouping (M7) -----------------------------------
+
+    def delete_part(self, name: str) -> bool:
+        """Remove a ``<parts>`` entry plus its ``<element>`` boxes and
+        conditions that bind this part.  Returns False when not found."""
+        el = self.find_part(name)
+        if el is None:
+            return False
+        parent = self.root
+        for grp in self.groups():
+            if el in list(grp):
+                parent = grp
+                break
+        parent.remove(el)
+        # element occupancy of the deleted part
+        elem = self.elements()
+        if elem is not None:
+            for parts in list(elem.findall("parts")):
+                if parts.attrib.get("name") == name:
+                    elem.remove(parts)
+        # conditions referencing the part
+        for c in list(self.conditions()):
+            t = _first(c, "parts")
+            if t is not None and (t.text or "").strip() == name:
+                self.root.remove(c)
+        return True
+
+    def move_parts_to_group(self, names: list[str],
+                            group_name: str = "") -> list[str]:
+        """Move part elements into ``<group name>`` (empty = root)."""
+        names = [n for n in names if self.find_part(n) is not None]
+        if not names:
+            return []
+        target: ET.Element = self.root
+        if group_name:
+            for grp in self.groups():
+                n = _first(grp, "name")
+                if n is not None and (n.text or "").strip() == group_name:
+                    target = grp
+                    break
+            else:
+                target = ET.Element("group")
+                target.tail = "\n   "
+                self.root.append(target)
+                name_el = ET.SubElement(target, "name")
+                name_el.text = f" {group_name} "
+                name_el.tail = "\n   "
+        for pname in names:
+            el = self.find_part(pname)
+            if el is None:
+                continue
+            if el in list(target):
+                continue
+            for grp in self.groups():
+                if grp is target:
+                    continue
+                if el in list(grp):
+                    grp.remove(el)
+                    break
+            else:
+                if el in list(self.root):
+                    self.root.remove(el)
+            el.tail = "\n      " if group_name else "\n   "
+            target.append(el)
+        return names
+
     # -- mesh generation output (M3) --------------------------------------
 
     @staticmethod

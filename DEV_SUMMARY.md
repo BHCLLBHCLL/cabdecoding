@@ -1096,3 +1096,21 @@ element 数、Common 联动、Edit 增删改/边界保护、Deletion 语义、De
 
 验证：`tests/test_menus_other.py` 4 项（headless 截图返回 False、程序查找
 缺失、启动缺失程序 False、临时 S 文件导出）。全仓待 M7 结束后统一回归。
+
+### 24.2 Edit 菜单（Undo/Redo + Deletion of Parts + Group）
+
+- **Undo/Redo**：XML 快照栈（`(xml, property)`，上限 50）。`_snapshot/
+  _restore_snapshot/_push_undo/_undo/_redo`；Ctrl+Z/Ctrl+Y；覆盖导入、
+  域、部件、Gridding/Meshing、Interference/Edit Mesh、两个 Wizard、
+  删除/建组等全部改动（各动作先取快照、确认成功后入栈）；`load/new`
+  清空栈；恢复时重建树/库/3D 并重新三角化 x_t 成员；
+- **Deletion of Parts**：多选删除对话框；`StpreModel.delete_part` 同时
+  移除 `<parts>`、`<element>` 占用盒与引用该部件的 `<condition>`；
+  删除后同步清掉对应 TessPart 并刷新场景；
+- **Group**：`Edit→Group` 对话框（组名 + 部件多选，空名=回到根）；
+  `StpreModel.move_parts_to_group` 创建/复用 `<group>` 并移动部件
+  （目标组已含部件时幂等跳过）。
+
+验证：`tests/test_menus_other.py` 新增 3 项（快照 Undo/Redo 往返、
+delete_part 联动清除 element/condition、move_parts_to_group 建组/回根）。
+全仓 **139 通过 / 4 跳过**。

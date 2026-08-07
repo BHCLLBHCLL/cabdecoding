@@ -102,6 +102,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._iren_ready = False
         self._mouse_mode = "trackball"  # trackball | rubber
         self._cad_meshes = None
+        self._undo_stack: list[tuple] = []
+        self._redo_stack: list[tuple] = []
+        self._undo_limit = 50
 
         self._build_ui()
         self._apply_style()
@@ -234,11 +237,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Exit", self.close, "Alt+F4")
 
         m = mb.addMenu("Edit(&E)")
-        add(m, "Undo")
-        add(m, "Redo")
+        add(m, "Undo", self._undo, "Ctrl+Z")
+        add(m, "Redo", self._redo, "Ctrl+Y")
         m.addSeparator()
-        add(m, "Deletion of Parts")
-        add(m, "Group")
+        add(m, "Deletion of Parts", self._delete_parts_dialog)
+        add(m, "Group", self._group_dialog)
         add(m, "Reset Computational Domain", self._domain_dialog)
 
         m = mb.addMenu("View(&V)")
@@ -490,47 +493,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._prop_member = prop_name
         # Default: Domain face mode ON (matches tree checkbox checked=True)
         self._domain_face_mode = set(self.model.analysis_names())
-        self._cad_meshes = None
-        xt_names = [n for n in members if n.endswith(".x_t")]
-        if xt_names:
-            try:
-                import ps_facet2_nodes
-                if ps_facet2_nodes.available():
-                    # STpre's own node path: PK_TOPOL_facet_2 tables
-                    # (facet -> fin -> data -> point -> coordinate), with
-                    # per-face adaptive refinement for large curved faces.
-                    meshes: list = []
-                    for xt_name in xt_names:
-                        try:
-                            meshes += ps_facet2_nodes.tessellate_xt(
-                                members[xt_name], adaptive=True)
-                        except Exception as exc:
-                            self.log(
-                                f"facet_2 tessellation skipped {xt_name}: "
-                                f"{exc}", "WARN")
-                    self._cad_meshes = meshes or None
-            except Exception as exc:
-                self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
-                         "WARN")
-                self._cad_meshes = None
-            if not self._cad_meshes:
-                try:
-                    import ps_tessellate
-                    if ps_tessellate.available():
-                        meshes = []
-                        for xt_name in xt_names:
-                            try:
-                                meshes += ps_tessellate.tessellate_xt(
-                                    members[xt_name])
-                            except Exception as exc:
-                                self.log(
-                                    f"GO tessellation skipped {xt_name}: "
-                                    f"{exc}", "WARN")
-                        self._cad_meshes = meshes or None
-                except Exception as exc:
-                    self.log(
-                        f"Parasolid GO tessellation skipped: {exc}", "WARN")
-                    self._cad_meshes = None
+        self._cad_meshes = self._tessellate_members(members)
+        self._clear_undo()
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
         self.control.clear_property()
@@ -581,6 +545,204 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             act = QAction(p, self)
             act.triggered.connect(lambda _=False, pp=p: self.load(pp))
             self._recent_menu.addAction(act)
+
+    def _tessellate_members(self, members: dict) -> Optional[list]:
+        """Tessellate every ``.x_t`` member (facet_2 first, GO fallback)."""
+        xt_names = [n for n in members if n.endswith(".x_t")]
+        if not xt_names:
+            return None
+        try:
+            import ps_facet2_nodes
+            if ps_facet2_nodes.available():
+                meshes: list = []
+                for xt_name in xt_names:
+                    try:
+                        meshes += ps_facet2_nodes.tessellate_xt(
+                            members[xt_name], adaptive=True)
+                    except Exception as exc:
+                        self.log(
+                            f"facet_2 tessellation skipped {xt_name}: "
+                            f"{exc}", "WARN")
+                if meshes:
+                    return meshes
+        except Exception as exc:
+            self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
+                     "WARN")
+        try:
+            import ps_tessellate
+            if ps_tessellate.available():
+                meshes = []
+                for xt_name in xt_names:
+                    try:
+                        meshes += ps_tessellate.tessellate_xt(
+                            members[xt_name])
+                    except Exception as exc:
+                        self.log(
+                            f"GO tessellation skipped {xt_name}: {exc}",
+                            "WARN")
+                return meshes or None
+        except Exception as exc:
+            self.log(f"Parasolid GO tessellation skipped: {exc}", "WARN")
+        return None
+
+    # ------------------------------------------------------- undo / redo
+
+    def _snapshot(self) -> tuple:
+        xml = self.model.doc.serialize() if self.model is not None else None
+        prop = self.props.doc.serialize() if self.props is not None else None
+        return (xml, prop)
+
+    def _restore_snapshot(self, snap: tuple) -> None:
+        xml, prop = snap
+        if xml is not None:
+            self.model = StpreModel(parse_stpre(xml))
+        if prop is not None:
+            self.props = PropertyModel(parse_property(prop))
+        members = {m.name: m.data for m in self.archive.members} \
+            if self.archive is not None else {}
+        self._cad_meshes = self._tessellate_members(members)
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self.control.populate_library(self.props)
+        self._rebuild_scene()
+        self._mark_dirty()
+        self._update_title()
+
+    def _push_undo(self, snap: tuple) -> None:
+        self._undo_stack.append(snap)
+        if len(self._undo_stack) > self._undo_limit:
+            self._undo_stack.pop(0)
+        self._redo_stack.clear()
+
+    def _clear_undo(self) -> None:
+        self._undo_stack.clear()
+        self._redo_stack.clear()
+
+    def _undo(self) -> None:
+        if not self._undo_stack:
+            self.log("Nothing to undo.", "WARN")
+            return
+        self._redo_stack.append(self._snapshot())
+        self._restore_snapshot(self._undo_stack.pop())
+        self.log("Undo")
+
+    def _redo(self) -> None:
+        if not self._redo_stack:
+            self.log("Nothing to redo.", "WARN")
+            return
+        self._undo_stack.append(self._snapshot())
+        self._restore_snapshot(self._redo_stack.pop())
+        self.log("Redo")
+
+    # ------------------------------------------------- Edit: delete/group
+
+    def _delete_parts_dialog(self) -> None:
+        """Edit -> Deletion of Parts: multi-select removal dialog."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
+        )
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Deletion of Parts")
+        lay = QVBoxLayout(dlg)
+        lst = QListWidget(dlg)
+        lst.setSelectionMode(QListWidget.MultiSelection)
+        for p in self.model.parts():
+            QListWidgetItem(p.name, lst)
+        lay.addWidget(lst)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        btn_del = QPushButton("Delete", dlg)
+        btn_close = QPushButton("Close", dlg)
+        row.addWidget(btn_del)
+        row.addWidget(btn_close)
+        lay.addLayout(row)
+        deleted: list[str] = []
+
+        def _do_delete() -> None:
+            names = [lst.item(i).text() for i in range(lst.count())
+                     if lst.item(i).isSelected()]
+            if not names:
+                self.log("Deletion of Parts: select at least one part.",
+                         "WARN")
+                return
+            if QMessageBox.question(
+                    dlg, "Deletion of Parts",
+                    f"Delete {len(names)} part(s)?") != QMessageBox.Yes:
+                return
+            snap = self._snapshot()
+            for n in names:
+                self.model.delete_part(n)
+                self._cad_meshes = [
+                    m for m in (self._cad_meshes or [])
+                    if getattr(m, "name", None) != n]
+            deleted.extend(names)
+            self._push_undo(snap)
+            self._mark_dirty()
+            self._update_title()
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self._rebuild_scene()
+            self.log(f"Deletion of Parts: removed {', '.join(names)}")
+
+        btn_del.clicked.connect(_do_delete)
+        btn_close.clicked.connect(dlg.accept)
+        dlg.exec_()
+
+    def _group_dialog(self) -> None:
+        """Edit -> Group: create a group and move parts into it."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QLineEdit, QListWidget, QListWidgetItem, QPushButton,
+            QVBoxLayout,
+        )
+        dlg = QtWidgets.QDialog(self)
+        dlg.setWindowTitle("Group")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel("Group name (empty = ungroup)", dlg))
+        edit = QLineEdit(dlg)
+        edit.setPlaceholderText("e.g. my_group")
+        lay.addWidget(edit)
+        lst = QListWidget(dlg)
+        lst.setSelectionMode(QListWidget.MultiSelection)
+        for p in self.model.parts():
+            QListWidgetItem(p.name, lst)
+        lay.addWidget(lst)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        btn_ok = QPushButton("Apply", dlg)
+        btn_close = QPushButton("Close", dlg)
+        row.addWidget(btn_ok)
+        row.addWidget(btn_close)
+        lay.addLayout(row)
+
+        def _apply() -> None:
+            names = [lst.item(i).text() for i in range(lst.count())
+                     if lst.item(i).isSelected()]
+            if not names:
+                self.log("Group: select at least one part.", "WARN")
+                return
+            snap = self._snapshot()
+            moved = self.model.move_parts_to_group(
+                names, edit.text().strip())
+            if not moved:
+                return
+            self._push_undo(snap)
+            self._mark_dirty()
+            self._update_title()
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self._rebuild_scene()
+            self.log(f"Group: moved {len(moved)} part(s) into "
+                     f"'{edit.text().strip() or '(root)'}'")
+
+        btn_ok.clicked.connect(_apply)
+        btn_close.clicked.connect(dlg.accept)
+        dlg.exec_()
 
     # ------------------------------------------------------------- events
 
@@ -1092,6 +1254,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             "Parasolid XT (*.x_t *.xmt_txt);;All files (*)")
         if not path:
             return
+        snap = self._snapshot()
         try:
             import cab_import
             if not cab_import.available():
@@ -1111,6 +1274,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             added = cab_import.register_parts(self.model, bodies)
             self._cad_meshes = list(self._cad_meshes or []) + \
                 [b.tess for b in bodies]
+            self._push_undo(snap)
             self.tree_view.populate(self.model, self.archive.members)
             self._rebuild_scene()
             self._mark_dirty()
@@ -1381,10 +1545,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log("No project open.", "WARN")
             return
         import cab_wizards
+        snap = self._snapshot()
         dlg = cab_wizards.InitialWizard(
             self.model, self.props, self._cad_meshes,
             archive=self.archive, parent=self)
         if dlg.exec_():
+            self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.tree_view.populate(
@@ -1397,9 +1563,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        snap = self._snapshot()
         dlg = _DomainDialog(
             self.model, self.props, self._cad_meshes, self)
         if dlg.exec_():
+            self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.log("Computational domain updated; save the cab to persist.")
@@ -1410,8 +1578,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log("No project open.", "WARN")
             return
         import cab_wizards
+        snap = self._snapshot()
         dlg = cab_wizards.ConditionWizard(self.model, self.props, self)
         if dlg.exec_():
+            self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.tree_view.populate(
@@ -1424,8 +1594,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        snap = self._snapshot()
         dlg = _PartDialog(self.model, self.props, name, self)
         if dlg.exec_():
+            self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.tree_view.populate(
@@ -1448,9 +1620,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        snap = self._snapshot()
         dlg = _GriddingDialog(
             self.model, self._cad_meshes, self)
         if dlg.exec_():
+            self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.log("Grid saved; save the cab to persist.")
@@ -1473,6 +1647,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         try:
             import cab_mesh
+            snap = self._snapshot()
             transforms = {p.name: p.transform for p in self.model.parts()}
 
             def tick(done: int, total: int) -> None:
@@ -1485,6 +1660,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                              ["Domain(cuboid)"])[0]
             cab_mesh.apply_elements(
                 self.model, analysis_name, analysis_box, part_boxes)
+            self._push_undo(snap)
             self._rebuild_scene()
             self._mark_dirty()
             self._update_title()
@@ -1509,8 +1685,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        snap = self._snapshot()
         dlg = cab_dialogs.InterferenceDialog(self.model, self)
-        dlg.exec_()
+        if dlg.exec_():
+            self._push_undo(snap)
+            self._mark_dirty()
+            self._update_title()
+            self.log("Interference check finished; save to persist.")
 
     def _edit_mesh_dialog(self) -> None:
         """Mesh -> Editing Mesh (M6): toggle part/fluid cells."""
@@ -1523,8 +1704,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self, "Editing Mesh", "No mesh_block found. Run Mesh -> "
                                       "Gridding and Mesh -> Meshing first.")
             return
+        snap = self._snapshot()
         dlg = cab_dialogs.EditMeshDialog(self.model, self)
         if dlg.exec_():
+            self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.tree_view.populate(
