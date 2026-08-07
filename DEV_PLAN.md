@@ -451,7 +451,7 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 |---|---|---|
 | M7-1 | File | ✅ `Print`：Draw 窗口截图（VTK→PNG）+ 系统打印；`Execute Solver`：确认后导出临时 `.s/.xemt` 并启动 `stsol_Dx64net.exe`；`Execute Post`：确认后启动 `scPOST_Dx64net.exe`（缺失时 WARN） |
 | M7-2 | Edit | ✅ `Undo/Redo`：XML 快照栈（模型+属性，Ctrl+Z/Ctrl+Y，覆盖导入/域/部件/网格/向导等全部改动）；`Deletion of Parts`：多选删除对话框（移除 `<parts>`/`<element>` 盒/关联 condition）；`Group`：建组/移动部件对话框（`<group>` + 成员） |
-| M7-3 | View + Help | View：`Show Message Window`/`Show Status Bar` 开关；Help：新增 `Version`（cabdecoding/Python/Qt/VTK/pskernel 版本） |
+| M7-3 | View + Help | ✅ View：`Show Message Window`/`Show Status Bar` 开关；Help：新增 `Version`（cabdecoding/Python/Qt/VTK/pskernel 版本） |
 | M7-4 | Part | `Cuboid/Cylinder/Sphere/Panel` 创建对话框（复用 `StpreDialogBase`/`AttributePanel`；Location/Size、Center/Radius/Height、Center/Radius、Location/Size/Direction + 属性/材料/颜色）；写入 `<parts type="cube|cylinder|sphere|panel">`，生成 TessPart 3D 预览；重开时按 XML 参数重建几何（不依赖 x_t）；`Sketch Part`/`Fan` 保持 NYI 记日志 |
 | M7-5 | Option | `Environment Settings`：Units/Parts/Mesh/Message/User Interface/File 标签子集，QSettings 持久化并即时生效；`Detailed Program Settings`：几何内部单位、facet 默认精度、undo 深度等子集 |
 | M7-6 | 回归与文档 | 新增 `tests/test_menus_other.py`；DEV_SUMMARY §24、DEV_PLAN M7 实施记录、CAB_GUI_DESIGN §4 更新；全仓 pytest 绿后提交推送 |

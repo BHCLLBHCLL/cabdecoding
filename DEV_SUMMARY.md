@@ -1114,3 +1114,14 @@ element 数、Common 联动、Edit 增删改/边界保护、Deletion 语义、De
 验证：`tests/test_menus_other.py` 新增 3 项（快照 Undo/Redo 往返、
 delete_part 联动清除 element/condition、move_parts_to_group 建组/回根）。
 全仓 **139 通过 / 4 跳过**。
+
+### 24.3 View + Help 菜单补充
+
+- View→Show Message Window / Show Status Bar：checkable 开关
+  （`_toggle_message_window`/`_toggle_status_bar`），实时显隐；
+- Help→Version：`_version_dialog` 显示 cabdecoding git 短哈希、Python、
+  Qt、VTK，以及 pskernel `PK_SESSION_ask_kernel_version`（best-effort）；
+- 保留 User's Guide（本地手册）与 About。
+
+验证：`tests/test_menus_other.py` 新增 2 项（Message/Status 显隐、
+git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块）。

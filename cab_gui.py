@@ -176,6 +176,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         right = QSplitter(Qt.Vertical, self)
         right.addWidget(self.draw_pane)
         right.addWidget(msg_pane)
+        self.msg_pane = msg_pane
         right.setStretchFactor(0, 5)
         right.setStretchFactor(1, 1)
         right.setSizes([640, 140])
@@ -269,6 +270,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 lambda on, a=attr: self._toggle_toolbar(a, on))
             m.addAction(act)
             self._tb_toggles.append(act)
+        m.addSeparator()
+        self._act_msg = QAction("Show Message Window", self)
+        self._act_msg.setCheckable(True)
+        self._act_msg.setChecked(True)
+        self._act_msg.triggered.connect(self._toggle_message_window)
+        m.addAction(self._act_msg)
+        self._act_status = QAction("Show Status Bar", self)
+        self._act_status.setCheckable(True)
+        self._act_status.setChecked(True)
+        self._act_status.triggered.connect(self._toggle_status_bar)
+        m.addAction(self._act_status)
 
         m = mb.addMenu("Part(&P)")
         for label in ("Cuboid", "Cylinder", "Sphere", "Panel",
@@ -298,6 +310,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         m = mb.addMenu("Help(&H)")
         add(m, "User's Guide", self._open_manual)
+        add(m, "Version", self._version_dialog)
         add(m, "About cabdecoding", self._about)
 
     def _build_toolbars(self) -> None:
@@ -391,6 +404,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         bar = getattr(self, attr, None)
         if bar is not None:
             bar.setVisible(on)
+
+    def _toggle_message_window(self, on: bool) -> None:
+        if hasattr(self, "msg_pane"):
+            self.msg_pane.setVisible(on)
+
+    def _toggle_status_bar(self, on: bool) -> None:
+        self.statusBar().setVisible(on)
 
     def _apply_style(self) -> None:
         self.setStyleSheet("""
@@ -1792,6 +1812,54 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log(f"Opened manual: {ST_MANUAL}")
         else:
             self.log(f"Manual not found: {ST_MANUAL}", "ERROR")
+
+    @staticmethod
+    def _git_rev() -> str:
+        try:
+            out = subprocess.run(
+                ["git", "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True, timeout=5)
+            return out.stdout.strip() or ""
+        except Exception:
+            return ""
+
+    def _parasolid_version(self) -> str:
+        try:
+            import ctypes as C
+            import ps_facet2_nodes as m
+            sess = m._get_session()
+            pk = sess.pk
+            fn = getattr(pk, "PK_SESSION_ask_kernel_version", None)
+            if fn is None:
+                return ""
+            fn.restype = C.c_int
+            fn.argtypes = [C.POINTER(C.c_int), C.POINTER(C.c_int),
+                           C.POINTER(C.c_int)]
+            a, b, c = C.c_int(), C.c_int(), C.c_int()
+            if fn(C.byref(a), C.byref(b), C.byref(c)) == 0:
+                return f"{a.value}.{b.value}.{c.value}"
+        except Exception:
+            pass
+        return ""
+
+    def _version_dialog(self) -> None:
+        """Help -> Version."""
+        import platform
+        lines = [f"cabdecoding  git {self._git_rev() or 'unknown'}"]
+        lines.append(f"Python {platform.python_version()}")
+        try:
+            from PyQt5.QtCore import QT_VERSION_STR
+            lines.append(f"Qt {QT_VERSION_STR}")
+        except Exception:
+            pass
+        try:
+            lines.append(f"VTK {vtk.VTK_VERSION}")
+        except Exception:
+            pass
+        ps = self._parasolid_version()
+        if ps:
+            lines.append(f"Parasolid kernel {ps}")
+        QMessageBox.information(self, "Version", "\n".join(lines))
 
     def _about(self) -> None:
         QMessageBox.about(
