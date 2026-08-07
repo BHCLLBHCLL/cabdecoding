@@ -47,12 +47,16 @@
 
 | 菜单 | 现状 | 目标 |
 |---|---|---|
-| File→Import… | NYI | XT/STL 导入对话框；后续扩展 MDL/DXF/OBJ/STEP |
-| Edit→Reset Computational Domain | 只读显示属性 | 完整域设置对话框（见 §6.2） |
-| Mesh→Gridding | 只读摘要 | Basic Settings/Parameters 子集对话框 + 网格生成 |
-| Mesh→Meshing | NYI | 基于现有网格生成 element，进度/日志 |
-| Mesh→Editing Mesh | NYI | 网格参数查看/编辑（一期只读+简单改坐标） |
-| Wizard→Initial Setting | 只读摘要 | 接入 Import CAD Data / Computational Domain 步骤 |
+| File→Import… | ✅ 已完成（M1） | XT/STL 导入对话框；后续扩展 MDL/DXF/OBJ/STEP |
+| Edit→Reset Computational Domain | ✅ 已完成（M2） | 完整域设置对话框（见 §6.2） |
+| Mesh→Gridding | ✅ 已完成（M3/M5） | Basic Settings/Parameters 子集对话框 + 网格生成 |
+| Mesh→Meshing | ✅ 已完成（M4） | 基于现有网格生成 element，进度/日志 |
+| Mesh→Checking Parts Interferences | ✅ 已完成（M6） | Select 部件 + Interference/Contact/Separation 列表 + Confirm/Reconstruct |
+| Mesh→Editing Mesh | ✅ 已完成（M6） | I/J/K 层选择 + ->Effective/->Ineffective 编辑单元属性 |
+| Mesh→Showing Element Cross-Section | ✅ 已完成（M6） | Axis + 滑块 + Show/Hide fluid，Draw 窗口实时截面 |
+| Mesh→Checking S-File | ✅ 已完成（M6） | Open S file + 树形列表 checkbox 控制 3D 显隐 |
+| Wizard→Initial Setting | ✅ 已完成（M6） | 完整 Initial Wizard（Project→Import CAD→Domain→Analysis Type→Initial Value/Gravity→Purpose→Boundary→Confirm） |
+| Wizard→Condition Setting | ✅ 已完成（M6） | Condition Wizard 子集（导航树 + Analysis Types/Basic/Fluid/Flow/Heat/Initial/BC/Control/File/Condition List/Confirm） |
 | Option→Environment/Detailed Settings | NYI | 一期：网格默认参数、显示精度 |
 | Part 工具栏 | NYI | 保持占位；不做 CAD 建模（长期项） |
 
@@ -396,6 +400,42 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
   （用列表选择代替）；
 - 回归：`tests/test_dialogs.py`（8 项）+ `tests/test_gridding_tabs.py`
   （11 项）；清理残留 `tests/tmp*` 目录后全仓 **114 通过 / 4 跳过**。
+
+### M6 Mesh 菜单补全 + Wizard 功能（2026-08-08）✅ 已完成
+
+参照 Pre_eng 手册（`St_pre_Mesh_menu.html`/`St_pre_Mesh-Editing_Mesh.html`/
+`St_pre_Mesh-Checking_Parts_Interferences.html`/
+`St_pre_Mesh-Showing_Element_Cross-Section.html`/
+`St_pre_Mesh-Checking_S-File.html`/`St_pre_Wizard*.html`）与二进制
+（`STpreTool_Bx64.dll` 对话框资源串、`STpreIwiz_Bx64.dll`/`STpreCwiz_Bx64.dll`
+向导页类名、`STpre_Bx64net.exe` 菜单字串）把 **Mesh 菜单 6 项全部打通**，
+并把 **Wizard 两个入口从只读摘要升级为真正的多步向导**：
+
+| 菜单 | 实现 |
+|---|---|
+| Mesh→Gridding / Meshing | 既有（M3/M4/M5） |
+| Mesh→Checking Parts Interferences | `InterferenceDialog`（cab_dialogs）：Select 部件、Interference/Contact/Separation 三态列表、Separation only、Confirm（高亮部件）、Reconstruct（`cab_mesh.resolve_interferences`）；新增 `cab_mesh.classify_interferences`（严格 overlap=干涉、face 邻接=Contact、gap≤阈值=Separation），并修正 `resolve_interferences` 的 AABB 精确相减 |
+| Mesh→Editing Mesh | `EditMeshDialog`：Active block、I/J/K 层选择 + 层内范围、`->Effective`/`->Ineffective` + Execute；新增 `cab_mesh.cell_mask_from_boxes/_boxes_from_mask/toggle_cells_effective` |
+| Mesh→Showing Element Cross-Section | `SectionDialog`：Axis + Element/Face address + 滑块 + All blocks + Show/Hide/Show only fluid；新增 `cab_vtk.element_section_data/element_section_polydata/section_actor`，`CabViewer._show_section` 实时刷新 |
+| Mesh→Checking S-File | `SFileCheckDialog`：Open S file（`s_export.parse_s_parts` 解析 PARTS 名）+ 树形 checkbox 控制 3D 显隐（`CabViewer._set_part_visible`） |
+| Wizard→Initial Setting | `cab_wizards.InitialWizard`：Project / Import CAD Data / Computational Domain / Analysis Type / Initial Value-Gravity / Purpose of Analysis / Conditions for Computational Domain Boundary / Confirm Settings；写回 project、analysis_region、analysis_set（type/heat/turbulence/turbulence_model/grav/cycle）、condition+value（forced-convection 自动边界：inlet/outlet/side_wall+side_adiabatic）；Cancel 快照回滚 |
+| Wizard→Condition Setting | `cab_wizards.ConditionWizard`：左导航树（undefined=灰/defined=橙）+ Analysis Types / Basic Settings / Fluid Region / Flow / Heat / Initial Condition / BC(Flow·Wall·Thermal·Symmetrical) / Analysis Control / File Specification / Condition List（右键 Rename/Copy/Delete）/ Setting Confirmation |
+
+模型层新增（`cabxml.StpreModel`）：`set_project_value/project_value/set_project_name`、
+`ensure_analysis_set/analysis_set_value/set_analysis_set_value`、
+`set_gravity/set_cycles`、`upsert_value`（含 `<name>` 补全）、
+`bind_condition`（同目标可多个条件、同值幂等）、`condition_value/remove_condition`、
+`set_part_transform`。
+
+一期近似（已记录，待与 STpre 黄金对拍）：
+- Condition Wizard 覆盖 Basic-Exercise-1 页面集，其余 ~150 页未实现；
+- Internal-enclosure / buildings-purpose 边界自动设置仅提示不写回；
+- 截面 Face address 与 Element address 映射为同一单元层；multiblock 仍单 RootBlock；
+- Editing Mesh 以列表/范围选择替代鼠标拾取。
+
+回归：`tests/test_mesh_edit.py`（7 项）+ `tests/test_mesh_menus.py`（7 项）+
+`tests/test_wizards.py`（6 项）；全仓 **132 通过 / 4 跳过**。
+文档：DEV_SUMMARY §23；CAB_GUI_DESIGN §4.5/4.6。
 
 ---
 

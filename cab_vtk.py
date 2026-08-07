@@ -656,6 +656,168 @@ def shaded_poly_actor(pd, color: tuple[float, float, float],
     return actor
 
 
+def _axis_cell_planes_m(model: StpreModel):
+    """Element cell planes per axis (metres): mid-planes i=0..len-2.
+
+    Returns ``{axis: ndarray of len(axis_coords)-1 planes}`` for the
+    cross-section display.
+    """
+    axes = model.mesh_axes()
+    out: dict[str, np.ndarray] = {}
+    for ax in "xyz":
+        coords = [v / 1000.0 for v in axes.get(ax, [])]
+        if len(coords) < 2:
+            out[ax] = np.zeros(0)
+        else:
+            out[ax] = np.asarray(coords, dtype=np.float64)
+    return out
+
+
+def _cell_mask_from_boxes(ni: int, nj: int, nk: int,
+                          boxes: list[list[int]]) -> np.ndarray:
+    """0-based occupancy mask from 1-based inclusive i/j/k boxes (local copy
+    to avoid a cab_mesh <-> cab_vtk import cycle)."""
+    mask = np.zeros((ni, nj, nk), dtype=bool)
+    for b in boxes:
+        if len(b) < 6:
+            continue
+        i0, i1, j0, j1, k0, k1 = [int(v) for v in b[:6]]
+        i0 = max(0, i0 - 1); i1 = min(ni - 1, i1 - 1)
+        j0 = max(0, j0 - 1); j1 = min(nj - 1, j1 - 1)
+        k0 = max(0, k0 - 1); k1 = min(nk - 1, k1 - 1)
+        if i0 <= i1 and j0 <= j1 and k0 <= k1:
+            mask[i0:i1 + 1, j0:j1 + 1, k0:k1 + 1] = True
+    return mask
+
+
+def element_section_data(model: StpreModel, axis: str, index: int,
+                         mode: str = "show"):
+    """Cells of the cross-section plane at element ``index`` (1-based).
+
+    ``axis`` is x/y/z; ``index`` selects one element layer along it.
+    ``mode`` matches STpre [Show Element Cross-Section]:
+      show        -> all cells (fluid + parts)
+      hide        -> part cells only
+      fluid_only  -> fluid cells only
+
+    Returns ``(cells, colors)`` where ``cells`` is a list of
+    ``(quad_pts[4x3] in metres, part_id)`` (0 = fluid, n = 1-based part
+    number in ``colors``) and ``colors`` is the ``[(part_name, rgb)]`` list
+    aligned so ``part_id`` maps to ``colors[part_id - 1]``.
+    """
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return [], []
+    ncells = {a: len(axes[a]) - 1 for a in "xyz"}
+    if axis not in ncells or not (1 <= index <= ncells[axis]):
+        return [], []
+    el = model.elements()
+    order = [p.attrib.get("name", "") for p in el.findall("parts")
+             ] if el is not None else []
+    order = [n for n in order if n and model.part_boxes(n)]
+    colors = [(n, _parse_color(
+        next((p.color for p in model.parts() if p.name == n),
+             "180,180,180"))) for n in order]
+    masks: dict[str, np.ndarray] = {}
+    ni, nj, nk = ncells["x"], ncells["y"], ncells["z"]
+    for name in order:
+        masks[name] = _cell_mask_from_boxes(ni, nj, nk,
+                                            model.part_boxes(name))
+    union = np.zeros((ni, nj, nk), dtype=bool)
+    for m in masks.values():
+        union |= m
+
+    planes = _axis_cell_planes_m(model)
+    # in-plane axes ordered (va, wa) so the slice is a 2D grid
+    axes2 = [a for a in "xyz" if a != axis]
+    va, wa = axes2
+    v = planes[va]
+    w = planes[wa]
+    cells: list[tuple[list[list[float]], int]] = []
+    n0 = 0.5 * (planes[axis][index - 1] + planes[axis][index])
+
+    def point(i: int, j: int) -> list[float]:
+        if axis == "x":
+            return [n0, v[i], w[j]]
+        if axis == "y":
+            return [v[i], n0, w[j]]
+        return [v[i], w[j], n0]
+
+    for iv in range(len(v) - 1):
+        for iw in range(len(w) - 1):
+            if axis == "x":
+                i, j, k = index, iv + 1, iw + 1
+            elif axis == "y":
+                i, j, k = iv + 1, index, iw + 1
+            else:
+                i, j, k = iv + 1, iw + 1, index
+            part_id = 0
+            for n, name in enumerate(order, start=1):
+                if masks[name][i - 1, j - 1, k - 1]:
+                    part_id = n
+                    break
+            if mode == "fluid_only" and part_id != 0:
+                continue
+            if mode == "hide" and part_id == 0:
+                continue
+            quad = [point(iv, iw), point(iv + 1, iw),
+                    point(iv + 1, iw + 1), point(iv, iw + 1)]
+            cells.append((quad, part_id))
+    return cells, colors
+
+
+def element_section_polydata(model: StpreModel, axis: str, index: int,
+                             mode: str = "show"):
+    """vtkPolyData of the cross-section slice with a ``part_id`` cell scalar."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    cells, colors = element_section_data(model, axis, index, mode)
+    if not cells:
+        return None, colors
+    pts: list[list[float]] = []
+    quads: list[list[int]] = []
+    ids: list[int] = []
+    for quad, part_id in cells:
+        base = len(pts)
+        for p in quad:
+            pts.append(list(p))
+        quads.append([base, base + 1, base + 2, base + 3])
+        ids.append(part_id)
+    pd = _polydata(np.asarray(pts, dtype=np.float64),
+                   np.asarray(quads, dtype=np.int64), "quads")
+    arr = numpy_support.numpy_to_vtk(
+        np.asarray(ids, dtype=np.uint8), deep=True)
+    arr.SetName("part_id")
+    pd.GetCellData().AddArray(arr)
+    return pd, colors
+
+
+def section_actor(pd, colors, mode: str = "show"):
+    """Scalar-coloured actor for the cross-section slice.
+
+    ``colors`` is the ``(name, rgb)`` list returned by
+    :func:`element_section_data`; part_id 0 (fluid) is light grey.
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    lut = vtk.vtkLookupTable()
+    lut.SetNumberOfTableValues(len(colors) + 1)
+    lut.SetTableValue(0, 0.82, 0.84, 0.86, 1.0)   # fluid
+    for i, (_name, rgb) in enumerate(colors, start=1):
+        lut.SetTableValue(i, rgb[0], rgb[1], rgb[2], 1.0)
+    lut.SetRange(0, len(colors))
+    lut.Build()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(pd)
+    mapper.SetLookupTable(lut)
+    mapper.SetScalarRange(0, len(colors))
+    mapper.SetScalarModeToUseCellData()
+    mapper.SelectColorArray("part_id")
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    return actor
+
+
 def mesh_block_grid(model: StpreModel, stride: int = 1):
     """Structured-mesh grid lines from ``mesh_block`` axes (meters).
 

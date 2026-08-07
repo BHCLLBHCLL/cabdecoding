@@ -172,16 +172,19 @@ cab 阶段：⬜ NYI；工具栏仅保留常用图标占位，避免空菜单。
 
 | 项 | 状态 | 行为 |
 |----|------|------|
-| Initial Setting… | ◐ | 只读摘要对话框：Project / Domain / Analysis Type（来自 `ex4_e.xml`） |
-| Condition Setting… | ◐ | 打开 Conditions 树 + Property；深度页 ⬜ |
+| Initial Setting… | ✅ | STpre Initial Wizard（`cab_wizards.InitialWizard`）：Project → Import CAD Data → Computational Domain → Analysis Type → Initial Value/Gravity → Purpose of Analysis → Conditions for Computational Domain Boundary → Confirm Settings；写回 `project`/`analysis_region`/`analysis_set`/`condition`+`value` |
+| Condition Setting… | ✅ | STpre Condition Wizard 子集（`cab_wizards.ConditionWizard`）：左导航树 + Analysis Types / Basic Settings / Fluid Region / Flow / Heat / Initial Condition / BC(Flow·Wall·Thermal·Symmetrical) / Analysis Control / File Specification / Condition List / Setting Confirmation |
 
 ### 4.6 Mesh(&G)
 
 | 项 | 状态 | 行为 |
 |----|------|------|
-| Gridding（只读） | ◐ | 显示 `mesh_block` 轴点数 / 范围 |
-| Checking S-File | ✅ | 调用导出 + 行数/段头校验报告 |
-| Meshing / Editing Mesh | ⬜ | |
+| Gridding… | ✅ | `Mesh:Set division` 六标签对话框（Basic Setting / Parameter / Detail meshing / Edit / Deletion / Others） |
+| Meshing | ✅ | 基于 `mesh_block` + CAD 曲面生成 `element`（状态栏进度） |
+| Checking Parts Interferences | ✅ | `InterferenceDialog`：Select 部件 + Interference/Contact/Separation 列表 + Separation only + Confirm/Reconstruct |
+| Editing Mesh… | ✅ | `EditMeshDialog`：Active block / I·J·K 层选择 / `->Effective`·`->Ineffective` 编辑单元属性 |
+| Showing Element Cross-Section… | ✅ | `SectionDialog`：Axis + 滑块 + Show/Hide fluid，Draw 窗口实时显示截面 |
+| Checking S-File… | ✅ | `SFileCheckDialog`：Open S file + 树形列表 checkbox 控制 3D 显隐 |
 
 ### 4.7 Option(&O)
 

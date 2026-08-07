@@ -82,6 +82,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._layer_actors: dict[str, list] = {
             "domain_frame": [], "axis_global": [], "origin": [],
             "mesh": [], "mesh_block": [], "element": [], "face": [],
+            "section": [],
         }
         self.current_path: str | None = None
         self._dirty = False
@@ -273,10 +274,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Condition Setting…", self._wizard_condition)
 
         m = mb.addMenu("Mesh(&G)")
+        # Order aligned with STpre [Mesh] menu (Pre_eng manual + net.exe)
         add(m, "Gridding…", self._gridding_dialog)
-        add(m, "Checking S-File", self._check_sfile)
         add(m, "Meshing", self._meshing_dialog)
-        add(m, "Editing Mesh")
+        add(m, "Checking Parts Interferences", self._interference_dialog)
+        add(m, "Editing Mesh…", self._edit_mesh_dialog)
+        add(m, "Showing Element Cross-Section…", self._section_dialog)
+        add(m, "Checking S-File…", self._check_sfile_dialog)
 
         m = mb.addMenu("Option(&O)")
         add(m, "(Mouse) Trackball",
@@ -1203,28 +1207,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.log("Exported " + ", ".join(wrote))
 
     def _wizard_initial(self) -> None:
-        if self.model is None:
+        """Wizard -> Initial Setting: the STpre Initial Wizard (M6)."""
+        if self.model is None or self.props is None:
             self.log("No project open.", "WARN")
             return
-        ar = self.model.analysis_region()
-        base = size = ""
-        if ar is not None:
-            b = ar.find("base")
-            s = ar.find("size")
-            base = (b.text or "").strip() if b is not None else ""
-            size = (s.text or "").strip() if s is not None else ""
-        axes = self.model.mesh_axes()
-        msg = (
-            f"Project: {self.model.project_name}\n"
-            f"Parts: {len(self.model.parts())}\n"
-            f"Domain base: {base}\n"
-            f"Domain size: {size}\n"
-            f"Mesh: "
-            f"{len(axes.get('x', []))}×{len(axes.get('y', []))}×"
-            f"{len(axes.get('z', []))}\n"
-            f"Materials: {len(self.props.material_names()) if self.props else 0}"
-        )
-        QMessageBox.information(self, "Initial Setting (read-only)", msg)
+        import cab_wizards
+        dlg = cab_wizards.InitialWizard(
+            self.model, self.props, self._cad_meshes,
+            archive=self.archive, parent=self)
+        if dlg.exec_():
+            self._mark_dirty()
+            self._update_title()
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self._rebuild_scene()
+            self.log("Initial Setting finished; save the cab to persist.")
 
     def _domain_dialog(self) -> None:
         """Edit -> Reset Computational Domain (M2)."""
@@ -1239,8 +1236,19 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log("Computational domain updated; save the cab to persist.")
 
     def _wizard_condition(self) -> None:
-        self.tree_view.tabs.setCurrentWidget(self.tree_view.cond_tree)
-        self.log("Condition Setting — select an item in Conditions tab")
+        """Wizard -> Condition Setting: the STpre Condition Wizard (M6)."""
+        if self.model is None or self.props is None:
+            self.log("No project open.", "WARN")
+            return
+        import cab_wizards
+        dlg = cab_wizards.ConditionWizard(self.model, self.props, self)
+        if dlg.exec_():
+            self._mark_dirty()
+            self._update_title()
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self._rebuild_scene()
+            self.log("Condition Setting finished; save the cab to persist.")
 
     def _part_dialog(self, name: str) -> None:
         """Double-click a part -> STpre-style part edit dialog (M5)."""
@@ -1326,6 +1334,105 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         lines = text.splitlines()
         self.log(f"S-File check: {len(lines)} lines, starts with "
                  f"{lines[0][:40]!r}" if lines else "empty")
+
+    def _interference_dialog(self) -> None:
+        """Mesh -> Checking Parts Interferences (M6)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        dlg = cab_dialogs.InterferenceDialog(self.model, self)
+        dlg.exec_()
+
+    def _edit_mesh_dialog(self) -> None:
+        """Mesh -> Editing Mesh (M6): toggle part/fluid cells."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        axes = self.model.mesh_axes()
+        if not axes or any(len(v) < 2 for v in axes.values()):
+            QMessageBox.warning(
+                self, "Editing Mesh", "No mesh_block found. Run Mesh -> "
+                                      "Gridding and Mesh -> Meshing first.")
+            return
+        dlg = cab_dialogs.EditMeshDialog(self.model, self)
+        if dlg.exec_():
+            self._mark_dirty()
+            self._update_title()
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self.log("Editing Mesh finished; save the cab to persist.")
+
+    def _section_dialog(self) -> None:
+        """Mesh -> Showing Element Cross-Section (M6)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        axes = self.model.mesh_axes()
+        if not axes or any(len(v) < 2 for v in axes.values()):
+            QMessageBox.warning(
+                self, "Showing Element Cross-Section",
+                "No mesh_block found. Run Mesh -> Gridding first.")
+            return
+        dlg = cab_dialogs.SectionDialog(self.model, self)
+        dlg.exec_()
+        self._clear_section()
+
+    def _check_sfile_dialog(self) -> None:
+        """Mesh -> Checking S-File (M6)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        dlg = cab_dialogs.SFileCheckDialog(self.model, self)
+        dlg.exec_()
+
+    def _confirm_interferences(self, names: list[str]) -> None:
+        """Highlight the interfering parts in the Draw window."""
+        if not names:
+            return
+        for name in names:
+            self._hidden_parts.discard(name)
+        self.log("Interference confirm: showing " + ", ".join(names))
+        if not self._enable_3d or self.renderer is None:
+            return
+        part_on = self.control.layer_on("part")
+        for actor, pname in self.actors:
+            actor.SetVisibility(
+                1 if (part_on and pname not in self._hidden_parts) else 0)
+        self.renderer.GetRenderWindow().Render()
+
+    def _set_part_visible(self, name: str, visible: bool) -> None:
+        """Toggle one part's 3D visibility (Checking S-File checkbox)."""
+        if visible:
+            self._hidden_parts.discard(name)
+        else:
+            self._hidden_parts.add(name)
+        if not self._enable_3d or self.renderer is None:
+            return
+        part_on = self.control.layer_on("part")
+        for actor, pname in self.actors:
+            if pname == name:
+                actor.SetVisibility(
+                    1 if (visible and part_on) else 0)
+        self.renderer.GetRenderWindow().Render()
+
+    def _show_section(self, pd, colors) -> None:
+        """Draw the element cross-section slice (live slider refresh)."""
+        if not self._enable_3d or self.renderer is None or pd is None:
+            return
+        self._clear_section()
+        actor = cab_vtk.section_actor(pd, colors)
+        self.renderer.AddActor(actor)
+        self._layer_actors.setdefault("section", []).append(actor)
+        self.renderer.GetRenderWindow().Render()
+
+    def _clear_section(self) -> None:
+        if not self._enable_3d or self.renderer is None:
+            return
+        for actor in self._layer_actors.get("section", []):
+            self.renderer.RemoveActor(actor)
+        self._layer_actors["section"] = []
+        if self.renderer.GetRenderWindow() is not None:
+            self.renderer.GetRenderWindow().Render()
 
     def _open_manual(self) -> None:
         if os.path.isfile(ST_MANUAL):

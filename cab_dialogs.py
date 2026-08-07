@@ -2075,3 +2075,584 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         else:
             self._log("Meshing requires the CabViewer parent window.",
                       "WARN")
+
+
+# ================================================================ Mesh menu
+#
+# The four remaining [Mesh] menu dialogs, aligned with the Pre_eng manual
+# pages and the UI strings extracted from ``STpreTool_Bx64.dll``:
+#   "Checking Parts Interferences"  -> InterferenceDialog
+#   "Editing Mesh..."               -> EditMeshDialog
+#   "Showing Element Cross-Section" -> SectionDialog
+#   "Checking S-File..."            -> SFileCheckDialog
+
+
+def _parts_with_elements(model: StpreModel) -> list[str]:
+    return [name for name in (p.name for p in model.parts())
+            if model.part_boxes(name)]
+
+
+class InterferenceDialog(QDialog if _HAS_GUI_DEPS else object):
+    """[Mesh] - [Checking Parts Interferences].
+
+    [Select] picks the parts to inspect, the result list shows every
+    interfering pair with its STpre status (Interference / Contact /
+    Separation), [Separation only] filters out the first two states.
+    [Confirm] highlights the pairs in the Draw window, [Reconstruct]
+    resolves overlaps via ``cab_mesh.resolve_interferences``.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Checking Parts Interferences")
+        self.model = model
+        self._selected: set[str] = set()
+        self._build_ui()
+        self._refresh()
+
+    def _build_ui(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.addWidget(DialogHeader("Parts Interferences", "mesh", self))
+
+        sel = QHBoxLayout()
+        self.btn_select = QPushButton("Select", self)
+        self.btn_select.clicked.connect(self._select_parts)
+        sel.addWidget(self.btn_select)
+        self.sel_label = QLabel("(all parts)", self)
+        sel.addWidget(self.sel_label, 1)
+        lay.addLayout(sel)
+
+        self.chk_sep_only = QCheckBox("Separation only", self)
+        self.chk_sep_only.toggled.connect(lambda _o: self._refresh())
+        lay.addWidget(self.chk_sep_only)
+
+        self.tree = QTreeWidget(self)
+        self.tree.setHeaderLabels(["Part 1", "Part 2", "Status"])
+        self.tree.setRootIsDecorated(False)
+        lay.addWidget(self.tree, 1)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        self.btn_confirm = QPushButton("Confirm", self)
+        self.btn_confirm.clicked.connect(self._confirm)
+        self.btn_reconstruct = QPushButton("Reconstruct", self)
+        self.btn_reconstruct.clicked.connect(self._reconstruct)
+        self.btn_close = QPushButton("Close", self)
+        self.btn_close.clicked.connect(self.accept)
+        for b in (self.btn_confirm, self.btn_reconstruct, self.btn_close):
+            brow.addWidget(b)
+        lay.addLayout(brow)
+        self.resize(460, 360)
+
+    def _select_parts(self) -> None:
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Select parts")
+        lay = QVBoxLayout(dlg)
+        names = _parts_with_elements(self.model) or \
+            [p.name for p in self.model.parts()]
+        lst = QListWidget(dlg)
+        lst.setSelectionMode(QListWidget.ExtendedSelection)
+        for n in names:
+            QListWidgetItem(n, lst)
+            if n in self._selected:
+                lst.item(lst.count() - 1).setSelected(True)
+        lay.addWidget(lst, 1)
+        row = QHBoxLayout()
+        row.addStretch(1)
+        ok = QPushButton("OK", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel", dlg)
+        cancel.clicked.connect(dlg.reject)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+        if dlg.exec_():
+            self._selected = {lst.item(i).text()
+                              for i in range(lst.count())
+                              if lst.item(i).isSelected()}
+            self._refresh()
+
+    def _refresh(self) -> None:
+        import cab_mesh
+        if self._selected:
+            pairs = [(a, b, s) for a, b, s in
+                     cab_mesh.classify_interferences(self.model)
+                     if a in self._selected and b in self._selected]
+        else:
+            pairs = cab_mesh.classify_interferences(self.model)
+        self.sel_label.setText(
+            ", ".join(sorted(self._selected)) if self._selected
+            else "(all parts)")
+        self.tree.clear()
+        if self.chk_sep_only.isChecked():
+            pairs = [p for p in pairs if p[2] == "Separation"]
+        for a, b, status in pairs:
+            QTreeWidgetItem(self.tree, [a, b, status])
+        self.tree.resizeColumnToContents(0)
+        self.tree.resizeColumnToContents(1)
+
+    def _pairs(self) -> list[tuple[str, str, str]]:
+        out: list[tuple[str, str, str]] = []
+        for i in range(self.tree.topLevelItemCount()):
+            it = self.tree.topLevelItem(i)
+            out.append((it.text(0), it.text(1), it.text(2)))
+        return out
+
+    def _confirm(self) -> None:
+        pairs = self._pairs()
+        names = sorted({n for p in pairs for n in p[:2]})
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_confirm_interferences"):
+            parent._confirm_interferences(names)
+            return
+        self._log("Confirm: interfering parts: " + ", ".join(names))
+
+    def _reconstruct(self) -> None:
+        import cab_mesh
+        changed = cab_mesh.resolve_interferences(self.model)
+        self._log(
+            f"Reconstruct: resolved overlaps for {changed} part(s)")
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+        self._refresh()
+
+    def _log(self, msg: str, level: str = "INFO") -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "log"):
+            parent.log(msg, level)
+
+
+class EditMeshDialog(QDialog if _HAS_GUI_DEPS else object):
+    """[Mesh] - [Editing Mesh]: fine-tune part/fluid cell assignment.
+
+    [Active block] -> RootBlock (multiblock not supported by the cab
+    viewer); a layer on the I/J/K side is selected with an index spin and
+    two in-plane ranges (cab viewer substitutes combo/spin picking for the
+    STpre mouse selection).  [-> Effective] adds the cells to the target
+    part, [-> Ineffective] removes them.
+    """
+
+    _AXIS_LABEL = {"I": "x", "J": "y", "K": "z"}
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Editing Mesh")
+        self.model = model
+        self._build_ui()
+        self._load()
+
+    def _build_ui(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.addWidget(DialogHeader("Edit Mesh", "mesh", self))
+
+        abox = QGroupBox("ActiveBlock", self)
+        arow = QHBoxLayout(abox)
+        arow.addWidget(QLabel("Block name", abox))
+        self.block_edit = QLineEdit("RootBlock", abox)
+        self.block_edit.setReadOnly(True)
+        arow.addWidget(self.block_edit, 1)
+        dots = QPushButton("...", abox)
+        dots.setFixedWidth(28)
+        dots.clicked.connect(lambda: QMessageBox.information(
+            self, "Selection of mesh block",
+            "RootBlock\n\n(Only the root block exists in this project.)"))
+        arow.addWidget(dots)
+        lay.addWidget(abox)
+
+        side = QGroupBox("Layer selection", self)
+        sl = QHBoxLayout(side)
+        self.side: dict[str, QRadioButton] = {}
+        for label in "IJK":
+            rb = QRadioButton(f"{label} side", side)
+            sl.addWidget(rb)
+            self.side[label] = rb
+            rb.toggled.connect(self._on_side_changed)
+        sl.addWidget(QLabel("Layer", side))
+        self.layer = QSpinBox(side)
+        self.layer.setRange(1, 10000)
+        sl.addWidget(self.layer)
+        sl.addStretch(1)
+        lay.addWidget(side)
+
+        rng = QGroupBox("Range on the layer", self)
+        rl = QGridLayout(rng)
+        self.inplane_from: dict[str, QSpinBox] = {}
+        self.inplane_to: dict[str, QSpinBox] = {}
+        for i, ax in enumerate("yz"):
+            rl.addWidget(QLabel(ax.upper(), rng), 0, i * 2)
+            f = QSpinBox(rng)
+            t = QSpinBox(rng)
+            f.setRange(1, 10000)
+            t.setRange(1, 10000)
+            self.inplane_from[ax] = f
+            self.inplane_to[ax] = t
+            rl.addWidget(f, 1, i * 2)
+            rl.addWidget(t, 1, i * 2 + 1)
+        lay.addWidget(rng)
+
+        tgt = QHBoxLayout()
+        tgt.addWidget(QLabel("Target part", self))
+        self.part_combo = QComboBox(self)
+        tgt.addWidget(self.part_combo, 1)
+        lay.addLayout(tgt)
+
+        edit = QGroupBox("Edit type", self)
+        el = QHBoxLayout(edit)
+        self.edit_type: dict[str, QRadioButton] = {}
+        for label, key in (("-> Effective", "effective"),
+                           ("-> Ineffective", "ineffective")):
+            rb = QRadioButton(label, edit)
+            el.addWidget(rb)
+            self.edit_type[key] = rb
+        self.edit_type["ineffective"].setChecked(True)
+        el.addStretch(1)
+        lay.addWidget(edit)
+
+        self.cells_label = QLabel(self)
+        self.cells_label.setStyleSheet("color: #444;")
+        lay.addWidget(self.cells_label)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        self.btn_exec = QPushButton("Execute editing element", self)
+        self.btn_exec.clicked.connect(self._execute)
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.accept)
+        brow.addWidget(self.btn_exec)
+        brow.addWidget(close)
+        lay.addLayout(brow)
+        self.resize(420, 430)
+
+    def _load(self) -> None:
+        axes = self.model.mesh_axes()
+        self._ncells = {a: max(len(axes.get(a, [])), 1) - 1 for a in "xyz"}
+        names = _parts_with_elements(self.model) or \
+            [p.name for p in self.model.parts()]
+        self.part_combo.addItems(names)
+        self._on_side_changed()
+        self._update_cells_label()
+
+    def _on_side_changed(self) -> None:
+        axis = self._AXIS_LABEL[self._current_side()]
+        ni = self._ncells.get(axis, 1) if hasattr(self, "_ncells") else 1
+        self.layer.setMaximum(max(ni, 1))
+        self.layer.setValue(1)
+        for ax in "yz":
+            n = self._ncells.get(ax, 1) if hasattr(self, "_ncells") else 1
+            self.inplane_from[ax].setMaximum(max(n, 1))
+            self.inplane_to[ax].setMaximum(max(n, 1))
+            self.inplane_to[ax].setValue(max(n, 1))
+            self.inplane_from[ax].setValue(1)
+        self._update_cells_label()
+
+    def _current_side(self) -> str:
+        for label in "IJK":
+            if self.side[label].isChecked():
+                return label
+        return "I"
+
+    def _selected_cells(self) -> list[tuple[int, int, int]]:
+        axis = self._AXIS_LABEL[self._current_side()]
+        idx = self.layer.value()
+        ranges: dict[str, tuple[int, int]] = {}
+        for ax in "xyz":
+            if ax == axis:
+                ranges[ax] = (idx, idx)
+            else:
+                ranges[ax] = (self.inplane_from[ax].value(),
+                              self.inplane_to[ax].value())
+        cells = []
+        for i in range(ranges["x"][0], ranges["x"][1] + 1):
+            for j in range(ranges["y"][0], ranges["y"][1] + 1):
+                for k in range(ranges["z"][0], ranges["z"][1] + 1):
+                    cells.append((i, j, k))
+        return cells
+
+    def _update_cells_label(self) -> None:
+        cells = self._selected_cells()
+        self.cells_label.setText(
+            f"{len(cells):,} cell(s) in the selection"
+            f"  (axis {self._AXIS_LABEL[self._current_side()]}, "
+            f"layer {self.layer.value()})")
+
+    def _execute(self) -> None:
+        import cab_mesh
+        part = self.part_combo.currentText()
+        if not part:
+            self._log("Editing Mesh: select a target part.", "WARN")
+            return
+        cells = self._selected_cells()
+        effective = self.edit_type["effective"].isChecked()
+        n_boxes = cab_mesh.toggle_cells_effective(
+            self.model, part, cells, effective)
+        self._log(
+            f"Edit Mesh: {len(cells):,} cell(s) "
+            f"{'-> Effective' if effective else '-> Ineffective'} "
+            f"on part '{part}' -> {n_boxes} box list(s)")
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._rebuild_scene()
+
+    def _log(self, msg: str, level: str = "INFO") -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "log"):
+            parent.log(msg, level)
+
+
+class SectionDialog(QDialog if _HAS_GUI_DEPS else object):
+    """[Mesh] - [Showing Element Cross-Section].
+
+    Slice of the element mesh at a given element address along the chosen
+    axis; [Display type] picks element/face address, [Show/Hide of fluid
+    element] controls whether fluid cells are drawn.  The slice refreshes
+    live in the Draw window through the parent ``_show_section`` hook.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Show Element Cross-Section")
+        self.model = model
+        self._build_ui()
+        self._load()
+
+    def _build_ui(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.addWidget(DialogHeader("Element Cross-Section", "mesh", self))
+
+        abox = QGroupBox("ActiveBlock", self)
+        arow = QHBoxLayout(abox)
+        arow.addWidget(QLabel("Block name", abox))
+        self.block_edit = QLineEdit("RootBlock", abox)
+        self.block_edit.setReadOnly(True)
+        arow.addWidget(self.block_edit, 1)
+        dots = QPushButton("...", abox)
+        dots.setFixedWidth(28)
+        dots.clicked.connect(lambda: QMessageBox.information(
+            self, "Selection of Active mesh block",
+            "RootBlock\n\n(Only the root block exists in this project.)"))
+        arow.addWidget(dots)
+        lay.addWidget(abox)
+
+        loc = QGroupBox("Location", self)
+        ll = QVBoxLayout(loc)
+        arow = QHBoxLayout()
+        arow.addWidget(QLabel("Axis", loc))
+        self.axis: dict[str, QRadioButton] = {}
+        for ax in "XYZ":
+            rb = QRadioButton(ax, loc)
+            arow.addWidget(rb)
+            self.axis[ax.lower()] = rb
+            rb.toggled.connect(self._on_axis_changed)
+        arow.addStretch(1)
+        ll.addLayout(arow)
+
+        dt = QHBoxLayout()
+        self.disp_type: dict[str, QRadioButton] = {}
+        for label, key in (("Element address", "element"),
+                           ("Face address", "face")):
+            rb = QRadioButton(label, loc)
+            ll.addWidget(rb)
+            self.disp_type[key] = rb
+        self.disp_type["element"].setChecked(True)
+        dt.addStretch(1)
+        ll.addLayout(dt)
+
+        sl = QHBoxLayout()
+        sl.addWidget(QLabel("Element address", loc))
+        self.slider = QSlider(Qt.Horizontal, loc)
+        self.slider.setRange(1, 2)
+        sl.addWidget(self.slider, 1)
+        self.slider_value = QLabel("1", loc)
+        self.slider_value.setMinimumWidth(40)
+        sl.addWidget(self.slider_value)
+        ll.addLayout(sl)
+
+        self.chk_all = QCheckBox("All blocks", loc)
+        self.chk_all.setChecked(True)
+        ll.addWidget(self.chk_all)
+        lay.addWidget(loc)
+
+        sh = QGroupBox("Show/Hide of fluid element", self)
+        shl = QHBoxLayout(sh)
+        self.mode: dict[str, QRadioButton] = {}
+        for label, key in (("Show", "show"), ("Hide", "hide"),
+                           ("Show only fluid", "fluid_only")):
+            rb = QRadioButton(label, sh)
+            shl.addWidget(rb)
+            self.mode[key] = rb
+        self.mode["show"].setChecked(True)
+        shl.addStretch(1)
+        lay.addWidget(sh)
+
+        note = QLabel("The section refreshes in the Draw window while the "
+                      "slider is dragged.", self)
+        note.setStyleSheet("color: #555; font-size: 11px;")
+        lay.addWidget(note)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.accept)
+        brow.addWidget(close)
+        lay.addLayout(brow)
+        self.resize(400, 380)
+
+        self.slider.valueChanged.connect(self._on_slider)
+        self.slider.sliderReleased.connect(self._render)
+        for key in ("show", "hide", "fluid_only"):
+            self.mode[key].toggled.connect(self._render)
+
+    def _load(self) -> None:
+        axes = self.model.mesh_axes()
+        self._ncells = {a: max(len(axes.get(a, [])), 1) - 1 for a in "xyz"}
+        self._on_axis_changed()
+
+    def _current_axis(self) -> str:
+        for ax in "xyz":
+            if self.axis[ax].isChecked():
+                return ax
+        return "x"
+
+    def _current_mode(self) -> str:
+        for key, rb in self.mode.items():
+            if rb.isChecked():
+                return key
+        return "show"
+
+    def _on_axis_changed(self) -> None:
+        ax = self._current_axis()
+        n = self._ncells.get(ax, 1)
+        self.slider.blockSignals(True)
+        self.slider.setRange(1, max(n, 1))
+        self.slider.setValue(1)
+        self.slider.blockSignals(False)
+        self._render()
+
+    def _on_slider(self, value: int) -> None:
+        self.slider_value.setText(str(value))
+
+    def _render(self) -> None:
+        import cab_vtk
+        ax = self._current_axis()
+        idx = self.slider.value()
+        pd, colors = cab_vtk.element_section_polydata(
+            self.model, ax, idx, self._current_mode())
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_show_section"):
+            parent._show_section(pd, colors)
+
+
+class SFileCheckDialog(QDialog if _HAS_GUI_DEPS else object):
+    """[Mesh] - [Checking S-File].
+
+    [Open] loads an existing S file and lists its parts / panels / condition
+    setting regions; when a listed name matches a model part, its checkbox
+    toggles that part's visibility in the Draw window (STpre behaviour).
+    Without an external file the current project's parts and condition
+    regions are shown.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Checking S File")
+        self.model = model
+        self._loaded_names: list[str] = []
+        self._build_ui()
+        self._refresh_tree(open_file=False)
+
+    def _build_ui(self) -> None:
+        lay = QVBoxLayout(self)
+        lay.addWidget(DialogHeader("Check S File", "mesh", self))
+
+        row = QHBoxLayout()
+        self.btn_open = QPushButton("Open", self)
+        self.btn_open.clicked.connect(self._open)
+        row.addWidget(self.btn_open)
+        self.file_label = QLabel("(current project)", self)
+        self.file_label.setStyleSheet("color: #555;")
+        row.addWidget(self.file_label, 1)
+        lay.addLayout(row)
+
+        self.tree = QTreeWidget(self)
+        self.tree.setHeaderLabels(["Item", "Type"])
+        self.tree.setRootIsDecorated(False)
+        self.tree.itemChanged.connect(self._on_toggled)
+        lay.addWidget(self.tree, 1)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.accept)
+        brow.addWidget(close)
+        lay.addLayout(brow)
+        self.resize(380, 420)
+
+    def _open(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open S File", "", "S File (*.s);;All files (*)")
+        if not path:
+            return
+        try:
+            text = open(path, "r", encoding="utf-8-sig").read()
+        except OSError as exc:
+            self._log(f"Checking S-File: cannot read {path}: {exc}", "ERROR")
+            return
+        import s_export
+        self._loaded_names = s_export.parse_s_parts(text)
+        self.file_label.setText(path)
+        self._refresh_tree(open_file=True)
+        self._log(f"Checking S-File: {path} -> {len(self._loaded_names)} "
+                  f"part/region name(s)")
+
+    def _refresh_tree(self, open_file: bool) -> None:
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        if open_file:
+            for name in self._loaded_names:
+                kind = ("part" if self.model.find_part(name) is not None
+                        else "condition region")
+                it = QTreeWidgetItem(self.tree, [name, kind])
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+                it.setCheckState(0, Qt.Checked)
+                it.setData(0, Qt.UserRole, kind)
+        else:
+            for p in self.model.parts():
+                it = QTreeWidgetItem(self.tree, [p.name, "part"])
+                it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+                it.setCheckState(0, Qt.Checked)
+                it.setData(0, Qt.UserRole, "part")
+            seen = set()
+            for c in self.model.conditions():
+                target = None
+                for ch in c:
+                    if ch.tag == "region":
+                        target = ch.text.strip()
+                        break
+                if target and target not in seen and \
+                        not target.startswith("undefine"):
+                    seen.add(target)
+                    it = QTreeWidgetItem(self.tree, [target,
+                                                     "condition region"])
+                    it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
+                    it.setCheckState(0, Qt.Checked)
+                    it.setData(0, Qt.UserRole, "region")
+        self.tree.resizeColumnToContents(0)
+        self.tree.blockSignals(False)
+
+    def _on_toggled(self, item, _col) -> None:
+        name = item.text(0)
+        visible = item.checkState(0) == Qt.Checked
+        kind = item.data(0, Qt.UserRole)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_set_part_visible"):
+            parent._set_part_visible(name, visible)
+        elif parent is not None and hasattr(parent, "log"):
+            parent.log(f"S-File check: {kind} '{name}' "
+                       f"{'shown' if visible else 'hidden'}")
+
+    def _log(self, msg: str, level: str = "INFO") -> None:
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "log"):
+            parent.log(msg, level)

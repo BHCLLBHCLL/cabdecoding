@@ -267,6 +267,112 @@ def update_part_elements(model: StpreModel, part_name: str,
     return True
 
 
+def cell_mask_from_boxes(ni: int, nj: int, nk: int,
+                         boxes: list[list[int]]) -> np.ndarray:
+    """0-based boolean occupancy mask of 1-based inclusive i/j/k boxes."""
+    mask = np.zeros((ni, nj, nk), dtype=bool)
+    for b in boxes:
+        if len(b) < 6:
+            continue
+        i0, i1, j0, j1, k0, k1 = [int(v) for v in b[:6]]
+        i0 = max(0, i0 - 1); i1 = min(ni - 1, i1 - 1)
+        j0 = max(0, j0 - 1); j1 = min(nj - 1, j1 - 1)
+        k0 = max(0, k0 - 1); k1 = min(nk - 1, k1 - 1)
+        if i0 <= i1 and j0 <= j1 and k0 <= k1:
+            mask[i0:i1 + 1, j0:j1 + 1, k0:k1 + 1] = True
+    return mask
+
+
+def _boxes_from_mask(mask: np.ndarray) -> list[tuple[int, int, int, int, int, int]]:
+    """Merge an occupancy mask back into 1-based inclusive boxes."""
+    return _merge_boxes(mask)
+
+
+def toggle_cells_effective(model: StpreModel, part_name: str,
+                           cells: list[tuple[int, int, int]],
+                           effective: bool) -> int:
+    """Add/remove individual cells (1-based i/j/k) to/from a part's elements.
+
+    Returns the number of box-list entries of the part after the edit
+    (0 when the part has no ``<element>`` entry and cells were removed).
+    Used by [Mesh] - [Editing Mesh] (-> Effective / -> Ineffective).
+    """
+    axes = model.mesh_axes()
+    ni = max(len(axes.get("x", [])), 1) - 1
+    nj = max(len(axes.get("y", [])), 1) - 1
+    nk = max(len(axes.get("z", [])), 1) - 1
+    if ni < 1 or nj < 1 or nk < 1:
+        return 0
+    boxes = [list(b) for b in model.part_boxes(part_name)]
+    mask = cell_mask_from_boxes(ni, nj, nk, boxes)
+    for (i, j, k) in cells:
+        if 1 <= i <= ni and 1 <= j <= nj and 1 <= k <= nk:
+            mask[i - 1, j - 1, k - 1] = effective
+    new_boxes = _boxes_from_mask(mask)
+    update_part_elements(model, part_name, new_boxes)
+    return len(new_boxes)
+
+
+def classify_interferences(model: StpreModel, max_gap: int = 2
+                           ) -> list[tuple[str, str, str]]:
+    """Element-level interference classification of every part pair.
+
+    Statuses match the STpre [Checking Parts Interferences] dialog:
+
+    - ``Interference`` — index boxes overlap (share at least one cell);
+    - ``Contact``      — boxes touch on a face (no shared cell, but faces
+      are adjacent in index space);
+    - ``Separation``   — boxes are within ``max_gap`` cells of each other
+      (close enough that STpre reports a separation/contact candidate).
+
+    Shape-level geometry (CAD surfaces) is not resolved here; the element
+    occupancy table is used as the part shape (phase-1 approximation).
+    """
+    el = model.elements()
+    if el is None:
+        return []
+    boxes: dict[str, list[list[int]]] = {}
+    for parts in el.findall("parts"):
+        name = parts.attrib.get("name", "")
+        if name:
+            b = model.part_boxes(name)
+            if b:
+                boxes[name] = b
+
+    def overlap(a: list[int], b: list[int]) -> bool:
+        # strict: sharing only a face (<= on one axis) is a Contact, not an
+        # Interference (the shared face does not consume any cells)
+        return all(a[i] < b[i + 1] and b[i] < a[i + 1] for i in (0, 2, 4))
+
+    def contact(a: list[int], b: list[int]) -> bool:
+        """Face adjacency: no axis leaves a gap (touch or shared face)."""
+        for i in (0, 2, 4):
+            if max(a[i] - b[i + 1] - 1, b[i] - a[i + 1] - 1, 0) > 0:
+                return False
+        return True
+
+    def gap(a: list[int], b: list[int]) -> int:
+        g = 0
+        for i in (0, 2, 4):
+            g = max(g, max(a[i] - b[i + 1] - 1, b[i] - a[i + 1] - 1, 0))
+        return g
+
+    out: list[tuple[str, str, str]] = []
+    keys = sorted(boxes)
+    for i, na in enumerate(keys):
+        for nb in keys[i + 1:]:
+            if any(overlap(ba, bb) for ba in boxes[na] for bb in boxes[nb]):
+                out.append((na, nb, "Interference"))
+                continue
+            if any(contact(ba, bb) for ba in boxes[na] for bb in boxes[nb]):
+                out.append((na, nb, "Contact"))
+                continue
+            if any(gap(ba, bb) <= max_gap
+                   for ba in boxes[na] for bb in boxes[nb]):
+                out.append((na, nb, "Separation"))
+    return out
+
+
 def find_interferences(model: StpreModel) -> list[tuple[str, str]]:
     """Pairs of parts whose ``element`` index boxes overlap (AABB test).
 
@@ -326,29 +432,40 @@ def resolve_interferences(model: StpreModel) -> int:
     changed = 0
 
     def clip(box: list[int], other: list[int]) -> list[list[int]]:
-        """Subtract ``other`` from ``box`` -> up to 6 residual boxes."""
+        """Subtract ``other`` from ``box`` -> up to 6 residual boxes.
+
+        Exact axis-aligned subtraction: the slabs protruding outside
+        ``other`` along each axis, with the overlap core dropped.
+        """
         if not all(box[i] <= other[i + 1] and other[i] <= box[i + 1]
                    for i in (0, 2, 4)):
             return [box]
+        x0, x1 = box[0], box[1]
+        y0, y1 = box[2], box[3]
+        z0, z1 = box[4], box[5]
+        ox0, ox1 = other[0], other[1]
+        oy0, oy1 = other[2], other[3]
+        oz0, oz1 = other[4], other[5]
         res: list[list[int]] = []
-        rem = box
-        for axis in (0, 2, 4):
-            lo, hi = other[axis], other[axis + 1]
-            if rem[axis] < lo:  # slab below
-                slab = list(rem)
-                slab[axis + 1] = lo - 1
-                res.append(slab)
-                rem = list(rem)
-                rem[axis] = lo
-            if rem[axis + 1] > hi:  # slab above
-                slab = list(rem)
-                slab[axis] = hi + 1
-                res.append(slab)
-                rem = list(rem)
-                rem[axis + 1] = hi
-            if rem[axis] > rem[axis + 1]:
-                return res
-        return res
+        # x slabs outside other
+        if x0 < ox0:
+            res.append([x0, ox0 - 1, y0, y1, z0, z1])
+        if x1 > ox1:
+            res.append([ox1 + 1, x1, y0, y1, z0, z1])
+        xa, xb = max(x0, ox0), min(x1, ox1)
+        # y slabs outside other (inside x overlap)
+        if y0 < oy0:
+            res.append([xa, xb, y0, oy0 - 1, z0, z1])
+        if y1 > oy1:
+            res.append([xa, xb, oy1 + 1, y1, z0, z1])
+        ya, yb = max(y0, oy0), min(y1, oy1)
+        # z slabs outside other (inside x and y overlap)
+        if z0 < oz0:
+            res.append([xa, xb, ya, yb, z0, oz0 - 1])
+        if z1 > oz1:
+            res.append([xa, xb, ya, yb, oz1 + 1, z1])
+        return [b for b in res
+                if b[0] <= b[1] and b[2] <= b[3] and b[4] <= b[5]]
 
     fixed: dict[str, list[list[int]]] = {}
     for name, _body, boxes in entries:

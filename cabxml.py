@@ -328,6 +328,18 @@ class StpreModel:
             set_text(c, ",".join(str(v) for v in rgba))
         return True
 
+    def set_part_transform(self, name: str, matrix16: str) -> bool:
+        """Update ``<parts>/<transform>`` (16 values, column-major)."""
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "transform")
+        if c is None:
+            c = ET.SubElement(el, "transform")
+            c.tail = "\n         "
+        set_text(c, matrix16)
+        return True
+
     # -- regions / values / conditions ------------------------------------
 
     def regions(self) -> list[ET.Element]:
@@ -487,6 +499,169 @@ class StpreModel:
             el.tail = "\n   "
         set_text(el, name)
         return True
+
+    # -- wizard data (M6: Initial Wizard / Condition Wizard) ---------------
+
+    def set_project_value(self, tag: str, text: str) -> bool:
+        """Set ``<project>/<tag>`` (comment / ambient_temperature / ...)."""
+        p = self.project
+        if p is None:
+            return False
+        el = _first(p, tag)
+        if el is None:
+            el = ET.SubElement(p, tag)
+            el.tail = "\n      "
+        set_text(el, text)
+        return True
+
+    def project_value(self, tag: str, default: str = "") -> str:
+        p = self.project
+        el = _first(p, tag) if p is not None else None
+        return (el.text or "").strip() if el is not None and el.text \
+            else default
+
+    def set_project_name(self, name: str) -> bool:
+        return self.set_project_value("project", name)
+
+    def ensure_analysis_set(self) -> ET.Element:
+        """Create ``<analysis_set>`` with STpre defaults when missing."""
+        aset = _first(self.root, "analysis_set")
+        if aset is not None:
+            return aset
+        aset = ET.Element("analysis_set")
+        aset.tail = "\n"
+        defaults = (
+            ("type", "incompressive"), ("fluid", "1"), ("heat", "0"),
+            ("turbulence", "0"), ("turbulence_model", "0"),
+            ("grav_abs", "9.8", {"unit": "m/s2"}),
+            ("grav_vec", "0,0,-1"),
+            ("cycle", "1,100", {"type": "incompressive"}),
+            ("calculation", "steady"), ("steady_check_cycle", "50"),
+            ("steady_hbal_cycle", "0"), ("steady_hbal_eps", "0"),
+            ("init_time_step", "0.01"), ("courant", "0.9"),
+        )
+        for item in defaults:
+            tag = item[0]
+            text = item[1]
+            attrs = item[2] if len(item) > 2 else {}
+            e = ET.SubElement(aset, tag)
+            e.text = f" {text} "
+            e.tail = "\n   "
+            for k, v in attrs.items():
+                e.attrib[k] = v
+        self.root.append(aset)
+        return aset
+
+    def analysis_set_value(self, tag: str, default: str = "") -> str:
+        aset = _first(self.root, "analysis_set")
+        el = _first(aset, tag) if aset is not None else None
+        return (el.text or "").strip() if el is not None and el.text \
+            else default
+
+    def set_analysis_set_value(self, tag: str, text: str,
+                               unit: Optional[str] = None) -> bool:
+        aset = self.ensure_analysis_set()
+        el = _first(aset, tag)
+        if el is None:
+            el = ET.SubElement(aset, tag)
+            el.tail = "\n   "
+        set_text(el, text)
+        if unit is not None:
+            el.attrib["unit"] = unit
+        return True
+
+    def set_gravity(self, acceleration: float, vec: tuple[float, float, float]
+                    ) -> bool:
+        self.set_analysis_set_value("grav_abs", f"{acceleration:.17g}",
+                                    unit="m/s2")
+        return self.set_analysis_set_value(
+            "grav_vec", ",".join(f"{v:.17g}" for v in vec))
+
+    def set_cycles(self, start: int, end: int, *,
+                   transient: bool) -> bool:
+        self.set_analysis_set_value(
+            "cycle", f"{start},{end}", unit="incompressive")
+        return self.set_analysis_set_value(
+            "calculation", "transient" if transient else "steady")
+
+    def upsert_value(self, value_type: str, name: str,
+                     children: list[tuple[str, str, Optional[str]]],
+                     ) -> bool:
+        """Create or update a ``<value type=...>`` definition.
+
+        ``children`` = list of ``(tag, text, unit_or_None)``; ``unit=None``
+        leaves the existing ``unit`` attribute untouched (or absent).
+        """
+        if not name:
+            return False
+        val = self.find_value(name)
+        if val is None:
+            val = ET.Element("value")
+            val.attrib["type"] = value_type
+            val.tail = "\n   "
+            self.root.append(val)
+        else:
+            val.attrib["type"] = value_type
+        fields = list(children)
+        if not any(t == "name" for t, _t, _u in fields):
+            fields.insert(0, ("name", name, None))
+        for tag, text, unit in fields:
+            c = _first(val, tag)
+            if c is None:
+                c = ET.SubElement(val, tag)
+                c.tail = "\n      "
+            set_text(c, text)
+            if unit is not None:
+                c.attrib["unit"] = unit
+        return True
+
+    def bind_condition(self, target_kind: str, target: str,
+                       value_name: str) -> bool:
+        """Append a ``<condition>`` binding a value to a region/parts/analysis.
+
+        A target may carry several conditions (e.g. a face_list region with
+        both a wall and a heat_transfer value), so only a duplicate binding
+        of the *same* value to the *same* target is replaced — re-running a
+        wizard stays idempotent without dropping sibling conditions.
+        """
+        if not target or not value_name:
+            return False
+        for c in list(self.conditions()):
+            t = _first(c, target_kind)
+            v = _first(c, "value")
+            if t is not None and (t.text or "").strip() == target \
+                    and v is not None and (v.text or "").strip() == value_name:
+                self.root.remove(c)
+        c = ET.Element("condition")
+        c.tail = "\n   "
+        t = ET.SubElement(c, target_kind)
+        t.text = f" {target} "
+        t.tail = "\n      "
+        v = ET.SubElement(c, "value")
+        v.text = f" {value_name} "
+        v.tail = "\n      "
+        self.root.append(c)
+        return True
+
+    def condition_value(self, target_kind: str, target: str
+                        ) -> Optional[str]:
+        """Name of the first value bound to a target (or None)."""
+        for c in self.conditions():
+            t = _first(c, target_kind)
+            if t is not None and (t.text or "").strip() == target:
+                v = _first(c, "value")
+                if v is not None and v.text:
+                    return v.text.strip()
+        return None
+
+    def remove_condition(self, target_kind: str, target: str) -> bool:
+        changed = False
+        for c in list(self.conditions()):
+            t = _first(c, target_kind)
+            if t is not None and (t.text or "").strip() == target:
+                self.root.remove(c)
+                changed = True
+        return changed
 
     def ensure_domain(self, *, name: str = "Domain(cuboid)",
                       base: tuple[float, float, float] = (0.0, 0.0, 0.0),

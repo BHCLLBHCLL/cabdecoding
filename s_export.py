@@ -605,3 +605,34 @@ class SExport:
 
 def build_sdat(model: StpreModel, props: PropertyModel) -> str:
     return SExport(model, props).render()
+
+
+def parse_s_parts(text: str) -> list[str]:
+    """Names of the part/region entries in the PARTS section of an S file.
+
+    PARTS header lines look like ``<id><material><fraction>    <name>``
+    (the fluid part first, then one entry per part).  Numeric box-list
+    lines are skipped.  Used by [Mesh] - [Checking S-File].
+    """
+    names: list[str] = []
+    in_parts = False
+    for raw in text.splitlines():
+        line = raw.rstrip()
+        s = line.strip()
+        if s == "PARTS":
+            in_parts = True
+            continue
+        if not in_parts:
+            continue
+        if s in ("/", "   /"):
+            break
+        parts = s.split()
+        if len(parts) >= 4:
+            try:
+                int(parts[0])
+                int(parts[1])
+                float(parts[2])
+            except ValueError:
+                continue
+            names.append(" ".join(parts[3:]).strip())
+    return names

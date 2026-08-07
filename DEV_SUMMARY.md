@@ -1019,3 +1019,63 @@ find_interferences/resolve_interferences`。
 element 数、Common 联动、Edit 增删改/边界保护、Deletion 语义、Detail
 等比划分、Others 持久化、干涉检测修复）。全仓 `pytest`：**114 通过 /
 4 跳过**（残留 `tests/tmp*` 目录已清理，见 §21.4）。
+
+## 23. M6：Mesh 菜单补全 + Wizard 功能（2026-08-08）
+
+### 23.1 参考与情报
+
+- 手册：`St_pre_Mesh_menu.html`（菜单顺序：Gridding / Meshing /
+  Checking Parts Interferences / Editing Mesh / Showing Element
+  Cross-Section / Checking S-File）、各对话框页、`St_pre_Wizard*.html`、
+  Operation_eng Basic Exercise 教程（Condition Wizard 页面流 + meshing
+  操作顺序）。
+- 二进制：`STpre_Bx64net.exe` 菜单字串（`Mesh(&G)`→6 项、
+  `Wizard(&W)`→`Initial Setting...`/`Condition Setting...`）；
+  `STpreTool_Bx64.dll` 对话框资源串（"Checking S File"@0x7E9EA2、
+  "Show Element Cross-Section"@0x7FEEC2、`Edit Mesh`@0x7D6EFA、
+  "List of Parts Interference after Meshing"@0x7E08A2、类
+  `CMeshSectionDlg`/`OpenSFileDlg`/`OpenMeshSectionDlg`/`OpenMeshChangeMateDlg`）；
+  `STpreIwiz_Bx64.dll`（向导步骤串 + `CIw*Page` 类）与
+  `STpreCwiz_Bx64.dll`（`CCw*Page` ~150 页类）。
+
+### 23.2 实现
+
+- `cab_mesh.py`：
+  - `cell_mask_from_boxes` / `_boxes_from_mask` / `toggle_cells_effective`
+    —— 单元级有效/无效编辑（Editing Mesh 的数据基础）；
+  - `classify_interferences` —— Interference（严格重叠）/ Contact（面无
+    缝）/ Separation（gap≤阈值）三态分类；
+  - `resolve_interferences` 的 `clip` 改为**精确 AABB 相减**（沿三轴切出
+    至多 6 个残块），修正原先重叠核心未剔除导致仍报告 Interference 的问题。
+- `cab_vtk.py`：`element_section_data/element_section_polydata/section_actor`
+  —— 截面单元层（0=fluid，n=part_id 单元标量 + 查色表）。
+- `s_export.py`：`parse_s_parts` —— 解析 S 文件 PARTS 段部件/区域名。
+- `cab_dialogs.py`：`InterferenceDialog` / `EditMeshDialog` /
+  `SectionDialog` / `SFileCheckDialog`（标签对齐 DLL 资源串）。
+- `cab_wizards.py`（新）：`WizardBase`（步骤计数 `( n/N ) step`、可选左
+  导航树 + `<< Back`/`Next >>`/`Finish`/`Cancel`、定义态橙/未定义灰）、
+  `InitialWizard`（8 步）、`ConditionWizard`（14 页 + BC 分组节点）。
+- `cabxml.py`：向导写回辅助（见 DEV_PLAN §6-M6 表）。
+- `cab_gui.py`：Mesh 菜单按 STpre 顺序 6 项、新对话框接线、`_show_section`/
+  `_clear_section`/`_confirm_interferences`/`_set_part_visible`、Wizard 两
+  入口接入。
+
+### 23.3 一期限制（已记录，待 STpre 黄金对拍）
+
+- Condition Wizard 仅 Basic-Exercise-1 页面集；internal_enclosure /
+  external_buildings 目的分支边界自动设置不写回（仅提示）；
+- Face address 与 Element address 共用同一单元层映射；多块仍单 RootBlock；
+- Editing Mesh 以层/范围输入替代 STpre 鼠标拾取；shape 级（CAD 曲面）干涉
+  判定未实现，仅基于 element 盒表。
+
+### 23.4 验证
+
+- `tests/test_mesh_edit.py`（7 项）：掩码往返、单元有效/无效切换（角单元
+  删除=3 残块/恢复=1）、三态干涉、截面 fluid/part 分布与颜色、S-PARTS 解析。
+- `tests/test_mesh_menus.py`（7 项）：菜单顺序、4 个对话框 smoke + 数据
+  生效（Reconstruct 后 Interference→Contact、EditMesh 减层、section 实时
+  重绘、S-File checkbox 显隐）、GUI slot 路由。
+- `tests/test_wizards.py`（6 项）：InitialWizard 步骤序列/写回/取消回滚、
+  forced-convection 自动边界、ConditionWizard 树结构/写回/BC 对话框/
+  取消回滚。
+- 全仓 `pytest --basetemp=.pytest_tmp`：**132 通过 / 4 跳过**。
