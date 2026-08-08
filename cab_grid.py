@@ -92,14 +92,19 @@ def _clip_dedupe(vals: list[float], lo: float, hi: float) -> list[float]:
     return out
 
 
-def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec
+def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
+                part_vertices: Optional[dict[str, np.ndarray]] = None
                 ) -> dict[str, list[float]]:
     """Rough grid coordinates per axis from part vertices + domain bounds.
 
-    ``part_points`` maps part name -> world-space points in ``spec.unit``.
+    ``part_points`` maps part name -> tessellation points in ``spec.unit``
+    (used for min/max and as vertex fallback).  ``part_vertices`` maps part
+    name -> real B-rep vertex coordinates when available (STpre "All" /
+    "Representative" use the Parasolid vertices, not the display mesh).
     """
     dmin = np.asarray(spec.domain_min, dtype=float)
     dmax = np.asarray(spec.domain_max, dtype=float)
+    vertices = part_vertices or {}
     out: dict[str, list[float]] = {}
     for ax_i, ax in enumerate("xyz"):
         if spec.vertex_detection == "uniform":
@@ -115,7 +120,8 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec
                 vals.append(float(col.min()))
                 vals.append(float(col.max()))
         if spec.vertex_detection in ("all", "representative"):
-            for arr in part_points.values():
+            sources = vertices or part_points
+            for arr in sources.values():
                 if arr is None or len(arr) == 0:
                     continue
                 vals.extend(float(v) for v in arr[:, ax_i])
@@ -180,22 +186,88 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
         return out
     stds = _as3(spec.standard_length)
     thrs = _as3(spec.threshold_length)
-    r_in = spec.ratio_internal()
     r_ex = spec.ratio_external()
     lo = part_bounds[0] if part_bounds is not None else None
     hi = part_bounds[1] if part_bounds is not None else None
     out = {}
     for i, ax in enumerate("xyz"):
-        if lo is None or hi is None:
-            internal = [True] * (len(rough[ax]) - 1)
-        else:
-            internal = [
-                (a + b) * 0.5 >= lo[i] and (a + b) * 0.5 <= hi[i]
-                for a, b in zip(rough[ax][:-1], rough[ax][1:])
-            ]
-        ratio = [r_in[i] if k else r_ex[i] for k in internal]
-        out[ax] = _refine_axis_ratios(rough[ax], stds[i], ratio, thrs[i])
+        axis_pts = [rough[ax][0]]
+        for a, b in zip(rough[ax][:-1], rough[ax][1:]):
+            if lo is not None and hi is not None:
+                mid = (a + b) * 0.5
+                internal = lo[i] <= mid <= hi[i]
+            else:
+                internal = True
+            if internal:
+                axis_pts.extend(_equal_split(a, b, stds[i], thrs[i]))
+            else:
+                if b <= lo[i] + 1e-9:
+                    part_side = b          # interval left of the part
+                elif a >= hi[i] - 1e-9:
+                    part_side = a          # interval right of the part
+                else:
+                    part_side = b
+                axis_pts.extend(_stpre_external(
+                    a, b, part_side, stds[i], r_ex[i], thrs[i]))
+        if axis_pts[-1] != rough[ax][-1]:
+            axis_pts.append(rough[ax][-1])
+        out[ax] = _clip_dedupe(axis_pts, rough[ax][0], rough[ax][-1])
     return out
+
+
+def _equal_split(a: float, b: float, std: float,
+                 threshold: float) -> list[float]:
+    """STpre internal-region division: equal spacing by standard length."""
+    length = b - a
+    if length <= 1e-12:
+        return []
+    n = max(1, int(round(length / std))) if std > 0 else 1
+    if threshold > 0 and length / n < threshold:
+        n = max(1, int(length / threshold))
+    return list(np.linspace(a, b, n + 1)[1:-1])
+
+
+def _stpre_external(a: float, b: float, part_side: float, std: float,
+                    q: float, threshold: float) -> list[float]:
+    """STpre external-region division: geometric series dense at the part.
+
+    Golden data (ex4_e x-axis, domain -100..0): the first gap at the part
+    side equals the standard length (1.0) and the *actual* ratio is solved
+    so the geometric series exactly fills the interval (q ~ 1.19416, not
+    the nominal 1.2): 1.0, 1.1941, 1.426, ..., 17.095.
+    """
+    length = b - a
+    if length <= 1e-12:
+        return []
+    if std <= 0 or q <= 1.0:
+        return _equal_split(a, b, std, threshold)
+    g0 = max(std, threshold)
+    n = max(1, int(np.ceil(
+        np.log(length * (q - 1) / g0 + 1.0) / np.log(q))))
+    if n <= 1:
+        return []
+    # solve actual ratio qa in (1, q] such that g0*(qa^n-1)/(qa-1) == length
+    lo_q, hi_q = 1.0 + 1e-9, max(q, 1.0 + 1e-9)
+    qa = 1.0
+    for _ in range(60):
+        mid = 0.5 * (lo_q + hi_q)
+        s = g0 * (mid ** n - 1.0) / (mid - 1.0)
+        if s < length:
+            lo_q = mid
+        else:
+            hi_q = mid
+    qa = 0.5 * (lo_q + hi_q)
+    if abs(qa - 1.0) < 1e-9:
+        return _equal_split(a, b, std, threshold)
+    pts = [part_side]
+    for k in range(1, n):
+        cum = g0 * (qa ** k - 1) / (qa - 1)
+        x = part_side - cum if part_side == b else part_side + cum
+        if (part_side == b and x <= a) or (part_side == a and x >= b):
+            break
+        if all(abs(x - p) >= max(threshold, 1e-9) for p in pts):
+            pts.append(x)
+    return pts
 
 
 def _refine_axis_ratios(rough: list[float], std: float,
@@ -224,10 +296,11 @@ def _refine_axis_ratios(rough: list[float], std: float,
     return out
 
 
-def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec
+def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
+               part_vertices: Optional[dict[str, np.ndarray]] = None
                ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
     """Return ``(rough, detailed)`` axes; detailed is the final mesh."""
-    rough = rough_grids(part_points, spec)
+    rough = rough_grids(part_points, spec, part_vertices=part_vertices)
     if spec.method == "rough_only":
         return rough, {ax: list(v) for ax, v in rough.items()}
     detailed = refine_grids(rough, spec)

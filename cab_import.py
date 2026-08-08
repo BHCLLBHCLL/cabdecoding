@@ -59,6 +59,10 @@ def import_xt_bytes(raw: bytes, *, adaptive: bool = True,
             part = sess.facet_body(tag, **kw)
         if part is None or not part.triangles.size:
             continue
+        try:
+            part.vertices = sess.body_vertices(tag)
+        except Exception:
+            part.vertices = None
         out.append(ImportedBody(name=part.name, tag=tag, tess=part))
     return out
 

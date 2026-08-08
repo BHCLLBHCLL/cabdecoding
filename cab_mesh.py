@@ -43,12 +43,38 @@ def _inside_yz(a: np.ndarray, b: np.ndarray, c: np.ndarray,
 def classify_part_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
                         pts: np.ndarray, tris: np.ndarray,
                         cell_range: Optional[tuple[int, int, int, int, int, int]]
-                        = None) -> np.ndarray:
+                        = None, samples: str = "center") -> np.ndarray:
     """Even-odd +X ray cast of one closed part over the cell grid.
 
     ``xc/yc/zc`` are cell centres (metres).  Returns a bool mask of shape
     ``(len(xc), len(yc), len(zc))``.
     """
+    if samples == "corners":
+        ni, nj, nk = len(xc), len(yc), len(zc)
+        votes = np.zeros((ni, nj, nk), dtype=np.int32)
+        hx = np.zeros(ni)
+        hy = np.zeros(nj)
+        hz = np.zeros(nk)
+        hx[1:-1] = (xc[2:] - xc[:-2]) / 4.0
+        hy[1:-1] = (yc[2:] - yc[:-2]) / 4.0
+        hz[1:-1] = (zc[2:] - zc[:-2]) / 4.0
+        if ni > 1:
+            hx[0] = hx[1] if ni > 2 else (xc[1] - xc[0]) / 2.0
+            hx[-1] = hx[-2] if ni > 2 else (xc[-1] - xc[-2]) / 2.0
+        if nj > 1:
+            hy[0] = hy[1] if nj > 2 else (yc[1] - yc[0]) / 2.0
+            hy[-1] = hy[-2] if nj > 2 else (yc[-1] - yc[-2]) / 2.0
+        if nk > 1:
+            hz[0] = hz[1] if nk > 2 else (zc[1] - zc[0]) / 2.0
+            hz[-1] = hz[-2] if nk > 2 else (zc[-1] - zc[-2]) / 2.0
+        for sx in (-1.0, 1.0):
+            for sy in (-1.0, 1.0):
+                for sz in (-1.0, 1.0):
+                    votes += classify_part_cells(
+                        xc + sx * hx, yc + sy * hy, zc + sz * hz,
+                        pts, tris, cell_range=cell_range,
+                        samples="center").astype(np.int32)
+        return votes >= 5
     ni, nj, nk = len(xc), len(yc), len(zc)
     mask = np.zeros((ni, nj, nk), dtype=np.int32)
     if tris is None or len(tris) == 0 or len(pts) == 0:
@@ -90,7 +116,8 @@ def classify_part_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
         # x on the triangle plane at (y,z): a + (n_y*(y-a_y)+n_z*(z-a_z))/(-n_x)
         x_int = a[0] + (n[1] * (Y - a[1]) + n[2] * (Z - a[2])) / (-n[0])
         for i in range(i0, ii1 + 1):
-            hit = inside & (xc[i] < x_int - eps)
+            # samples exactly on the surface count as inside (boundary cells)
+            hit = inside & (xc[i] < x_int + eps)
             if hit.any():
                 mask[i, jj0:jj1 + 1, kk0:kk1 + 1] ^= hit
     return mask.astype(bool)
@@ -152,6 +179,7 @@ def _merge_boxes(mask: np.ndarray) -> list[tuple[int, int, int, int, int, int]]:
 def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                    transforms: Optional[dict[str, str]] = None,
                    progress: Optional[Callable[[int, int], None]] = None
+                   , samples: str = "center"
                    ) -> tuple[list[tuple[int, int, int, int, int, int]],
                               dict[str, list[tuple[int, int, int, int, int, int]]]]:
     """Classify every part against the structured grid.
@@ -190,7 +218,7 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
             continue
         mask = classify_part_cells(
             xc, yc, zc, pts, tris,
-            cell_range=(i0, i1, j0, j1, k0, k1))
+            cell_range=(i0, i1, j0, j1, k0, k1), samples=samples)
         if mask.any():
             part_boxes[part.name] = _merge_boxes(mask)
         if progress is not None:

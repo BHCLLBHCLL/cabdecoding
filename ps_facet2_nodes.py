@@ -180,6 +180,7 @@ class TessPart:
     points: np.ndarray          # (N, 3) float64
     triangles: np.ndarray       # (M, 3) int32 into points
     tag: int = 0
+    vertices: Optional[np.ndarray] = None  # real B-rep vertices (M, 3)
 
 
 # ---------------------------------------------------------------------------
@@ -762,6 +763,41 @@ class _PsSession:
         if rc != 0 or n.value <= 0 or not faces:
             return None
         return list(cast(faces, POINTER(c_int * n.value)).contents)
+
+    def body_vertices(self, tag: int) -> Optional[np.ndarray]:
+        """Real B-rep vertex coordinates of a body (PK_FACE_ask_vertices).
+
+        Used by the gridding "All / Representative" vertex detection:
+        STpre reads the Parasolid vertices, not the display mesh points.
+        """
+        faces = self.body_faces(tag)
+        if not faces:
+            return None
+        pk = self.pk
+        pk.PK_FACE_ask_vertices.restype = c_int
+        pk.PK_FACE_ask_vertices.argtypes = [
+            c_int, POINTER(c_int), POINTER(c_void_p)]
+        pk.PK_VERTEX_ask_point.restype = c_int
+        pk.PK_VERTEX_ask_point.argtypes = [c_int, POINTER(c_double)]
+        pts: list[list[float]] = []
+        seen: set[int] = set()
+        for ft in faces:
+            n = c_int(0)
+            arr = c_void_p()
+            if pk.PK_FACE_ask_vertices(ft, byref(n), byref(arr)) != 0:
+                continue
+            if n.value <= 0 or not arr:
+                continue
+            for vt in cast(arr, POINTER(c_int * n.value)).contents:
+                if vt in seen:
+                    continue
+                seen.add(vt)
+                xyz = (c_double * 3)()
+                if pk.PK_VERTEX_ask_point(vt, xyz) == 0:
+                    pts.append([xyz[0], xyz[1], xyz[2]])
+        if not pts:
+            return None
+        return np.asarray(pts, dtype=np.float64)
 
     def _face_metrics(self, tag: int, *, facet_tol: float,
                       facet_angle_deg: float

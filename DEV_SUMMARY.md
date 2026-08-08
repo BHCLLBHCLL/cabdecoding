@@ -1247,3 +1247,44 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
   actor、Panel/Extrusion 面片数、注册→重建→序列化往返、对话框 spec、
   Control Sketch 页与 reset/update 动作；
 - 全仓 `pytest`：**161 通过 / 4 跳过**。
+
+## 26. M9：更准确的 gridding / meshing 算法（2026-08-08）
+
+### 26.1 Golden 数据反推（ex4_e `mesh_block`）
+
+对官方 ex4_e x/y/z 轴逐段分析，确认 STpre 的精确算法：
+
+- **外区**（domain↔part bbox 之间）：几何级数**贴部件侧密集**——首间距
+  = 标准长度（1.0 mm），随后每段 ×实际比值；`divide_ratio2=1.2` 只是名义值，
+  实际比值由方程 `g0*(q^n-1)/(q-1) = L` 求解（x 外区 -100..0：n=17，
+  q≈1.19416，间距 1.0, 1.1941, 1.426, …, 17.095，总和恰为 100）；
+- **内区**（part bbox 内）：按标准长度**等分**（小粗糙区间上表现为成对
+  均分，如 0.7089/0.7089），与官方一致；
+- 顶点检测的 “All/Representative” 使用 **Parasolid 真实顶点**
+  （`PK_FACE_ask_vertices`+`PK_VERTEX_ask_point`），不是显示网格点。
+
+### 26.2 gridding 实现改进（cab_grid.py + ps_facet2_nodes + cab_import）
+
+- `_stpre_external`：外区几何级数（g0=max(std,threshold)，n 由名义比值
+  估算，再二分求解实际比值使总和=区间长）；`_equal_split`：内区等分
+  （阈值下限生效）；`refine_grids` 按 part_bounds 判定内/外区并排序去重；
+- `rough_grids(..., part_vertices)`：All/Representative 优先用真实 B-rep
+  顶点；`TessPart.vertices` 新增字段，`cab_import` 导入时填充，
+  GriddingDialog 传递 vertices；
+- `divide_interval`（Detail 页手动细分）与 Edit/Deletion 不变。
+
+### 26.3 meshing 实现改进（cab_mesh.py）
+
+- 表面样本含端点判定（`xc < x_int + eps`）：位于曲面上的采样点计为内部，
+  减少边界误判；
+- `classify_part_cells(..., samples="corners")`：8 角点+中心多数投票
+  （≥5/9 为内部）作为可选高精度模式；默认仍为中心法（保守、与既有
+  回归一致），GUI 可传 `samples="corners"` 启用。
+
+### 26.4 验证
+
+- `tests/test_grid.py`：外区几何级数（首间距=std、恒定实际比值）、
+  内区等分、golden 外区 17 间距、真实顶点参与粗网格；
+- `tests/test_mesh.py`：corners 多采样为 center 结果的保守子集；
+- Edit 页回归测试改用非网格坐标（5.25/6.25），因更精确的网格已含 5.0/6.0；
+- 全仓 `pytest`：**163 通过 / 4 跳过**。

@@ -2272,7 +2272,13 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             p.name: np.asarray(p.points, dtype=np.float64) * 1000.0
             for p in self.cad_meshes
         }
-        _rough, detailed = cab_grid.build_axes(part_points, spec)
+        part_vertices = {
+            p.name: np.asarray(p.vertices, dtype=np.float64) * 1000.0
+            for p in self.cad_meshes
+            if getattr(p, "vertices", None) is not None
+        }
+        _rough, detailed = cab_grid.build_axes(
+            part_points, spec, part_vertices=part_vertices or None)
         internal = self.chk_internal.isChecked()
         lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
         part_min = tuple(float(v) * 1000.0 for v in lo) \

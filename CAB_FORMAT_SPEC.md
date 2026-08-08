@@ -590,6 +590,18 @@ File→Import 导入的 `.x_t` **不拼接**进 `_<project>_all.x_t`（多段 PA
 `num`。一期近似项（representative/axis_plane、num_elements 均匀分布、
 圆柱坐标）见 DEV_SUMMARY §16.2。
 
+#### 5.6.1 精确细分算法（M9，2026-08-08）
+
+按官方 ex4_e `mesh_block` golden 数据反推：
+
+- **外区**（domain↔part bbox）：几何级数贴部件侧密集，首间距=标准长度，
+  实际比值由 `g0*(q^n-1)/(q-1)=L` 求解（名义 `divide_ratio2` 仅为上界）；
+- **内区**：按标准长度等分，`limit`（阈值）为最小间距下限；
+- “All/Representative” 顶点检测使用 Parasolid 真实顶点
+  （`PK_FACE_ask_vertices`），非显示网格点；
+- meshing 占用判定默认单元中心 +X 奇偶射线；`samples="corners"` 时
+  8 角点+中心多数投票（≥5/9），曲面样本按含端点判定。
+
 ### 5.7 element 占用表生成规范（M4，2026-08-06）
 
 `<element>` 由 `cab_mesh` 从 `mesh_block` 轴 + 三角化 CAD 曲面生成：

@@ -465,6 +465,20 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 | 集成 | 一并审阅并提交并行会话 WIP（`cab_materials.py` 标准材料库 + `data/standard_property_ENG.xml` + 扩展 Part 菜单）；修复 `cab_panes` QDoubleSpinBox 导入 |
 | 回归 | `tests/test_sketch.py`（7 项）；全仓 **161 通过 / 4 跳过**；文档：DEV_SUMMARY §25、CAB_GUI_DESIGN、README |
 
+### M9 更准确的 gridding / meshing 算法（2026-08-08）✅ 已完成
+
+依据官方 ex4_e `mesh_block` golden 数据反推并实现：
+
+| 项 | 实现 |
+|---|---|
+| 外区网格 | `_stpre_external`：贴部件侧几何级数（首间距=标准长度，实际比值由 `g0*(q^n-1)/(q-1)=L` 二分求解，非名义 1.2） |
+| 内区网格 | `_equal_split`：按标准长度等分（阈值下限生效） |
+| 真实顶点 | `PK_FACE_ask_vertices`+`PK_VERTEX_ask_point` 提取 B-rep 顶点 → `TessPart.vertices` → All/Representative 检测使用 |
+| meshing 精度 | 表面样本含端点判定；`samples="corners"` 8 角点+中心多数投票（opt-in，默认中心法） |
+| 回归 | test_grid/test_mesh 更新 + golden 断言；Edit 页测试改用非网格坐标；全仓 **163 通过 / 4 跳过** |
+
+文档：DEV_SUMMARY §26；CAB_FORMAT_SPEC §5.6/5.7 算法说明更新。
+
 ---
 
 ## 7. 关键接口设计（草案）
