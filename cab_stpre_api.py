@@ -130,6 +130,9 @@ def build_relay_cab(model, archive, src_path: str | Path) -> bool:
         el = root.find(tag)
         if el is not None:
             root.remove(el)
+    old_element = root.find("element")
+    if old_element is not None:
+        root.remove(old_element)
     src_root = model.doc.root
     for tag in ("analysis_region", "body_files"):
         el = src_root.find(tag)
@@ -150,14 +153,25 @@ def build_relay_cab(model, archive, src_path: str | Path) -> bool:
             sec_el = root.find(sec)
             if sec_el is None:
                 continue
-            for tag in ("min", "max"):
-                el = sec_el.find(f".//{tag}")
-                if el is not None:
-                    el.text = f" {dmin if tag == 'min' else dmax} "
-                    el.attrib["unit"] = "mm"
+            # RootBlock <min>/<max> AND <subblock><area><min>/<max> must
+            # all match the domain; STpre grids over the area range.
+            for el in sec_el.iter("min"):
+                el.text = f" {dmin} "
+                el.attrib["unit"] = "mm"
+            for el in sec_el.iter("max"):
+                el.text = f" {dmax} "
+                el.attrib["unit"] = "mm"
             grid = sec_el.find(".//grid")
             if grid is not None:
                 grid.text = " 2,2,2 "
+            # force STpre to regenerate the coordinate tables: remove the
+            # template's x/y/z points from mesh_block (ExecuteGrid otherwise
+            # keeps the old coordinates even when min/max are updated).
+            if sec == "mesh_block":
+                for ax in ("x", "y", "z"):
+                    el = sec_el.find(ax)
+                    if el is not None:
+                        sec_el.remove(el)
     prop_member = next((m for m in archive.members
                         if m.name.endswith("_property.xml")), None)
     if prop_member is not None:

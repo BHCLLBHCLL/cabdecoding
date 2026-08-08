@@ -1383,6 +1383,14 @@ ExecuteGrid=1、ExecuteElement=1，输出网格 251×399×417、element 生成�
 （字符串会被 `SetGridParam` 拒绝，rc=0）；失败步骤通过 `last_error`
 记录具体 rc 供 GUI 日志。
 
+三次修复（2026-08-08）：**网格范围远超 Domain**。根因：relay 虽然把
+RootBlock `<min>/<max>`（含 `<subblock><area>`）与 mesh_block min/max
+改成当前域，但**保留了模板的 `<x>/<y>/<z>` 坐标表**，STpre `ExecuteGrid`
+会沿用旧坐标而不重建（输出仍为 ex4_e 的 −100..150 等）。修复：relay
+生成时**清空 mesh_block 的 x/y/z 表并删除旧 `<element>`**，强制 STpre
+按 RootBlock 范围重建。实测 box+域 −25..25：输出 **51×51×51，范围恰为
+−25..25**；全仓 182 通过/4 跳过。
+
 ### 28.3 验证与集成
 
 - `tests/test_stpre_api.py`（5 项）：ProgID 注册检测、SetGridParam 参数
