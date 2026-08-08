@@ -37,7 +37,8 @@ from s_export import build_sdat
 
 try:
     from PyQt5 import QtWidgets
-    from PyQt5.QtCore import QSize, Qt
+    from PyQt5.QtCore import QSize, Qt, QTimer
+    from PyQt5.QtGui import QKeySequence
     from PyQt5.QtWidgets import (
         QAction, QApplication, QComboBox, QFileDialog, QLabel, QMainWindow,
         QMessageBox, QSplitter, QToolBar,
@@ -54,10 +55,44 @@ except Exception:  # pragma: no cover - headless environments
     _HAS_GUI_DEPS = False
     QtWidgets = None
     QMainWindow = object  # type: ignore
+    QKeySequence = None  # type: ignore
 
 
 ST_MANUAL = (r"C:\Program Files\Cradle\CradleCFD2025.2"
              r"\Manuals\ST\HTML\Pre_eng\index.html")
+
+# STpre Pre_eng Keyboard / Operation_eng: Draw Window view keys
+#   X → YZ from +X,  Y → XZ from +Y,  Z → XY from +Z
+#   Shift+X/Y/Z → same plane from the negative axis
+# Fit to DrawWindow is toolbar/menu in STpre; cabdecoding also binds F
+# (draw-window focus), matching the user/op request for adaptive Fit.
+_VIEW_KEY_TO_PLANE = {"x": "yz", "y": "xz", "z": "xy"}
+
+
+def plane_view_camera(plane: str, *, negative: bool = False
+                      ) -> tuple[tuple[float, float, float],
+                                 tuple[float, float, float]]:
+    """Camera (position, view_up) for an STpre orthogonal plane view."""
+    sign = -1.0 if negative else 1.0
+    p = (plane or "").lower()
+    if p == "xy":
+        return (0.0, 0.0, sign), (0.0, 1.0, 0.0)
+    if p == "xz":
+        return (0.0, sign, 0.0), (0.0, 0.0, 1.0)
+    # yz (default / X key)
+    return (sign, 0.0, 0.0), (0.0, 0.0, 1.0)
+
+
+def view_key_action(keysym: str, *, shift: bool = False
+                    ) -> Optional[tuple]:
+    """Map a Draw Window key to ('plane', name, negative) or ('fit',)."""
+    sym = (keysym or "").lower()
+    if sym == "f" and not shift:
+        return ("fit",)
+    plane = _VIEW_KEY_TO_PLANE.get(sym)
+    if plane is not None:
+        return ("plane", plane, bool(shift))
+    return None
 
 
 # M5: dialogs live in cab_dialogs (STpre-style framework, aligned with the
@@ -112,6 +147,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._undo_limit = 50
         self._log_level = "INFO"
         self._startup_redraw = True
+        self._startup_view_tries = 0
         # Reusable STpre COM session: Gridding/Meshing share one STpre
         # process instead of cold-starting COM + OpenCabFile per click.
         self._stpre_session = None
@@ -181,6 +217,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.renderer.GetActiveCamera().ParallelProjectionOn()
             self.vtk_widget.GetRenderWindow().AddRenderer(self.renderer)
             draw_body = self.vtk_widget
+            self._install_draw_view_shortcuts()
         else:
             self.vtk_widget = None
             self.renderer = None
@@ -264,12 +301,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Reset Computational Domain", self._domain_dialog)
 
         m = mb.addMenu("View(&V)")
-        add(m, "Fit to DrawWindow", self._fit_view, "Ctrl+F")
+        # Ctrl+F: window-wide. Bare F is Draw-Window-only (see
+        # _install_draw_view_shortcuts); STpre docs list X/Y/Z there.
+        self._act_fit = add(m, "Fit to DrawWindow", self._fit_view, "Ctrl+F")
         add(m, "Reset DrawWindow", self._reset_view)
         m.addSeparator()
-        add(m, "XY Plane", lambda: self._set_plane("xy"))
-        add(m, "XZ Plane", lambda: self._set_plane("xz"))
-        add(m, "YZ Plane", lambda: self._set_plane("yz"))
+        # Shortcuts X/Y/Z (and Shift+*) installed on the Draw Window widget
+        self._act_xy = add(m, "XY Plane", lambda: self._set_plane("xy"))
+        self._act_xz = add(m, "XZ Plane", lambda: self._set_plane("xz"))
+        self._act_yz = add(m, "YZ Plane", lambda: self._set_plane("yz"))
         m.addSeparator()
         add(m, "Rubber Box Zoom", lambda: self._set_mouse_mode("rubber"))
         add(m, "Trackball Camera",
@@ -381,13 +421,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.addToolBar(self.tb_file)
 
         self.tb_edit = tb("Edit")
-        act(self.tb_edit, "XY", "plane_xy", "XY Plane",
+        act(self.tb_edit, "XY", "plane_xy",
+            "XY Plane (Z) — top view from +Z; Shift+Z from −Z",
             lambda: self._set_plane("xy"))
-        act(self.tb_edit, "XZ", "plane_xz", "XZ Plane",
+        act(self.tb_edit, "XZ", "plane_xz",
+            "XZ Plane (Y) — front view from +Y; Shift+Y from −Y",
             lambda: self._set_plane("xz"))
-        act(self.tb_edit, "YZ", "plane_yz", "YZ Plane",
+        act(self.tb_edit, "YZ", "plane_yz",
+            "YZ Plane (X) — side view from +X; Shift+X from −X",
             lambda: self._set_plane("yz"))
-        act(self.tb_edit, "Fit", "fit", "Fit to DrawWindow", self._fit_view)
+        act(self.tb_edit, "Fit", "fit",
+            "Fit to DrawWindow (F / Ctrl+F)", self._fit_view)
         act(self.tb_edit, "Reset", "show_all", "Reset DrawWindow",
             self._reset_view)
         self.addToolBar(self.tb_edit)
@@ -1234,9 +1278,95 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     # ---------------------------------------------------------------- 3D
 
-    def _ensure_interactor(self) -> None:
-        """Trackball + observers（对齐 pph_gui View3DTab.showEvent）。"""
+    def _install_draw_view_shortcuts(self) -> None:
+        """STpre Draw Window keys: X/Y/Z(/Shift) plane views + F Fit.
+
+        Bound with WidgetWithChildrenShortcut on the VTK widget so they
+        only fire when the Draw Window has focus (Operation manual).
+        """
+        if self.vtk_widget is None or QKeySequence is None:
+            return
+        # Menu actions: show X/Y/Z and activate only with Draw focus
+        for act, seq in (
+            (getattr(self, "_act_yz", None), "X"),
+            (getattr(self, "_act_xz", None), "Y"),
+            (getattr(self, "_act_xy", None), "Z"),
+        ):
+            if act is None:
+                continue
+            act.setShortcut(QKeySequence(seq))
+            act.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            self.vtk_widget.addAction(act)
+        # Shift+X/Y/Z → opposite viewpoint (Pre_eng Keyboard)
+        for seq, plane in (("Shift+X", "yz"), ("Shift+Y", "xz"),
+                           ("Shift+Z", "xy")):
+            act = QAction(self)
+            act.setShortcut(QKeySequence(seq))
+            act.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+            act.triggered.connect(
+                lambda _=False, p=plane: self._set_plane(p, negative=True))
+            self.vtk_widget.addAction(act)
+        # F → Fit to DrawWindow (draw focus); Ctrl+F stays window-wide
+        act_f = QAction(self)
+        act_f.setShortcut(QKeySequence("F"))
+        act_f.setShortcutContext(Qt.WidgetWithChildrenShortcut)
+        act_f.triggered.connect(self._fit_view)
+        self.vtk_widget.addAction(act_f)
+        tip = "Fit to DrawWindow (F when Draw Window focused; Ctrl+F)"
+        if getattr(self, "_act_fit", None) is not None:
+            self._act_fit.setToolTip(tip)
+            self._act_fit.setStatusTip(tip)
+
+    def _dispatch_view_key(self, keysym: str, *, shift: bool = False
+                           ) -> bool:
+        """Apply a Draw Window view key. Returns True if handled."""
+        action = view_key_action(keysym, shift=shift)
+        if action is None:
+            return False
+        if action[0] == "fit":
+            self._fit_view()
+            return True
+        _, plane, negative = action
+        self._set_plane(plane, negative=negative)
+        return True
+
+    def _on_vtk_key_press(self, obj, _event) -> None:
+        """Backup path when VTK interactor receives X/Y/Z/F before Qt."""
+        try:
+            sym = (obj.GetKeySym() or "").lower()
+            shift = bool(obj.GetShiftKey())
+        except Exception:
+            return
+        # Ignore modifier-only; strip "shift_" prefix if present
+        if sym.startswith("shift_"):
+            return
+        self._dispatch_view_key(sym, shift=shift)
+
+    def _vtk_window_ready(self) -> bool:
+        """True when the QVTK widget has a mapped native window.
+
+        Initializing / rendering before this yields a blank Draw Window on
+        Win32 until the user clicks (which forces an expose + Render).
+        """
+        if self.vtk_widget is None:
+            return False
+        try:
+            if not self.isVisible() or not self.vtk_widget.isVisible():
+                return False
+            return int(self.vtk_widget.winId()) != 0
+        except Exception:
+            return False
+
+    def _ensure_interactor(self, *, force: bool = False) -> None:
+        """Trackball + observers（对齐 pph_gui View3DTab.showEvent）。
+
+        Deferred until the Draw Window is visible so ``Initialize`` binds to
+        a live OpenGL surface.  ``force=True`` skips the readiness gate
+        (last-resort startup path).
+        """
         if not self._enable_3d or self.vtk_widget is None or self._iren_ready:
+            return
+        if not force and not self._vtk_window_ready():
             return
         try:
             from vtkmodules.vtkInteractionStyle import (
@@ -1248,7 +1378,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._trackball_style = vtkInteractorStyleTrackballCamera()
         iren.SetInteractorStyle(self._trackball_style)
         iren.AddObserver("MouseMoveEvent", self._on_mouse_move, 1.0)
-        iren.Initialize()
+        iren.AddObserver("KeyPressEvent", self._on_vtk_key_press, 1.0)
+        # QVTKRenderWindowInteractor.Initialize() sets up the Qt/VTK bridge;
+        # falling back to the raw iren when the widget API is unavailable.
+        if hasattr(self.vtk_widget, "Initialize"):
+            self.vtk_widget.Initialize()
+        else:
+            iren.Initialize()
         self._iren_ready = True
         self._set_orientation_marker(self.control.layer_on("axis_global"))
 
@@ -1629,33 +1765,66 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._ensure_parallel_camera()
         self.renderer.GetRenderWindow().Render()
 
-    def _set_plane(self, plane: str) -> None:
+    def _set_plane(self, plane: str, *, negative: bool = False) -> None:
+        """Orthographic view: XY/XZ/YZ from ±Z/±Y/±X (STpre X/Y/Z keys)."""
         if not self._enable_3d or self.renderer is None:
             return
+        pos, up = plane_view_camera(plane, negative=negative)
         cam = self.renderer.GetActiveCamera()
         cam.SetFocalPoint(0, 0, 0)
-        if plane == "xy":
-            cam.SetPosition(0, 0, 1)
-            cam.SetViewUp(0, 1, 0)
-        elif plane == "xz":
-            cam.SetPosition(0, -1, 0)
-            cam.SetViewUp(0, 0, 1)
-        else:
-            cam.SetPosition(1, 0, 0)
-            cam.SetViewUp(0, 0, 1)
+        cam.SetPosition(pos[0], pos[1], pos[2])
+        cam.SetViewUp(up[0], up[1], up[2])
         self.renderer.ResetCamera()
         self._ensure_parallel_camera()
         self.renderer.GetRenderWindow().Render()
 
     def showEvent(self, event) -> None:  # noqa: N802
         super().showEvent(event)
-        if self._enable_3d:
-            self._ensure_interactor()
-            # First paint: re-draw default RootBlock / sketch after the
-            # render window is realized (init-time VTK draw can be empty).
-            if getattr(self, "_startup_redraw", True) and self.model is not None:
+        if not self._enable_3d:
+            return
+        # showEvent often runs before the native HWND/OpenGL surface is
+        # ready; a synchronous rebuild still paints blank. Defer to the
+        # event loop (and retry) so Sketch plane / RootBlock appear without
+        # requiring a click.
+        if getattr(self, "_startup_redraw", True):
+            QTimer.singleShot(0, self._finish_startup_view)
+
+    def _finish_startup_view(self) -> None:
+        """First visible-frame rebuild + Render after the window is mapped."""
+        if not getattr(self, "_startup_redraw", True):
+            return
+        if not self._enable_3d or self.model is None:
+            self._startup_redraw = False
+            return
+        if not self._vtk_window_ready():
+            self._startup_view_tries = getattr(
+                self, "_startup_view_tries", 0) + 1
+            if self._startup_view_tries < 40:
+                QTimer.singleShot(50, self._finish_startup_view)
+            else:
+                # Last attempt even if readiness checks failed
                 self._startup_redraw = False
+                self._ensure_interactor(force=True)
                 self._rebuild_scene(fit=True)
+                self._force_vtk_repaint()
+            return
+        self._startup_redraw = False
+        self._ensure_interactor()
+        self._rebuild_scene(fit=True)
+        self._force_vtk_repaint()
+        # One extra frame after layout settles (splitters / DPI on Win32)
+        QTimer.singleShot(100, self._force_vtk_repaint)
+
+    def _force_vtk_repaint(self) -> None:
+        if self.vtk_widget is None or self.renderer is None:
+            return
+        try:
+            rw = self.vtk_widget.GetRenderWindow()
+            if rw is not None:
+                rw.Render()
+            self.vtk_widget.update()
+        except Exception:
+            pass
 
     # ------------------------------------------------------------ actions
 
@@ -2269,7 +2438,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _run_stpre_api(self, action: str,
                        params: Optional[list] = None,
-                       method: str = "detail") -> str:
+                       method: str = "detail",
+                       block_params: Optional[list] = None,
+                       grid_spec=None) -> str:
         """Run gridding/meshing in external STpre; returns stpre|native.
 
         File-relay: the current project is saved to a temp CAB, STpre
@@ -2308,8 +2479,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             tmp = tempfile.mkdtemp(prefix="cab_stpre_")
             src = os.path.join(tmp, "in.cab")
             dst = os.path.join(tmp, "out.cab")
+            if block_params is None and grid_spec is not None:
+                block_params = cab_stpre_api.build_block_params_from_gridspec(
+                    grid_spec)
+            if block_params is None and action == "grid":
+                block_params = cab_stpre_api.build_block_params_from_model(
+                    self.model)
             if not cab_stpre_api.build_relay_cab(
-                    self.model, self.archive, src, keep_mesh=keep_mesh):
+                    self.model, self.archive, src, keep_mesh=keep_mesh,
+                    block_params=block_params, grid_spec=grid_spec):
                 self.log("STpre API relay build failed; using native.",
                          "WARN")
                 return "native"
@@ -2341,7 +2519,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             QApplication.setOverrideCursor(Qt.WaitCursor)
             ok = True
             try:
-                if run_grid and not session.grid(params, method):
+                if run_grid and not session.grid(
+                        params, method, block_params=block_params):
                     ok = False
                 elif run_element and not session.element():
                     ok = False
@@ -2399,10 +2578,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             import cab_stpre_api
             params = cab_stpre_api.build_params_from_gridspec(
                 spec, edge_contact=1 if edge_contact else 0)
+            block_params = cab_stpre_api.build_block_params_from_gridspec(
+                spec)
             method = dict((p[0], p[1]) for p in params)[
                 "division_method"]
-            return self._run_stpre_api("grid", params=params,
-                                       method=method) == "stpre"
+            return self._run_stpre_api(
+                "grid", params=params, method=method,
+                block_params=block_params, grid_spec=spec) == "stpre"
         except Exception as exc:
             self.log(f"STpre API gridding failed: {exc}; native.", "WARN")
             return False
@@ -2642,8 +2824,10 @@ def main(argv: list[str] | None = None) -> int:
     win = CabViewer(path)
     win.show()
     _clamp_to_visible_screen(win)
-    if win.vtk_widget is not None:
-        win._ensure_interactor()
+    # Interactor + first paint are deferred in showEvent/_finish_startup_view
+    # (early Initialize here still races the native window on Windows).
+    if win._enable_3d and win.model is not None:
+        QTimer.singleShot(0, win._finish_startup_view)
     return app.exec_()
 
 

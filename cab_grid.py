@@ -41,13 +41,15 @@ class GridSpec:
     unit: str = "mm"
     domain_min: tuple[float, float, float] = (-100.0, -100.0, -100.0)
     domain_max: tuple[float, float, float] = (150.0, 300.0, 315.0)
-    vertex_detection: str = "minmax"
+    vertex_detection: str = "representative"
     # all | representative | axis_plane | minmax | not_considered | uniform
     method: str = "rough_and_detail"
     # rough_only | rough_and_detail | num_elements
-    standard_length: Vec3 = 2.0
+    standard_length: Vec3 = 0.5
     threshold_length: Vec3 = 0.1
-    geometric_ratio: Vec3 = 1.2          # internal ratio
+    geometric_ratio: Vec3 = 1.0          # internal ratio
+    # None → ratio_external() falls back to geometric_ratio (compat);
+    # Mesh:Set division UI sets external = 1.1 explicitly.
     geometric_ratio_external: Optional[Vec3] = None
     common: bool = True
     target_elements: Optional[int] = None
@@ -80,13 +82,15 @@ def method_index(spec: GridSpec) -> int:
     return _METHOD_ENUM.get(spec.method, 1)
 
 
-def _clip_dedupe(vals: list[float], lo: float, hi: float) -> list[float]:
+def _clip_dedupe(vals: list[float], lo: float, hi: float,
+                 tol: float = 1e-9) -> list[float]:
     out: list[float] = []
     for v in sorted(vals):
-        if v < lo or v > hi:
+        if v < lo - tol or v > hi + tol:
             continue
-        if not out or v - out[-1] > 1e-9:
-            out.append(v)
+        vv = min(max(v, lo), hi)
+        if not out or vv - out[-1] > tol:
+            out.append(vv)
     if not out or out[0] > lo + 1e-9:
         out.insert(0, lo)
     if out[-1] < hi - 1e-9:

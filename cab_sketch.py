@@ -65,15 +65,26 @@ class SketchPlane:
     u: tuple[float, float, float] = (1.0, 0.0, 0.0)
     v: tuple[float, float, float] = (0.0, 1.0, 0.0)
     w: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    # Defaults match STpre empty-project look (0…125 mm, Δ=5 mm)
-    u_range: tuple[float, float] = (0.0, 0.125)            # m
-    v_range: tuple[float, float] = (0.0, 0.125)
-    w_range: tuple[float, float] = (0.0, 0.0)
+    # STpre new-project defaults (Control→Sketch / Grid, unit mm):
+    #   interval=5, Minimum=-25, Maximum=125, Snap=5
+    u_range: tuple[float, float] = (-0.025, 0.125)         # m
+    v_range: tuple[float, float] = (-0.025, 0.125)
+    w_range: tuple[float, float] = (-0.025, 0.125)
     delta: tuple[float, float, float] = (0.005, 0.005, 0.005)  # m
     snap: tuple[float, float, float] = (0.005, 0.005, 0.005)
     gridsnap: bool = True
     minus: bool = False
     color: tuple[int, int, int, int] = (160, 160, 160, 255)
+
+
+def default_sketch_plane(model: Optional[StpreModel] = None) -> SketchPlane:
+    """STpre startup Sketch Plane (origin on domain Zmin when available)."""
+    p = SketchPlane()
+    if model is not None:
+        base = model.domain_base()
+        if base is not None:
+            p.origin = (0.0, 0.0, float(base[2]))
+    return p
 
 
 def _first(el, tag):

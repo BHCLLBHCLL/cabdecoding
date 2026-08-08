@@ -141,6 +141,9 @@ def test_build_params_from_gridspec(qapp):
     import cab_stpre_api
     spec = cab_grid.GridSpec(
         vertex_detection="minmax", method="rough_and_detail",
+        standard_length=(0.5, 0.5, 0.5),
+        threshold_length=(0.1, 0.1, 0.1),
+        geometric_ratio=(1.0, 1.0, 1.0),
         geometric_ratio_external=(1.2, 1.3, 1.4))
     params = cab_stpre_api.build_params_from_gridspec(spec, edge_contact=1)
     d = dict((p[0], p) for p in params)
@@ -148,12 +151,52 @@ def test_build_params_from_gridspec(qapp):
     assert d["division_type"][1] == "minmax"
     assert d["outer_ratio"][1:4] == (1.2, 1.3, 1.4)
     assert d["edge_contact"][1] == 1
+    # Standard length / ratio / limit → MeshBlock.SetParam (not SetGridParam)
+    bp = cab_stpre_api.build_block_params_from_gridspec(spec)
+    bd = dict((p[0], p) for p in bp)
+    assert bd["length"][1:4] == (0.5, 0.5, 0.5)
+    assert bd["ratio"][1:4] == (1.0, 1.0, 1.0)
+    assert bd["limit"][1:4] == (0.1, 0.1, 0.1)
+    assert "length" not in d
     spec2 = cab_grid.GridSpec(
         method="num_elements", target_per_axis=(10, 20, 30))
     d2 = dict((p[0], p) for p in
               cab_stpre_api.build_params_from_gridspec(spec2))
     assert d2["division_method"][1] == "auto3"
     assert d2["division_num"][1:4] == (10, 20, 30)
+
+
+def test_relay_cab_writes_standard_length():
+    import cab_grid
+    import cab_stpre_api
+    from cab_container import CabArchive
+    from cabxml import StpreModel, parse_stpre, _first
+    model, archive = _model()
+    model.ensure_domain(base=(-25, -25, -25), size=(50, 50, 50))
+    spec = cab_grid.GridSpec(
+        domain_min=(-25, -25, -25), domain_max=(25, 25, 25),
+        vertex_detection="representative",
+        standard_length=(0.5, 0.5, 0.5),
+        threshold_length=(0.1, 0.1, 0.1),
+        geometric_ratio=(1.0, 1.0, 1.0),
+        geometric_ratio_external=(1.1, 1.1, 1.1),
+    )
+    import os
+    src = os.path.join(os.environ.get("TEMP", "."), "relay_std_len.cab")
+    assert cab_stpre_api.build_relay_cab(
+        model, archive, src, grid_spec=spec) is True
+    arch = CabArchive.parse(open(src, "rb").read())
+    arch.fill_member_data()
+    members = {m.name: m.data for m in arch.members}
+    xml_name = next(n for n in members if n.endswith(".xml")
+                    and not n.startswith("_"))
+    m2 = StpreModel(parse_stpre(members[xml_name]))
+    mb = m2.doc.root.find("mesh_block")
+    length = _first(mb, "divide_length")
+    assert length is not None and length.text
+    vals = [float(x) for x in length.text.split(",")[:3]]
+    assert vals == pytest.approx([0.5, 0.5, 0.5])
+    assert int(m2.mesh_control_value("select_vertex") or -1) == 1
 
 
 def test_gridding_dialog_callback_short_circuit(qapp):
@@ -189,18 +232,26 @@ def test_stpre_grid_from_dialog_uses_dialog_params(qapp, monkeypatch):
     viewer = _viewer(qapp)
     cab_options.set_setting("use_stpre_api", "True")
     captured = {}
-    monkeypatch.setattr(
-        viewer, "_run_stpre_api",
-        lambda action, params=None, method="detail": captured.update(
-            action=action, params=params, method=method) or "stpre")
+
+    def _capture(action, params=None, method="detail",
+                 block_params=None, grid_spec=None):
+        captured.update(action=action, params=params, method=method,
+                        block_params=block_params, grid_spec=grid_spec)
+        return "stpre"
+
+    monkeypatch.setattr(viewer, "_run_stpre_api", _capture)
     spec = cab_grid.GridSpec(
         vertex_detection="representative", method="rough_and_detail",
+        standard_length=(0.5, 0.5, 0.5),
         geometric_ratio_external=(1.2, 1.2, 1.2))
     assert viewer._stpre_grid_from_dialog(spec, False) is True
     assert captured["action"] == "grid"
     assert captured["method"] == "detail"
     d = dict((p[0], p) for p in captured["params"])
     assert d["division_type"][1] == "main"
+    bd = dict((p[0], p) for p in captured["block_params"])
+    assert bd["length"][1:4] == (0.5, 0.5, 0.5)
+    assert captured["grid_spec"] is spec
     cab_options.set_setting("use_stpre_api", "False")
 
 
@@ -222,8 +273,8 @@ class _FakeSession:
         self.opened.append(str(src))
         return True
 
-    def grid(self, params, method):
-        self.grid_calls.append((params, method))
+    def grid(self, params, method, block_params=None):
+        self.grid_calls.append((params, method, block_params))
         return not self.fail_grid
 
     def element(self):
@@ -270,9 +321,10 @@ def test_stpre_session_reused_grid_then_mesh(qapp, monkeypatch):
     real_build = cab_stpre_api.build_relay_cab
     keeps = []
 
-    def fake_build(model, archive, src, *, keep_mesh=False):
+    def fake_build(model, archive, src, *, keep_mesh=False, **kwargs):
         keeps.append(keep_mesh)
-        return real_build(model, archive, src, keep_mesh=keep_mesh)
+        return real_build(model, archive, src, keep_mesh=keep_mesh,
+                          **kwargs)
 
     monkeypatch.setattr(cab_stpre_api, "build_relay_cab", fake_build)
 

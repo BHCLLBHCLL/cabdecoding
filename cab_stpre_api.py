@@ -114,10 +114,10 @@ def build_grid_params(model, *, method: Optional[str] = None,
     vd = division_type
     if vd is None:
         try:
-            vd = int(mc("select_vertex", "3"))
+            vd = int(mc("select_vertex", "1"))
         except ValueError:
-            vd = 3
-    vd_key = _DIVISION_TYPE.get(vd, "all")
+            vd = 1
+    vd_key = _DIVISION_TYPE.get(vd, "main")
     params: list[tuple[str, str, str, str]] = [
         ("division_method", key, "", ""),
         ("division_type", vd_key, "", ""),
@@ -142,16 +142,100 @@ def build_grid_params(model, *, method: Optional[str] = None,
     return params
 
 
+def _as3(v, default: float = 1.0) -> tuple[float, float, float]:
+    if isinstance(v, (int, float)):
+        return (float(v), float(v), float(v))
+    try:
+        vals = [float(x) for x in v[:3]]
+        while len(vals) < 3:
+            vals.append(default)
+        return (vals[0], vals[1], vals[2])
+    except Exception:
+        return (default, default, default)
+
+
+def _parse_vec3_text(text: str, default: float = 1.0
+                     ) -> tuple[float, float, float]:
+    try:
+        vals = [float(x.strip()) for x in (text or "").split(",")[:3]]
+        while len(vals) < 3:
+            vals.append(default)
+        return (vals[0], vals[1], vals[2])
+    except Exception:
+        return (default, default, default)
+
+
+def build_block_params_from_gridspec(spec
+                                     ) -> list[tuple[str, float, float, float]]:
+    """RootBlock ``SetParam`` tuples (VB MeshBlock): length / ratio / limit.
+
+    STpre Sample_3: ``blk.SetParam "length"|"ratio"|"limit", x, y, z`` —
+    these are *not* Mesher.SetGridParam keys.
+    """
+    length = _as3(getattr(spec, "standard_length", 0.5), 0.5)
+    ratio = _as3(spec.ratio_internal() if hasattr(spec, "ratio_internal")
+                 else getattr(spec, "geometric_ratio", 1.0), 1.0)
+    limit = _as3(getattr(spec, "threshold_length", 0.1), 0.1)
+    return [
+        ("length", *length),
+        ("ratio", *ratio),
+        ("limit", *limit),
+    ]
+
+
+def build_block_params_from_model(model
+                                  ) -> list[tuple[str, float, float, float]]:
+    """Read RootBlock division params from XML for SetParam / relay."""
+    from cabxml import _first
+    length = (1.0, 1.0, 1.0)
+    ratio = (1.0, 1.0, 1.0)
+    limit = (0.1, 0.1, 0.1)
+    mb = _first(model.root, "mesh_block")
+    if mb is not None:
+        el = _first(mb, "divide_length")
+        if el is not None and el.text:
+            length = _parse_vec3_text(el.text, 1.0)
+        el = _first(mb, "divide_ratio1")
+        if el is not None and el.text:
+            ratio = _parse_vec3_text(el.text, 1.0)
+        el = _first(mb, "limit")
+        if el is not None and el.text:
+            limit = _parse_vec3_text(el.text, 0.1)
+    mc = _first(model.root, "mesh_control")
+    block = _first(mc, "block") if mc is not None else None
+    if block is not None:
+        el = _first(block, "limit")
+        if el is not None and el.text:
+            limit = _parse_vec3_text(el.text, 0.1)
+    # Prefer mesh_control divide_ratio2 only when mesh_block ratio missing
+    if mb is None or _first(mb, "divide_ratio1") is None:
+        try:
+            text = model.mesh_control_value("divide_ratio2") or ""
+            if text.strip():
+                ratio = _parse_vec3_text(text, 1.0)
+        except Exception:
+            pass
+    return [
+        ("length", *length),
+        ("ratio", *ratio),
+        ("limit", *limit),
+    ]
+
+
 def build_params_from_gridspec(spec, *, edge_contact: Optional[int] = None
                                ) -> list[tuple[str, str, str, str]]:
     """Map a native ``GridSpec`` (Mesh:Set Division dialog) to
     ``SetGridParam`` tuples, so STpre API gridding uses the dialog settings.
+
+    Standard length / internal ratio / threshold are *not* SetGridParam
+    keys — use :func:`build_block_params_from_gridspec` + MeshBlock.SetParam.
     """
     vd_map = {
         "all": "all", "representative": "main", "axis_plane": "plane",
         "minmax": "minmax", "not_considered": "none", "uniform": "uniform",
     }
-    vd = vd_map.get(getattr(spec, "vertex_detection", "minmax"), "minmax")
+    vd = vd_map.get(getattr(spec, "vertex_detection", "representative"),
+                    "main")
     if getattr(spec, "method", "rough_and_detail") == "num_elements" \
             and getattr(spec, "target_per_axis", None) is not None:
         method = "auto3"
@@ -176,15 +260,75 @@ def build_params_from_gridspec(spec, *, edge_contact: Optional[int] = None
     return params
 
 
+def _set_xml_vec(parent, tag: str, vals, *, unit: Optional[str] = None
+                 ) -> None:
+    import xml.etree.ElementTree as ET
+    from cabxml import _first
+    el = _first(parent, tag)
+    if el is None:
+        el = ET.SubElement(parent, tag)
+        el.tail = "\n      "
+    el.text = " " + ",".join(f"{float(v):.17g}" for v in vals) + " "
+    if unit is not None:
+        el.attrib["unit"] = unit
+
+
+def apply_block_params_to_xml(root, block_params,
+                              *, outer_ratio=None,
+                              select_vertex: Optional[int] = None,
+                              divide_method: Optional[int] = None) -> None:
+    """Write length/ratio/limit into relay ``mesh_control`` / ``mesh_block``."""
+    import xml.etree.ElementTree as ET
+    from cabxml import _first
+    d = {p[0]: p[1:4] for p in (block_params or [])}
+    length = d.get("length")
+    ratio = d.get("ratio")
+    limit = d.get("limit")
+    mc = root.find("mesh_control")
+    mb = root.find("mesh_block")
+    if mb is not None:
+        if length is not None:
+            _set_xml_vec(mb, "divide_length", length, unit="mm")
+        if ratio is not None:
+            _set_xml_vec(mb, "divide_ratio1", ratio)
+        if limit is not None:
+            _set_xml_vec(mb, "limit", limit, unit="mm")
+    if mc is not None:
+        block = _first(mc, "block")
+        if block is not None and limit is not None:
+            _set_xml_vec(block, "limit", limit, unit="mm")
+        if outer_ratio is not None:
+            _set_xml_vec(mc, "divide_ratio2", outer_ratio)
+        if select_vertex is not None:
+            el = _first(mc, "select_vertex")
+            if el is None:
+                el = ET.SubElement(mc, "select_vertex")
+                el.tail = "\n   "
+            el.text = f" {int(select_vertex)} "
+        if divide_method is not None:
+            el = _first(mc, "divide_method")
+            if el is None:
+                el = ET.SubElement(mc, "divide_method")
+                el.tail = "\n   "
+            el.text = f" {int(divide_method)} "
+
+
 def build_relay_cab(model, archive, src_path: str | Path, *,
-                    keep_mesh: bool = False) -> bool:
+                    keep_mesh: bool = False,
+                    block_params: Optional[list] = None,
+                    grid_spec=None) -> bool:
     """Write the temp CAB relay from an official STpre XML template.
 
     STpre rejects minimal project XML (OpenCabFile returns 0), so the relay
     uses the full official ex4_e XML structure with the current project's
     domain / parts / body_files merged in; the mesh sections are regenerated
     by STpre itself.
+
+    ``block_params`` / ``grid_spec`` write dialog Standard length, threshold
+    and internal ratio into the relay so ExecuteGrid does not keep the
+    template's ``divide_length=1``.
     """
+    global last_error
     import xml.etree.ElementTree as ET
     from cabxml import StpreModel, _first, parse_stpre
     if not _TEMPLATE.is_file():
@@ -239,6 +383,25 @@ def build_relay_cab(model, archive, src_path: str | Path, *,
                     el = sec_el.find(ax)
                     if el is not None:
                         sec_el.remove(el)
+    # Dialog / model division params (Standard length etc.)
+    if block_params is None and grid_spec is not None:
+        block_params = build_block_params_from_gridspec(grid_spec)
+    if block_params is None:
+        block_params = build_block_params_from_model(model)
+    outer = None
+    det_idx = None
+    method_idx = None
+    if grid_spec is not None:
+        outer = grid_spec.ratio_external()
+        try:
+            from cab_grid import detection_index, method_index
+            det_idx = detection_index(grid_spec)
+            method_idx = method_index(grid_spec)
+        except Exception:
+            pass
+    apply_block_params_to_xml(
+        root, block_params, outer_ratio=outer,
+        select_vertex=det_idx, divide_method=method_idx)
     if keep_mesh:
         # carry the current generated mesh into the relay (element-only run)
         for sec in ("mesh_block", "element"):
@@ -334,8 +497,26 @@ class STpreSession:
     def is_open(self) -> bool:
         return self._app is not None
 
-    def grid(self, params, method: str = "detail") -> bool:
+    def grid(self, params, method: str = "detail",
+             block_params: Optional[list] = None) -> bool:
+        """SetGridParam + RootBlock SetParam(length/ratio/limit) + ExecuteGrid.
+
+        VB Sample_3: ``mesh.GetBlock("root").SetParam "length", ...`` before
+        ``ExecuteGrid``.  Without SetParam, STpre keeps template
+        ``divide_length=1`` and ignores the Mesh:Set division Standard length.
+        """
         global last_error
+        if block_params:
+            try:
+                blk = _invoke(self._mesher, "GetBlock", "root")
+            except Exception as exc:
+                last_error = f"GetBlock(root): {exc}"
+                return False
+            for key, p1, p2, p3 in block_params:
+                rc = _invoke(blk, "SetParam", key, p1, p2, p3)
+                if rc != 1:
+                    last_error = f"SetParam({key}) rc={rc}"
+                    return False
         for key, p1, p2, p3 in params:
             rc = _invoke(self._mesher, "SetGridParam", key, p1, p2, p3)
             if rc != 1:
@@ -397,7 +578,7 @@ def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
             ("division_method", method, "", ""),
             ("division_type", division_type, "", ""),
         ]
-        if not session.grid(params, method):
+        if not session.grid(params, method, block_params=block_params):
             return False
         if run_element and not session.element():
             return False

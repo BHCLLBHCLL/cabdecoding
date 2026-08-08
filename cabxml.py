@@ -1307,8 +1307,11 @@ class StpreModel:
                  domain_min: tuple[float, float, float],
                  domain_max: tuple[float, float, float],
                  threshold: tuple[float, float, float] = (0.1, 0.1, 0.1),
-                 ratio: tuple[float, float, float] = (1.2, 1.2, 1.2),
-                 detection: int = 3,
+                 ratio: tuple[float, float, float] = (1.0, 1.0, 1.0),
+                 standard_length: tuple[float, float, float] = (
+                     0.5, 0.5, 0.5),
+                 ratio_external: Optional[tuple[float, float, float]] = None,
+                 detection: int = 1,
                  method: int = 1,
                  element_max: int = 100_000_000,
                  part_min: Optional[tuple[float, float, float]] = None,
@@ -1347,7 +1350,9 @@ class StpreModel:
                     ("select_vertex", str(detection)),
                     ("divide_method", str(method)),
                     ("divide_scale", "2"),
-                    ("divide_ratio2", self._vec_text(ratio)),
+                    ("divide_ratio2", self._vec_text(
+                        ratio_external if ratio_external is not None
+                        else ratio)),
                     ("default_extend", "0,0,0"),
                     ("outer_flag", "T,T,T,T,T,T"),
                     ("outer_range", "0,0,0,0,0,0"),
@@ -1383,7 +1388,10 @@ class StpreModel:
         self._mesh_child(block, "grid", grid_text)
         self._mesh_child(mc, "select_vertex", str(detection))
         self._mesh_child(mc, "divide_method", str(method))
-        self._mesh_child(mc, "divide_ratio2", self._vec_text(ratio))
+        self._mesh_child(
+            mc, "divide_ratio2",
+            self._vec_text(ratio_external if ratio_external is not None
+                           else ratio))
         self._mesh_child(mc, "element_max", str(element_max))
         if part_min is not None and part_max is not None:
             outer = ",".join(
@@ -1404,6 +1412,10 @@ class StpreModel:
                 ("max", self._vec_text(domain_max), {"unit": unit}),
                 ("extend_min", "0,0,0", {"unit": unit}),
                 ("extend_max", "0,0,0", {"unit": unit}),
+                ("limit", self._vec_text(threshold), {"unit": unit}),
+                ("divide_length", self._vec_text(standard_length),
+                 {"unit": unit}),
+                ("divide_ratio1", self._vec_text(ratio), {}),
         ):
             self._mesh_child(mb, tag, text, attrs)
         for axis in "xyz":

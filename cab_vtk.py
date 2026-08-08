@@ -379,36 +379,77 @@ def build_scene(boxes: list[PartBox],
     return out
 
 
+# STpre global / sketch triad colours (magenta X·U, green Y·V, blue Z·W)
+_AXIS_COLOR_X = (0.90, 0.20, 0.55)
+_AXIS_COLOR_Y = (0.15, 0.72, 0.22)
+_AXIS_COLOR_Z = (0.18, 0.40, 0.95)
+
+
 def axes_actor(length: float = 1.0):
-    """Compact XYZ triad for the corner orientation marker (from pph_vtk)."""
+    """STpre bottom-left **global XYZ** orientation triad.
+
+    Proportions match the Draw Window corner gizmo: cylindrical shafts,
+    conical tips ≈ 30% of arm length, magenta / green / blue, labels ``x y z``.
+    """
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
     axes = vtk.vtkAxesActor()
     axes.SetTotalLength(length, length, length)
     axes.SetShaftTypeToCylinder()
-    axes.SetCylinderRadius(0.02)
-    axes.SetConeRadius(0.08)
-    axes.SetConeResolution(12)
-    axes.SetCylinderResolution(12)
+    # Tip ≈ 1/3 of each arm (STpre screenshot proportions)
+    try:
+        axes.SetNormalizedShaftLength(0.70, 0.70, 0.70)
+        axes.SetNormalizedTipLength(0.30, 0.30, 0.30)
+    except Exception:
+        pass
+    axes.SetCylinderRadius(0.035)
+    axes.SetConeRadius(0.12)
+    axes.SetConeResolution(20)
+    axes.SetCylinderResolution(16)
     axes.AxisLabelsOn()
-    for cap in (axes.GetXAxisCaptionActor2D(),
-                axes.GetYAxisCaptionActor2D(),
-                axes.GetZAxisCaptionActor2D()):
-        prop = cap.GetCaptionTextProperty()
-        prop.SetFontSize(12)
-        prop.SetBold(1)
-        prop.ShadowOff()
+    axes.SetXAxisLabelText("x")
+    axes.SetYAxisLabelText("y")
+    axes.SetZAxisLabelText("z")
+    for getter, color in (
+            (axes.GetXAxisShaftProperty, _AXIS_COLOR_X),
+            (axes.GetXAxisTipProperty, _AXIS_COLOR_X),
+            (axes.GetYAxisShaftProperty, _AXIS_COLOR_Y),
+            (axes.GetYAxisTipProperty, _AXIS_COLOR_Y),
+            (axes.GetZAxisShaftProperty, _AXIS_COLOR_Z),
+            (axes.GetZAxisTipProperty, _AXIS_COLOR_Z)):
+        try:
+            prop = getter()
+            prop.SetColor(*color)
+            prop.SetAmbient(0.4)
+            prop.SetDiffuse(0.7)
+        except Exception:
+            pass
+    for cap, color in (
+            (axes.GetXAxisCaptionActor2D(), _AXIS_COLOR_X),
+            (axes.GetYAxisCaptionActor2D(), _AXIS_COLOR_Y),
+            (axes.GetZAxisCaptionActor2D(), _AXIS_COLOR_Z)):
+        try:
+            tp = cap.GetCaptionTextProperty()
+            tp.SetFontSize(16)
+            tp.SetBold(1)
+            tp.ShadowOff()
+            tp.SetColor(*color)
+            # Keep labels close to the tip
+            cap.SetWidth(0.12)
+            cap.SetHeight(0.08)
+        except Exception:
+            pass
     return axes
 
 
-def orientation_marker_widget(interactor, size_frac: float = 0.14):
-    """Corner orientation marker — does not pollute the scene bounds."""
+def orientation_marker_widget(interactor, size_frac: float = 0.17):
+    """Bottom-left **global XYZ** marker (screen-space, STpre Axis Global)."""
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
     widget = vtk.vtkOrientationMarkerWidget()
     widget.SetOrientationMarker(axes_actor())
     widget.SetInteractor(interactor)
-    # bottom-left, matching STpre triad placement
+    # Slightly larger than default so shaft/cone proportions read like STpre
     widget.SetViewport(0.0, 0.0, size_frac, size_frac)
     widget.SetEnabled(1)
     widget.InteractiveOff()
@@ -469,16 +510,34 @@ def edges_actor(pd, color: tuple[float, float, float] = (0.15, 0.15, 0.18),
 
 
 def _sketch_axis_samples(lo: float, hi: float, delta: float) -> np.ndarray:
-    """Inclusive samples from ``lo`` to ``hi`` at ``delta`` (metres)."""
+    """Inclusive samples from ``lo`` to ``hi`` at ``delta`` (metres).
+
+    Keeps every full interval step **and** the endpoint (STpre).  Important
+    when ``(hi-lo)/delta`` is not an integer — e.g. 0…25 mm with Δ=10 mm
+    must yield ``0, 10, 20, 25`` (not ``0, 10, 25`` which drops the 20 mm
+    secondary line via ``round(2.5)→2``).
+    """
     if hi < lo:
         lo, hi = hi, lo
-    d = delta if delta > 1e-15 else max(hi - lo, 1e-9)
-    n = int(round((hi - lo) / d))
-    if n < 1:
+    span = hi - lo
+    if span < 1e-15:
         return np.array([lo, hi], dtype=np.float64)
-    vals = lo + d * np.arange(n + 1, dtype=np.float64)
-    vals[-1] = hi
-    return vals
+    d = delta if delta > 1e-15 else max(span / 10.0, 1e-9)
+    tol = 1e-9 * max(1.0, abs(hi), abs(lo))
+    n_fit = int(np.floor(span / d + 1e-12))
+    vals = [lo]
+    for i in range(1, n_fit + 1):
+        v = lo + i * d
+        if v < hi - tol:
+            vals.append(v)
+        else:
+            # landed on (or past) the end
+            break
+    if abs(vals[-1] - hi) > tol:
+        vals.append(hi)
+    else:
+        vals[-1] = hi
+    return np.asarray(vals, dtype=np.float64)
 
 
 def _lines_polydata(segments: list[tuple[np.ndarray, np.ndarray]]):
@@ -498,15 +557,27 @@ def _lines_polydata(segments: list[tuple[np.ndarray, np.ndarray]]):
 
 
 def sketch_plane_major_stride(plane, target_majors: int = 5) -> int:
-    """How many minor intervals per major line (STpre-style 5 → labels 0,25,…)."""
+    """How many minor intervals per major line (STpre-style 5 → labels 0,25,…).
+
+    When the span has fewer than 5 intervals (e.g. Max=25, Δ=5 → 5 intervals,
+    or Max=25, Δ=10 → 3 steps), keep **all interior lines as 副网格** and put
+    主网格 only on the ends (stride = n_intervals).
+    """
     du = plane.delta[0] if plane.delta[0] > 0 else 0.005
     span = abs(plane.u_range[1] - plane.u_range[0])
-    n_minor = max(int(round(span / du)), 1)
-    # Prefer 5 (classic STpre); fall back so ~4–8 majors across the span.
-    for cand in (5, 4, 2, 10, 1):
-        if n_minor >= cand or cand == 1:
+    n_int = max(int(np.floor(span / du + 1e-12)), 1)
+    # endpoint-only remainder still counts as an extra segment for display
+    samples = _sketch_axis_samples(
+        float(plane.u_range[0]), float(plane.u_range[1]), du)
+    n_seg = max(len(samples) - 1, 1)
+    if n_seg < target_majors:
+        return n_seg
+    if n_int >= target_majors and n_int % target_majors == 0:
+        return target_majors
+    for cand in (5, 4, 2, 10):
+        if n_seg >= cand:
             return cand
-    return 5
+    return 1
 
 
 def sketch_plane_grid(plane, points: bool = False):
@@ -613,10 +684,14 @@ def sketch_plane_actors(plane, opacity: float = 1.0) -> list:
     if sum(major_col) / 3 > 0.65:
         minor_col = (0.72, 0.74, 0.78)
         major_col = (0.38, 0.40, 0.46)
-    actors = [
-        _line_actor(minor_pd, minor_col, 1.0, opacity * 0.85),
-        _line_actor(major_pd, major_col, 2.2, opacity),
-    ]
+    actors = []
+    # Skip empty polydata (no secondary lines) so VTK does not drop the grid
+    if minor_pd.GetNumberOfLines() > 0:
+        actors.append(
+            _line_actor(minor_pd, minor_col, 1.0, opacity * 0.9))
+    if major_pd.GetNumberOfLines() > 0:
+        actors.append(
+            _line_actor(major_pd, major_col, 2.0, opacity))
     # Tick labels (skip duplicates at corners by text)
     seen: set[str] = set()
     for (x, y, z), text in labels:
@@ -691,9 +766,10 @@ def _arrow_actor(origin, direction, length: float, color,
 
 
 def sketch_axes_actors(plane, length: Optional[float] = None):
-    """STpre U/V/W triad: coloured arrows + labels + small grey origin ball.
+    """STpre **local UVW** triad on the sketch plane (Draw Window centre).
 
-    Axis length ≈ 28% of the larger U/V span (matches STpre proportions vs grid).
+    Same arrow proportions as the corner global XYZ gizmo; placed at the
+    sketch-plane origin (UV plane = sketch plane in global coordinates).
     """
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
@@ -701,59 +777,126 @@ def sketch_axes_actors(plane, length: Optional[float] = None):
     ur = plane.u_range
     vr = plane.v_range
     span = max(abs(ur[1] - ur[0]), abs(vr[1] - vr[0]), 0.01)
-    ln = length if length is not None else 0.28 * span
-    # Clamp so axes never dwarf a tiny domain nor vanish on a large grid
-    ln = float(min(max(ln, 0.012), 0.08))
+    ln = length if length is not None else 0.22 * span
+    ln = float(min(max(ln, 0.015), 0.06))
     actors = []
     specs = (
-        (np.asarray(plane.u, float), (0.90, 0.20, 0.55), "U"),   # pink
-        (np.asarray(plane.v, float), (0.15, 0.72, 0.22), "V"),   # green
-        (np.asarray(plane.w, float), (0.18, 0.32, 0.92), "W"),   # blue
+        (np.asarray(plane.u, float), _AXIS_COLOR_X, "U"),
+        (np.asarray(plane.v, float), _AXIS_COLOR_Y, "V"),
+        (np.asarray(plane.w, float), _AXIS_COLOR_Z, "W"),
     )
     for vec, col, label in specs:
         n = np.linalg.norm(vec)
         if n < 1e-12:
             continue
         vec = vec / n
+        # tip_length≈0.30 matches corner vtkAxesActor normalized tip
         arr = _arrow_actor(o, vec, ln, col,
-                           tip_length=0.24, tip_radius=0.055,
-                           shaft_radius=0.018)
+                           tip_length=0.30, tip_radius=0.08,
+                           shaft_radius=0.028)
         if arr is not None:
             try:
                 arr.SetUseBounds(False)
             except Exception:
                 pass
             actors.append(arr)
-        # Letter at arrow tip
-        tip = o + vec * (ln * 1.08)
+        tip = o + vec * (ln * 1.10)
         try:
             cap = vtk.vtkBillboardTextActor3D()
             cap.SetInput(label)
             cap.SetPosition(float(tip[0]), float(tip[1]), float(tip[2]))
             tp = cap.GetTextProperty()
-            tp.SetFontSize(18)
+            tp.SetFontSize(16)
             tp.SetBold(1)
             tp.SetColor(*col)
             tp.ShadowOff()
             actors.append(cap)
         except Exception:
             pass
-    # Origin ball — dark grey, ~6% of axis length (STpre)
+    # Grey origin ball + faint blue ring (STpre sketch-axis hub)
+    r_ball = ln * 0.07
     sp = vtk.vtkSphereSource()
     sp.SetCenter(float(o[0]), float(o[1]), float(o[2]))
-    sp.SetRadius(ln * 0.06)
-    sp.SetThetaResolution(20)
-    sp.SetPhiResolution(20)
+    sp.SetRadius(r_ball)
+    sp.SetThetaResolution(24)
+    sp.SetPhiResolution(24)
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(sp.GetOutputPort())
     dot = vtk.vtkActor()
     dot.SetMapper(mapper)
-    dot.GetProperty().SetColor(0.35, 0.35, 0.38)
+    dot.GetProperty().SetColor(0.40, 0.40, 0.43)
     try:
         dot.SetUseBounds(False)
     except Exception:
         pass
     actors.append(dot)
+    try:
+        ring = vtk.vtkRegularPolygonSource()
+        ring.SetCenter(float(o[0]), float(o[1]), float(o[2]))
+        ring.SetNormal(
+            float(plane.w[0]), float(plane.w[1]), float(plane.w[2]))
+        ring.SetRadius(r_ball * 1.55)
+        ring.SetNumberOfSides(48)
+        ring.GeneratePolygonOff()
+        ring.GeneratePolylineOn()
+        rm = vtk.vtkPolyDataMapper()
+        rm.SetInputConnection(ring.GetOutputPort())
+        ra = vtk.vtkActor()
+        ra.SetMapper(rm)
+        ra.GetProperty().SetColor(0.35, 0.55, 0.95)
+        ra.GetProperty().SetLineWidth(1.5)
+        ra.GetProperty().SetOpacity(0.65)
+        ra.SetUseBounds(False)
+        actors.append(ra)
+    except Exception:
+        pass
+    return actors
+
+
+def world_origin_marker_actors(scale: float):
+    """Drawing→Origin: small grey hub at world (0,0,0) — not a full XYZ triad.
+
+    Global XYZ lives in the corner orientation marker; local UVW is the
+    sketch-plane triad. Origin only marks the world origin point.
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    r = min(max(scale * 0.012, 4e-5), 0.0012)
+    actors = []
+    sp = vtk.vtkSphereSource()
+    sp.SetCenter(0.0, 0.0, 0.0)
+    sp.SetRadius(r)
+    sp.SetThetaResolution(20)
+    sp.SetPhiResolution(20)
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(sp.GetOutputPort())
+    ball = vtk.vtkActor()
+    ball.SetMapper(mapper)
+    ball.GetProperty().SetColor(0.40, 0.40, 0.43)
+    try:
+        ball.SetUseBounds(False)
+    except Exception:
+        pass
+    actors.append(ball)
+    try:
+        ring = vtk.vtkRegularPolygonSource()
+        ring.SetCenter(0.0, 0.0, 0.0)
+        ring.SetNormal(0.0, 0.0, 1.0)
+        ring.SetRadius(r * 1.6)
+        ring.SetNumberOfSides(40)
+        ring.GeneratePolygonOff()
+        ring.GeneratePolylineOn()
+        rm = vtk.vtkPolyDataMapper()
+        rm.SetInputConnection(ring.GetOutputPort())
+        ra = vtk.vtkActor()
+        ra.SetMapper(rm)
+        ra.GetProperty().SetColor(0.35, 0.55, 0.95)
+        ra.GetProperty().SetLineWidth(1.2)
+        ra.GetProperty().SetOpacity(0.55)
+        ra.SetUseBounds(False)
+        actors.append(ra)
+    except Exception:
+        pass
     return actors
 
 

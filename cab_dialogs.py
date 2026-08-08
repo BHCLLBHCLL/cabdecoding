@@ -2418,11 +2418,12 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             except ValueError:
                 return default
 
-        det_idx = _int("select_vertex", 3)
+        # STpre default Vertex detection = Representative (enum 1)
+        det_idx = _int("select_vertex", 1)
         det_keys = [k for _l, k in self._DETECTIONS]
         self.detection_radios[
             det_keys[det_idx] if 0 <= det_idx < len(det_keys)
-            else "minmax"].setChecked(True)
+            else "representative"].setChecked(True)
         method_idx = _int("divide_method", 1)
         method_keys = [k for _l, k in self._METHODS]
         self.method_radios[
@@ -2432,7 +2433,10 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         from cabxml import _first as _f1
         mc = _f1(self.model.root, "mesh_control")
         mc_block = _f1(mc, "block") if mc is not None else None
+        mb = _f1(self.model.root, "mesh_block")
         limit_el = _f1(mc_block, "limit") if mc_block is not None else None
+        if limit_el is None and mb is not None:
+            limit_el = _f1(mb, "limit")
         if limit_el is not None and limit_el.text:
             for i, ax in enumerate("xyz"):
                 try:
@@ -2440,12 +2444,30 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
                         float(limit_el.text.split(",")[i].strip()))
                 except (ValueError, IndexError):
                     pass
-        ratio = (self.model.mesh_control_value("divide_ratio2")
-                 or "1.2,1.2,1.2").split(",")
-        for i, ax in enumerate("xyz"):
-            if i < len(ratio):
+        # Standard length from mesh_block/divide_length (STpre RootBlock)
+        length_el = _f1(mb, "divide_length") if mb is not None else None
+        if length_el is not None and length_el.text:
+            for i, ax in enumerate("xyz"):
                 try:
-                    self.ratio[ax].setValue(float(ratio[i]))
+                    self.std[ax].setValue(
+                        float(length_el.text.split(",")[i].strip()))
+                except (ValueError, IndexError):
+                    pass
+        # Internal ratio: mesh_block/divide_ratio1; external: divide_ratio2
+        ratio1_el = _f1(mb, "divide_ratio1") if mb is not None else None
+        if ratio1_el is not None and ratio1_el.text:
+            for i, ax in enumerate("xyz"):
+                try:
+                    self.ratio[ax].setValue(
+                        float(ratio1_el.text.split(",")[i].strip()))
+                except (ValueError, IndexError):
+                    pass
+        ratio2 = (self.model.mesh_control_value("divide_ratio2") or "").split(
+            ",")
+        for i, ax in enumerate("xyz"):
+            if i < len(ratio2) and ratio2[i].strip():
+                try:
+                    self.ratio_ext[ax].setValue(float(ratio2[i].strip()))
                 except ValueError:
                     pass
         edge_contact = self.model.mesh_control_value("edge_contact")
@@ -2561,6 +2583,9 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             domain_max=tuple(self._dom_max),
             threshold=tuple(sb.value() for sb in self.thr.values()),
             ratio=tuple(sb.value() for sb in self.ratio.values()),
+            standard_length=tuple(sb.value() for sb in self.std.values()),
+            ratio_external=tuple(
+                sb.value() for sb in self.ratio_ext.values()),
             detection=cab_grid.detection_index(spec),
             method=cab_grid.method_index(spec),
             part_min=part_min,
@@ -2579,9 +2604,11 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         parent = self.parent()
         if parent is not None and hasattr(parent, "_rebuild_scene"):
             parent._rebuild_scene()
+        cells = tuple(max(0, n - 1) for n in counts)
         self._log(
             f"Gridding: {detection}/{method} -> "
-            f"{counts[0]}x{counts[1]}x{counts[2]} grid points"
+            f"{cells[0]}x{cells[1]}x{cells[2]} elements "
+            f"({counts[0]}x{counts[1]}x{counts[2]} points)"
             + (" (internal region)" if internal else ""))
 
     def _apply(self) -> None:
