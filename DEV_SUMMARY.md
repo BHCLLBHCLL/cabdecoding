@@ -1359,6 +1359,13 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 - COM ProgID 缺失（`api_available` 注册表检测）或调用失败时记录 WARN
   并回退原生。
 
+修复（2026-08-08）：STpre 自动化接口（与 scPOST 相同）要求先
+`_FlagAsMethod(name)` 再调用无参或纯 VARIANT 参数成员，否则
+win32com 报 `DISP_E_MEMBERNOTFOUND (-2147352573, "找不到成员。")`。
+`cab_stpre_api._invoke` 统一做 flag+调用；实测 ex4_e 经真实 STpre
+（COM）完成 gridding+meshing：网格 366×688×114、element 生成，输出
+cab 5.2 s。
+
 ### 28.3 验证与集成
 
 - `tests/test_stpre_api.py`（5 项）：ProgID 注册检测、SetGridParam 参数

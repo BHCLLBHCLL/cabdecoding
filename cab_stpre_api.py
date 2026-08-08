@@ -47,6 +47,18 @@ def api_available() -> bool:
         return False
 
 
+def _invoke(obj, name: str, *args):
+    """Call a COM member, flagging it as a method first.
+
+    STpre's automation interface (like scPOST) requires ``_FlagAsMethod``
+    before invoking members that take no arguments or only VARIANT
+    arguments; otherwise win32com raises DISP_E_MEMBERNOTFOUND
+    (-2147352573, "找不到成员。") for some members.
+    """
+    obj._FlagAsMethod(name)
+    return getattr(obj, name)(*args)
+
+
 def build_grid_params(model, *, method: Optional[str] = None,
                       division_type: Optional[int] = None,
                       target_elements: Optional[int] = None,
@@ -111,27 +123,27 @@ def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
     app = win32com.client.Dispatch(PROGID)
     try:
         app.Visible = False
-        doc = app.GetDocument()
-        if not doc.OpenCabFile(str(cab_in)):
+        doc = _invoke(app, "GetDocument")
+        if not _invoke(doc, "OpenCabFile", str(cab_in)):
             return False
-        mesher = doc.GetMesher()
+        mesher = _invoke(doc, "GetMesher")
         params = grid_params if grid_params is not None else [
             ("division_method", method, "", ""),
             ("division_type", division_type, "", ""),
         ]
         for key, p1, p2, p3 in params:
-            if mesher.SetGridParam(key, p1, p2, p3) != 1:
+            if _invoke(mesher, "SetGridParam", key, p1, p2, p3) != 1:
                 return False
-        if mesher.ExecuteGrid(method, "T") != 1:
+        if _invoke(mesher, "ExecuteGrid", method, "T") != 1:
             return False
-        if run_element and mesher.ExecuteElement() != 1:
+        if run_element and _invoke(mesher, "ExecuteElement") != 1:
             return False
-        if doc.SaveCabFile(str(cab_out)) != 1:
+        if _invoke(doc, "SaveCabFile", str(cab_out)) != 1:
             return False
         return True
     finally:
         try:
-            app.Quit()
+            _invoke(app, "Quit")
         except Exception:
             pass
 
