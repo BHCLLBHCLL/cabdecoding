@@ -15,6 +15,15 @@ def test_default_cases_matrix():
         assert required in names
 
 
+def test_special_matrices():
+    assert len(stpre_probe.auto1_sweep_cases()) == 12
+    assert len(stpre_probe.tr03_vd_cases()) == 9
+    assert len(stpre_probe.ex4e_vd_cases()) == 9
+    assert len(stpre_probe.stl_registration_cases()) == 2
+    names = {c.name for c in stpre_probe.tr03_vd_cases()}
+    assert "tr03_imp_thr_2_0" in names
+
+
 def test_grid_and_block_params():
     case = stpre_probe.ProbeCase(
         name="t", method="auto1", target_elements=8000,

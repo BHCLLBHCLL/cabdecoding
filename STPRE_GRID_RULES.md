@@ -114,3 +114,53 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
 3. 原生 vertex detection 需补充“顶点投影线分段拟合”逻辑（All/
    Representative 对旋转部件目前没有逐顶点投影线）；
 4. auto1 的目标→每轴→内外区分配需按实测规则实现。
+
+## 5. 第二轮精确化（2026-08-08，新增 30 用例）
+
+数据：`data/stpre_probe_20260808_auto1.json`（10）、
+`data/stpre_probe_20260808_auto1_scale.json`（2）、
+`data/stpre_probe_20260808_tr03.json`（9）、
+`data/stpre_probe_20260808_ex4e.json`（9）、
+`data/stpre_probe_20260808_stlreg.json`（2）。
+
+### 5.1 auto1 精确规则（box，域 -25..25，部件 0..10）
+
+- 每轴 cell 数 n = `round(target^(1/3))`：1000→10、2000→13、4000→16、
+  8000→20、16000→25、32000→32、64000→40、100000→46；
+- 内区 P 实测表（部件 10 mm，域 50 mm）：
+
+| n | 10 | 13 | 16 | 20 | 25 | 32 | 40 | 46 |
+|---|---|---|---|---|---|---|---|---|
+| P | 3 | 3 | 4 | 6 | 9 | 12 | 17 | 21 |
+| 内区间距 s | 3.333 | 3.333 | 2.5 | 1.667 | 1.111 | 0.833 | 0.588 | 0.476 |
+
+  n=20 时随部件尺寸：5 mm→P=4（s=1.25）、10 mm→P=6（s=1.667）、
+  20 mm→P=10（s=2.0）；P 与域外长度无关（域 0..100 时 P 仍为 6）。
+  **P 的闭式公式未定**，但可查表/插值实现；
+- 外区 L/R 拆分规则已定量确认：L+R = n-P，枚举所有拆分，选
+  `|g0_L - g0_R|` 最小者，其中
+  `g0_L = L_out·(q-1)/(q^L-1)`、`g0_R = R_out·(q-1)/(q^R-1)`、
+  q=ratio_out=1.2；随后左右 g0 分别按各自总长精确求解
+  （例：n=20 → L=8/R=6，g0_L=1.515、g0_R=1.511）。
+
+### 5.2 曲面部件的 vertex detection 层级（tr03 叶轮 / ex4_e 电池）
+
+- **all (0) > representative (1) > axis_plane (2) = minmax (3) =
+  not_considered (4)**（按网格线数量）：
+  - tr03 叶轮：all 59×118×121；rep 57×91×92；plane/minmax/none
+    57×85×85（三者坐标相同）；
+  - ex4_e 电池：all 89×66×28；rep 63×57×18；plane/minmax 61×57×18；
+- threshold（limit）对 all/rep/plane 都生效：叶轮 rep thr0.1→57×91×92、
+  thr0.5→57×90×89、thr2.0→33×41×42（2 mm 阈值滤除大量细部顶点线）；
+  thr2.0 时 rep(33×41×42) 与 plane(32×46×47) 不再相同；
+- 凸盒/旋转盒上各模式无区分度（§2.3），**必须用曲面/多特征部件**区分。
+
+### 5.3 负面结论补充
+
+- ex4_e **speaker（开放曲面/panel）**：所有模式 grid 相同（19×14×15）
+  且 `part_boxes={}`——开放面/panel 部件不产生实体占用 cell，需
+  panel/sheet 专用规则（原生 cab_mesh 同样需处理）；
+- STL/polygon 部件即使补上 `<body_files><file type="stl">` 与
+  `<parts><file> lshape.stl </file>` 仍不被 STpre API 网格化
+  （stlreg 2 例均退化为 51³ 空域网格）——STpre API 的 relay 只认
+  x_t body 部件。

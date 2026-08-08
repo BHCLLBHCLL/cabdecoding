@@ -1525,3 +1525,19 @@ STpre 中 Layout of Parts 的 RootBlock 蓝色线框不是一个独立可漂移�
   rc=1，输出坐标可复现（两次跑 base/旋转用例结果一致）；
 - 探测脚本与 STpre 会话归属保护（§30）配合：用户打开的 STpre 不会被
   探测流程接管/退出。
+
+### 31.4 第二轮精确化（2026-08-08，追加 30 用例）
+
+- 新增矩阵：auto1 目标数扫描（1000..100000 + 域/偏移/缩放变体）、
+  tr03 叶轮 vd×threshold、ex4_e 电池/扬声器 vd、STL body_files 变体；
+- auto1：每轴 cell=`round(target^(1/3))`；外区 L/R 按
+  `|g0_L-g0_R|` 最小拆分（g0=L·(q-1)/(q^L-1)）；内区 P 给出实测表
+  （闭式公式待定）；
+- 曲面部件 vd 层级：all > representative > axis_plane=minmax=
+  not_considered；threshold 对 all/rep/plane 均生效（2 mm 阈值大幅
+  减少顶点线）；
+- 负面：扬声器（panel/开放面）与 STL/polygon 部件（含 body_files
+  登记）均不产生占用 cell；
+- 规则细节与数据文件见 `STPRE_GRID_RULES.md` §5 及
+  `data/stpre_probe_20260808_{auto1,tr03,ex4e,stlreg}.json`；
+- 全仓 `pytest`：**215 通过 / 4 跳过**。

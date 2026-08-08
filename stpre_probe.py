@@ -43,6 +43,11 @@ from cabxml import StpreModel, parse_stpre
 ROOT = Path(__file__).resolve().parent
 BASE_CAB = ROOT / "tests" / "box.cab"
 DATA_DIR = ROOT / "data"
+_BASE_CABS = {
+    "box": ROOT / "tests" / "box.cab",
+    "tr03": ROOT / "tests" / "tr03.cab",
+    "ex4e": ROOT / "tests" / "ex4_e.cab",
+}
 
 _VD_KEY = {0: "all", 1: "main", 2: "plane", 3: "minmax",
            4: "none", 5: "uniform"}
@@ -72,6 +77,9 @@ class ProbeCase:
     extra_part: bool = False
     stl_part: bool = False                 # L-shaped non-convex polygon part
     drop_box: bool = False                 # remove base box part
+    base: str = "box"                      # box | tr03 | ex4e
+    keep_parts: tuple[str, ...] = ()       # delete every other part
+    stl_body_files: bool = False           # register STL in <body_files>
     note: str = ""
 
     def key(self) -> str:
@@ -119,6 +127,9 @@ class ProbeCase:
             "extra_part": self.extra_part,
             "stl_part": self.stl_part,
             "drop_box": self.drop_box,
+            "base": self.base,
+            "keep_parts": list(self.keep_parts),
+            "stl_body_files": self.stl_body_files,
             "note": self.note,
         }
 
@@ -203,9 +214,94 @@ def default_cases() -> list[ProbeCase]:
     return cases
 
 
-def _fresh_model() -> tuple[StpreModel, CabArchive]:
-    """Parse tests/box.cab into an independent model + shared archive."""
-    archive = CabArchive.parse(BASE_CAB.read_bytes())
+def auto1_sweep_cases() -> list[ProbeCase]:
+    """Auto1 target-element sweep + offset/domain variants."""
+    base = dict(domain_min=(-25.0, -25.0, -25.0),
+                domain_max=(25.0, 25.0, 25.0))
+    cases = []
+    for target in (1000, 2000, 4000, 8000, 16000, 32000, 64000, 100000):
+        cases.append(ProbeCase(name=f"auto1_{target}", **base,
+                               method="auto1", target_elements=target))
+    cases.append(ProbeCase(
+        name="auto1_8000_offset_x2_5", **base, method="auto1",
+        target_elements=8000,
+        part_transform="1,0,0,0,0,1,0,0,0,0,1,0,0.0025,0,0,1"))
+    cases.append(ProbeCase(
+        name="auto1_8000_domain_0_100",
+        domain_min=(0.0, 0.0, 0.0), domain_max=(100.0, 100.0, 100.0),
+        method="auto1", target_elements=8000))
+    cases.append(ProbeCase(
+        name="auto1_8000_scale_0_5", **base, method="auto1",
+        target_elements=8000,
+        part_transform="0.5,0,0,0,0,0.5,0,0,0,0,0.5,0,0,0,0,1"))
+    cases.append(ProbeCase(
+        name="auto1_8000_scale_2_0", **base, method="auto1",
+        target_elements=8000,
+        part_transform="2,0,0,0,0,2,0,0,0,0,2,0,0,0,0,1"))
+    return cases
+
+
+def tr03_vd_cases() -> list[ProbeCase]:
+    """Vertex-detection matrix on the curved tr03 Impeller."""
+    base = dict(base="tr03", keep_parts=("Impeller",),
+                domain_min=(-20.0, -20.0, -20.0),
+                domain_max=(70.0, 120.0, 120.0))
+    cases = [ProbeCase(name=f"tr03_imp_vd_{i}", **base,
+                       vertex_detection=i) for i in range(6)]
+    cases += [
+        ProbeCase(name="tr03_imp_thr_0_5", **base, vertex_detection=1,
+                  threshold=(0.5, 0.5, 0.5)),
+        ProbeCase(name="tr03_imp_thr_2_0", **base, vertex_detection=1,
+                  threshold=(2.0, 2.0, 2.0)),
+        ProbeCase(name="tr03_imp_thr_2_0_vd2", **base, vertex_detection=2,
+                  threshold=(2.0, 2.0, 2.0)),
+    ]
+    return cases
+
+
+def ex4e_vd_cases() -> list[ProbeCase]:
+    """Vertex-detection matrix on ex4_e battery (solid) and speaker."""
+    cases = []
+    for part, dmin, dmax in (
+            ("battery", (-10.0, -10.0, -10.0), (60.0, 60.0, 15.0)),
+            ("speaker", (-10.0, -10.0, -10.0), (30.0, 30.0, 15.0))):
+        base = dict(base="ex4e", keep_parts=(part,),
+                    domain_min=dmin, domain_max=dmax)
+        for vd in (0, 1, 2, 3):
+            cases.append(ProbeCase(name=f"ex4e_{part}_vd{vd}", **base,
+                                   vertex_detection=vd))
+    cases.append(ProbeCase(
+        name="ex4e_battery_thr_2_0", base="ex4e", keep_parts=("battery",),
+        domain_min=(-10.0, -10.0, -10.0), domain_max=(60.0, 60.0, 15.0),
+        vertex_detection=1, threshold=(2.0, 2.0, 2.0)))
+    return cases
+
+
+def stl_registration_cases() -> list[ProbeCase]:
+    """STL part registration variants (body_files + file ref)."""
+    base = dict(domain_min=(-25.0, -25.0, -25.0),
+                domain_max=(25.0, 25.0, 25.0))
+    return [
+        ProbeCase(name="stl_L_bodyfiles", **base, stl_part=True,
+                  drop_box=True, stl_body_files=True, vertex_detection=3),
+        ProbeCase(name="stl_L_bodyfiles_vd1", **base, stl_part=True,
+                  drop_box=True, stl_body_files=True, vertex_detection=1),
+    ]
+
+
+_MATRICES = {
+    "default": default_cases,
+    "auto1": auto1_sweep_cases,
+    "tr03": tr03_vd_cases,
+    "ex4e": ex4e_vd_cases,
+    "stlreg": stl_registration_cases,
+}
+
+
+def _fresh_model(base: str = "box") -> tuple[StpreModel, CabArchive]:
+    """Parse the base cab into an independent model + shared archive."""
+    cab_path = _BASE_CABS.get(base, BASE_CAB)
+    archive = CabArchive.parse(cab_path.read_bytes())
     archive.fill_member_data()
     members = {m.name: m.data for m in archive.members}
     xml_name = next(n for n in members if n.endswith(".xml")
@@ -277,12 +373,44 @@ def _apply_case(model: StpreModel, case: ProbeCase,
                        transform=case.part_transform)
     if case.stl_part and archive is not None:
         import cab_import
+        from cabxml import _first
+        import xml.etree.ElementTree as ET
         raw = _l_shape_stl_bytes()
         cab_import.add_stl_member(archive, raw, name="lshape.stl")
         bodies = cab_import.import_stl_bytes(raw, name="lshape")
-        cab_import.register_parts(model, bodies, kind="polygon")
+        if case.stl_body_files:
+            # STpre-style registration: <body_files><file type="stl"> and
+            # <parts><file> lshape.stl </file>
+            bf = model.doc.root.find("body_files")
+            if bf is None:
+                bf = ET.Element("body_files")
+                bf.attrib["unit"] = "m"
+                bf.text = "\n   "
+                bf.tail = "\n"
+                model.doc.root.append(bf)
+            from cabxml import _children
+            if not any(c.attrib.get("type") == "stl" and
+                       (c.text or "").strip() == "lshape.stl"
+                       for c in _children(bf, "file")):
+                e = ET.SubElement(bf, "file")
+                e.attrib["type"] = "stl"
+                e.text = " lshape.stl "
+                e.tail = "\n   "
+            cab_import.register_parts(
+                model, bodies, kind="polygon")
+            part_el = model.find_part("lshape")
+            if part_el is not None:
+                fe = _first(part_el, "file")
+                if fe is not None:
+                    fe.text = " lshape.stl "
+        else:
+            cab_import.register_parts(model, bodies, kind="polygon")
     if case.drop_box:
         model.delete_part("box")
+    if case.keep_parts:
+        for p in list(model.parts()):
+            if p.name not in case.keep_parts:
+                model.delete_part(p.name)
 
 
 def _axis_metrics(vals: list[float]) -> dict:
@@ -315,7 +443,7 @@ def run_case(case: ProbeCase, workdir: Path,
     """Run one probe: relay cab -> STpre COM grid/mesh -> parse output."""
     if not _wait_stpre_gone():
         raise RuntimeError("STpre process still running; refusing to probe")
-    model, archive = _fresh_model()
+    model, archive = _fresh_model(case.base)
     _apply_case(model, case, archive)
     src = workdir / f"{case.name}_in.cab"
     dst = workdir / f"{case.name}_out.cab"
@@ -428,6 +556,9 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cases", default="",
                     help="comma list of case names (default: all)")
+    ap.add_argument("--matrix", default="default",
+                    choices=sorted(_MATRICES),
+                    help="case matrix to run (default|auto1|tr03|ex4e|stlreg)")
     ap.add_argument("--out", default="",
                     help="output JSON path (default data/stpre_probe_<ts>)")
     ap.add_argument("--analyze", metavar="JSON",
@@ -449,7 +580,7 @@ def main() -> None:
             "STpre is already running; close it before probing "
             "(ownership guard refuses to attach).")
 
-    cases = default_cases()
+    cases = _MATRICES[args.matrix]()
     if args.cases:
         wanted = {s.strip() for s in args.cases.split(",") if s.strip()}
         cases = [c for c in cases if c.name in wanted]
