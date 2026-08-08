@@ -15,7 +15,6 @@ member, so OCC is only required at import time.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 

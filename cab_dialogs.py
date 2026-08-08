@@ -350,7 +350,6 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
         # STpre: Obstacle disables most thermal / panel options
         attr = (text or "").lower()
         is_panel = "panel" in attr
-        is_solid = attr in ("solid", "obstacle", "fluid") or "solid" in attr
         is_obstacle = attr == "obstacle"
         for w in (self.opening_chk, self.thickness, self.flip_chk):
             if w is not None:

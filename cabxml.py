@@ -17,6 +17,11 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 
+# STpre Layout of Parts / Conditions: DomainBoundary face order
+DOMAIN_FACE_NAMES: tuple[str, ...] = (
+    "Xmin", "Xmax", "Ymin", "Ymax", "Zmin", "Zmax",
+)
+
 
 def _escape_text(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -356,6 +361,59 @@ class StpreModel:
 
     def analysis_region(self) -> Optional[ET.Element]:
         return _first(self.root, "analysis_region")
+
+    def domain_faces(self) -> list[tuple[str, Optional[ET.Element]]]:
+        """DomainBoundary face_list regions in STpre order (Xmin…Zmax).
+
+        Always returns the six canonical names. The element is ``None`` when
+        that face is missing from ``analysis_region``.
+        """
+        by_name: dict[str, ET.Element] = {}
+        ar = self.analysis_region()
+        if ar is not None:
+            for reg in _children(ar, "region"):
+                if reg.attrib.get("type") != "face_list":
+                    continue
+                n = _first(reg, "name")
+                if n is None or not n.text:
+                    continue
+                by_name[n.text.strip()] = reg
+        return [(name, by_name.get(name)) for name in DOMAIN_FACE_NAMES]
+
+    def ensure_domain_faces(self) -> list[str]:
+        """Ensure the six DomainBoundary faces exist under ``analysis_region``.
+
+        Creates a default cube domain when none is present. Returns face names
+        in STpre display order.
+        """
+        ar = self.analysis_region()
+        if ar is None:
+            self.ensure_domain()
+            return list(DOMAIN_FACE_NAMES)
+        dname = self.domain_name() or "Domain(cuboid)"
+        # face numbers match ensure_domain / ex4_e conventions
+        face_no = {
+            "Ymin": "1", "Xmax": "2", "Ymax": "3",
+            "Xmin": "4", "Zmin": "5", "Zmax": "6",
+        }
+        existing = {n for n, el in self.domain_faces() if el is not None}
+        for fname in DOMAIN_FACE_NAMES:
+            if fname in existing:
+                continue
+            r = ET.SubElement(ar, "region")
+            r.attrib["type"] = "face_list"
+            r.tail = "\n   "
+            for tag, text in (
+                ("name", fname),
+                ("kind", "aset"),
+                ("base", dname),
+                ("face", f"{dname},{face_no[fname]}"),
+                ("rad_group_num", "0"),
+            ):
+                e = ET.SubElement(r, tag)
+                e.text = f" {text} "
+                e.tail = "\n      "
+        return list(DOMAIN_FACE_NAMES)
 
     # -- computational domain (M2) ----------------------------------------
 

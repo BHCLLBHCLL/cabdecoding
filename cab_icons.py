@@ -206,6 +206,19 @@ class AppIcons:
         p.drawPolygon(poly)
 
     @classmethod
+    def _draw_surface(cls, p, r, _s):
+        """STpre DomainBoundary / Region face — light-blue parallelogram."""
+        p.setPen(cls._pen("#0277bd", 1.2))
+        p.setBrush(QBrush(QColor("#81d4fa")))
+        poly = QPolygon([
+            QPoint(int(r.left() + r.width() * 0.08), int(r.bottom() - 1)),
+            QPoint(int(r.left() + r.width() * 0.35), int(r.top() + 1)),
+            QPoint(int(r.right() - 1), int(r.top() + 1)),
+            QPoint(int(r.right() - r.width() * 0.27), int(r.bottom() - 1)),
+        ])
+        p.drawPolygon(poly)
+
+    @classmethod
     def _draw_project(cls, p, r, _s):
         p.setPen(cls._pen("#455a64", 1.2))
         p.setBrush(QBrush(QColor("#cfd8dc")))

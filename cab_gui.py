@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 
@@ -151,6 +152,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.control.selection_target_changed.connect(self._on_sel_target)
         self.control.apply_requested.connect(self._apply_edits)
         self.control.sketch_action.connect(self._on_sketch_action)
+        self.control.layer_apply_requested.connect(self._on_layer_apply)
+        self.control.active_part_apply.connect(self._on_active_part_apply)
         self.control.lib_tree.itemSelectionChanged.connect(
             self._on_lib_selected)
 
@@ -948,6 +951,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if self.model is not None:
                 self._rebuild_scene()
             return
+        if kind in ("domain_face", "mesh_block", "others"):
+            # Layout checkboxes for DomainBoundary / RootBlock — layer
+            # Drawing On/Off still owns Mesh block visibility.
+            return
         if visible:
             self._hidden_parts.discard(name)
         else:
@@ -1020,8 +1027,39 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_sel_target(self, target: str) -> None:
         self._target_label.setText(target)
-        if target != "Part":
+        if target == "Detail":
+            self._nyi("Drawing On/Off — Detail…")
+            return
+        if target not in ("Part", "Parts"):
             self._nyi(f"Target of selection — {target}")
+
+    def _on_layer_apply(self) -> None:
+        """Control → Layer → Apply: filter part visibility by Display Layer."""
+        if self.model is None:
+            return
+        visible = self.control.display_layer_set()
+        op = self.control.operating_layer()
+        from cabxml import _first
+        for p in self.model.parts():
+            el = self.model.find_part(p.name)
+            layer = 1
+            if el is not None:
+                c = _first(el, "layer")
+                if c is not None and c.text and c.text.strip().isdigit():
+                    layer = int(c.text.strip())
+            hide = layer not in visible
+            if hide:
+                self._hidden_parts.add(p.name)
+            else:
+                self._hidden_parts.discard(p.name)
+        self._rebuild_scene()
+        self.log(
+            f"Layer Apply: display={sorted(visible)}, operating={op}")
+
+    def _on_active_part_apply(self, name: str) -> None:
+        if name:
+            self._on_item_selected("part", name)
+            self.log(f"ActivePart Apply: {name}")
 
     def _show_property(self, kind: str, name) -> None:
         """Test / external helper."""
