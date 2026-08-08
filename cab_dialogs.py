@@ -63,6 +63,12 @@ except Exception:  # pragma: no cover - headless environments
     QWidget = object  # type: ignore
     QGroupBox = object  # type: ignore
 
+try:  # strip insignificant trailing zeros on coordinate spin boxes
+    from cab_widgets import CoordSpinBox
+    QDoubleSpinBox = CoordSpinBox
+except Exception:
+    pass
+
 _UNIT_FACTOR = {"mm": 1.0, "m": 1000.0, "cm": 10.0}  # value -> mm
 
 

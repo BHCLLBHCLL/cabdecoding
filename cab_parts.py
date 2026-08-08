@@ -35,6 +35,12 @@ except Exception:  # pragma: no cover - headless
     _HAS_GUI_DEPS = False
     QDialog = object  # type: ignore
 
+try:  # strip insignificant trailing zeros on coordinate spin boxes
+    from cab_widgets import CoordSpinBox
+    QDoubleSpinBox = CoordSpinBox
+except Exception:
+    pass
+
 
 PRIMITIVE_KINDS = ("cube", "cylinder", "sphere", "panel")
 

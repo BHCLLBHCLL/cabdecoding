@@ -1177,3 +1177,17 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
   README 功能清单更新、`.gitignore` 忽略 `session-*.md`；
 - 回归：`tests/test_menus_other.py` 共 14 项（File 4、Edit 3、View/Help 2、
   Part 3、Option 2）；全仓 **146 通过 / 4 跳过**。
+
+### 24.7 对话框浮点坐标去掉无效尾零（2026-08-08）
+
+- 新模块 `cab_widgets.CoordSpinBox`（继承 QDoubleSpinBox，默认 10 位小数，
+  `textFromValue` 按当前 `decimals()` 格式化后 `rstrip('0')/rstrip('.')`）：
+  显示 `0`（非 `0.000000`）、`10`（非 `10.000000`）、`1.23`（非
+  `1.230000`）；绝对值 ≥1e15 时退化为科学计数；
+- `cab_dialogs`（域/Gridding/Edit/Others 全部浮点输入）、`cab_parts`
+  （基本体创建）、`cab_options`（facet 参数）模块级把
+  `QDoubleSpinBox` 重绑定为 `CoordSpinBox`，一处替换全量生效；
+- 无 GUI 依赖时自动跳过重绑定（headless 兼容）。
+
+验证：`tests/test_menus_other.py` 新增 2 项（尾零裁剪、三模块重绑定）。
+全仓 **148 通过 / 4 跳过**。

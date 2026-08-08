@@ -15,6 +15,12 @@ from PyQt5.QtWidgets import (
     QLabel, QLineEdit, QPushButton, QSpinBox, QTabWidget, QVBoxLayout,
 )
 
+try:  # strip insignificant trailing zeros on coordinate spin boxes
+    from cab_widgets import CoordSpinBox
+    QDoubleSpinBox = CoordSpinBox
+except Exception:
+    pass
+
 _ORG = "cabdecoding"
 _APP = "options"
 _MEM: dict = {}
