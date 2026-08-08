@@ -170,7 +170,14 @@
 ✅ Cuboid/Cylinder/Sphere/Panel：`cab_parts.CreatePartDialog` 创建对话框，
 写入 `<parts type="cube|cylinder|sphere|panel">` + 几何参数，生成 TessPart
 3D 预览并参与 Meshing；重开时按 XML 参数重建几何（不依赖 x_t）。
-⬜ Sketch Part / Fan：保持 NYI（记日志）。
+✅ Sketch Part：`cab_sketch.SketchPartDialog`（Panel/Extrusion，点序列/
+矩形/圆），基于 sketch plane 生成几何并持久化。
+⬜ Fan：保持 NYI（记日志）。
+
+Sketch plane：Control Window 新增 [Sketch] 页（原点/U·W 向量/网格
+Delta·Snap·范围/Gridsnap·Minus），Reset（Zmin）/Fit to computational
+domain/Update；Show/Select 的 Sketch plane 与 Axis (Sketch) 开关显示
+平面网格与 U/V/W 轴（`cab_vtk.sketch_plane_actor`）。
 
 ### 4.5 Wizard(&W)
 

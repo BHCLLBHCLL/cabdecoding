@@ -1191,3 +1191,59 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 
 验证：`tests/test_menus_other.py` 新增 2 项（尾零裁剪、三模块重绑定）。
 全仓 **148 通过 / 4 跳过**。
+
+## 25. M8：Sketch plane 与 Sketch Part（2026-08-08）
+
+### 25.1 参考与情报
+
+- 手册：`Define_and_modify_the_sketch_plane` / `Control_Window_-_Sketch` /
+  `Edit_sketch_plane_dialog` / `Sketch_part` /
+  `Part-Sketch_Part_Model_Type_is_{Panel,Extrusion}`；
+- XML：官方 `sketch_control`（`system`：c=原点 mm、u/v/w 单位向量；
+  `grid`：u/v/w_range、delta、snap 单位 m；gridsnap/minus/color）；
+- 二进制：`STpreParts_Bx64.dll` 的 `SketchControl`（get/set plane_type、
+  node、close、minus、fit、hit 系列）与 `SketchDataDlgOpen`；
+  `STpreTool_Bx64.dll` 的 `SketchControl`（`DefaultPlane`、`Convert`、
+  `ConvertCircle`、`ConvertRegularPolygon`、`AppendNode`、`SetNode`、
+  `FitPoint`、`DrawPlane` 等）；`STpreBase` 的 `ReadSketch/WriteSketch`、
+  `AllocSketchSweep/Wall`、`Sketch_GetThickness`。
+
+### 25.2 Sketch plane
+
+- 新模块 `cab_sketch.py`：`SketchPlane`（origin mm / u·v·w / 网格范围·间距
+  ·snap m / gridsnap / minus / color）、`plane_from_xml/apply_plane`
+  （读写 `<sketch_control>`，缺失时按默认）、`reset_plane_to_domain`
+  （Zmin 边界，同 STpre [Reset]）、`fit_plane_to_domain`
+  （网格范围=计算域投影，同 [Fit to computational domain]）；
+- `cab_vtk.sketch_plane_grid/sketch_plane_actor/sketch_axes_actors`：
+  平面网格线（色取自 XML）+ U/V/W 三色轴 + 原点；
+- Control Window 新增 **Sketch 页**（原点/U·W 向量/Delta/Snap/U·V 范围/
+  Gridsnap/Minus/Display with points + Reset/Fit/Update），
+  `CabViewer._on_sketch_action` 写回 XML、刷新 3D、入 undo；
+- Show/Select 的 Sketch plane / Axis (Sketch) 开关启用（原 NYI），
+  `draw_control` 的 sketch 标志随 `load_sketch` 显示。
+
+### 25.3 Sketch Part
+
+- `cab_sketch.SketchProfile`：点序列（U,V 表 + Close）/ 矩形（Location+
+  Size）/ 圆（Center+Radius+正多边形边数）；
+- `sketch_tess`：Panel（平面多边形三角扇）与 Extrusion（沿 W 拉伸的棱柱，
+  含顶底盖与侧面）；单位 mm→m；
+- `register_sketch_part`：写 `<parts type="sketch">`（model_type/
+  geometry_type/close/thickness/points|location+size|center+radius+
+  divisions + plane_origin/u/v/w 快照）；
+- `SketchPartDialog`：Model Type/Vertex（点序列表格/矩形/圆）+
+  Size/Attribute（厚度/属性/材料）；Part→Sketch Part 与 Parts 工具栏
+  Sketch 接入 `_sketch_part_dialog`（替代原简化路径）；
+- `tess_for_sketch_part/sketch_parts_from_model`：重开 cab 时按 XML 重建
+  几何并参与 Meshing（`_append_primitive_tess` 一并加载）。
+
+### 25.4 集成与验证
+
+- 工作区存在另一并行会话的未提交 WIP（`cab_materials.py` 标准材料库 +
+  `data/standard_property_ENG.xml` + 扩展 Part 菜单/部件对话框），本次
+  一并审阅、修复（`cab_panes` 补 QDoubleSpinBox 导入）并提交；
+- `tests/test_sketch.py`（7 项）：plane XML 往返、Reset/Fit、网格/轴
+  actor、Panel/Extrusion 面片数、注册→重建→序列化往返、对话框 spec、
+  Control Sketch 页与 reset/update 动作；
+- 全仓 `pytest`：**161 通过 / 4 跳过**。

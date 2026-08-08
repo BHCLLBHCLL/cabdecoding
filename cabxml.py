@@ -137,7 +137,16 @@ def new_stpre_bytes(name: str = "Untitled") -> bytes:
 
 
 def new_property_bytes() -> bytes:
-    """Minimal property library with one air(incompressible/20C) entry."""
+    """Full STpre standard material library (``standard_property_ENG.xml``).
+
+    Loaded from Cradle ``Programs_x64`` or the vendored ``data/`` copy via
+    :mod:`cab_materials`. Falls back to a single air entry if unavailable.
+    """
+    try:
+        from cab_materials import load_standard_property_bytes
+        return load_standard_property_bytes()
+    except Exception:
+        pass
     text = (
         '<?xml version="1.0" encoding="UTF-8"?>\r\n'
         '<!-- property table -->\r\n'
@@ -1213,11 +1222,28 @@ class PropertyModel:
     def material_names(self) -> list[str]:
         return [name for _, name in self.entries()]
 
+    def group_catalog(self) -> list[tuple[str, str, list[str]]]:
+        """``(group_type, group_name, [entry_names…])`` in document order."""
+        out: list[tuple[str, str, list[str]]] = []
+        for grp in self.groups():
+            t = _first(grp, "type")
+            n = _first(grp, "name")
+            gtype = t.text.strip() if t is not None and t.text else ""
+            gname = n.text.strip() if n is not None and n.text else ""
+            names: list[str] = []
+            for ent in _children(grp, "entry"):
+                en = _first(ent, "name")
+                if en is not None and en.text and en.text.strip():
+                    names.append(en.text.strip())
+            out.append((gtype, gname, names))
+        return out
+
     def find_entry(self, name: str) -> Optional[ET.Element]:
         for ent, n in self.entries():
             if n == name:
                 return ent
         return None
+
 
     def set_entry_value(self, material: str, key: str, value: str) -> bool:
         ent = self.find_entry(material)

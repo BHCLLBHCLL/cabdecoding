@@ -17,6 +17,11 @@ from PyQt5.QtWidgets import (
 from cab_icons import AppIcons
 from cabxml import PropertyModel, StpreModel, _children, _first
 
+try:  # strip insignificant trailing zeros on coordinate spin boxes
+    from cab_widgets import CoordSpinBox as QDoubleSpinBox
+except Exception:  # pragma: no cover
+    from PyQt5.QtWidgets import QDoubleSpinBox
+
 
 class PaneFrame(QFrame):
     """Title bar + content pane (from pph_gui)."""
@@ -379,6 +384,7 @@ class ControlWindow(QWidget):
     layer_toggled = pyqtSignal(str, bool)            # layer key, on
     selection_target_changed = pyqtSignal(str)       # Part/Face/...
     apply_requested = pyqtSignal()
+    sketch_action = pyqtSignal(str)                  # update | reset | fit
 
     LAYER_KEYS = [
         # Aligned with STpre Show/Select — Part + Element division can both be ON
@@ -402,6 +408,8 @@ class ControlWindow(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget(self)
         self.tabs.addTab(self._build_show_select(), "Show/Select")
+        self.sketch_page = self._build_sketch()
+        self.tabs.addTab(self.sketch_page, "Sketch")
         self.prop_page = QWidget(self)
         self.prop_layout = QFormLayout(self.prop_page)
         self.prop_title = QLabel("选择树节点查看属性")
@@ -417,6 +425,124 @@ class ControlWindow(QWidget):
         v.addWidget(self.tabs)
         self._prop_target = ("", None)
         self._drawing_mode = "Shading"
+
+    # -- Sketch tab -------------------------------------------------------
+
+    def _build_sketch(self) -> QWidget:
+        page = QWidget(self)
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(6, 6, 6, 6)
+
+        cs = QGroupBox("Coordinate system", page)
+        cl = QFormLayout(cs)
+        orow = QHBoxLayout()
+        self.sk_origin: dict[str, QDoubleSpinBox] = {}
+        for ax in "xyz":
+            sb = QDoubleSpinBox(cs)
+            sb.setRange(-1e9, 1e9)
+            sb.setDecimals(6)
+            self.sk_origin[ax] = sb
+            orow.addWidget(sb)
+        cl.addRow("Origin (mm)", orow)
+        self.sk_u_label = QLabel("(1, 0, 0)", cs)
+        self.sk_w_label = QLabel("(0, 0, 1)", cs)
+        cl.addRow("U axis", self.sk_u_label)
+        cl.addRow("W axis (normal)", self.sk_w_label)
+        lay.addWidget(cs)
+
+        grd = QGroupBox("Grid (m)", page)
+        gl = QFormLayout(grd)
+        self.sk_delta: dict[str, QDoubleSpinBox] = {}
+        self.sk_snap: dict[str, QDoubleSpinBox] = {}
+        self.sk_urange: dict[str, QDoubleSpinBox] = {}
+        self.sk_vrange: dict[str, QDoubleSpinBox] = {}
+
+        def spins(keys, lo, hi, val):
+            row = QHBoxLayout()
+            out: dict[str, QDoubleSpinBox] = {}
+            for k in keys:
+                sb = QDoubleSpinBox(grd)
+                sb.setRange(lo, hi)
+                sb.setDecimals(6)
+                sb.setValue(val)
+                out[k] = sb
+                row.addWidget(sb)
+            return row, out
+
+        r, self.sk_delta = spins(("u", "v", "w"), 1e-9, 1e6, 0.1)
+        gl.addRow("Delta", r)
+        r, self.sk_snap = spins(("u", "v", "w"), 1e-9, 1e6, 0.1)
+        gl.addRow("Snap", r)
+        r, self.sk_urange = spins(("min", "max"), -1e6, 1e6, 0.0)
+        gl.addRow("U range", r)
+        r, self.sk_vrange = spins(("min", "max"), -1e6, 1e6, 0.0)
+        gl.addRow("V range", r)
+        self.sk_gridsnap = QCheckBox("Gridsnap", grd)
+        self.sk_gridsnap.setChecked(True)
+        self.sk_minus = QCheckBox("Minus", grd)
+        self.sk_points = QCheckBox("Display with points", grd)
+        gl.addRow(self.sk_gridsnap)
+        gl.addRow(self.sk_minus)
+        gl.addRow(self.sk_points)
+        lay.addWidget(grd)
+
+        brow = QHBoxLayout()
+        for text, mode in (("Reset", "reset"),
+                           ("Fit to computational domain", "fit"),
+                           ("Update", "update")):
+            b = QPushButton(text, page)
+            b.clicked.connect(
+                lambda _=False, m=mode: self.sketch_action.emit(m))
+            brow.addWidget(b)
+        brow.addStretch(1)
+        lay.addLayout(brow)
+        lay.addStretch(1)
+        return page
+
+    def load_sketch(self, model) -> None:
+        import cab_sketch
+        plane = cab_sketch.plane_from_xml(model)
+        for i, ax in enumerate("xyz"):
+            self.sk_origin[ax].setValue(plane.origin[i])
+        self.sk_u_label.setText(
+            "(" + ", ".join(f"{x:.4g}" for x in plane.u) + ")")
+        self.sk_w_label.setText(
+            "(" + ", ".join(f"{x:.4g}" for x in plane.w) + ")")
+        for k, v in (("u", plane.delta[0]), ("v", plane.delta[1]),
+                     ("w", plane.delta[2])):
+            self.sk_delta[k].setValue(v)
+        for k, v in (("u", plane.snap[0]), ("v", plane.snap[1]),
+                     ("w", plane.snap[2])):
+            self.sk_snap[k].setValue(v)
+        self.sk_urange["min"].setValue(plane.u_range[0])
+        self.sk_urange["max"].setValue(plane.u_range[1])
+        self.sk_vrange["min"].setValue(plane.v_range[0])
+        self.sk_vrange["max"].setValue(plane.v_range[1])
+        self.sk_gridsnap.setChecked(plane.gridsnap)
+        self.sk_minus.setChecked(plane.minus)
+
+    def sketch_plane(self):
+        import cab_sketch
+        import numpy as np
+        u = tuple(float(x) for x in self.sk_u_label.text()
+                  .strip("()").split(","))
+        w = tuple(float(x) for x in self.sk_w_label.text()
+                  .strip("()").split(","))
+        v = tuple(np.cross(w, u))
+        return cab_sketch.SketchPlane(
+            origin=tuple(self.sk_origin[a].value() for a in "xyz"),
+            u=u,
+            v=v,
+            w=w,
+            u_range=(self.sk_urange["min"].value(),
+                     self.sk_urange["max"].value()),
+            v_range=(self.sk_vrange["min"].value(),
+                     self.sk_vrange["max"].value()),
+            delta=tuple(self.sk_delta[a].value() for a in "uvw"),
+            snap=tuple(self.sk_snap[a].value() for a in "uvw"),
+            gridsnap=self.sk_gridsnap.isChecked(),
+            minus=self.sk_minus.isChecked(),
+        )
 
     def _build_show_select(self) -> QWidget:
         page = QWidget(self)
@@ -499,14 +625,24 @@ class ControlWindow(QWidget):
         return cb.isChecked() if cb else False
 
     def populate_library(self, props: Optional[PropertyModel]) -> None:
+        """Library tab — STpre material groups (standard_property_ENG.xml)."""
         self.lib_tree.clear()
         if props is None:
             return
-        for name in props.material_names():
-            item = QTreeWidgetItem([name, ""])
-            item.setIcon(0, AppIcons.get("library", 16))
-            item.setData(0, Qt.UserRole, ("material", name))
-            self.lib_tree.addTopLevelItem(item)
+        folder = AppIcons.get("folder", 16)
+        leaf = AppIcons.get("library", 16)
+        for gtype, gname, names in props.group_catalog():
+            if not gname:
+                continue
+            gitem = QTreeWidgetItem([gname, gtype])
+            gitem.setIcon(0, folder)
+            gitem.setData(0, Qt.UserRole, ("material_group", gname))
+            for mat in names:
+                c = QTreeWidgetItem([mat, ""])
+                c.setIcon(0, leaf)
+                c.setData(0, Qt.UserRole, ("material", mat))
+                gitem.addChild(c)
+            self.lib_tree.addTopLevelItem(gitem)
 
     # -- property form -----------------------------------------------------
 

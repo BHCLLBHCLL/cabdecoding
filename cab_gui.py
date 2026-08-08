@@ -149,6 +149,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.control.layer_toggled.connect(self._on_layer_toggled)
         self.control.selection_target_changed.connect(self._on_sel_target)
         self.control.apply_requested.connect(self._apply_edits)
+        self.control.sketch_action.connect(self._on_sketch_action)
         self.control.lib_tree.itemSelectionChanged.connect(
             self._on_lib_selected)
 
@@ -288,14 +289,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addAction(self._act_status)
 
         m = mb.addMenu("Part(&P)")
-        for label, kind in (("Cuboid", "cube"), ("Cylinder", "cylinder"),
-                            ("Sphere", "sphere"), ("Panel", "panel"),
-                            ("Sketch Part", ""), ("Fan", "")):
-            if kind:
-                add(m, label,
-                    lambda _=False, k=kind: self._create_part_dialog(k))
-            else:
-                add(m, label)
+        try:
+            import cab_parts as _cab_parts_menu
+            _part_items = _cab_parts_menu.PART_MENU_ITEMS
+        except Exception:
+            _part_items = (
+                ("Cuboid…", "cube"), ("Cylinder…", "cylinder"),
+                ("Sphere…", "sphere"), ("Panel…", "panel"),
+            )
+        for item in _part_items:
+            if item is None:
+                m.addSeparator()
+                continue
+            label, kind = item
+            add(m, label,
+                lambda _=False, k=kind: self._create_part_dialog(k))
 
         m = mb.addMenu("Wizard(&W)")
         add(m, "Initial Setting…", self._wizard_initial)
@@ -381,10 +389,22 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.addToolBar(self.tb_disp)
 
         self.tb_parts = tb("Parts")
-        for text, kind, icon in (("Cube", "cube", "cube"),
-                                 ("Cylinder", "cylinder", "cylinder"),
-                                 ("Sphere", "sphere", "sphere"),
-                                 ("Panel", "panel", "panel")):
+        for text, kind, icon in (
+                ("Cuboid", "cube", "cube"),
+                ("Hexahedron", "hexahedron", "cube"),
+                ("Cylinder", "cylinder", "cylinder"),
+                ("Conical", "conical", "cylinder"),
+                ("Sphere", "sphere", "sphere"),
+                ("Panel", "panel", "panel"),
+                ("Quad Panel", "quad_panel", "panel"),
+                ("Revolved", "revolved", "cylinder"),
+                ("Point", "point", "condition"),
+                ("Fan", "fan", "part"),
+                ("Axial Fan", "axial_fan", "part"),
+                ("Blower", "blower_fan", "part"),
+                ("Sketch", "sketch", "panel"),
+                ("Pipe", "pipe", "cylinder"),
+        ):
             act(self.tb_parts, text, icon, f"Create {text}",
                 lambda _=False, k=kind: self._create_part_dialog(k))
         self.addToolBar(self.tb_parts)
@@ -560,6 +580,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._dirty = False
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
+        self.control.load_sketch(self.model)
         self.control.clear_property()
         self._rebuild_scene()
         self._update_title()
@@ -588,6 +609,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         prop_name = next(n for n in members if n.endswith("_property.xml"))
         self.model = StpreModel(parse_stpre(members[xml_name]))
         self.props = PropertyModel(parse_property(members[prop_name]))
+        # Fill gaps from STpre standard_property_ENG.xml (in-memory; saved
+        # with the project on next Save).
+        try:
+            from cab_materials import merge_standard_into
+            n_add = merge_standard_into(self.props)
+            if n_add:
+                self.log(
+                    f"Material library merged from STpre standard "
+                    f"(+{n_add} entries → "
+                    f"{len(self.props.material_names())}).",
+                    "INFO")
+        except Exception as exc:
+            self.log(f"Standard material library merge skipped: {exc}",
+                     "WARN")
         self._xml_member = xml_name
         self._prop_member = prop_name
         # Default: Domain face mode ON (matches tree checkbox checked=True)
@@ -597,6 +632,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._clear_undo()
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
+        self.control.load_sketch(self.model)
         self.control.clear_property()
         self._rebuild_scene()
         self._update_title()
@@ -714,6 +750,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tree_view.populate(
             self.model, self.archive.members if self.archive else [])
         self.control.populate_library(self.props)
+        self.control.load_sketch(self.model)
         self._rebuild_scene()
         self._mark_dirty()
         self._update_title()
@@ -930,14 +967,44 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             # keep element edges if Element division is on
         elif key == "axis_global":
             self._set_orientation_marker(on)
+        elif key in ("sketch_plane", "axis_sketch"):
+            if self.model is not None:
+                self._rebuild_scene()
+            return
         else:
             for actor in self._layer_actors.get(key, []):
                 actor.SetVisibility(1 if on else 0)
         if self.renderer and self._enable_3d:
             self.renderer.GetRenderWindow().Render()
-        if key in ("sketch_plane", "condition", "aspect_ratio",
-                   "axis_sketch") and on:
+        if key in ("condition", "aspect_ratio") and on:
             self._nyi(f"Drawing layer — {key}")
+
+    def _on_sketch_action(self, mode: str) -> None:
+        """Control -> Sketch: update / reset / fit the sketch plane."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        try:
+            import cab_sketch
+        except Exception:
+            self.log("cab_sketch unavailable.", "ERROR")
+            return
+        if mode == "reset":
+            plane = cab_sketch.reset_plane_to_domain(self.model)
+        elif mode == "fit":
+            plane = cab_sketch.fit_plane_to_domain(
+                self.model, self.control.sketch_plane())
+        else:
+            plane = self.control.sketch_plane()
+        cab_sketch.apply_plane(self.model, plane)
+        self.control.load_sketch(self.model)
+        self._rebuild_scene()
+        self._mark_dirty()
+        self._update_title()
+        self.log(
+            f"Sketch plane {mode}: origin={plane.origin}, "
+            f"U={plane.u}, W={plane.w}, grid "
+            f"u={plane.u_range}, v={plane.v_range}")
 
     def _on_sel_target(self, target: str) -> None:
         self._target_label.setText(target)
@@ -1238,6 +1305,29 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 actor.GetProperty().SetLineWidth(2.4)
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
+
+        # STpre sketch plane grid + U/V/W axes
+        try:
+            import cab_sketch
+            plane = cab_sketch.plane_from_xml(self.model)
+        except Exception:
+            plane = None
+        if plane is not None and self.control.layer_on("sketch_plane"):
+            try:
+                sk_actor = cab_vtk.sketch_plane_actor(plane)
+                self.renderer.AddActor(sk_actor)
+                self._layer_actors.setdefault(
+                    "sketch_plane", []).append(sk_actor)
+            except Exception:
+                pass
+        if plane is not None and self.control.layer_on("axis_sketch"):
+            try:
+                for ax_actor in cab_vtk.sketch_axes_actors(plane):
+                    self.renderer.AddActor(ax_actor)
+                    self._layer_actors.setdefault(
+                        "axis_sketch", []).append(ax_actor)
+            except Exception:
+                pass
 
         # Mesh Block overview when Domain is in face mode (or alone)
         if mesh_block_on:
@@ -1724,9 +1814,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             prim = []
         if prim:
             self._cad_meshes = list(self._cad_meshes or []) + prim
+        try:
+            import cab_sketch
+            sket = cab_sketch.sketch_parts_from_model(self.model)
+        except Exception:
+            sket = []
+        if sket:
+            self._cad_meshes = list(self._cad_meshes or []) + sket
 
     def _create_part_dialog(self, kind: str) -> None:
-        """Part -> Cuboid/Cylinder/Sphere/Panel creation dialog (M7)."""
+        """Part(P) → create primitive (STpre Part menu)."""
         if self.model is None:
             self.log("No project open.", "WARN")
             return
@@ -1735,9 +1832,38 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         except Exception:
             self.log("cab_parts unavailable.", "ERROR")
             return
+        if kind not in cab_parts.PRIMITIVE_KINDS:
+            self._nyi(f"Part — {kind}")
+            return
+        if kind == "sketch":
+            self._sketch_part_dialog()
+            return
         dlg = cab_parts.CreatePartDialog(
-            self.model, self.props, initial_kind=kind, parent=self)
+            self.model, self.props, initial_kind=kind, parent=self,
+            single_kind=True)
+
+        def _preview(spec):
+            try:
+                tess = cab_parts.tess_for_spec(spec["kind"], spec["params"])
+                tess.name = f"__preview__{spec['kind']}"
+                meshes = [m for m in (self._cad_meshes or [])
+                          if not getattr(m, "name", "").startswith(
+                              "__preview__")]
+                self._cad_meshes = meshes + [tess]
+                self._rebuild_scene()
+                self.log(f"Preview {spec['kind']} '{spec.get('name', '')}'")
+            except Exception as exc:
+                self.log(f"Preview failed: {exc}", "WARN")
+
+        if hasattr(dlg, "preview_requested") and dlg.preview_requested:
+            dlg.preview_requested.connect(_preview)
         if not dlg.exec_():
+            # drop transient preview meshes
+            self._cad_meshes = [
+                m for m in (self._cad_meshes or [])
+                if not getattr(m, "name", "").startswith("__preview__")]
+            if self._enable_3d:
+                self._rebuild_scene()
             return
         spec = dlg.spec()
         if not spec["name"]:
@@ -1748,15 +1874,19 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self, "Create Part", f"Part '{spec['name']}' already exists.")
             return
         snap = self._snapshot()
+        color = spec.get("color", "25,117,255,255")
         if not cab_parts.register_primitive(
                 self.model, name=spec["name"], kind=spec["kind"],
                 params=spec["params"], material=spec["material"],
-                attribute=spec["attribute"]):
+                attribute=spec["attribute"], color=color,
+                layer=spec.get("layer", "1")):
             self.log("Create Part: registration failed.", "ERROR")
             return
         tess = cab_parts.tess_for_spec(spec["kind"], spec["params"])
         tess.name = spec["name"]
-        self._cad_meshes = list(self._cad_meshes or []) + [tess]
+        self._cad_meshes = [
+            m for m in (self._cad_meshes or [])
+            if not getattr(m, "name", "").startswith("__preview__")] + [tess]
         self._push_undo(snap)
         self._mark_dirty()
         self._update_title()
@@ -1766,6 +1896,63 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.log(
             f"Created {spec['kind']} part '{spec['name']}' "
             f"(attribute={spec['attribute']}, material={spec['material']})")
+
+    def _sketch_part_dialog(self) -> None:
+        """Part -> Sketch Part: full sketch-plane based creation (M8)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        try:
+            import cab_sketch
+        except Exception:
+            self.log("cab_sketch unavailable.", "ERROR")
+            return
+        dlg = cab_sketch.SketchPartDialog(
+            self.model, self.props, parent=self)
+        if not dlg.exec_():
+            return
+        spec = dlg.spec()
+        name = spec["name"]
+        if not name:
+            self.log("Sketch Part: a part name is required.", "WARN")
+            return
+        if self.model.find_part(name) is not None:
+            QMessageBox.warning(
+                self, "Sketch Part", f"Part '{name}' already exists.")
+            return
+        poly = spec["profile"].polygon()
+        if spec["profile"].geometry_type == "point_sequence":
+            need = 3 if spec["profile"].close else 2
+            if len(poly) < need:
+                QMessageBox.warning(
+                    self, "Sketch Part",
+                    "Point sequence needs >= 3 vertices (closed) "
+                    "or >= 2 (open).")
+                return
+        snap = self._snapshot()
+        plane = cab_sketch.plane_from_xml(self.model)
+        ok = cab_sketch.register_sketch_part(
+            self.model, name=name, plane=plane,
+            profile=spec["profile"], model_type=spec["model_type"],
+            thickness_mm=spec["thickness"], material=spec["material"],
+            attribute=spec["attribute"])
+        if not ok:
+            self.log("Sketch Part: registration failed.", "ERROR")
+            return
+        tess = cab_sketch.sketch_tess(
+            plane, spec["profile"], spec["model_type"], spec["thickness"])
+        tess.name = name
+        self._cad_meshes = list(self._cad_meshes or []) + [tess]
+        self._push_undo(snap)
+        self._mark_dirty()
+        self._update_title()
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self._rebuild_scene()
+        self.log(
+            f"Created sketch part '{name}' "
+            f"({spec['model_type']}, {spec['profile'].geometry_type}, "
+            f"thickness={spec['thickness']} mm)")
 
     def _mesh_info(self) -> None:
         if self.model is None:

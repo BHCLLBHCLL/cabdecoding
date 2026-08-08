@@ -456,6 +456,15 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 | M7-5 | Option | ✅ `Environment Settings`/`Detailed Program Settings`：`cab_options.OptionsDialog`（Basic/Parts/Mesh/Message/User Interface 标签子集），QSettings+内存持久化并即时生效；facet 默认精度参与 x_t 三角化 |
 | M7-6 | 回归与文档 | ✅ `tests/test_menus_other.py`（14 项）；DEV_SUMMARY §24、DEV_PLAN M7 实施记录、CAB_GUI_DESIGN §4、README 更新；全仓 **146 通过 / 4 跳过** |
 
+### M8 Sketch plane 与 Sketch Part（2026-08-08）✅ 已完成
+
+| 项 | 实现 |
+|---|---|
+| Sketch plane | `cab_sketch.py`（SketchPlane/XML 读写/Reset Zmin/Fit 计算域）+ `cab_vtk` 网格线与 U/V/W 轴 actor + Control Window Sketch 页（原点/网格/Update/Reset/Fit）+ Show/Select 开关启用 |
+| Sketch Part | `cab_sketch`（Profile 点序列/矩形/圆 + Panel/Extrusion 几何）+ `SketchPartDialog` + Part→Sketch Part 接入 + XML 参数持久化与重开重建 |
+| 集成 | 一并审阅并提交并行会话 WIP（`cab_materials.py` 标准材料库 + `data/standard_property_ENG.xml` + 扩展 Part 菜单）；修复 `cab_panes` QDoubleSpinBox 导入 |
+| 回归 | `tests/test_sketch.py`（7 项）；全仓 **161 通过 / 4 跳过**；文档：DEV_SUMMARY §25、CAB_GUI_DESIGN、README |
+
 ---
 
 ## 7. 关键接口设计（草案）

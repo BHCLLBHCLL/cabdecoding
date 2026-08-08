@@ -426,6 +426,99 @@ def edges_actor(pd, color: tuple[float, float, float] = (0.15, 0.15, 0.18),
     return actor
 
 
+def sketch_plane_grid(plane, points: bool = False):
+    """Grid lines (or points) of a sketch plane in world metres."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    o = np.asarray(plane.origin, float) / 1000.0
+    u = np.asarray(plane.u, float)
+    v = np.asarray(plane.v, float)
+    u0, u1 = plane.u_range
+    v0, v1 = plane.v_range
+    du = plane.delta[0] if plane.delta[0] > 0 else (u1 - u0)
+    dv = plane.delta[1] if plane.delta[1] > 0 else (v1 - v0)
+    us = np.arange(u0, u1 + du * 0.5, du)
+    vs = np.arange(v0, v1 + dv * 0.5, dv)
+    if len(us) < 2:
+        us = np.array([u0, u1])
+    if len(vs) < 2:
+        vs = np.array([v0, v1])
+    pts = []
+    lines = []
+    for uu in us:
+        base = len(pts)
+        pts.append(o + uu * u + v0 * v)
+        pts.append(o + uu * u + v1 * v)
+        lines.append([base, base + 1])
+    for vv in vs:
+        base = len(pts)
+        pts.append(o + u0 * u + vv * v)
+        pts.append(o + u1 * u + vv * v)
+        lines.append([base, base + 1])
+    vtk_pts = vtk.vtkPoints()
+    for p in pts:
+        vtk_pts.InsertNextPoint(*p)
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(vtk_pts)
+    cells = vtk.vtkCellArray()
+    if points:
+        for i in range(len(pts)):
+            cells.InsertNextCell(1)
+            cells.InsertCellPoint(i)
+        pd.SetVerts(cells)
+    else:
+        for a, b in lines:
+            cells.InsertNextCell(2)
+            cells.InsertCellPoint(a)
+            cells.InsertCellPoint(b)
+        pd.SetLines(cells)
+    return pd
+
+
+def sketch_plane_actor(plane, opacity: float = 0.9):
+    """Actor for the sketch-plane grid (colour from ``sketch_control``)."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    pd = sketch_plane_grid(plane)
+    color = tuple(c / 255.0 for c in plane.color[:3])
+    return edges_actor(pd, color=color, opacity=opacity, line_width=1.0)
+
+
+def sketch_axes_actors(plane, length: Optional[float] = None):
+    """Three coloured U/V/W arrows + origin dot for the sketch plane."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    o = np.asarray(plane.origin, float) / 1000.0
+    ur = plane.u_range
+    vr = plane.v_range
+    default_len = 0.1 * max(ur[1] - ur[0], vr[1] - vr[0], 0.01)
+    ln = length or default_len
+    actors = []
+    for vec, col in ((np.asarray(plane.u), (0.85, 0.15, 0.15)),
+                     (np.asarray(plane.v), (0.15, 0.75, 0.15)),
+                     (np.asarray(plane.w), (0.15, 0.25, 0.9))):
+        src = vtk.vtkLineSource()
+        src.SetPoint1(*o)
+        src.SetPoint2(*(o + vec * ln))
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(src.GetOutputPort())
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        actor.GetProperty().SetColor(*col)
+        actor.GetProperty().SetLineWidth(2.2)
+        actors.append(actor)
+    sp = vtk.vtkSphereSource()
+    sp.SetCenter(*o)
+    sp.SetRadius(ln * 0.05)
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(sp.GetOutputPort())
+    dot = vtk.vtkActor()
+    dot.SetMapper(mapper)
+    dot.GetProperty().SetColor(0.85, 0.1, 0.1)
+    actors.append(dot)
+    return actors
+
+
 def _axis_slice_m(axes: dict[str, list[float]], axis: str,
                   i1: int, i2: int) -> Optional[list[float]]:
     """Node coordinates (m) covering element index range ``i1..i2`` (1-based)."""

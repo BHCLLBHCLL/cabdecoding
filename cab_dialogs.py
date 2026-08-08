@@ -222,17 +222,19 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
                  attribute_enabled=True,
                  heat_source=False,
                  virtual_part=False,
-                 temperature_unit="C"):
+                 temperature_unit="C",
+                 full_stpre: bool = False):
         super().__init__("Attribute/Condition", parent)
         lay = QVBoxLayout(self)
-        lay.setSpacing(6)
+        lay.setSpacing(4)
+        self._full = full_stpre
 
         row = QHBoxLayout()
         row.addWidget(QLabel("Attribute", self))
         self.attribute = QComboBox(self)
         self.attribute.addItems(list(attributes))
         self.attribute.setEnabled(attribute_enabled and len(attributes) > 0)
-        self.attribute.currentTextChanged.connect(self.attribute_changed)
+        self.attribute.currentTextChanged.connect(self._on_attr_changed)
         row.addWidget(self.attribute, 1)
         lay.addLayout(row)
 
@@ -246,13 +248,32 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
         mrow.addWidget(self.configure)
         lay.addLayout(mrow)
 
+        self.opening_chk = None
+        self.thickness = None
+        self.flip_chk = None
+        if full_stpre:
+            self.opening_chk = QCheckBox("Opening", self)
+            lay.addWidget(self.opening_chk)
+            trow0 = QHBoxLayout()
+            trow0.addWidget(QLabel("Thickness", self))
+            self.thickness = QDoubleSpinBox(self)
+            self.thickness.setRange(0.0, 1e6)
+            self.thickness.setDecimals(3)
+            self.thickness.setValue(0.0)
+            trow0.addWidget(self.thickness)
+            trow0.addWidget(QLabel("mm", self))
+            trow0.addStretch(1)
+            lay.addLayout(trow0)
+            self.flip_chk = QCheckBox("Flip the panel face", self)
+            lay.addWidget(self.flip_chk)
+
         trow = QHBoxLayout()
         self.init_temp_chk = QCheckBox("Initial temperature", self)
         trow.addWidget(self.init_temp_chk)
         self.init_temp = QDoubleSpinBox(self)
         self.init_temp.setRange(-273.15, 1.0e6)
         self.init_temp.setDecimals(2)
-        self.init_temp.setValue(20.0)
+        self.init_temp.setValue(0.0 if full_stpre else 20.0)
         trow.addWidget(self.init_temp)
         trow.addWidget(QLabel(temperature_unit, self))
         trow.addStretch(1)
@@ -262,7 +283,8 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
 
         self.heat_chk = None
         self.heat = None
-        if heat_source:
+        self.heat_unit = None
+        if heat_source or full_stpre:
             hrow = QHBoxLayout()
             self.heat_chk = QCheckBox("Heat source", self)
             hrow.addWidget(self.heat_chk)
@@ -270,21 +292,80 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
             self.heat.setRange(0.0, 1.0e12)
             self.heat.setDecimals(3)
             hrow.addWidget(self.heat)
-            hrow.addWidget(QLabel("W", self))
+            self.heat_unit = QComboBox(self)
+            self.heat_unit.addItems(["W", "W/m3", "W/m2"])
+            hrow.addWidget(self.heat_unit)
             hrow.addStretch(1)
             lay.addLayout(hrow)
             self.heat_chk.toggled.connect(self.heat.setEnabled)
             self.heat.setEnabled(False)
 
+        self.rad_type = None
+        self.emissivity = None
+        self.rad_indiv = None
+        self.absorptance = None
+        if full_stpre:
+            rrow = QHBoxLayout()
+            rrow.addWidget(QLabel("Type of radiation", self))
+            self.rad_type = QComboBox(self)
+            self.rad_type.addItems(["Specify emissivity", "None"])
+            rrow.addWidget(self.rad_type, 1)
+            lay.addLayout(rrow)
+            erow = QHBoxLayout()
+            erow.addWidget(QLabel("Emissivity", self))
+            self.emissivity = QDoubleSpinBox(self)
+            self.emissivity.setRange(0.0, 1.0)
+            self.emissivity.setDecimals(3)
+            self.emissivity.setValue(0.9)
+            erow.addWidget(self.emissivity)
+            erow.addWidget(QLabel("<Undefined>", self))
+            lay.addLayout(erow)
+            self.rad_indiv = QCheckBox("Set individually", self)
+            lay.addWidget(self.rad_indiv)
+            arow = QHBoxLayout()
+            arow.addWidget(QLabel("Absorptance", self))
+            self.absorptance = QLineEdit("Undefined", self)
+            self.absorptance.setReadOnly(True)
+            arow.addWidget(self.absorptance, 1)
+            self.abs_cfg = QPushButton("Configure...", self)
+            self.abs_cfg.setEnabled(False)
+            arow.addWidget(self.abs_cfg)
+            lay.addLayout(arow)
+
         self.monitor_chk = QCheckBox("Output temperature to Monitor", self)
-        self.monitor_chk.setChecked(True)
+        self.monitor_chk.setChecked(not full_stpre)
         lay.addWidget(self.monitor_chk)
 
         self.virtual_chk = None
-        if virtual_part:
+        if virtual_part or full_stpre:
             self.virtual_chk = QCheckBox("Virtual part", self)
             lay.addWidget(self.virtual_chk)
         lay.addStretch(1)
+        self._on_attr_changed(self.attribute.currentText())
+
+    def _on_attr_changed(self, text: str) -> None:
+        self.attribute_changed.emit(text)
+        if not self._full:
+            return
+        # STpre: Obstacle disables most thermal / panel options
+        attr = (text or "").lower()
+        is_panel = "panel" in attr
+        is_solid = attr in ("solid", "obstacle", "fluid") or "solid" in attr
+        is_obstacle = attr == "obstacle"
+        for w in (self.opening_chk, self.thickness, self.flip_chk):
+            if w is not None:
+                w.setEnabled(is_panel)
+        thermal = not is_obstacle
+        self.init_temp_chk.setEnabled(thermal or is_panel)
+        if self.heat_chk is not None:
+            self.heat_chk.setEnabled(thermal)
+        for w in (self.rad_type, self.emissivity, self.rad_indiv,
+                  self.absorptance, getattr(self, "abs_cfg", None)):
+            if w is not None:
+                w.setEnabled(False)  # radiation needs radiation analysis
+        self.monitor_chk.setEnabled(thermal)
+        if self.virtual_chk is not None:
+            self.virtual_chk.setEnabled(True)
 
     # -- value helpers -----------------------------------------------------
 
@@ -312,47 +393,204 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
 
 
 class MaterialListDialog(QDialog if _HAS_GUI_DEPS else object):
-    """[List of Materials] dialog — target of the [Configure...] button."""
+    """STpre [List of Materials] — tree of standard property groups.
+
+    Layout matches the Cradle dialog (``standard_property_ENG.xml`` /
+    ``STpreParts`` labels): group folders on the left; Parts name /
+    Selected material + Reference / Expand / Set / Cancel on the right.
+    """
 
     def __init__(self, props: Optional[PropertyModel], parent=None,
-                 current: str = ""):
+                 current: str = "", part_name: str = ""):
         super().__init__(parent)
         self.setWindowTitle("List of Materials")
-        self.resize(360, 420)
-        lay = QVBoxLayout(self)
-        self.filter = QLineEdit(self)
-        self.filter.setPlaceholderText("Filter…")
-        self.filter.textChanged.connect(self._refilter)
-        lay.addWidget(self.filter)
-        self.list = QListWidget(self)
-        self._names = props.material_names() if props is not None else []
-        for name in self._names:
-            QListWidgetItem(name, self.list)
-        if current:
-            hits = self.list.findItems(current, Qt.MatchExactly)
-            if hits:
-                self.list.setCurrentItem(hits[0])
-        lay.addWidget(self.list, 1)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        ok = QPushButton("OK", self)
-        ok.setDefault(True)
-        ok.clicked.connect(self.accept)
-        cancel = QPushButton("Cancel", self)
-        cancel.clicked.connect(self.reject)
-        row.addWidget(ok)
-        row.addWidget(cancel)
-        lay.addLayout(row)
-        self.list.itemDoubleClicked.connect(lambda _i: self.accept())
+        self.resize(720, 520)
+        self._selected = current or ""
+        # Ensure full STpre library (merge Cradle standard into project props)
+        try:
+            from cab_materials import ensure_complete_library
+            self.props = ensure_complete_library(props)
+        except Exception:
+            self.props = props
 
-    def _refilter(self, text: str) -> None:
-        for i in range(self.list.count()):
-            item = self.list.item(i)
-            item.setHidden(text.lower() not in item.text().lower())
+        lay = QVBoxLayout(self)
+        lay.setSpacing(6)
+        tip = QLabel(
+            "Selects a material to set for computational domain or for "
+            "parts. ( material property can be modified, too ).", self)
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color:#333;")
+        lay.addWidget(tip)
+
+        body = QHBoxLayout()
+        body.setSpacing(8)
+
+        # Left: group tree
+        from PyQt5.QtCore import QSize
+        self.tree = QTreeWidget(self)
+        self.tree.setHeaderHidden(True)
+        self.tree.setAnimated(True)
+        self.tree.setUniformRowHeights(True)
+        self.tree.setIconSize(QSize(16, 16))
+        self._populate_tree()
+        self.tree.itemClicked.connect(self._on_tree_click)
+        self.tree.itemDoubleClicked.connect(self._on_tree_dbl)
+        body.addWidget(self.tree, 3)
+
+        # Right: selection + buttons
+        right = QVBoxLayout()
+        right.addWidget(QLabel("Parts name", self))
+        self.part_edit = QLineEdit(self)
+        self.part_edit.setReadOnly(True)
+        self.part_edit.setText(part_name or self._guess_part_name(parent))
+        right.addWidget(self.part_edit)
+        right.addWidget(QLabel("Selected material", self))
+        self.sel_edit = QLineEdit(self)
+        self.sel_edit.setReadOnly(True)
+        self.sel_edit.setText(self._selected)
+        right.addWidget(self.sel_edit)
+        hint = QLabel("( Click in the list to select material )", self)
+        hint.setStyleSheet("color:#555; font-size:11px;")
+        right.addWidget(hint)
+
+        grid = QGridLayout()
+        self.btn_ref = QPushButton("Reference", self)
+        self.btn_expand = QPushButton("Expand", self)
+        self.btn_set = QPushButton("Set", self)
+        self.btn_cancel = QPushButton("Cancel", self)
+        self.btn_set.setDefault(True)
+        self.btn_ref.clicked.connect(self._on_reference)
+        self.btn_expand.clicked.connect(self._on_expand)
+        self.btn_set.clicked.connect(self._on_set)
+        self.btn_cancel.clicked.connect(self.reject)
+        grid.addWidget(self.btn_ref, 0, 0)
+        grid.addWidget(self.btn_expand, 0, 1)
+        grid.addWidget(self.btn_set, 1, 0)
+        grid.addWidget(self.btn_cancel, 1, 1)
+        right.addLayout(grid)
+
+        self.edit_mode = QCheckBox("Editing mode", self)
+        right.addWidget(self.edit_mode)
+        note = QLabel(
+            "(*) After checking the checkbox, right-click in the list "
+            "to select a menu.", self)
+        note.setWordWrap(True)
+        note.setStyleSheet("color:#555; font-size:11px;")
+        right.addWidget(note)
+        right.addStretch(1)
+        body.addLayout(right, 2)
+        lay.addLayout(body, 1)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        close = QPushButton("Close", self)
+        close.clicked.connect(self.reject)
+        brow.addWidget(close)
+        lay.addLayout(brow)
+
+        if self._selected:
+            self._select_in_tree(self._selected)
+
+    @staticmethod
+    def _guess_part_name(parent) -> str:
+        if parent is None:
+            return ""
+        for attr in ("part_name", "name_edit"):
+            w = getattr(parent, attr, None)
+            if isinstance(w, str) and w:
+                return w
+            if w is not None and hasattr(w, "text"):
+                try:
+                    return w.text().strip()
+                except Exception:
+                    pass
+        return ""
+
+    def _populate_tree(self) -> None:
+        self.tree.clear()
+        folder_icon = AppIcons.get("folder", 16)
+        mat_icon = AppIcons.get("library", 16)
+        catalog = []
+        if self.props is not None:
+            catalog = self.props.group_catalog()
+        for gtype, gname, names in catalog:
+            if not gname:
+                continue
+            # Skip empty placeholder groups in the tree (keep "others" if empty)
+            gitem = QTreeWidgetItem([gname])
+            gitem.setIcon(0, folder_icon)
+            gitem.setData(0, Qt.UserRole, ("group", gtype, gname))
+            gitem.setFlags(gitem.flags() & ~Qt.ItemIsSelectable)
+            for mat in names:
+                c = QTreeWidgetItem([mat])
+                c.setIcon(0, mat_icon)
+                c.setData(0, Qt.UserRole, ("entry", mat))
+                gitem.addChild(c)
+            self.tree.addTopLevelItem(gitem)
+        # Expand solid folders by default (matches typical STpre solid pick)
+        for i in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(i)
+            data = item.data(0, Qt.UserRole) or ()
+            if len(data) >= 2 and data[1] == "solid":
+                item.setExpanded(False)  # collapsed like screenshot
+
+    def _select_in_tree(self, name: str) -> None:
+        matches = self.tree.findItems(
+            name, Qt.MatchExactly | Qt.MatchRecursive)
+        if matches:
+            self.tree.setCurrentItem(matches[0])
+            parent = matches[0].parent()
+            if parent is not None:
+                parent.setExpanded(True)
+            self.tree.scrollToItem(matches[0])
+
+    def _on_tree_click(self, item, _col) -> None:
+        data = item.data(0, Qt.UserRole) if item is not None else None
+        if data and data[0] == "entry":
+            self._selected = data[1]
+            self.sel_edit.setText(self._selected)
+
+    def _on_tree_dbl(self, item, _col) -> None:
+        data = item.data(0, Qt.UserRole) if item is not None else None
+        if data and data[0] == "entry":
+            self._selected = data[1]
+            self.sel_edit.setText(self._selected)
+            self.accept()
+
+    def _on_expand(self) -> None:
+        self.tree.expandAll()
+
+    def _on_reference(self) -> None:
+        name = self.selected_material()
+        if not name or self.props is None:
+            QMessageBox.information(self, "Reference",
+                                    "Select a material in the list.")
+            return
+        ent = self.props.find_entry(name)
+        if ent is None:
+            QMessageBox.information(self, "Reference",
+                                    f"No property data for '{name}'.")
+            return
+        from cabxml import _first
+        lines = [f"Material: {name}"]
+        for key in ("density", "ref_density", "ref_temperature", "viscosity",
+                    "capacity", "conductivity", "expansion"):
+            c = _first(ent, key)
+            if c is not None and c.text and c.text.strip():
+                unit = c.attrib.get("unit", "")
+                lines.append(f"  {key}: {c.text.strip()}"
+                             + (f" [{unit}]" if unit else ""))
+        QMessageBox.information(self, "Material Reference", "\n".join(lines))
+
+    def _on_set(self) -> None:
+        if not self.selected_material():
+            QMessageBox.warning(self, "List of Materials",
+                                "Click in the list to select material.")
+            return
+        self.accept()
 
     def selected_material(self) -> str:
-        item = self.list.currentItem()
-        return item.text() if item is not None else ""
+        return (self._selected or self.sel_edit.text() or "").strip()
 
 
 class StpreDialogBase(QDialog if _HAS_GUI_DEPS else object):
@@ -817,8 +1055,11 @@ class PartDialog(StpreDialogBase):
         return tuple(vals) if len(vals) == 3 else None  # type: ignore
 
     def _configure_material(self) -> None:
-        dlg = MaterialListDialog(self.props, self,
-                                 current=self.attr_panel.material_name())
+        dlg = MaterialListDialog(
+            self.props, self,
+            current=self.attr_panel.material_name(),
+            part_name=getattr(self, "part_name", "")
+            or (self.name_edit.text() if self.name_edit else ""))
         if dlg.exec_() and dlg.selected_material():
             self.attr_panel.set_material(dlg.selected_material())
 
