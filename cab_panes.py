@@ -6,12 +6,15 @@ import os
 from datetime import datetime
 from typing import Optional
 
-from PyQt5.QtCore import QSize, Qt, pyqtSignal
+import time
+
+from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout,
     QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
-    QPushButton, QRadioButton, QTableWidget, QTableWidgetItem, QTabWidget,
-    QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QPlainTextEdit,
+    QPushButton, QRadioButton, QStyle, QStyleOptionViewItem, QTableWidget,
+    QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
+    QWidget, QPlainTextEdit,
 )
 
 from cab_icons import AppIcons
@@ -129,6 +132,11 @@ class TreeListView(QWidget):
         self.layout_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.layout_tree.customContextMenuRequested.connect(
             self._layout_context)
+        # Track click position so checkbox double-clicks do not open
+        # Edit Computational Domain / Mesh:block / Part dialogs.
+        self._tree_click_pos = None
+        self._last_check_change = None  # (item, monotonic_time)
+        self.layout_tree.viewport().installEventFilter(self)
 
         self.cond_page = QWidget(self)
         cond_lay = QVBoxLayout(self.cond_page)
@@ -457,12 +465,51 @@ class TreeListView(QWidget):
 
     # -- events ------------------------------------------------------------
 
+    def eventFilter(self, obj, event):  # noqa: N802
+        if obj is self.layout_tree.viewport() and event.type() in (
+                QEvent.MouseButtonPress, QEvent.MouseButtonDblClick):
+            self._tree_click_pos = event.pos()
+        return super().eventFilter(obj, event)
+
+    def _check_indicator_rect(self, item):
+        """Viewport rect of the item's checkbox, or None if not checkable."""
+        if item is None or not (item.flags() & Qt.ItemIsUserCheckable):
+            return None
+        tree = self.layout_tree
+        opt = QStyleOptionViewItem()
+        opt.initFrom(tree)
+        opt.rect = tree.visualItemRect(item)
+        opt.features = QStyleOptionViewItem.HasCheckIndicator
+        opt.checkState = item.checkState(0)
+        opt.decorationSize = tree.iconSize()
+        if not item.icon(0).isNull():
+            opt.features |= QStyleOptionViewItem.HasDecoration
+        opt.widget = tree
+        rect = tree.style().subElementRect(
+            QStyle.SE_ItemViewItemCheckIndicator, opt, tree)
+        if rect.isValid() and rect.width() > 0:
+            return rect
+        # Fallback: left strip of the item row (branch/check area)
+        vr = tree.visualItemRect(item)
+        return vr.adjusted(0, 0, -(max(0, vr.width() - 22)), 0)
+
+    def _click_on_check_indicator(self, item) -> bool:
+        pos = self._tree_click_pos
+        if item is None or pos is None:
+            return False
+        rect = self._check_indicator_rect(item)
+        return bool(rect is not None and rect.contains(pos))
+
     def _on_item_changed(self, item, _col) -> None:
         if self._block:
             return
         data = item.data(0, Qt.UserRole)
         if not data:
             return
+        # Remember check toggles so a double-click on the checkbox (which
+        # also flips checkState) does not open the edit dialog.
+        if item.flags() & Qt.ItemIsUserCheckable:
+            self._last_check_change = (item, time.monotonic())
         kind, name = data
         checked = item.checkState(0) == Qt.Checked
         if kind == "part" and name:
@@ -557,9 +604,21 @@ class TreeListView(QWidget):
             menu.exec_(self.layout_tree.viewport().mapToGlobal(pos))
 
     def _on_double_click(self, item, _col) -> None:
-        data = item.data(0, Qt.UserRole)
-        if data and data[0] in ("domain", "mesh_block", "part"):
-            self.item_activated.emit(data[0], data[1])
+        """Open edit dialogs only for double-clicks on the label/text.
+
+        Clicks / double-clicks on the checkbox must only toggle visibility
+        (Domain face mode, RootBlock, Part hide) — never pop Edit Domain.
+        """
+        data = item.data(0, Qt.UserRole) if item is not None else None
+        if not data or data[0] not in ("domain", "mesh_block", "part"):
+            return
+        if self._click_on_check_indicator(item):
+            return
+        last = self._last_check_change
+        if (last is not None and last[0] is item
+                and (time.monotonic() - last[1]) < 0.4):
+            return
+        self.item_activated.emit(data[0], data[1])
 
     def _set_checked(self, item, on: bool) -> None:
         item.setCheckState(0, Qt.Checked if on else Qt.Unchecked)

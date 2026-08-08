@@ -1292,19 +1292,74 @@ def section_actor(pd, colors, mode: str = "show"):
     return actor
 
 
+def mesh_block_extents_m(model: StpreModel
+                         ) -> Optional[tuple[float, float, float,
+                                             float, float, float]]:
+    """RootBlock / mesh_block AABB in metres from axis end-points."""
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return None
+    return (
+        axes["x"][0] / 1000.0, axes["y"][0] / 1000.0, axes["z"][0] / 1000.0,
+        axes["x"][-1] / 1000.0, axes["y"][-1] / 1000.0, axes["z"][-1] / 1000.0,
+    )
+
+
+def mesh_block_shell_polydata(model: StpreModel):
+    """Closed AABB shell (6 quads) for depth occlusion of Mesh face grids.
+
+    STpre Drawing→Mesh shows face grids with back-face occlusion; a light
+    shell writes the Z-buffer so rear grid lines are hidden while parts
+    inside remain visible through a translucent fill.
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    ext = mesh_block_extents_m(model)
+    if ext is None:
+        return None
+    x0, y0, z0, x1, y1, z1 = ext
+    # Slightly inset so RootBlock blue edges stay visible outside the shell
+    eps = max(1e-6, 0.0005 * max(x1 - x0, y1 - y0, z1 - z0, 1e-3))
+    x0 += eps; y0 += eps; z0 += eps
+    x1 -= eps; y1 -= eps; z1 -= eps
+    if x1 <= x0 or y1 <= y0 or z1 <= z0:
+        return None
+    pts = np.array([
+        [x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0],
+        [x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1],
+    ], dtype=np.float64)
+    quads = np.array([
+        [0, 1, 2, 3],  # z0
+        [4, 5, 6, 7],  # z1
+        [0, 1, 5, 4],  # y0
+        [3, 2, 6, 7],  # y1
+        [0, 3, 7, 4],  # x0
+        [1, 2, 6, 5],  # x1
+    ], dtype=np.int64)
+    return _polydata(pts, quads, "polys")
+
+
 def mesh_block_grid(model: StpreModel, stride: int = 1):
-    """Structured-mesh grid lines from ``mesh_block`` axes (meters).
+    """Structured-mesh grid lines on the six RootBlock faces (meters).
 
     ``stride`` > 1 thins lines for large grids (e.g. 99×243×63).
+    Face-only (not a full 3-D lattice) — matches STpre Drawing→Mesh.
     """
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
     axes = model.mesh_axes()
     if not axes or any(len(v) < 2 for v in axes.values()):
         return None
-    xs = [v / 1000.0 for v in axes["x"][::max(1, stride)]]
-    ys = [v / 1000.0 for v in axes["y"][::max(1, stride)]]
-    zs = [v / 1000.0 for v in axes["z"][::max(1, stride)]]
+    step = max(1, int(stride))
+
+    def _sample(vals: list[float]) -> list[float]:
+        out = [v / 1000.0 for v in vals[::step]]
+        last = vals[-1] / 1000.0
+        if not out or abs(out[-1] - last) > 1e-12:
+            out.append(last)
+        return out
+
+    xs, ys, zs = _sample(axes["x"]), _sample(axes["y"]), _sample(axes["z"])
     if len(xs) < 2 or len(ys) < 2 or len(zs) < 2:
         return None
     x0, x1 = xs[0], xs[-1]
@@ -1319,7 +1374,7 @@ def mesh_block_grid(model: StpreModel, stride: int = 1):
         pts.append(b)
         lines.append([i, i + 1])
 
-    # faces of the domain AABB — full grid on each face (readable, not 3-D dense)
+    # Six faces of the domain AABB — full structured grid on each face
     for y in ys:
         for z in (z0, z1):
             add_line([x0, y, z], [x1, y, z])
@@ -1339,3 +1394,42 @@ def mesh_block_grid(model: StpreModel, stride: int = 1):
     arr_pts = np.asarray(pts, dtype=np.float64)
     arr_lines = np.asarray(lines, dtype=np.int64)
     return _polydata(arr_pts, arr_lines, "lines")
+
+
+def mesh_block_display_actors(
+        model: StpreModel, *,
+        stride: int = 1,
+        line_color: tuple[float, float, float] = (0.35, 0.48, 0.62),
+        shell_color: tuple[float, float, float] = (0.78, 0.86, 0.92),
+        shell_opacity: float = 0.55,
+        line_width: float = 1.05) -> list:
+    """STpre Drawing→Mesh: face grids + translucent shell (depth occlusion).
+
+    Returns ``[shell_actor, line_actor]`` (either may be omitted if empty).
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    actors: list = []
+    shell_pd = mesh_block_shell_polydata(model)
+    if shell_pd is not None and shell_pd.GetNumberOfCells() > 0:
+        shell = shaded_poly_actor(
+            shell_pd, color=shell_color, opacity=shell_opacity)
+        # Write depth so rear grid lines / far faces are occluded
+        prop = shell.GetProperty()
+        prop.SetAmbient(0.55)
+        prop.SetDiffuse(0.45)
+        prop.BackfaceCullingOff()
+        actors.append(shell)
+    grid = mesh_block_grid(model, stride=stride)
+    if grid is not None and grid.GetNumberOfCells() > 0:
+        lines = edges_actor(
+            grid, color=line_color, line_width=line_width, opacity=1.0)
+        # Depth-test against the shell / parts (do not force always-on-top)
+        try:
+            mapper = lines.GetMapper()
+            mapper.SetResolveCoincidentTopologyToPolygonOffset()
+            mapper.SetRelativeCoincidentTopologyLineOffsetParameters(-1, -2)
+        except Exception:
+            pass
+        actors.append(lines)
+    return actors

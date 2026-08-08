@@ -1552,15 +1552,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Domain(cuboid) tree checkbox (STpre Layout of Parts):
         #   checked   → opaque face mesh (面模式)
         #   unchecked → hidden-line volume wireframe (体网格线框)
+        # Drawing→Mesh (post-Gridding face grids) is handled separately below.
         mesh_on = self.control.layer_on("mesh")
         mesh_block_on = self.control.layer_on("mesh_block")
-        if element_on or mesh_on or mesh_block_on:
+        if element_on or mesh_on:
             for aname in self.model.analysis_names():
                 aboxes = self.model.analysis_boxes(aname)
                 if not aboxes:
                     continue
                 face_mode = aname in self._domain_face_mode
-                if face_mode and not wire and (element_on or mesh_on):
+                if face_mode and not wire:
                     # Opaque cyan shell — hides interior parts
                     pd_shell = cab_vtk.element_division_shell(
                         self.model, boxes=aboxes)
@@ -1583,10 +1584,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                         self._edge_actors.append((dom_edge, aname))
                         key = "element" if element_on else "mesh"
                         self._layer_actors[key].append(dom_edge)
-                elif not face_mode and (element_on or mesh_on):
-                    # STpre Domain unchecked: dense face-grid cage (see-through).
-                    # All 6 faces of the domain brick — no opaque shell, Part
-                    # stays visible in the center (matches curvedbox screenshot).
+                elif not face_mode and element_on:
+                    # Occupancy face grids for Domain after Meshing only
                     pd_dom = cab_vtk.element_division_lines(
                         self.model, boxes=aboxes,
                         interior_stride=0, surface_eps=0.0)
@@ -1596,24 +1595,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                             line_width=1.0, opacity=0.9)
                         self.renderer.AddActor(dom_edge)
                         self._edge_actors.append((dom_edge, aname))
-                        key = "element" if element_on else "mesh"
-                        self._layer_actors[key].append(dom_edge)
-                if mesh_block_on and not face_mode:
-                    # Interior mesh-block grid only (nmax>2); outer blue
-                    # silhouette is Layout→RootBlock.
-                    axes = self.model.mesh_axes()
-                    nmax = max((len(v) for v in axes.values()), default=0)
-                    if nmax > 2:
-                        stride = max(6, nmax // 10)
-                        grid = cab_vtk.mesh_block_grid(
-                            self.model, stride=stride)
-                        if grid is not None and grid.GetNumberOfCells() > 0:
-                            mb_actor = cab_vtk.edges_actor(
-                                grid, color=(0.82, 0.22, 0.58),
-                                line_width=1.8, opacity=0.95)
-                            self.renderer.AddActor(mb_actor)
-                            self._layer_actors["mesh_block"].append(
-                                mb_actor)
+                        self._layer_actors["element"].append(dom_edge)
 
         if self.control.layer_on("domain_frame"):
             frame = cab_vtk.domain_frame(self.model)
@@ -1678,25 +1660,25 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             except Exception as exc:
                 self.log(f"Sketch axes draw failed: {exc}", "WARN")
 
-        # Drawing→Mesh block: dense *interior* grid only (many axis points).
-        # Outer blue AABB is Layout→RootBlock above — do not substitute a
-        # magenta cage for the 2-point RootBlock silhouette.
-        if mesh_block_on:
-            axes = self.model.mesh_axes()
-            nmax = max((len(v) for v in axes.values()), default=0)
-            if nmax > 2:
-                face_any = bool(self._domain_face_mode)
-                if face_any or not (element_on or mesh_on):
-                    stride = 1 if nmax <= 80 else max(1, nmax // 40)
-                    grid = cab_vtk.mesh_block_grid(
-                        self.model, stride=stride)
-                    if grid is not None and grid.GetNumberOfCells() > 0:
-                        mesh_actor = cab_vtk.edges_actor(
-                            grid, color=(0.75, 0.25, 0.55),
-                            line_width=1.4)
-                        self.renderer.AddActor(mesh_actor)
-                        self._layer_actors["mesh_block"].append(
-                            mesh_actor)
+        # Drawing→Mesh: post-Gridding face grids + translucent shell so rear
+        # faces are depth-occluded (STpre Mesh).  Also honour Mesh block when
+        # axes exist — Mesh block checkbox alone used to be suppressed by the
+        # default Element-division ON state after Gridding-only.
+        axes = self.model.mesh_axes() if self.model is not None else {}
+        nmax = max((len(v) for v in axes.values()), default=0) if axes else 0
+        if (mesh_on or mesh_block_on) and nmax > 2:
+            self._ensure_depth_peeling()
+            stride = 1 if nmax <= 80 else max(1, nmax // 40)
+            try:
+                mb_actors = cab_vtk.mesh_block_display_actors(
+                    self.model, stride=stride)
+            except Exception as exc:
+                self.log(f"Mesh face grid draw failed: {exc}", "WARN")
+                mb_actors = []
+            layer_key = "mesh" if mesh_on else "mesh_block"
+            for act in mb_actors:
+                self.renderer.AddActor(act)
+                self._layer_actors.setdefault(layer_key, []).append(act)
 
         self._set_orientation_marker(self.control.layer_on("axis_global"))
 
@@ -1746,6 +1728,37 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.renderer is None:
             return
         self.renderer.GetActiveCamera().ParallelProjectionOn()
+
+    def _ensure_depth_peeling(self) -> None:
+        """Enable depth peeling so translucent Mesh shells occlude rear grids."""
+        if self.renderer is None or self.vtk_widget is None:
+            return
+        try:
+            rw = self.vtk_widget.GetRenderWindow()
+            if rw is not None:
+                rw.SetAlphaBitPlanes(1)
+                try:
+                    rw.SetMultiSamples(0)
+                except Exception:
+                    pass
+            self.renderer.SetUseDepthPeeling(1)
+            self.renderer.SetMaximumNumberOfPeels(8)
+            self.renderer.SetOcclusionRatio(0.1)
+        except Exception:
+            pass
+
+    def _enable_mesh_layer_after_gridding(self) -> None:
+        """Turn on Drawing→Mesh after Gridding so face grids are visible.
+
+        STpre shows all mesh grid lines via Drawing→Mesh; Mesh defaults to
+        OFF in Show/Select, so Gridding alone previously left only RootBlock.
+        """
+        cb = self.control.layer_checks.get("mesh")
+        if cb is None or cb.isChecked():
+            return
+        cb.blockSignals(True)
+        cb.setChecked(True)
+        cb.blockSignals(False)
 
     def _fit_view(self) -> None:
         if not self._enable_3d or self.renderer is None:
@@ -2546,6 +2559,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.tree_view.populate(
                 self.model, self.archive.members)
             self.control.load_sketch(self.model)
+            if action == "grid" or "mesh_block" in merged:
+                self._enable_mesh_layer_after_gridding()
             self._rebuild_scene()
             self._mark_dirty()
             self._update_title()

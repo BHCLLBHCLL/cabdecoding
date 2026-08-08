@@ -2545,6 +2545,12 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             self._refresh_edit_list()
             self._refresh_detail_ranges()
             self._populate_parameter_tab()
+            parent = self.parent()
+            if parent is not None and hasattr(
+                    parent, "_enable_mesh_layer_after_gridding"):
+                parent._enable_mesh_layer_after_gridding()
+                if hasattr(parent, "_rebuild_scene"):
+                    parent._rebuild_scene(fit=False)
             self._log("Gridding (STpre API) finished.")
             return
         import cab_vtk
@@ -2602,8 +2608,11 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self._refresh_detail_ranges()
         self._populate_parameter_tab()
         parent = self.parent()
+        if parent is not None and hasattr(
+                parent, "_enable_mesh_layer_after_gridding"):
+            parent._enable_mesh_layer_after_gridding()
         if parent is not None and hasattr(parent, "_rebuild_scene"):
-            parent._rebuild_scene()
+            parent._rebuild_scene(fit=False)
         cells = tuple(max(0, n - 1) for n in counts)
         self._log(
             f"Gridding: {detection}/{method} -> "
