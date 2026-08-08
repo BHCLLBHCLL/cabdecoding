@@ -564,8 +564,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """
         name = "Untitled"
         archive = CabArchive()
-        archive.version_minor = 0
-        archive.version_major = 0
+        archive.version_minor = 3
+        archive.version_major = 1
         archive.cfolders = 1
         archive.cfiles = 0
         archive.flags = 0
@@ -2271,7 +2271,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             tmp = tempfile.mkdtemp(prefix="cab_stpre_")
             src = os.path.join(tmp, "in.cab")
             dst = os.path.join(tmp, "out.cab")
-            if not self._rebuild_to(src):
+            if not cab_stpre_api.build_relay_cab(
+                    self.model, self.archive, src):
                 return "native"
             params = cab_stpre_api.build_grid_params(self.model)
             run_element = action != "grid"
@@ -2279,9 +2280,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 src, dst, method="detail", grid_params=params,
                 run_element=run_element)
             if not ok or not os.path.isfile(dst):
+                detail = getattr(cab_stpre_api, "last_error", None)
                 self.log(
-                    "STpre API gridding/meshing failed; "
-                    "falling back to native.", "WARN")
+                    "STpre API gridding/meshing failed"
+                    + (f" ({detail})" if detail else "")
+                    + "; falling back to native.", "WARN")
                 return "native"
             arch = CabArchive.parse(open(dst, "rb").read())
             arch.fill_member_data()

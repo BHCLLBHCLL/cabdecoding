@@ -20,6 +20,8 @@ from pathlib import Path
 from typing import Optional
 
 PROGID = "STpre_Bx64net.Application.2025"
+last_error: Optional[str] = None
+_TEMPLATE = Path(__file__).resolve().parent / "data" / "stpre_template.xml"
 
 _DIVISION_METHOD = {
     "coarse": "coarse",
@@ -90,9 +92,9 @@ def build_grid_params(model, *, method: Optional[str] = None,
         ("division_type", vd_key, "", ""),
     ]
     if key == "auto1" and target_elements is not None:
-        params.append(("division_num", str(int(target_elements)), "0", "0"))
+        params.append(("division_num", int(target_elements), 0, 0))
     elif key == "auto3" and target_per_axis is not None:
-        params.append(("division_num", *(str(int(v)) for v in target_per_axis)))
+        params.append(("division_num", *(int(v) for v in target_per_axis)))
     if outer_ratio is None:
         try:
             vals = [float(x) for x in mc("divide_ratio2", "1.2,1.2,1.2")
@@ -100,13 +102,78 @@ def build_grid_params(model, *, method: Optional[str] = None,
         except ValueError:
             vals = [1.2, 1.2, 1.2]
         outer_ratio = tuple(vals)
-    params.append(("outer_ratio", *(f"{v:.12g}" for v in outer_ratio)))
+    params.append(("outer_ratio", *(float(v) for v in outer_ratio)))
     if edge_contact is None:
         edge_contact = 1 if mc("edge_contact", "0") == "1" else 0
-    params.append(("edge_contact", str(edge_contact), "", ""))
+    params.append(("edge_contact", int(edge_contact), "", ""))
     if max_elements is not None:
-        params.append(("max_elements", str(int(max_elements)), "", ""))
+        params.append(("max_elements", int(max_elements), "", ""))
     return params
+
+
+def build_relay_cab(model, archive, src_path: str | Path) -> bool:
+    """Write the temp CAB relay from an official STpre XML template.
+
+    STpre rejects minimal project XML (OpenCabFile returns 0), so the relay
+    uses the full official ex4_e XML structure with the current project's
+    domain / parts / body_files merged in; the mesh sections are regenerated
+    by STpre itself.
+    """
+    import xml.etree.ElementTree as ET
+    from cabxml import StpreModel, _first, parse_stpre
+    if not _TEMPLATE.is_file():
+        last_error = "missing data/stpre_template.xml"
+        return False
+    template = StpreModel(parse_stpre(_TEMPLATE.read_bytes()))
+    root = template.doc.root
+    for tag in ("group", "parts", "analysis_region", "body_files"):
+        el = root.find(tag)
+        if el is not None:
+            root.remove(el)
+    src_root = model.doc.root
+    for tag in ("analysis_region", "body_files"):
+        el = src_root.find(tag)
+        if el is not None:
+            root.append(ET.fromstring(ET.tostring(el)))
+    for el in list(src_root):
+        if el.tag in ("group", "parts"):
+            root.append(ET.fromstring(ET.tostring(el)))
+    # sync RootBlock / mesh_block range to the current computational domain
+    base = model.domain_base()
+    size = model.domain_size()
+    if base is not None and size is not None:
+        dmin = ",".join(f"{v:.17g}" for v in base)
+        dmax = ",".join(f"{v:.17g}" for v in
+                        (base[0] + size[0], base[1] + size[1],
+                         base[2] + size[2]))
+        for sec in ("mesh_control", "mesh_block"):
+            sec_el = root.find(sec)
+            if sec_el is None:
+                continue
+            for tag in ("min", "max"):
+                el = sec_el.find(f".//{tag}")
+                if el is not None:
+                    el.text = f" {dmin if tag == 'min' else dmax} "
+                    el.attrib["unit"] = "mm"
+            grid = sec_el.find(".//grid")
+            if grid is not None:
+                grid.text = " 2,2,2 "
+    prop_member = next((m for m in archive.members
+                        if m.name.endswith("_property.xml")), None)
+    if prop_member is not None:
+        pdb = _first(root, "property_db")
+        if pdb is not None:
+            f = _first(pdb, "file")
+            if f is not None:
+                f.text = f" {prop_member.name} "
+    xml_bytes = template.doc.serialize()
+    for m in archive.members:
+        if m.name.endswith(".xml") and not m.name.startswith("_"):
+            m.data = xml_bytes
+            break
+    Path(src_path).write_bytes(archive.to_bytes(preserve_source_blocks=False))
+    last_error = None
+    return True
 
 
 def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
@@ -119,12 +186,15 @@ def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
     Returns True when the output CAB was saved.  File paths are the relay
     between cab_gui's memory model and the external STpre process.
     """
+    global last_error
     import win32com.client
     app = win32com.client.Dispatch(PROGID)
     try:
         app.Visible = False
         doc = _invoke(app, "GetDocument")
-        if not _invoke(doc, "OpenCabFile", str(cab_in)):
+        rc = _invoke(doc, "OpenCabFile", str(cab_in))
+        if rc != 1:
+            last_error = f"OpenCabFile rc={rc}"
             return False
         mesher = _invoke(doc, "GetMesher")
         params = grid_params if grid_params is not None else [
@@ -132,14 +202,24 @@ def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
             ("division_type", division_type, "", ""),
         ]
         for key, p1, p2, p3 in params:
-            if _invoke(mesher, "SetGridParam", key, p1, p2, p3) != 1:
+            rc = _invoke(mesher, "SetGridParam", key, p1, p2, p3)
+            if rc != 1:
+                last_error = f"SetGridParam({key}) rc={rc}"
                 return False
-        if _invoke(mesher, "ExecuteGrid", method, "T") != 1:
+        rc = _invoke(mesher, "ExecuteGrid", method, "T")
+        if rc != 1:
+            last_error = f"ExecuteGrid({method}) rc={rc}"
             return False
-        if run_element and _invoke(mesher, "ExecuteElement") != 1:
+        if run_element:
+            rc = _invoke(mesher, "ExecuteElement")
+            if rc != 1:
+                last_error = f"ExecuteElement rc={rc}"
+                return False
+        rc = _invoke(doc, "SaveCabFile", str(cab_out))
+        if rc != 1:
+            last_error = f"SaveCabFile rc={rc}"
             return False
-        if _invoke(doc, "SaveCabFile", str(cab_out)) != 1:
-            return False
+        last_error = None
         return True
     finally:
         try:

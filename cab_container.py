@@ -110,8 +110,8 @@ class CabArchive:
     """Parsed Cradle CAB archive with read + write support."""
 
     def __init__(self) -> None:
-        self.version_minor = 0
-        self.version_major = 0
+        self.version_minor = 3
+        self.version_major = 1
         self.cfolders = 0
         self.cfiles = 0
         self.flags = 0

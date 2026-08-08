@@ -1366,6 +1366,23 @@ win32com 报 `DISP_E_MEMBERNOTFOUND (-2147352573, "找不到成员。")`。
 （COM）完成 gridding+meshing：网格 366×688×114、element 生成，输出
 cab 5.2 s。
 
+二次修复（2026-08-08）：新工程/自建 cab 被 STpre `OpenCabFile` 拒绝
+（rc=0），根因有二：
+1. 新工程 cab 头版本为 0.0（官方 3.1）——`CabArchive` 默认与
+   `_new_project` 已改为 3/1；
+2. 自建最小 XML 缺少 STpre 必需的章节，且 STpre 需要现成 RootBlock 才能
+   `ExecuteGrid`（否则 `GetNumElements=-1`、`ExecuteElement=0`）。
+   中转改用官方结构模板 `data/stpre_template.xml`（保留
+   mesh_control/mesh_block/element 骨架，RootBlock min/max 同步为当前
+   计算域，grid=2,2,2），`build_relay_cab` 只注入
+   analysis_region/body_files/group/parts 后写临时 cab。
+
+修复后实测（新工程+box+域 −25..25 mm）：OpenCabFile=1、
+ExecuteGrid=1、ExecuteElement=1，输出网格 251×399×417、element 生成。
+数值参数（division_num/outer_ratio/edge_contact）已改为 int/float 类型
+（字符串会被 `SetGridParam` 拒绝，rc=0）；失败步骤通过 `last_error`
+记录具体 rc 供 GUI 日志。
+
 ### 28.3 验证与集成
 
 - `tests/test_stpre_api.py`（5 项）：ProgID 注册检测、SetGridParam 参数
