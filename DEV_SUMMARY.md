@@ -1492,3 +1492,36 @@ STpre 中 Layout of Parts 的 RootBlock 蓝色线框不是一个独立可漂移�
 - 修正 `test_stpre_session_reopen_logic` 显式关闭进程检测（本机有
   常驻 STpre 进程时原测试会被新保护拦住）；
 - 全仓 `pytest`：**210 通过 / 4 跳过**。
+
+## 31. STpre 网格算法多实例黑盒探测（2026-08-08）
+
+### 31.1 工具与数据
+
+- `stpre_probe.py`：通过 STpre COM API 批量跑受控工程（domain /
+  vertex detection / method / std / threshold / ratio_in-out /
+  transform / 部件几何矩阵），记录输入、COM rc、输出 mesh_block
+  坐标与 part cell boxes，逐步落盘 JSON；
+- 标准数据集 `data/stpre_probe_20260808_all.json`：**35/35 用例通过**；
+- 规则档案：`STPRE_GRID_RULES.md`（含复现命令、逐条证据与待补项）。
+
+### 31.2 关键结论（详见 STPRE_GRID_RULES.md）
+
+1. RootBlock 恒等于域；部件在域外不产生 cell；
+2. part transform 平移单位是 **m**（+0.0025 才是 2.5 mm）；
+3. minmax / axis_plane 只放 AABB 线；all / representative 放
+   每个顶点投影坐标线，段间按 `n=round(len/std)` 拟合等分；
+4. 内区默认等分，`ratio_in>1` 时为自部件边界对称几何级数；
+5. 外区为几何级数，首间距=std，q 由名义 ratio_out 与总长二分求解，
+   左右独立；ratio_out=1.0 退化为均匀；
+6. coarse=仅域+部件 min/max 线；auto1 每轴 cell≈目标数^(1/3)；
+   auto3 严格按每轴目标；
+7. STL/polygon 部件当前 relay 不被 STpre 网格化（负面结论）；
+8. 原生算法差距：内区 ratio_in>1 几何级数、顶点投影线分段、
+   auto1 分配公式待实现。
+
+### 31.3 验证
+
+- 35 用例全部 `OpenCabFile/ExecuteGrid/ExecuteElement/SaveCabFile`
+  rc=1，输出坐标可复现（两次跑 base/旋转用例结果一致）；
+- 探测脚本与 STpre 会话归属保护（§30）配合：用户打开的 STpre 不会被
+  探测流程接管/退出。
