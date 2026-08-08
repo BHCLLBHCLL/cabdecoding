@@ -172,7 +172,7 @@
 3D 预览并参与 Meshing；重开时按 XML 参数重建几何（不依赖 x_t）。
 ✅ Sketch Part：`cab_sketch.SketchPartDialog`（Panel/Extrusion，点序列/
 矩形/圆），基于 sketch plane 生成几何并持久化。
-⬜ Fan：保持 NYI（记日志）。
+✅ Fan：`cab_parts.CreatePartDialog`（`Fan`/`Axial-Flow Fan`/`Blower Fan`，轮毂+叶片参数）创建并持久化，与 Sketch Part 一并纳入 14 种部件菜单；
 
 Sketch plane：Control Window 新增 [Sketch] 页（原点/U·W 向量/网格
 Delta·Snap·范围/Gridsnap·Minus），Reset（Zmin）/Fit to computational
@@ -240,7 +240,7 @@ domain/Update；Show/Select 的 Sketch plane 与 Axis (Sketch) 开关显示
 
 ### 5.3 [Parts] Toolbar
 
-手册完整标准件列表过长。cab **第一期只放一行占位**（Cube / Cylinder / Sphere / Panel）全部 NYI，或 View→隐藏该栏。  
+手册完整标准件列表过长。cab 已实现 14 种部件（Cube / Cylinder / Sphere / Panel / Hexahedron / Conical / Quadrilateral Panel / Revolved Rectangle / Point / Fan / Axial-Flow Fan / Blower Fan / Sketch / Pipe），全部可创建并持久化。  
 不实现「By Dialog / By Mouse / Sketch coordinate」切换。
 
 ### 5.4 [Mouse] Toolbar（1-button 模式时显示）

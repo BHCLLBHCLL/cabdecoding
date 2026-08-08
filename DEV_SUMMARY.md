@@ -1140,7 +1140,7 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
     Material），与手册 [Part]-[Cuboid/Cylinder/Sphere/Panel] 控件对齐；
 - `cab_gui`：Part 菜单与 Parts 工具栏四个按钮接入
   `_create_part_dialog(kind)`；创建后入 undo 栈、刷新树/3D；`Sketch
-  Part`/`Fan` 保持 NYI 记日志；`load/_restore_snapshot` 追加基本体预览。
+  Part`/`Fan`/`Axial-Flow Fan`/`Blower Fan` 等共 14 种部件创建；`load/_restore_snapshot` 追加基本体预览。
 
 验证：`tests/test_menus_other.py` 新增 3 项（四种基本体面片数、
 注册→重建→序列化往返、创建对话框 spec）。全仓 **144 通过 / 4 跳过**。
@@ -1171,8 +1171,8 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 ### 24.6 M7 收尾
 
 - 除 Mesh/Wizard 外，File/Edit/View/Part/Option/Help 六个菜单全部从
-  NYI/占位升级为可用功能；仅 `Part → Sketch Part / Fan` 保留 NYI（记日志，
-  复杂草图/风机建模留作长期项）；
+  NYI/占位升级为可用功能；`Part` 菜单共 14 种部件（含 Sketch Part 与
+  Fan/Axial-Flow Fan/Blower Fan 等）均已实现，无保留 NYI 项；
 - 文档：DEV_PLAN M7 计划表全部 ✅、CAB_GUI_DESIGN §4 状态表刷新、
   README 功能清单更新、`.gitignore` 忽略 `session-*.md`；
 - 回归：`tests/test_menus_other.py` 共 14 项（File 4、Edit 3、View/Help 2、
