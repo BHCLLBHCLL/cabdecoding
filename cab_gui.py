@@ -112,6 +112,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._undo_limit = 50
         self._log_level = "INFO"
         self._startup_redraw = True
+        # Reusable STpre COM session: Gridding/Meshing share one STpre
+        # process instead of cold-starting COM + OpenCabFile per click.
+        self._stpre_session = None
 
         self._build_ui()
         self._apply_style()
@@ -2246,7 +2249,23 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _toggle_stpre_api(self, on: bool) -> None:
         from cab_options import set_setting
         set_setting("use_stpre_api", "True" if on else "False")
+        if not on:
+            self._close_stpre_session()
         self.log(f"STpre API gridding/meshing: {'ON' if on else 'OFF'}")
+
+    def _close_stpre_session(self) -> None:
+        """Quit the shared STpre process (option off, failure, app exit)."""
+        session = getattr(self, "_stpre_session", None)
+        if session is not None:
+            try:
+                session.close()
+            except Exception:
+                pass
+            self._stpre_session = None
+
+    def closeEvent(self, event) -> None:
+        self._close_stpre_session()
+        super().closeEvent(event)
 
     def _run_stpre_api(self, action: str,
                        params: Optional[list] = None,
@@ -2256,6 +2275,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         File-relay: the current project is saved to a temp CAB, STpre
         (COM automation) executes the mesh commands and saves another CAB,
         and the mesh sections are merged back into the in-memory model.
+
+        The STpre process is kept alive in ``self._stpre_session``:
+        [Gridding] starts it once, then [Meshing] re-opens a *new* relay
+        CAB in the same process and only runs ExecuteElement, which avoids
+        the 5-7 s COM cold-start (plus second OpenCabFile) per click.
         """
         if not self._stpre_api_enabled() or self.model is None \
                 or self.archive is None:
@@ -2270,24 +2294,68 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             import os
             import tempfile
             from cab_container import CabArchive
+            from cabxml import StpreModel, parse_stpre
+            from PyQt5.QtCore import Qt
+            from PyQt5.QtWidgets import QApplication
+
+            # Meshing reuses the mesh_block that [Gridding] (STpre or
+            # native) already wrote into the in-memory model, so the relay
+            # carries it and STpre only has to execute element division.
+            axes = self.model.mesh_axes()
+            has_mesh = bool(axes) and all(
+                len(axes.get(a, [])) >= 2 for a in "xyz")
+            keep_mesh = action != "grid" and has_mesh
             tmp = tempfile.mkdtemp(prefix="cab_stpre_")
             src = os.path.join(tmp, "in.cab")
             dst = os.path.join(tmp, "out.cab")
             if not cab_stpre_api.build_relay_cab(
-                    self.model, self.archive, src):
+                    self.model, self.archive, src, keep_mesh=keep_mesh):
+                self.log("STpre API relay build failed; using native.",
+                         "WARN")
                 return "native"
             if params is None:
                 params = cab_stpre_api.build_grid_params(self.model)
+            fresh_session = self._stpre_session is None
+            session = self._stpre_session
+            if session is None:
+                session = cab_stpre_api.STpreSession()
+                self._stpre_session = session
+            if not session.ensure_open(src):
+                detail = getattr(cab_stpre_api, "last_error", None)
+                self.log(
+                    "STpre API open failed"
+                    + (f" ({detail})" if detail else "")
+                    + "; falling back to native.", "WARN")
+                self._close_stpre_session()
+                return "native"
+            # Gridding: SetGridParam + ExecuteGrid.  Meshing with an
+            # existing mesh_block: ExecuteElement only.  Meshing without a
+            # mesh_block (user skipped Gridding): full grid + element.
+            run_grid = action == "grid" or not keep_mesh
             run_element = action != "grid"
-            ok = cab_stpre_api.run_stpre_grid_mesh(
-                src, dst, method=method, grid_params=params,
-                run_element=run_element)
+            self.log(
+                f"STpre API: {'gridding' if run_grid else 'skipping grid'} "
+                f"/ {'element division' if run_element else 'no elements'} "
+                f"in shared session "
+                f"({'started' if fresh_session else 'reused'})...")
+            QApplication.setOverrideCursor(Qt.WaitCursor)
+            ok = True
+            try:
+                if run_grid and not session.grid(params, method):
+                    ok = False
+                elif run_element and not session.element():
+                    ok = False
+                elif not session.save(dst):
+                    ok = False
+            finally:
+                QApplication.restoreOverrideCursor()
             if not ok or not os.path.isfile(dst):
                 detail = getattr(cab_stpre_api, "last_error", None)
                 self.log(
                     "STpre API gridding/meshing failed"
                     + (f" ({detail})" if detail else "")
                     + "; falling back to native.", "WARN")
+                self._close_stpre_session()
                 return "native"
             arch = CabArchive.parse(open(dst, "rb").read())
             arch.fill_member_data()
@@ -2306,6 +2374,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return "stpre"
         except Exception as exc:
             self.log(f"STpre API failed: {exc}; using native.", "WARN")
+            self._close_stpre_session()
             return "native"
 
     def _gridding_dialog(self) -> None:

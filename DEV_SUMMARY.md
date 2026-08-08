@@ -1399,14 +1399,33 @@ outer_ratio/edge_contact，见 `build_params_from_gridspec`）传给
 `_run_stpre_api` 驱动 STpre，成功则跳过原生写网格并刷新；失败回退原生。
 回归：`tests/test_stpre_api.py` 10 项；全仓 **186 通过 / 4 跳过**。
 
+五次修复（2026-08-08）：**先点 [Gridding] 再点 [Meshing] 卡顿**。根因：
+每次点击都走一次完整冷启动链路——写 relay cab → COM 启动 STpre →
+`OpenCabFile` → 执行 → `SaveCabFile` → `Quit`，单次约 5–7 秒；两次操作
+共两次冷启动 + 两次 OpenCabFile，合计 12–15 秒，界面表现为“点一下卡几秒”。
+修复：新增常驻 `STpreSession`（`cab_stpre_api.py`）：
+
+- `CabViewer` 持有 `_stpre_session`，[Gridding] 首次启动后**不退出**；
+- `ensure_open` 支持在同一进程内重开新的 relay cab（`OpenCabFile` 失败时
+  自动重启一次兜底，避免残留旧工程）；
+- [Meshing] 复用同一会话：relay 带 `keep_mesh=True` 保留内存中已生成的
+  `mesh_block`，只执行 `ExecuteElement`，不再二次 `ExecuteGrid`；
+- Meshing 前没有网格时仍自动走 grid+element 全流程；
+- 操作期间显示 WaitCursor 并输出 `started/reused` 日志；开关关闭、API
+  失败或窗口关闭时 `_close_stpre_session()` 统一退出 STpre；
+- 回归：`tests/test_stpre_api.py` 新增会话复用/重开/失败清理 3 项；
+  全仓 **203 通过 / 4 跳过**。
+
 ### 28.3 验证与集成
 
-- `tests/test_stpre_api.py`（5 项）：ProgID 注册检测、SetGridParam 参数
-  映射（含 auto1 单元数）、结果合并、开关持久化、GUI 分发成功/回退
-  （mock，不启动真实 STpre）；
+- `tests/test_stpre_api.py`（12 项）：ProgID 注册检测、SetGridParam 参数
+  映射（含 auto1 单元数）、relay 保留 RootBlock/域并清空坐标表、结果合并、
+  开关持久化、对话框回调短路/常开、STpre 会话复用（Gridding→Meshing
+  只启动一次 COM）、失败清理、`ensure_open` 同进程重开（mock，不启动
+  真实 STpre）；
 - 修正并行 agent 引入的样例改名（`_box_all.x_t`→`box_all.x_t`）与
   RootBlock 双击改调 `_mesh_block_dialog` 后的测试引用；Mesh 菜单顺序
   断言加入新开关项；
-- 全仓 `pytest --basetemp=.pytest_tmp_run`：**181 通过 / 4 跳过**；
+- 全仓 `pytest --basetemp=.pytest_tmp_runM12`：**203 通过 / 4 跳过**；
 - 一并提交并行 agent 的 Layer/ActivePart 工作（测试全绿，避免混合
   工作区）。

@@ -145,7 +145,8 @@ def build_params_from_gridspec(spec, *, edge_contact: Optional[int] = None
     return params
 
 
-def build_relay_cab(model, archive, src_path: str | Path) -> bool:
+def build_relay_cab(model, archive, src_path: str | Path, *,
+                    keep_mesh: bool = False) -> bool:
     """Write the temp CAB relay from an official STpre XML template.
 
     STpre rejects minimal project XML (OpenCabFile returns 0), so the relay
@@ -164,9 +165,10 @@ def build_relay_cab(model, archive, src_path: str | Path) -> bool:
         el = root.find(tag)
         if el is not None:
             root.remove(el)
-    old_element = root.find("element")
-    if old_element is not None:
-        root.remove(old_element)
+    if not keep_mesh:
+        old_element = root.find("element")
+        if old_element is not None:
+            root.remove(old_element)
     src_root = model.doc.root
     for tag in ("analysis_region", "body_files"):
         el = src_root.find(tag)
@@ -201,11 +203,20 @@ def build_relay_cab(model, archive, src_path: str | Path) -> bool:
             # force STpre to regenerate the coordinate tables: remove the
             # template's x/y/z points from mesh_block (ExecuteGrid otherwise
             # keeps the old coordinates even when min/max are updated).
-            if sec == "mesh_block":
+            if sec == "mesh_block" and not keep_mesh:
                 for ax in ("x", "y", "z"):
                     el = sec_el.find(ax)
                     if el is not None:
                         sec_el.remove(el)
+    if keep_mesh:
+        # carry the current generated mesh into the relay (element-only run)
+        for sec in ("mesh_block", "element"):
+            old = root.find(sec)
+            src_el = src_root.find(sec)
+            if old is not None:
+                root.remove(old)
+            if src_el is not None:
+                root.append(ET.fromstring(ET.tostring(src_el)))
     prop_member = next((m for m in archive.members
                         if m.name.endswith("_property.xml")), None)
     if prop_member is not None:
@@ -224,6 +235,98 @@ def build_relay_cab(model, archive, src_path: str | Path) -> bool:
     return True
 
 
+class STpreSession:
+    """Reusable STpre COM session (start once, grid/mesh repeatedly)."""
+
+    def __init__(self):
+        self._app = None
+        self._doc = None
+        self._mesher = None
+        self._cab_in: Optional[str] = None
+
+    def ensure_open(self, cab_in: str | Path) -> bool:
+        global last_error
+        import win32com.client
+        cab_in = str(cab_in)
+        if self._app is None:
+            app = win32com.client.Dispatch(PROGID)
+            app.Visible = False
+            doc = _invoke(app, "GetDocument")
+            rc = _invoke(doc, "OpenCabFile", cab_in)
+            if rc != 1:
+                last_error = f"OpenCabFile rc={rc}"
+                try:
+                    _invoke(app, "Quit")
+                except Exception:
+                    pass
+                return False
+            self._app = app
+            self._doc = doc
+            self._mesher = _invoke(doc, "GetMesher")
+            self._cab_in = cab_in
+            last_error = None
+            return True
+        if self._cab_in == cab_in:
+            return True
+        # A later [Gridding]/[Meshing] click writes a *new* relay CAB, so
+        # re-open it in the same STpre process.  If the running build does
+        # not accept a second OpenCabFile, restart once instead of leaving
+        # the stale project open.
+        rc = _invoke(self._doc, "OpenCabFile", cab_in)
+        if rc == 1:
+            self._mesher = _invoke(self._doc, "GetMesher")
+            self._cab_in = cab_in
+            last_error = None
+            return True
+        self.close()
+        last_error = f"reopen OpenCabFile rc={rc}; restarted session"
+        return self.ensure_open(cab_in)
+
+    @property
+    def is_open(self) -> bool:
+        return self._app is not None
+
+    def grid(self, params, method: str = "detail") -> bool:
+        global last_error
+        for key, p1, p2, p3 in params:
+            rc = _invoke(self._mesher, "SetGridParam", key, p1, p2, p3)
+            if rc != 1:
+                last_error = f"SetGridParam({key}) rc={rc}"
+                return False
+        rc = _invoke(self._mesher, "ExecuteGrid", method, "T")
+        if rc != 1:
+            last_error = f"ExecuteGrid({method}) rc={rc}"
+            return False
+        return True
+
+    def element(self) -> bool:
+        global last_error
+        rc = _invoke(self._mesher, "ExecuteElement")
+        if rc != 1:
+            last_error = f"ExecuteElement rc={rc}"
+            return False
+        return True
+
+    def save(self, cab_out: str | Path) -> bool:
+        global last_error
+        rc = _invoke(self._doc, "SaveCabFile", str(cab_out))
+        if rc != 1:
+            last_error = f"SaveCabFile rc={rc}"
+            return False
+        return True
+
+    def close(self) -> None:
+        if self._app is not None:
+            try:
+                _invoke(self._app, "Quit")
+            except Exception:
+                pass
+            self._app = None
+            self._doc = None
+            self._mesher = None
+            self._cab_in = None
+
+
 def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
                         method: str = "detail",
                         division_type: str = "all",
@@ -235,45 +338,24 @@ def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
     between cab_gui's memory model and the external STpre process.
     """
     global last_error
-    import win32com.client
-    app = win32com.client.Dispatch(PROGID)
+    session = STpreSession()
     try:
-        app.Visible = False
-        doc = _invoke(app, "GetDocument")
-        rc = _invoke(doc, "OpenCabFile", str(cab_in))
-        if rc != 1:
-            last_error = f"OpenCabFile rc={rc}"
+        if not session.ensure_open(cab_in):
             return False
-        mesher = _invoke(doc, "GetMesher")
         params = grid_params if grid_params is not None else [
             ("division_method", method, "", ""),
             ("division_type", division_type, "", ""),
         ]
-        for key, p1, p2, p3 in params:
-            rc = _invoke(mesher, "SetGridParam", key, p1, p2, p3)
-            if rc != 1:
-                last_error = f"SetGridParam({key}) rc={rc}"
-                return False
-        rc = _invoke(mesher, "ExecuteGrid", method, "T")
-        if rc != 1:
-            last_error = f"ExecuteGrid({method}) rc={rc}"
+        if not session.grid(params, method):
             return False
-        if run_element:
-            rc = _invoke(mesher, "ExecuteElement")
-            if rc != 1:
-                last_error = f"ExecuteElement rc={rc}"
-                return False
-        rc = _invoke(doc, "SaveCabFile", str(cab_out))
-        if rc != 1:
-            last_error = f"SaveCabFile rc={rc}"
+        if run_element and not session.element():
+            return False
+        if not session.save(cab_out):
             return False
         last_error = None
         return True
     finally:
-        try:
-            _invoke(app, "Quit")
-        except Exception:
-            pass
+        session.close()
 
 
 def merge_mesh_result(model, out_model) -> list[str]:
