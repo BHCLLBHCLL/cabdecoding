@@ -9,10 +9,11 @@ Aligned with the Pre_eng manual pages and the STpre binary strings:
   step counter ``%s %s ( %d/%d ) step``;
 - STpreCwiz_Bx64.dll pages: Analysis Types / Basic Settings / Fluid
   Region / Flow / Heat / Initial Condition / Boundary Condition
-  (Flow, Wall, Thermal, Symmetrical) / Analysis Control /
-  File Specification / Condition List / Setting Confirmation, with a
-  left navigation tree where undefined steps are grey and defined
-  steps orange.
+  (Flow, Wall, Thermal, Symmetrical) / Source Condition / Fixed
+  Condition / Analysis Control (Steady-state, Solver Parameters,
+  Stabilization, Option) / Output Condition / File Specification /
+  Condition List / Setting Confirmation, with a left navigation tree
+  where undefined steps are grey and defined steps orange.
 
 Both wizards write back to the ``<analysis_set>`` / ``<project>`` /
 ``<condition>`` / ``<value>`` sections through ``cabxml.StpreModel`` so the
@@ -21,7 +22,8 @@ changes persist in the cab and reach the ``.s`` exporter.
 Phase-1 approximations (documented in DEV_SUMMARY):
 - wizard pages whose cab equivalent does not exist yet (building-affected
   winds, enclosure heat release detail) log a WARN and are not written;
-- Condition Wizard covers the Basic-Exercise-1 page set only.
+- some Solver / Stabilization / Output sub-options are UI-faithful and
+  only persist a subset of flags into ``analysis_set``.
 """
 
 from __future__ import annotations
@@ -39,9 +41,9 @@ try:
     from PyQt5.QtWidgets import (
         QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
         QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-        QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
-        QStackedWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-        QWidget,
+        QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSizePolicy,
+        QSplitter, QStackedWidget, QTextEdit, QTreeWidget, QTreeWidgetItem,
+        QVBoxLayout, QWidget,
     )
     _HAS_GUI_DEPS = True
 except Exception:  # pragma: no cover - headless environments
@@ -91,9 +93,15 @@ def _vec16(loc_m: tuple[float, float, float] = (0.0, 0.0, 0.0),
 
 class WizardBase(QDialog if _HAS_GUI_DEPS else object):
     """Shared wizard chrome: step label, optional left nav tree, ordered
-    page stack and ``<< Back`` / ``Next >>`` / ``Finish`` / ``Cancel``."""
+    page stack and ``<< Back`` / ``Next >>`` / ``Finish`` / ``Cancel``.
 
-    def __init__(self, title: str, *, parent=None, show_tree: bool = True):
+    ``chrome=\"stpre_cw\"`` matches the STpre Condition Wizard footer
+    (Back/Next left, Finish right, no Cancel) and uses a splitter for
+    the nav | content panes.
+    """
+
+    def __init__(self, title: str, *, parent=None, show_tree: bool = True,
+                 chrome: str = "default"):
         super().__init__(parent)
         self.setWindowTitle(title)
         self._keys: list[str] = []
@@ -102,6 +110,7 @@ class WizardBase(QDialog if _HAS_GUI_DEPS else object):
         self._parents: dict[str, str] = {}
         self._items: dict[str, QTreeWidgetItem] = {}
         self._current = 0
+        self._chrome = chrome
 
         root = QVBoxLayout(self)
         self.header = DialogHeader(title, "wizard", self)
@@ -111,16 +120,40 @@ class WizardBase(QDialog if _HAS_GUI_DEPS else object):
         self.step_label.setStyleSheet("color: #666;")
         root.addWidget(self.step_label)
 
-        mid = QHBoxLayout()
         self.nav = None
+        self.stack = QStackedWidget(self)
         if show_tree:
             self.nav = QTreeWidget(self)
             self.nav.setHeaderHidden(True)
+            self.nav.setRootIsDecorated(True)
+            self.nav.setUniformRowHeights(True)
+            self.nav.setTextElideMode(Qt.ElideNone)
+            self.nav.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+            self.nav.setSizePolicy(QSizePolicy.Preferred,
+                                  QSizePolicy.Expanding)
+            # Default floor so Condition Wizard steps are readable before
+            # _fit_nav_width() measures the longest label.
+            self.nav.setMinimumWidth(240)
             self.nav.itemClicked.connect(self._on_nav)
-            mid.addWidget(self.nav)
-        self.stack = QStackedWidget(self)
-        mid.addWidget(self.stack, 1)
-        root.addLayout(mid, 1)
+            if chrome == "stpre_cw":
+                split = QSplitter(Qt.Horizontal, self)
+                split.addWidget(self.nav)
+                split.addWidget(self.stack)
+                split.setStretchFactor(0, 0)
+                split.setStretchFactor(1, 1)
+                split.setChildrenCollapsible(False)
+                root.addWidget(split, 1)
+                self._splitter = split
+            else:
+                mid = QHBoxLayout()
+                mid.setSpacing(8)
+                mid.addWidget(self.nav, 0)
+                mid.addWidget(self.stack, 1)
+                root.addLayout(mid, 1)
+                self._splitter = None
+        else:
+            root.addWidget(self.stack, 1)
+            self._splitter = None
 
         blay = QHBoxLayout()
         self.btn_back = QPushButton("<< Back", self)
@@ -131,12 +164,19 @@ class WizardBase(QDialog if _HAS_GUI_DEPS else object):
         self.btn_next.clicked.connect(self._go_next)
         self.btn_finish.clicked.connect(self._finish)
         self.btn_cancel.clicked.connect(self._cancel)
-        blay.addStretch(1)
-        for b in (self.btn_back, self.btn_next, self.btn_finish,
-                  self.btn_cancel):
-            blay.addWidget(b)
+        if chrome == "stpre_cw":
+            blay.addWidget(self.btn_back)
+            blay.addWidget(self.btn_next)
+            blay.addStretch(1)
+            blay.addWidget(self.btn_finish)
+            self.btn_cancel.hide()
+        else:
+            blay.addStretch(1)
+            for b in (self.btn_back, self.btn_next, self.btn_finish,
+                      self.btn_cancel):
+                blay.addWidget(b)
         root.addLayout(blay)
-        self.resize(760, 560)
+        self.resize(980 if show_tree else 760, 620)
 
     # -- page management --------------------------------------------------
 
@@ -168,6 +208,35 @@ class WizardBase(QDialog if _HAS_GUI_DEPS else object):
         if item is not None:
             item.setCheckState(0, Qt.Checked if defined else Qt.Unchecked)
 
+    def _fit_nav_width(self) -> None:
+        """Widen the left step tree so titles like ``File Specification`` fit.
+
+        Call after all ``_add_page`` registrations.  Without this the nav
+        QTreeWidget collapses to a tiny sizeHint and truncates labels.
+        """
+        if self.nav is None:
+            return
+        self.nav.expandAll()
+        self.nav.resizeColumnToContents(0)
+        # column text + checkbox/branch chrome + padding
+        need = int(self.nav.sizeHintForColumn(0)) + 56
+        # Offscreen / before first layout, sizeHintForColumn can be 0 —
+        # fall back to font metrics of the longest registered title.
+        if self._titles:
+            fm = self.nav.fontMetrics()
+            longest = max(
+                fm.horizontalAdvance(t) for t in self._titles.values())
+            need = max(need, longest + 72)
+        need = max(240, min(need, 400))
+        self.nav.setMinimumWidth(need)
+        if getattr(self, "_chrome", "") == "stpre_cw" and self._splitter:
+            # Let the splitter own the width; seed a sensible start size.
+            self.nav.resize(need, self.nav.height())
+            self._splitter.setSizes([need, max(500, self.width() - need)])
+        else:
+            # Prefer a stable starting width; user can still grow the dialog.
+            self.nav.setFixedWidth(need)
+
     def _show_page(self, idx: int) -> None:
         self._current = max(0, min(idx, len(self._keys) - 1))
         key = self._keys[self._current]
@@ -196,8 +265,12 @@ class WizardBase(QDialog if _HAS_GUI_DEPS else object):
         self.accept()
 
     def _cancel(self) -> None:
-        self._on_cancel()
         self.reject()
+
+    def reject(self) -> None:
+        """Window close / Cancel — restore pre-wizard model state."""
+        self._on_cancel()
+        super().reject()
 
     # subclass hooks --------------------------------------------------------
 
@@ -909,7 +982,17 @@ _CW_PAGES = [
     ("bc_wall", "Wall Boundary", "bc"),
     ("bc_thermal", "Thermal Boundary", "bc"),
     ("bc_symm", "Symmetrical Boundary", "bc"),
+    ("source", "Source Condition", None),
+    ("fixed", "Fixed Condition", None),
     ("control", "Analysis Control", None),
+    ("ctrl_steady", "Steady-state Analysis", "control"),
+    ("ctrl_solver", "Solver Parameters", "control"),
+    ("ctrl_stab", "Stabilization", "control"),
+    ("ctrl_option", "Option", "control"),
+    ("output", "Output Condition", None),
+    ("out_field", "Field File", "output"),
+    ("out_series", "Time Series", "output"),
+    ("out_lfile", "L File", "output"),
     ("file", "File Specification", None),
     ("condlist", "Condition List", None),
     ("confirm", "Setting Confirmation", None),
@@ -980,8 +1063,14 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         self.model.set_analysis_set_value("turbulence", turb)
         self.model.set_analysis_set_value(
             "turbulence_model", str(self.turb_model.currentIndex()))
+        cycle = self.model.analysis_set_value("cycle", "1,100").split(",")
+        try:
+            start = int(float(cycle[0]))
+            end = int(float(cycle[1]))
+        except (ValueError, IndexError):
+            start, end = 1, 100
         self.model.set_cycles(
-            1, 100, transient=self.transient.isChecked())
+            start, end, transient=self.transient.isChecked())
 
 
 class _CwBasicSettingsPage(QWidget if _HAS_GUI_DEPS else object):
@@ -1428,84 +1517,6 @@ class _CwSymmetricalPage(_BoundaryPageBase):
         pass
 
 
-class _CwControlPage(QWidget if _HAS_GUI_DEPS else object):
-    def __init__(self, model: StpreModel):
-        super().__init__()
-        self.model = model
-        lay = QVBoxLayout(self)
-        self.transient = QRadioButton("Transient analysis", self)
-        self.steady = QRadioButton("Steady-state analysis", self)
-        st = QHBoxLayout()
-        st.addWidget(self.transient)
-        st.addWidget(self.steady)
-        st.addStretch(1)
-        lay.addLayout(st)
-
-        cyc = QGroupBox("Cycle", self)
-        cl = QVBoxLayout(cyc)
-        row = QHBoxLayout()
-        row.addWidget(QLabel("Start cycle no.", cyc))
-        self.start_cycle = QDoubleSpinBox(cyc)
-        self.start_cycle.setDecimals(0)
-        self.start_cycle.setRange(1, 1.0e9)
-        row.addWidget(self.start_cycle)
-        row.addWidget(QLabel("Last cycle no.", cyc))
-        self.last_cycle = QDoubleSpinBox(cyc)
-        self.last_cycle.setDecimals(0)
-        self.last_cycle.setRange(1, 1.0e9)
-        row.addWidget(self.last_cycle)
-        cl.addLayout(row)
-        lay.addWidget(cyc)
-
-        ts = QGroupBox("Time step", self)
-        tsl = QVBoxLayout(ts)
-        self.ts_fixed = QRadioButton("Fixed time step", ts)
-        self.ts_var = QRadioButton(
-            "Variable time step (automatically calculated)", ts)
-        tsl.addWidget(self.ts_fixed)
-        tsl.addWidget(self.ts_var)
-        self.init_dt = QDoubleSpinBox(ts)
-        self.init_dt.setDecimals(6)
-        self.init_dt.setRange(1.0e-9, 1.0e9)
-        _pair_row(tsl, "Initial time step", self.init_dt, "s")
-        self.courant = QDoubleSpinBox(ts)
-        self.courant.setDecimals(2)
-        self.courant.setRange(0.01, 100.0)
-        _pair_row(tsl, "Courant number", self.courant)
-        lay.addWidget(ts)
-        lay.addStretch(1)
-        self._load()
-
-    def _load(self) -> None:
-        calc = self.model.analysis_set_value("calculation", "steady")
-        self.transient.setChecked(calc == "transient")
-        self.steady.setChecked(calc != "transient")
-        cycle = self.model.analysis_set_value("cycle", "1,100").split(",")
-        try:
-            self.start_cycle.setValue(float(cycle[0]))
-            self.last_cycle.setValue(float(cycle[1]))
-        except (ValueError, IndexError):
-            pass
-        try:
-            self.init_dt.setValue(float(
-                self.model.analysis_set_value("init_time_step", "0.01")))
-            self.courant.setValue(float(
-                self.model.analysis_set_value("courant", "0.9")))
-        except ValueError:
-            pass
-        self.ts_var.setChecked(True)
-        self.ts_fixed.setChecked(False)
-
-    def apply(self) -> None:
-        self.model.set_cycles(
-            int(self.start_cycle.value()), int(self.last_cycle.value()),
-            transient=self.transient.isChecked())
-        self.model.set_analysis_set_value(
-            "init_time_step", f"{self.init_dt.value():g}")
-        self.model.set_analysis_set_value(
-            "courant", f"{self.courant.value():g}")
-
-
 class _CwFilePage(QWidget if _HAS_GUI_DEPS else object):
     def __init__(self, model: StpreModel):
         super().__init__()
@@ -1664,19 +1675,28 @@ class _CwConfirmPage(QWidget if _HAS_GUI_DEPS else object):
 
 
 class ConditionWizard(WizardBase):
-    """[Wizard] - [Condition Setting]: STpre Condition Wizard subset.
+    """[Wizard] - [Condition Setting]: STpre Condition Wizard.
 
-    Navigation tree mirrors the STpreCwiz page list; undefined steps stay
-    grey (unchecked), defined steps turn orange (checked) as you work
-    through them.
+    Navigation tree mirrors STpreCwiz; undefined steps stay grey
+    (unchecked), defined steps turn checked as you Finish.  Extra pages
+    (Source / Fixed / Analysis Control children / Output) live in
+    ``cab_cwizard_pages``.
     """
 
     def __init__(self, model: StpreModel, props: Optional[PropertyModel],
                  parent=None):
-        super().__init__("Condition Setting", parent=parent, show_tree=True)
+        super().__init__("Condition Wizard", parent=parent, show_tree=True,
+                         chrome="stpre_cw")
         self.model = model
         self.props = props
         self._snapshot = model.doc.serialize()
+
+        from cab_cwizard_pages import (
+            _CwAnalysisControlHubPage, _CwControlOptionPage,
+            _CwFixedPage, _CwOutputFieldPage, _CwOutputLFilePage,
+            _CwOutputSeriesPage, _CwSolverPage, _CwSourcePage,
+            _CwStabilizationPage, _CwSteadyPage,
+        )
 
         self.p_analysis = _CwAnalysisTypesPage(model)
         self.p_basic = _CwBasicSettingsPage(model)
@@ -1688,7 +1708,16 @@ class ConditionWizard(WizardBase):
         self.p_bc_wall = _CwWallBoundaryPage(model)
         self.p_bc_thermal = _CwThermalBoundaryPage(model)
         self.p_bc_symm = _CwSymmetricalPage(model)
-        self.p_control = _CwControlPage(model)
+        self.p_source = _CwSourcePage(model)
+        self.p_fixed = _CwFixedPage(model)
+        self.p_control = _CwAnalysisControlHubPage(model)
+        self.p_ctrl_steady = _CwSteadyPage(model)
+        self.p_ctrl_solver = _CwSolverPage(model)
+        self.p_ctrl_stab = _CwStabilizationPage(model)
+        self.p_ctrl_option = _CwControlOptionPage(model)
+        self.p_out_field = _CwOutputFieldPage(model)
+        self.p_out_series = _CwOutputSeriesPage(model)
+        self.p_out_lfile = _CwOutputLFilePage(model)
         self.p_file = _CwFilePage(model)
         self.p_list = _CwConditionListPage(model)
         self.p_confirm = _CwConfirmPage()
@@ -1697,24 +1726,25 @@ class ConditionWizard(WizardBase):
             "analysis": self.p_analysis, "basic": self.p_basic,
             "fluid": self.p_fluid, "flow": self.p_flow,
             "heat": self.p_heat, "initial": self.p_initial,
-            "bc": None,  # nav-group node without its own page
+            "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,
             "bc_thermal": self.p_bc_thermal, "bc_symm": self.p_bc_symm,
-            "control": self.p_control, "file": self.p_file,
+            "source": self.p_source, "fixed": self.p_fixed,
+            "control": self.p_control,
+            "ctrl_steady": self.p_ctrl_steady,
+            "ctrl_solver": self.p_ctrl_solver,
+            "ctrl_stab": self.p_ctrl_stab,
+            "ctrl_option": self.p_ctrl_option,
+            "output": None,
+            "out_field": self.p_out_field,
+            "out_series": self.p_out_series,
+            "out_lfile": self.p_out_lfile,
+            "file": self.p_file,
             "condlist": self.p_list, "confirm": self.p_confirm,
         }
         for key, title, parent_key in _CW_PAGES:
             self._add_page(key, title, page_map[key], parent_key)
-        # keep the steady/transient choice in sync between Analysis Types
-        # and Analysis Control pages
-        self.p_analysis.transient.toggled.connect(
-            self.p_control.transient.setChecked)
-        self.p_control.transient.toggled.connect(
-            self.p_analysis.transient.setChecked)
-        self.p_analysis.steady.toggled.connect(
-            self.p_control.steady.setChecked)
-        self.p_control.steady.toggled.connect(
-            self.p_analysis.steady.setChecked)
+        self._fit_nav_width()
         self._mark_defined("analysis", True)
         self._show_page(0)
 
@@ -1738,6 +1768,8 @@ class ConditionWizard(WizardBase):
             f"x {m.analysis_set_value('grav_abs')} m/s2",
             f"Ambient temperature: "
             f"{m.project_value('ambient_temperature')} C",
+            f"Cycles: {m.analysis_set_value('cycle')}",
+            f"Heat balance: {m.analysis_set_value('heat_balance')}",
             "",
             "Conditions:",
         ]
@@ -1752,18 +1784,38 @@ class ConditionWizard(WizardBase):
         return "\n".join(lines)
 
     def _on_finish(self) -> None:
-        page_map = {
-            "analysis": self.p_analysis, "basic": self.p_basic,
-            "fluid": self.p_fluid, "flow": self.p_flow,
-            "heat": self.p_heat, "initial": self.p_initial,
-            "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,
-            "bc_thermal": self.p_bc_thermal, "bc_symm": self.p_bc_symm,
-            "control": self.p_control, "file": self.p_file,
-        }
-        for key, page in page_map.items():
+        # Analysis Types first (mode), then Steady-state last among
+        # control pages so cycle numbers win over the Analysis Types
+        # default of 1..100.
+        apply_order = [
+            ("analysis", self.p_analysis),
+            ("basic", self.p_basic),
+            ("fluid", self.p_fluid),
+            ("flow", self.p_flow),
+            ("heat", self.p_heat),
+            ("initial", self.p_initial),
+            ("bc_flow", self.p_bc_flow),
+            ("bc_wall", self.p_bc_wall),
+            ("bc_thermal", self.p_bc_thermal),
+            ("bc_symm", self.p_bc_symm),
+            ("source", self.p_source),
+            ("fixed", self.p_fixed),
+            ("control", self.p_control),
+            ("ctrl_solver", self.p_ctrl_solver),
+            ("ctrl_stab", self.p_ctrl_stab),
+            ("ctrl_option", self.p_ctrl_option),
+            ("ctrl_steady", self.p_ctrl_steady),
+            ("out_field", self.p_out_field),
+            ("out_series", self.p_out_series),
+            ("out_lfile", self.p_out_lfile),
+            ("file", self.p_file),
+        ]
+        for key, page in apply_order:
             if hasattr(page, "apply"):
                 page.apply()
             self._mark_defined(key, True)
+        for group in ("bc", "control", "output"):
+            self._mark_defined(group, True)
         self.p_list.refresh()
         self._rebuild()
         self._log("Condition Wizard finished; conditions written to the "

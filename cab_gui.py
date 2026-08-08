@@ -2210,7 +2210,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log("Computational domain updated; save the cab to persist.")
 
     def _wizard_condition(self) -> None:
-        """Wizard -> Condition Setting: the STpre Condition Wizard (M6)."""
+        """Wizard -> Condition Setting: STpre Condition Wizard UI."""
         if self.model is None or self.props is None:
             self.log("No project open.", "WARN")
             return
