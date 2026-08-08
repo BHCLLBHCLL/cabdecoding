@@ -490,6 +490,19 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 
 文档：DEV_SUMMARY §27；README/CAB_GUI_DESIGN 导入格式更新。
 
+### M11 STpre VB/COM API 网格开关（2026-08-08）✅ 已完成
+
+| 项 | 实现 |
+|---|---|
+| 开关 | Option→Mesh 复选框 + Mesh 菜单可勾选项（QSettings `use_stpre_api`，默认 False=原生） |
+| STpre 调用 | `cab_stpre_api.py`：win32com `STpre_Bx64net.Application.2025` → OpenCabFile → SetGridParam → ExecuteGrid/ExecuteElement → SaveCabFile（临时 cab 文件中转） |
+| 回传 | 输出 cab XML 的 mesh_control/mesh_block/element/analysis_region 合并回内存模型；失败回退原生 |
+| 参数映射 | `build_grid_params`：division_method/division_type/division_num/outer_ratio/edge_contact 等 ↔ `mesh_control` |
+| 回归 | `tests/test_stpre_api.py` 5 项；全仓 **181 通过 / 4 跳过** |
+
+文档：DEV_SUMMARY §28；README/CAB_GUI_DESIGN 更新；一并提交并行
+Layer/ActivePart 工作。
+
 ---
 
 ## 7. 关键接口设计（草案）

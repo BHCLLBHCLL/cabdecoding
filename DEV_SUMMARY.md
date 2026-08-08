@@ -1331,3 +1331,42 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
   STL 成员保存→重开重建、扩展名分派与 OCC 缺失时报错（STEP/SAT，
   无 GUI 转换器调用）。
 - 全仓 `pytest`：**170 通过 / 4 跳过**。
+
+## 28. STpre VB/COM API 网格开关（2026-08-08）
+
+### 28.1 参考
+
+`Manuals/ST/HTML/VB_Interface_eng`：`STpre_Bx64net.Application.2025`
+（Application）→ `GetDocument`（Doc：`OpenCabFile/SaveCabFile/GetMesher`）
+→ `Mesher`（`SetGridParam(key,p1,p2,p3)`、`ExecuteGrid(key,flag)`、
+`ExecuteElement`）；Python 侧用 `win32com.client.Dispatch`（手册
+`Cmn_vb_VB_interface_usage_in_Python*`）。
+
+### 28.2 实现（cab_stpre_api.py + cab_gui/cab_options）
+
+- **开关**：默认关闭（原生 cab_gui 实现）；Option→Mesh 标签
+  `Use STpre API for Gridding/Meshing` 复选框 + Mesh 菜单
+  `Gridding/Meshing via STpre API` 可勾选项（QSettings `use_stpre_api`）；
+- **调用流程**（文件中转）：cab_gui 把当前工程保存为临时 cab →
+  COM 启动 STpre（`Visible=False`）→ `OpenCabFile` →
+  `SetGridParam`（division_method/division_type/division_num/
+  outer_ratio/edge_contact 等，由 `build_grid_params` 从
+  `mesh_control` 映射）→ `ExecuteGrid("detail","T")` →
+  `ExecuteElement`（Gridding 菜单仅网格）→ `SaveCabFile` → 退出；
+- **回传**：读取输出 cab 的 XML，`merge_mesh_result` 把
+  `mesh_control/mesh_block/element/analysis_region` 合并回内存模型，
+  刷新树/3D/脏标记；失败自动回退原生路径；
+- COM ProgID 缺失（`api_available` 注册表检测）或调用失败时记录 WARN
+  并回退原生。
+
+### 28.3 验证与集成
+
+- `tests/test_stpre_api.py`（5 项）：ProgID 注册检测、SetGridParam 参数
+  映射（含 auto1 单元数）、结果合并、开关持久化、GUI 分发成功/回退
+  （mock，不启动真实 STpre）；
+- 修正并行 agent 引入的样例改名（`_box_all.x_t`→`box_all.x_t`）与
+  RootBlock 双击改调 `_mesh_block_dialog` 后的测试引用；Mesh 菜单顺序
+  断言加入新开关项；
+- 全仓 `pytest --basetemp=.pytest_tmp_run`：**181 通过 / 4 跳过**；
+- 一并提交并行 agent 的 Layer/ActivePart 工作（测试全绿，避免混合
+  工作区）。

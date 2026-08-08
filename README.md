@@ -22,6 +22,9 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
   （Interference/Contact/Separation + Reconstruct）、`Editing Mesh`
   （I/J/K 层有效/无效编辑）、`Showing Element Cross-Section`（实时截面）、
   `Checking S-File`（S 文件部件/区域勾选显隐）；
+  - 可选 `Gridding/Meshing via STpre API`（默认关闭）：开启后经
+    `STpre_Bx64net.Application.2025` COM 自动化调用 STpre 原生
+    gridding/meshing，结果通过临时 cab 文件中转合并回内存模型；
 - `Wizard → Initial Setting`：完整 Initial Wizard（Project→Import
   CAD→Computational Domain→Analysis Type→Initial Value/Gravity→
   Purpose→Boundary→Confirm）；`Wizard → Condition Setting`：Condition

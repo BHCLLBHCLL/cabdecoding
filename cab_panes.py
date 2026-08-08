@@ -803,10 +803,11 @@ class ControlWindow(QWidget):
             lab.setAlignment(Qt.AlignCenter)
             gg.addWidget(lab, 0, i + 1)
         self.sk_grid: dict[str, dict[str, QDoubleSpinBox]] = {}
+        # STpre Control→Sketch defaults (mm): Δ=5, Min=-25, Max=125, Snap=5
         gdefs = {
-            "(U)": (5.0, 0.0, 125.0, 5.0),
-            "(V)": (5.0, 0.0, 125.0, 5.0),
-            "(W)": (5.0, 0.0, 125.0, 5.0),
+            "(U)": (5.0, -25.0, 125.0, 5.0),
+            "(V)": (5.0, -25.0, 125.0, 5.0),
+            "(W)": (5.0, -25.0, 125.0, 5.0),
         }
         for r, row in enumerate(("(U)", "(V)", "(W)"), start=1):
             gg.addWidget(QLabel(row, grd), r, 0)

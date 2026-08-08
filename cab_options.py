@@ -144,6 +144,11 @@ class OptionsDialog(QDialog):
         self.facet_angle.setDecimals(2)
         self.facet_angle.setValue(float(get_setting("facet_angle", 12.0)))
         f.addRow("Surface facet angle (deg)", self.facet_angle)
+        self.use_stpre_api = QCheckBox(
+            "Use STpre API for Gridding/Meshing (external automation)", w)
+        self.use_stpre_api.setChecked(
+            str(get_setting("use_stpre_api", "False")) == "True")
+        f.addRow(self.use_stpre_api)
         return w
 
     def _message_tab(self):
@@ -193,6 +198,7 @@ class OptionsDialog(QDialog):
             "default_material": self.default_material.currentText(),
             "facet_tol": self.facet_tol.value(),
             "facet_angle": self.facet_angle.value(),
+            "use_stpre_api": self.use_stpre_api.isChecked(),
             "message_font": self.font_name.text(),
             "log_level": self.log_level.currentText(),
             "message_max_blocks": self.max_blocks.value(),

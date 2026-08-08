@@ -13,3 +13,4 @@ cases/*
 .workbuddy/
 session-*.md
 .pytest_tmp/
+.pytest_tmp*/

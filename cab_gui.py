@@ -111,11 +111,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._redo_stack: list[tuple] = []
         self._undo_limit = 50
         self._log_level = "INFO"
+        self._startup_redraw = True
 
         self._build_ui()
         self._apply_style()
         self._apply_stored_options()
-        self.log("Ready. Open a .cab project to begin.")
         if path:
             self.load(path)
         else:
@@ -326,6 +326,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Editing Mesh…", self._edit_mesh_dialog)
         add(m, "Showing Element Cross-Section…", self._section_dialog)
         add(m, "Checking S-File…", self._check_sfile_dialog)
+        m.addSeparator()
+        self._act_stpre_api = QAction(
+            "Gridding/Meshing via STpre API", self)
+        self._act_stpre_api.setCheckable(True)
+        self._act_stpre_api.setChecked(self._stpre_api_enabled())
+        self._act_stpre_api.triggered.connect(self._toggle_stpre_api)
+        m.addAction(self._act_stpre_api)
 
         m = mb.addMenu("Option(&O)")
         add(m, "(Mouse) Trackball",
@@ -588,9 +595,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._domain_face_mode = set()
         self._root_block_visible = True
         self._dirty = False
+        # Default Domain(100³) + RootBlock + sketch plane so the Draw Window
+        # shows STpre-like UV grid / UVW / blue wireframe on startup.
+        self._ensure_default_workspace()
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
-        self._ensure_sketch_plane()
         self.control.load_sketch(self.model)
         self.control.clear_property()
         self._rebuild_scene(fit=True)
@@ -599,6 +608,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log(
                 "New project created: import an .x_t (File -> Import), "
                 "then set the domain, gridding and meshing.")
+        else:
+            self.log(
+                "Ready. Default Domain / RootBlock / Sketch plane shown.",
+                "INFO")
 
     def load(self, path: str) -> bool:
         try:
@@ -1041,6 +1054,48 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             elif self.model is not None:
                 self._rebuild_scene()
 
+    def _ensure_drawing_layers(self, *keys: str) -> None:
+        """Turn on Drawing On/Off checkboxes without cascading rebuilds."""
+        for key in keys:
+            cb = self.control.layer_checks.get(key)
+            if cb is not None and not cb.isChecked():
+                cb.blockSignals(True)
+                cb.setChecked(True)
+                cb.blockSignals(False)
+
+    def _ensure_default_workspace(self) -> None:
+        """New-project defaults: Domain 100³ mm, RootBlock, sketch plane."""
+        if self.model is None:
+            return
+        if self.model.analysis_region() is None:
+            self.model.ensure_domain(
+                name="Domain(cuboid)",
+                base=(0.0, 0.0, 0.0),
+                size=(100.0, 100.0, 100.0),
+                unit="mm",
+                material="air(incompressible/20C)",
+            )
+        # Always materialise mesh_block so Layout→RootBlock + Mesh:block work
+        bb = self.model.root_block_bounds() or (
+            0.0, 0.0, 0.0, 100.0, 100.0, 100.0)
+        if self.model.mesh_block() is None:
+            self.model.set_root_block_range(
+                (bb[0], bb[1], bb[2]), (bb[3], bb[4], bb[5]),
+                name="RootBlock")
+        self._root_block_visible = True
+        self.model.set_root_block_visible(True)
+        # STpre default Sketch Plane (Δ=5, Min=-25, Max=125 mm) — not
+        # fit_plane_to_domain, which would rewrite interval to span/10.
+        try:
+            import cab_sketch
+            plane = cab_sketch.default_sketch_plane(self.model)
+            cab_sketch.apply_plane(self.model, plane)
+        except Exception:
+            self._ensure_sketch_plane(force_fit=False)
+        self._ensure_drawing_layers(
+            "sketch_plane", "axis_sketch", "axis_global",
+            "domain_frame", "origin")
+
     def _ensure_sketch_plane(self, *, force_fit: bool = False) -> None:
         """Create/fit ``<sketch_control>`` from the computational domain."""
         if self.model is None:
@@ -1051,12 +1106,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         from cabxml import _first
         sc = _first(self.model.root, "sketch_control")
-        if sc is None or force_fit:
+        if sc is None:
+            cab_sketch.apply_plane(
+                self.model, cab_sketch.default_sketch_plane(self.model))
+        elif force_fit:
+            # Explicit Fit / Reset paths may call with force_fit=True
             if self.model.analysis_region() is not None:
                 plane = cab_sketch.reset_plane_to_domain(self.model)
                 plane = cab_sketch.fit_plane_to_domain(self.model, plane)
             else:
-                plane = cab_sketch.SketchPlane()
+                plane = cab_sketch.default_sketch_plane(self.model)
             cab_sketch.apply_plane(self.model, plane)
 
     def _on_sketch_action(self, mode: str) -> None:
@@ -1503,40 +1562,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._set_orientation_marker(self.control.layer_on("axis_global"))
 
         if self.control.layer_on("origin"):
-            # World-origin triad (Drawing→Origin). Sized from domain; excluded
-            # from ResetCamera so it never swallows the view.
+            # World-origin hub only. Global XYZ = corner Axis(Global);
+            # local UVW = Axis(Sketch) on the sketch plane.
             scale = self._domain_scale()
-            ln = min(max(scale * 0.18, 0.008), 0.04)
-            for vec, col in (
-                    ((1, 0, 0), (0.85, 0.15, 0.15)),
-                    ((0, 1, 0), (0.15, 0.72, 0.22)),
-                    ((0, 0, 1), (0.18, 0.35, 0.9))):
-                arr = cab_vtk._arrow_actor(
-                    (0.0, 0.0, 0.0), vec, ln, col,
-                    tip_length=0.24, tip_radius=0.055, shaft_radius=0.018)
-                if arr is None:
-                    continue
-                try:
-                    arr.SetUseBounds(False)
-                except Exception:
-                    pass
-                self.renderer.AddActor(arr)
-                self._layer_actors["origin"].append(arr)
-            src = vtk.vtkSphereSource()
-            src.SetRadius(ln * 0.06)
-            src.SetThetaResolution(16)
-            src.SetPhiResolution(16)
-            mapper = vtk.vtkPolyDataMapper()
-            mapper.SetInputConnection(src.GetOutputPort())
-            actor = vtk.vtkActor()
-            actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(0.35, 0.35, 0.38)
-            try:
-                actor.SetUseBounds(False)
-            except Exception:
-                pass
-            self.renderer.AddActor(actor)
-            self._layer_actors["origin"].append(actor)
+            for actor in cab_vtk.world_origin_marker_actors(scale):
+                self.renderer.AddActor(actor)
+                self._layer_actors["origin"].append(actor)
 
         if fit:
             self._fit_view()
@@ -1617,6 +1648,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         super().showEvent(event)
         if self._enable_3d:
             self._ensure_interactor()
+            # First paint: re-draw default RootBlock / sketch after the
+            # render window is realized (init-time VTK draw can be empty).
+            if getattr(self, "_startup_redraw", True) and self.model is not None:
+                self._startup_redraw = False
+                self._rebuild_scene(fit=True)
 
     # ------------------------------------------------------------ actions
 
@@ -2197,10 +2233,81 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._update_title()
             self.log("RootBlock updated; save the cab to persist.")
 
+    # ------------------------------------------------- STpre API bridge
+
+    def _stpre_api_enabled(self) -> bool:
+        try:
+            from cab_options import get_setting
+            return str(get_setting("use_stpre_api", "False")).lower() \
+                == "true"
+        except Exception:
+            return False
+
+    def _toggle_stpre_api(self, on: bool) -> None:
+        from cab_options import set_setting
+        set_setting("use_stpre_api", "True" if on else "False")
+        self.log(f"STpre API gridding/meshing: {'ON' if on else 'OFF'}")
+
+    def _run_stpre_api(self, action: str) -> str:
+        """Run gridding/meshing in external STpre; returns stpre|native.
+
+        File-relay: the current project is saved to a temp CAB, STpre
+        (COM automation) executes the mesh commands and saves another CAB,
+        and the mesh sections are merged back into the in-memory model.
+        """
+        if not self._stpre_api_enabled() or self.model is None \
+                or self.archive is None:
+            return "native"
+        try:
+            import cab_stpre_api
+            if not cab_stpre_api.api_available():
+                self.log(
+                    "STpre COM ProgID not found; using native gridding.",
+                    "WARN")
+                return "native"
+            import os
+            import tempfile
+            from cab_container import CabArchive
+            tmp = tempfile.mkdtemp(prefix="cab_stpre_")
+            src = os.path.join(tmp, "in.cab")
+            dst = os.path.join(tmp, "out.cab")
+            if not self._rebuild_to(src):
+                return "native"
+            params = cab_stpre_api.build_grid_params(self.model)
+            run_element = action != "grid"
+            ok = cab_stpre_api.run_stpre_grid_mesh(
+                src, dst, method="detail", grid_params=params,
+                run_element=run_element)
+            if not ok or not os.path.isfile(dst):
+                self.log(
+                    "STpre API gridding/meshing failed; "
+                    "falling back to native.", "WARN")
+                return "native"
+            arch = CabArchive.parse(open(dst, "rb").read())
+            arch.fill_member_data()
+            members = {m.name: m.data for m in arch.members}
+            xml_name = next(n for n in members if n.endswith(".xml")
+                            and not n.startswith("_"))
+            out_model = StpreModel(parse_stpre(members[xml_name]))
+            merged = cab_stpre_api.merge_mesh_result(self.model, out_model)
+            self.tree_view.populate(
+                self.model, self.archive.members)
+            self.control.load_sketch(self.model)
+            self._rebuild_scene()
+            self._mark_dirty()
+            self._update_title()
+            self.log(f"STpre API done: merged {', '.join(merged)}")
+            return "stpre"
+        except Exception as exc:
+            self.log(f"STpre API failed: {exc}; using native.", "WARN")
+            return "native"
+
     def _gridding_dialog(self) -> None:
         """Mesh -> Gridding (M3) — ``Mesh:Set division``."""
         if self.model is None:
             self.log("No project open.", "WARN")
+            return
+        if self._run_stpre_api("grid") == "stpre":
             return
         snap = self._snapshot()
         dlg = _GriddingDialog(
@@ -2215,6 +2322,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """Mesh -> Meshing (M4): generate element occupancy from CAD."""
         if self.model is None:
             self.log("No project open.", "WARN")
+            return
+        if self._run_stpre_api("mesh") == "stpre":
             return
         axes = self.model.mesh_axes()
         if not axes or any(len(v) < 2 for v in axes.values()):

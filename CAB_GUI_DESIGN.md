@@ -196,6 +196,7 @@ domain/Update；Show/Select 的 Sketch plane 与 Axis (Sketch) 开关显示
 | Editing Mesh… | ✅ | `EditMeshDialog`：Active block / I·J·K 层选择 / `->Effective`·`->Ineffective` 编辑单元属性 |
 | Showing Element Cross-Section… | ✅ | `SectionDialog`：Axis + 滑块 + Show/Hide fluid，Draw 窗口实时显示截面 |
 | Checking S-File… | ✅ | `SFileCheckDialog`：Open S file + 树形列表 checkbox 控制 3D 显隐 |
+| Gridding/Meshing via STpre API | ✅（默认关） | Option→Mesh 开关；开启后 `cab_stpre_api` COM 驱动 STpre（OpenCabFile→SetGridParam→ExecuteGrid/ExecuteElement→SaveCabFile），临时 cab 文件中转并合并回内存模型；失败回退原生 |
 
 ### 4.7 Option(&O)
 
