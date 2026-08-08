@@ -102,8 +102,7 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
 - threshold（limit）在凸盒上无区分度，需曲面/缺口部件验证
   （Parasolid 构造非凸 body 或圆柱 x_t）；
 - axis_plane 对圆柱等曲面部件的“面平面”语义未验证；
-- auto1 的“每轴 cell 数→内/外区分配”确切公式未定（可再扫
-  目标数 × 部件尺寸/位置矩阵）；
+- auto1 的“每轴 cell 数→内/外区分配”已解出（见 §5.2，13/13 验证）；
 - multiblock（RootBlock 之外的子块）与 cylinder/axial 坐标系未覆盖。
 
 ## 4. 与 cabdecoding 原生算法差距（后续改进点）
@@ -113,7 +112,8 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
    一致（可对拍 golden）；
 3. 原生 vertex detection 需补充“顶点投影线分段拟合”逻辑（All/
    Representative 对旋转部件目前没有逐顶点投影线）；
-4. auto1 的目标→每轴→内外区分配需按实测规则实现。
+4. auto1 的目标→每轴→内外区分配已按实测规则实现
+   （`stpre_rules.auto1_*`，见 §5.2）。
 
 ## 5. 第二轮精确化（2026-08-08，新增 30 用例）
 
@@ -136,14 +136,29 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
 
   n=20 时随部件尺寸：5 mm→P=4（s=1.25）、10 mm→P=6（s=1.667）、
   20 mm→P=10（s=2.0）；P 与域外长度无关（域 0..100 时 P 仍为 6）。
-  **P 的闭式公式未定**，但可查表/插值实现；
 - 外区 L/R 拆分规则已定量确认：L+R = n-P，枚举所有拆分，选
-  `|g0_L - g0_R|` 最小者，其中
+  `max(g0_L, g0_R)` 最小者（让较粗一侧尽量细），其中
   `g0_L = L_out·(q-1)/(q^L-1)`、`g0_R = R_out·(q-1)/(q^R-1)`、
   q=ratio_out=1.2；随后左右 g0 分别按各自总长精确求解
   （例：n=20 → L=8/R=6，g0_L=1.515、g0_R=1.511）。
 
-### 5.2 曲面部件的 vertex detection 层级（tr03 叶轮 / ex4_e 电池）
+### 5.2 auto1 内区 P 闭式公式（已解出，13/13 验证）
+
+P 是满足下式的最小正整数：
+
+```
+P + ceil(log(1 + L_out·(q-1)/s) / log q)
+  + ceil(log(1 + R_out·(q-1)/s) / log q) >= n      （s = p/P）
+```
+
+含义：以 s=p/P 为外区首间距、ratio_out=q 向域边界做几何级数，所需
+区间数（向上取整）加内区 P 达到/超过每轴总数 n，取最小 P；外侧长度
+为 0 时对应项为 0。随后 L/R = argmin max(g0L, g0R)（L+R = n−P）。
+已用 13/13 组黑盒数据验证（n=10..46、部件 5/10/20 mm、居中/偏移/
+贴边、立方/非立方域），实现见 `stpre_rules.auto1_inner_count` /
+`auto1_axis_layout`。
+
+### 5.3 曲面部件的 vertex detection 层级（tr03 叶轮 / ex4_e 电池）
 
 - **all (0) > representative (1) > axis_plane (2) = minmax (3) =
   not_considered (4)**（按网格线数量）：
@@ -155,7 +170,7 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
   thr2.0 时 rep(33×41×42) 与 plane(32×46×47) 不再相同；
 - 凸盒/旋转盒上各模式无区分度（§2.3），**必须用曲面/多特征部件**区分。
 
-### 5.3 负面结论补充
+### 5.4 负面结论补充
 
 - ex4_e **speaker（开放曲面/panel）**：所有模式 grid 相同（19×14×15）
   且 `part_boxes={}`——开放面/panel 部件不产生实体占用 cell，需

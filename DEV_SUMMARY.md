@@ -1557,3 +1557,20 @@ STpre 中 Layout of Parts 的 RootBlock 蓝色线框不是一个独立可漂移�
   域 auto1 与 L/R=(8,6) 对拍；
 - 规则档案见 `STPRE_GRID_RULES.md` §6；全仓 `pytest`：**222 通过 /
   4 跳过**。
+
+### 31.6 auto1 内区 P 闭式公式解出（2026-08-08）
+
+- 综合 13 组黑盒数据（n=10..46、部件 5/10/20 mm、居中/偏移/贴边、
+  立方/非立方域）与手册流程（每轴总数→部件识别粗网格→细分），
+  得到 P 闭式：
+
+```
+P = min{ p>=1 : p + ceil(log(1+L_out(q-1)/s)/log q)
+                 + ceil(log(1+R_out(q-1)/s)/log q) >= n }，s=p/P
+```
+
+- L/R 拆分准则修正为 **argmin max(g0L, g0R)**（此前误记为最小
+  |g0L−g0R|，offset 用例可证伪）；13/13 全部命中；
+- 实现：`stpre_rules.auto1_inner_count` / `auto1_axis_layout`，
+  `tests/test_stpre_rules.py` 新增全表对拍（10 项）；规则档案
+  `STPRE_GRID_RULES.md` §5.2 更新为“已解出”。

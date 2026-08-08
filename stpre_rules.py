@@ -109,10 +109,19 @@ def split_outer_counts(
         total: int,
         q: float = 1.2,
 ) -> tuple[int, int, float, float]:
-    """Auto1 outer left/right split: minimise |g0L - g0R|.
+    """Auto1 outer left/right split: minimise ``max(g0L, g0R)``.
 
     Returns ``(L, R, g0L, g0R)``.  ``total = n - P``.
+    A zero-length side forces the corresponding count to 0.
+    Rule validated against 13 STpre probe cases (the coarser outer side is
+    made as fine as possible, i.e. the worst first spacing is minimised).
     """
+    if left_len <= 0.0 and right_len <= 0.0:
+        raise ValueError("at least one outer side must be positive")
+    if left_len <= 0.0:
+        return (0, total, 0.0, outer_g0(right_len, total, q))
+    if right_len <= 0.0:
+        return (total, 0, outer_g0(left_len, total, q), 0.0)
     best = None
     for l in range(1, total):
         r = total - l
@@ -120,7 +129,7 @@ def split_outer_counts(
             continue
         g0l = outer_g0(left_len, l, q)
         g0r = outer_g0(right_len, r, q)
-        score = abs(g0l - g0r)
+        score = max(g0l, g0r)
         if best is None or score < best[0]:
             best = (score, l, r, g0l, g0r)
     if best is None:
@@ -135,6 +144,71 @@ def inner_segment_split(seg_len: float, std: float) -> tuple[int, float]:
         raise ValueError("segment length and std must be positive")
     n = max(1, _trunc_round(seg_len / std))
     return n, seg_len / n
+
+
+def _outer_min_count(outer_len: float, s: float, q: float) -> int:
+    """Smallest interval count whose geometric series (g0=s, ratio q)
+    reaches ``outer_len``: ``ceil(log(1 + L*(q-1)/s) / log q)``."""
+    if outer_len <= 0.0:
+        return 0
+    if s <= 0.0 or q <= 1.0:
+        return max(1, int(math.ceil(outer_len / max(s, 1e-12))))
+    return max(1, int(math.ceil(
+        math.log1p(outer_len * (q - 1.0) / s) / math.log(q))))
+
+
+def auto1_inner_count(
+        part_len: float,
+        left_len: float,
+        right_len: float,
+        n: int,
+        q: float = 1.2,
+) -> int:
+    """Auto1 inner-region cell count P (closed form, validated).
+
+    ``P`` is the smallest integer >= 1 with
+    ``P + Lmin(p/P) + Rmin(p/P) >= n``, where ``Lmin/Rmin`` are the
+    geometric-series interval counts from each part face to the domain
+    boundary (``_outer_min_count``).
+
+    Verified against 13 STpre probe cases (n=10..46, part 5/10/20 mm,
+    centred/offset/boundary, cube/non-cube domains).
+    """
+    if part_len <= 0.0 or n < 3:
+        raise ValueError("part_len must be positive and n >= 3")
+    for p in range(1, n):
+        s = part_len / p
+        total = (p
+                 + _outer_min_count(left_len, s, q)
+                 + _outer_min_count(right_len, s, q))
+        if total >= n:
+            return p
+    return n - 1
+
+
+def auto1_axis_layout(
+        part_lo: float,
+        part_hi: float,
+        domain_min: float,
+        domain_max: float,
+        n: int,
+        q: float = 1.2,
+) -> dict:
+    """Full auto1 per-axis layout: counts + first spacings.
+
+    Returns ``P, L, R, s, g0L, g0R`` (``g0`` = None when a side is empty).
+    """
+    left_len = part_lo - domain_min
+    right_len = domain_max - part_hi
+    part_len = part_hi - part_lo
+    p = auto1_inner_count(part_len, left_len, right_len, n, q)
+    s = part_len / p
+    l, r, g0l, g0r = split_outer_counts(left_len, right_len, n - p, q)
+    return {
+        "P": p, "L": l, "R": r, "s": s,
+        "g0L": g0l if l > 0 else None,
+        "g0R": g0r if r > 0 else None,
+    }
 
 
 def calc_ratio(
