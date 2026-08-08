@@ -22,6 +22,8 @@ from typing import Optional, Union
 
 import numpy as np
 
+import stpre_rules
+
 
 Vec3 = Union[float, tuple[float, float, float]]
 
@@ -105,6 +107,7 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
     dmin = np.asarray(spec.domain_min, dtype=float)
     dmax = np.asarray(spec.domain_max, dtype=float)
     vertices = part_vertices or {}
+    thrs = _as3(spec.threshold_length)
     out: dict[str, list[float]] = {}
     for ax_i, ax in enumerate("xyz"):
         if spec.vertex_detection == "uniform":
@@ -112,7 +115,11 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
             continue
         vals: list[float] = []
         if spec.vertex_detection in ("all", "representative",
-                                     "axis_plane", "minmax"):
+                                     "axis_plane", "minmax",
+                                     "not_considered"):
+            # STpre probe: not_considered still grids with part min/max
+            # planes (only vertex detection is skipped); identical to
+            # minmax for convex parts (tr03: vd4 == vd3).
             for arr in part_points.values():
                 if arr is None or len(arr) == 0:
                     continue
@@ -125,21 +132,19 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
                 if arr is None or len(arr) == 0:
                     continue
                 vals.extend(float(v) for v in arr[:, ax_i])
-        # not_considered: domain bounds only
-        out[ax] = _clip_dedupe(vals, dmin[ax_i], dmax[ax_i])
+        out[ax] = _clip_dedupe(
+            vals, dmin[ax_i], dmax[ax_i], tol=max(thrs[ax_i], 1e-9))
     return out
 
 
 def _target_counts(spec: GridSpec) -> tuple[int, int, int]:
     if spec.target_per_axis is not None:
         return tuple(max(2, int(v)) for v in spec.target_per_axis)
-    d = np.asarray(spec.domain_max, float) - np.asarray(spec.domain_min, float)
-    d = np.maximum(d, 1e-12)
-    geo = float(np.cbrt(d.prod()))
     n = spec.target_elements or 1_000_000
-    counts = tuple(max(2, int(round((n ** (1.0 / 3.0)) * (d[i] / geo))))
-                   for i in range(3))
-    return counts
+    # STpreBase MeshBlock::SetElementNum disassembly (M16): per-axis counts
+    # from domain lengths and target total; non-cube via length ratios.
+    return tuple(max(2, int(v)) for v in stpre_rules.auto1_per_axis_counts(
+        spec.domain_min, spec.domain_max, n))
 
 
 def _refine_axis(rough: list[float], std: float, ratio: float,
@@ -181,12 +186,21 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
         out: dict[str, list[float]] = {}
         dmin = np.asarray(spec.domain_min, float)
         dmax = np.asarray(spec.domain_max, float)
+        qs = spec.ratio_external()
+        lo = part_bounds[0] if part_bounds is not None else None
+        hi = part_bounds[1] if part_bounds is not None else None
         for i, ax in enumerate("xyz"):
-            out[ax] = list(np.linspace(dmin[i], dmax[i], counts[i]))
+            if lo is not None and hi is not None:
+                out[ax] = _auto1_axis(
+                    dmin[i], dmax[i], float(lo[i]), float(hi[i]),
+                    counts[i], qs[i])
+            else:
+                out[ax] = list(np.linspace(dmin[i], dmax[i], counts[i]))
         return out
     stds = _as3(spec.standard_length)
     thrs = _as3(spec.threshold_length)
     r_ex = spec.ratio_external()
+    r_in = spec.ratio_internal()
     lo = part_bounds[0] if part_bounds is not None else None
     hi = part_bounds[1] if part_bounds is not None else None
     out = {}
@@ -199,7 +213,8 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
             else:
                 internal = True
             if internal:
-                axis_pts.extend(_equal_split(a, b, stds[i], thrs[i]))
+                axis_pts.extend(_inner_symmetric(
+                    a, b, stds[i], r_in[i], thrs[i]))
             else:
                 if b <= lo[i] + 1e-9:
                     part_side = b          # interval left of the part
@@ -221,10 +236,111 @@ def _equal_split(a: float, b: float, std: float,
     length = b - a
     if length <= 1e-12:
         return []
-    n = max(1, int(round(length / std))) if std > 0 else 1
+    n = max(1, stpre_rules._trunc_round(length / std)) if std > 0 else 1
     if threshold > 0 and length / n < threshold:
         n = max(1, int(length / threshold))
     return list(np.linspace(a, b, n + 1)[1:-1])
+
+
+def _symmetric_sum(n: int, g0: float, q: float) -> float:
+    """Sum of the symmetric two-sided geometric sequence (ratio_in>1)."""
+    if n <= 0:
+        return 0.0
+    if n % 2 == 1:
+        k = (n + 1) // 2          # 2*(1+..+q^(k-2)) + q^(k-1)
+        if k == 1:
+            return g0
+        return g0 * (2.0 * (q ** (k - 1) - 1.0) / (q - 1.0) + q ** (k - 1))
+    k = n // 2
+    return g0 * 2.0 * (q ** k - 1.0) / (q - 1.0)
+
+
+def _inner_symmetric(a: float, b: float, std: float, ratio: float,
+                     threshold: float) -> list[float]:
+    """STpre internal region with geometric_ratio > 1: symmetric two-sided
+    series from both part faces (probe ratio_in=1.2: 1,1.285,1.653,2.124,
+    1.653,1.285,1 over 10 mm).  n is the largest count whose nominal-ratio
+    sum fits the length; the actual q is then solved to fill it exactly.
+    """
+    length = b - a
+    if length <= 1e-12 or ratio <= 1.0 + 1e-9:
+        return _equal_split(a, b, std, threshold)
+    g0 = max(std, threshold)
+    if g0 <= 0.0 or g0 >= length:
+        return _equal_split(a, b, std, threshold)
+    n = 1
+    while _symmetric_sum(n + 1, g0, ratio) <= length + 1e-12:
+        n += 1
+    if n < 3:
+        return _equal_split(a, b, std, threshold)
+    lo_q, hi_q = ratio, max(ratio * 2.0, 2.0)
+    for _ in range(80):
+        mid = 0.5 * (lo_q + hi_q)
+        if _symmetric_sum(n, g0, mid) < length:
+            lo_q = mid
+        else:
+            hi_q = mid
+    qa = 0.5 * (lo_q + hi_q)
+    if abs(_symmetric_sum(n, g0, qa) - length) > 1e-6 * max(1.0, length):
+        return _equal_split(a, b, std, threshold)
+    if n % 2 == 1:
+        k = (n + 1) // 2
+        seq = [g0 * qa ** i for i in range(k - 1)]
+        seq += [g0 * qa ** (k - 1)]
+        seq += [g0 * qa ** i for i in range(k - 2, -1, -1)]
+    else:
+        k = n // 2
+        seq = [g0 * qa ** i for i in range(k)]
+        seq += [g0 * qa ** i for i in range(k - 1, -1, -1)]
+    pts = [a]
+    x = a
+    for d in seq[:-1]:
+        x += d
+        pts.append(x)
+    return pts[1:]
+
+
+def _auto1_axis(dmin: float, dmax: float, part_lo: float, part_hi: float,
+                n: int, q: float) -> list[float]:
+    """STpre auto1 axis layout (M17 closed form): P + L/R split by
+    argmin max(g0L,g0R); inner equal spacing s=p/P; outer geometric with
+    exact-sum first spacings."""
+    if n < 3 or part_hi <= part_lo:
+        return list(np.linspace(dmin, dmax, n))
+    part_lo = max(part_lo, dmin)
+    part_hi = min(part_hi, dmax)
+    if part_hi <= part_lo:
+        return list(np.linspace(dmin, dmax, n))
+    try:
+        lay = stpre_rules.auto1_axis_layout(
+            part_lo, part_hi, dmin, dmax, n, q)
+    except (ValueError, ZeroDivisionError):
+        return list(np.linspace(dmin, dmax, n))
+    pts = [dmin]
+    if lay["L"] and lay["g0L"]:
+        g0 = lay["g0L"]
+        if abs(q - 1.0) < 1e-9:
+            step = (part_lo - dmin) / lay["L"]
+            for k in range(1, lay["L"]):
+                pts.append(part_lo - k * step)
+        else:
+            for k in range(1, lay["L"]):
+                pts.append(part_lo - g0 * (q ** k - 1.0) / (q - 1.0))
+    pts.append(part_lo)
+    inner = np.linspace(part_lo, part_hi, lay["P"] + 1)
+    pts.extend(float(v) for v in inner[1:-1])
+    pts.append(part_hi)
+    if lay["R"] and lay["g0R"]:
+        g0 = lay["g0R"]
+        if abs(q - 1.0) < 1e-9:
+            step = (dmax - part_hi) / lay["R"]
+            for k in range(1, lay["R"]):
+                pts.append(part_hi + k * step)
+        else:
+            for k in range(1, lay["R"]):
+                pts.append(part_hi + g0 * (q ** k - 1.0) / (q - 1.0))
+    pts.append(dmax)
+    return _clip_dedupe(pts, dmin, dmax)
 
 
 def _stpre_external(a: float, b: float, part_side: float, std: float,
@@ -297,13 +413,18 @@ def _refine_axis_ratios(rough: list[float], std: float,
 
 
 def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
-               part_vertices: Optional[dict[str, np.ndarray]] = None
+               part_vertices: Optional[dict[str, np.ndarray]] = None,
+               part_bounds: Optional[tuple[np.ndarray, np.ndarray]] = None
                ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
-    """Return ``(rough, detailed)`` axes; detailed is the final mesh."""
+    """Return ``(rough, detailed)`` axes; detailed is the final mesh.
+
+    ``part_bounds`` ``(lo, hi)`` in the same unit as ``spec`` enables
+    STpre external geometric-ratio refinement outside the parts.
+    """
     rough = rough_grids(part_points, spec, part_vertices=part_vertices)
     if spec.method == "rough_only":
         return rough, {ax: list(v) for ax, v in rough.items()}
-    detailed = refine_grids(rough, spec)
+    detailed = refine_grids(rough, spec, part_bounds=part_bounds)
     return rough, detailed
 
 

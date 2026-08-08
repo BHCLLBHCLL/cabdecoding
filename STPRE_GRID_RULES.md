@@ -107,13 +107,23 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
 
 ## 4. 与 cabdecoding 原生算法差距（后续改进点）
 
-1. 原生内区固定等分；STpre 在 `ratio_in>1` 时用对称几何级数；
-2. 原生 `_stpre_external` 已实现“首间距=std、q 二分求和”，与实测
-   一致（可对拍 golden）；
-3. 原生 vertex detection 需补充“顶点投影线分段拟合”逻辑（All/
-   Representative 对旋转部件目前没有逐顶点投影线）；
-4. auto1 的目标→每轴→内外区分配已按实测规则实现
-   （`stpre_rules.auto1_*`，见 §5.2）。
+> 2026-08-09：以下差距已在 cab_grid.py 原生实现中补齐（§7）。
+
+1. 内区 `ratio_in>1` 对称几何级数已实现（`_inner_symmetric`）；
+2. 外区“首间距=std、q 二分求和”保持（`_stpre_external`）；
+3. vertex detection：All/Representative 顶点投影线 + 阈值合并已实现；
+4. auto1 目标→每轴→内外区分配已实现（`stpre_rules.auto1_*`）。
+
+## 7. 原生 gridding 落地对拍（2026-08-09）
+
+- `cab_grid.rough_grids`：not_considered 保留部件 min/max 线；
+  threshold 合并；uniform 只留域边界；
+- `cab_grid.refine_grids` num_elements：STpre auto1 全布局
+  （P 闭式 + L/R min-max + 内外区坐标生成）；auto3 目标=cell 数；
+- `_inner_symmetric`：ratio_in>1 对称双端几何级数；
+- `GriddingDialog._gridding`：顶点/面片先应用部件 transform；
+- 对拍：base 29³ 与 auto1 21³ 的坐标与 STpre 黑盒数据逐点一致；
+  全仓 229 通过 / 4 跳过。
 
 ## 5. 第二轮精确化（2026-08-08，新增 30 用例）
 

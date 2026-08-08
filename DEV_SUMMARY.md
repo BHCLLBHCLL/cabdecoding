@@ -1574,3 +1574,40 @@ P = min{ p>=1 : p + ceil(log(1+L_out(q-1)/s)/log q)
 - 实现：`stpre_rules.auto1_inner_count` / `auto1_axis_layout`，
   `tests/test_stpre_rules.py` 新增全表对拍（10 项）；规则档案
   `STPRE_GRID_RULES.md` §5.2 更新为“已解出”。
+
+## 32. 原生 gridding 算法落地（替代 STpre API 方案，2026-08-09）
+
+### 32.1 实现（cab_grid.py + cab_dialogs.py）
+
+- `rough_grids`：按实测修正 vertex detection——
+  `not_considered` 保留部件 min/max 线（tr03 vd4==vd3），`uniform`
+  只留域边界；all/representative 加顶点投影坐标线；新增
+  threshold 合并（阈值内坐标统一，对齐“Detect Vertex”手册与
+  tr03 thr2.0 现象）；
+- `_target_counts`：改用 `stpre_rules.auto1_per_axis_counts`
+  （SetElementNum 反汇编公式，非立方域按长度比）；
+- `refine_grids` num_elements：完整 STpre auto1 布局——每轴 n →
+  P 闭式（§31.6）→ L/R = argmin max(g0L,g0R) → 内区等分
+  s=p/P、外区精确和几何级数；无部件时退化为均匀；
+- 内区 `ratio_in>1`：对称双端几何级数（最大 n 满足名义比总和 ≤ 段长，
+  再二分求实际 q），复现 ratio_in=1.2 的
+  {1, 1.285, 1.653, 2.124, 1.653, 1.285, 1}；
+- `_equal_split` 改用 `trunc(x+0.5)`（对齐 STpre cvttsd2si）；
+- GUI `_gridding`：part_points/part_vertices 先应用部件 transform
+  （旋转/平移部件的顶点线与 STpre 一致）。
+
+### 32.2 对拍验证（原生 vs STpre 黑盒黄金）
+
+- base_minmax_detail（域 −25..25、部件 0..10、std=1.0、外比 1.2）：
+  29×29×29；内区 10×1.0；外区 1.0,1.192,1.422,1.695,2.022,… 完全一致；
+- auto1_8000：21×21×21；P=6（s=1.667）；L=8/R=6，外区
+  1.515,1.818,2.183,… 完全一致；
+- auto3：每轴目标为 cell 数，点数=目标+1（与 STpre 一致）；
+- 全仓 `pytest`：**229 通过 / 4 跳过**。
+
+### 32.3 方案说明
+
+- 原生实现已覆盖 STpre 的 gridding 主干，GUI 默认（`use_stpre_api=False`）
+  即走原生；STpre API 开关保留为对比/回归通道，不再作为功能依赖；
+- meshing 沿用 `cab_mesh.classify_cells`（中心采样 + 射线法），
+  与 STpre 的 box 占用（9 字段 cell 范围）一致。

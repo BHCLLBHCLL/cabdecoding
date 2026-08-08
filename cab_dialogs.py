@@ -2477,9 +2477,10 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self._update_element_label()
 
     def _update_element_label(self) -> None:
+        # STpre Element # = cell count (grid points − 1 per axis)
         axes = self.model.mesh_axes()
         if axes and all(axes.get(a) for a in "xyz"):
-            nx, ny, nz = (len(axes[a]) for a in "xyz")
+            nx, ny, nz = (max(0, len(axes[a]) - 1) for a in "xyz")
             self.element_label.setText(
                 f"Element #   {nx * ny * nz:,} = {nx} x {ny} x {nz}")
         else:
@@ -2524,23 +2525,35 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             self._populate_parameter_tab()
             self._log("Gridding (STpre API) finished.")
             return
+        import cab_vtk
+        transforms = {p.name: p.transform for p in self.model.parts()}
+
+        def _mm(pts, name):
+            pts = np.asarray(pts, dtype=np.float64)
+            return cab_vtk._apply_transform(
+                pts, transforms.get(name, "")) * 1000.0
+
         part_points = {
-            p.name: np.asarray(p.points, dtype=np.float64) * 1000.0
+            p.name: _mm(p.points, p.name)
             for p in self.cad_meshes
         }
         part_vertices = {
-            p.name: np.asarray(p.vertices, dtype=np.float64) * 1000.0
+            p.name: _mm(p.vertices, p.name)
             for p in self.cad_meshes
             if getattr(p, "vertices", None) is not None
         }
-        _rough, detailed = cab_grid.build_axes(
-            part_points, spec, part_vertices=part_vertices or None)
         internal = self.chk_internal.isChecked()
         lo, hi = cab_domain.part_bounds(self.model, self.cad_meshes)
-        part_min = tuple(float(v) * 1000.0 for v in lo) \
-            if np.isfinite(lo).all() and not internal else None
-        part_max = tuple(float(v) * 1000.0 for v in hi) \
-            if np.isfinite(hi).all() and not internal else None
+        part_bounds = None
+        part_min = part_max = None
+        if np.isfinite(lo).all() and not internal:
+            part_min = tuple(float(v) * 1000.0 for v in lo)
+            part_max = tuple(float(v) * 1000.0 for v in hi)
+            part_bounds = (np.asarray(part_min, dtype=float),
+                           np.asarray(part_max, dtype=float))
+        _rough, detailed = cab_grid.build_axes(
+            part_points, spec, part_vertices=part_vertices or None,
+            part_bounds=part_bounds)
         self.model.set_mesh(
             detailed,
             unit="mm",
