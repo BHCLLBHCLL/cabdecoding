@@ -1611,3 +1611,14 @@ P = min{ p>=1 : p + ceil(log(1+L_out(q-1)/s)/log q)
   即走原生；STpre API 开关保留为对比/回归通道，不再作为功能依赖；
 - meshing 沿用 `cab_mesh.classify_cells`（中心采样 + 射线法），
   与 STpre 的 box 占用（9 字段 cell 范围）一致。
+
+### 32.4 修复：RootBlock/Domain 编辑覆盖 internal ratio（2026-08-09）
+
+- 现象：Mesh:Set Division 第二次打开时 Geometric ratio (internal) 被
+  错误置为 1.1（external 默认值）；
+- 根因：`set_root_block_range`（编辑 Domain/RootBlock 时调用）把
+  `mesh_control/divide_ratio2`（外部比）当作 internal 写入
+  `mesh_block/divide_ratio1`，并以默认 0.5 覆盖 `divide_length`；
+- 修复：internal 从 `mesh_block/divide_ratio1` 读取（缺省 1.0），
+  external 从 `divide_ratio2` 读取保留，`divide_length` 保留；
+- 回归：`tests/test_cabxml.py` 新增 1 项；全仓 **230 通过 / 4 跳过**。

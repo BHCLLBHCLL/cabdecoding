@@ -162,3 +162,28 @@ def test_apply_domain_creates_root_block_when_missing():
     cab_domain.apply_domain(model, spec)
     assert model.mesh_block() is not None
     assert model.root_block_bounds() == (0.0, 0.0, 0.0, 10.0, 20.0, 30.0)
+
+
+def test_set_root_block_range_preserves_ratio_fields():
+    """Domain/RootBlock edit must not clobber internal/external ratio."""
+    import pytest
+    model = StpreModel(parse_stpre(_members()["ex4_e.xml"]))
+    model.set_mesh(
+        {"x": [0.0, 10.0], "y": [0.0, 10.0], "z": [0.0, 10.0]},
+        domain_min=(0.0, 0.0, 0.0), domain_max=(10.0, 10.0, 10.0),
+        ratio=(1.3, 1.3, 1.3),
+        standard_length=(0.7, 0.7, 0.7),
+        ratio_external=(1.1, 1.1, 1.1))
+    model.set_root_block_range(
+        (-25.0, -25.0, -25.0), (25.0, 25.0, 25.0))
+    mb = model.mesh_block()
+    from cabxml import _first
+    r1 = _first(mb, "divide_ratio1")
+    dl = _first(mb, "divide_length")
+    assert r1 is not None and r1.text.strip() == "1.3,1.3,1.3"
+    assert dl is not None
+    dl_vals = [float(x) for x in dl.text.strip().split(",")]
+    assert dl_vals == pytest.approx([0.7, 0.7, 0.7])
+    r2_vals = [float(x) for x in
+               model.mesh_control_value("divide_ratio2").split(",")]
+    assert r2_vals == pytest.approx([1.1, 1.1, 1.1])

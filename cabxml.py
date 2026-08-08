@@ -934,16 +934,28 @@ class StpreModel:
 
         mc0 = _first(self.root, "mesh_control")
         blk0 = _first(mc0, "block") if mc0 is not None else None
-        thr = threshold or self._parse_vec3(
-            _first(blk0, "limit") if blk0 is not None else None
-        ) or (0.1, 0.1, 0.1)
+        mb0 = self.mesh_block()
+        lim_el = _first(blk0, "limit") if blk0 is not None else None
+        if lim_el is None and mb0 is not None:
+            lim_el = _first(mb0, "limit")
+        thr = threshold or self._parse_vec3(lim_el) or (0.1, 0.1, 0.1)
+        # Internal geometric ratio lives in mesh_block/divide_ratio1;
+        # mesh_control/divide_ratio2 is the *external* ratio and must not
+        # be written into the internal field (was clobbered to 1.1 when
+        # Domain/RootBlock was edited after gridding).
         rat = ratio or self._parse_vec3(
-            _first(mc0, "divide_ratio2") if mc0 is not None else None
+            _first(mb0, "divide_ratio1") if mb0 is not None else None
         ) or (1.0, 1.0, 1.0)
+        rat_ext = self._parse_vec3(
+            _first(mc0, "divide_ratio2") if mc0 is not None else None)
+        std_len = self._parse_vec3(
+            _first(mb0, "divide_length") if mb0 is not None else None)
 
         self.set_mesh(
             axes, unit=unit, domain_min=mn, domain_max=mx,
-            threshold=thr, ratio=rat)
+            threshold=thr, ratio=rat,
+            standard_length=std_len or (0.5, 0.5, 0.5),
+            ratio_external=rat_ext)
         mb = self.mesh_block()
         if mb is not None:
             self._mesh_child(mb, "name", name)
