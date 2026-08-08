@@ -1622,3 +1622,15 @@ P = min{ p>=1 : p + ceil(log(1+L_out(q-1)/s)/log q)
 - 修复：internal 从 `mesh_block/divide_ratio1` 读取（缺省 1.0），
   external 从 `divide_ratio2` 读取保留，`divide_length` 保留；
 - 回归：`tests/test_cabxml.py` 新增 1 项；全仓 **230 通过 / 4 跳过**。
+
+### 32.5 启动 Qt 警告清理（2026-08-09）
+
+- 现象：`python cab_gui.py` 启动时输出 EUDC 字体缺失与
+  `QWindowsWindow::setGeometry` 多显示器钳制警告；
+- 处理：`_install_startup_message_filter()` 过滤两类已知无害 Qt 平台
+  消息（其余消息照常转发）；`_clamp_to_visible_screen()` 在主窗口落在
+  所有屏幕之外时移到主屏中心；
+- 说明：日志中的 “PaneFrameWindow” 窗口（1190×673）不属于当前
+  cab_gui 代码（仓库中无此类窗口），来自外部 Qt 进程/旧版本，
+  过滤不改变本程序窗口行为；
+- 全仓 `pytest`：**230 通过 / 4 跳过**。

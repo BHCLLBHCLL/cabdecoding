@@ -2634,15 +2634,58 @@ def main(argv: list[str] | None = None) -> int:
         print("PyQt5 / vtk 未安装：python -m pip install -r requirements-gui.txt")
         return 1
     app = QApplication(argv or sys.argv)
+    _install_startup_message_filter()
     path = None
     args = argv if argv is not None else sys.argv
     if len(args) > 1 and os.path.isfile(args[1]):
         path = args[1]
     win = CabViewer(path)
     win.show()
+    _clamp_to_visible_screen(win)
     if win.vtk_widget is not None:
         win._ensure_interactor()
     return app.exec_()
+
+
+def _install_startup_message_filter() -> None:
+    """Suppress two known-benign Qt platform warnings at startup.
+
+    * ``qt.qpa.fonts: Unable to open default EUDC font`` - the system is
+      missing EUDC.TTE; cosmetic only.
+    * ``QWindowsWindow::setGeometry: Unable to set geometry ...`` - a
+      top-level window (sometimes from a foreign Qt process sharing the
+      console) is clamped to a visible display on multi-monitor layouts.
+    """
+    try:
+        from PyQt5.QtCore import qInstallMessageHandler, qt_message_handler
+    except Exception:  # pragma: no cover
+        return
+
+    def handler(mode, context, message) -> None:
+        msg = str(message)
+        if ("EUDC" in msg and "font" in msg.lower()) or (
+                "QWindowsWindow::setGeometry" in msg
+                and "Unable to set geometry" in msg):
+            return
+        qt_message_handler(mode, context, message)
+
+    qInstallMessageHandler(handler)
+
+
+def _clamp_to_visible_screen(win) -> None:
+    """Move the main window onto a visible screen when the assigned
+    position falls outside every display (multi-monitor layouts)."""
+    try:
+        from PyQt5.QtGui import QGuiApplication
+        frame = win.frameGeometry()
+        for screen in QGuiApplication.screens():
+            if screen.availableGeometry().intersects(frame):
+                return
+        geo = QGuiApplication.primaryScreen().availableGeometry()
+        win.move(geo.center().x() - win.width() // 2,
+                 geo.center().y() - win.height() // 2)
+    except Exception:  # pragma: no cover
+        pass
 
 
 if __name__ == "__main__":
