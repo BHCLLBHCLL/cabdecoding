@@ -1395,6 +1395,7 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self.setWindowTitle("Mesh:Set division")
         self.model = model
         self.cad_meshes = cad_meshes or []
+        self.stpre_callback = None   # set by cab_gui when STpre API enabled
         self._build_ui()
         self._load_from_model()
 
@@ -2515,6 +2516,14 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             and self.num_axis_radio.isChecked() else None,
             discard_existing=self.chk_discard.isChecked(),
         )
+        if self.stpre_callback is not None and self.stpre_callback(
+                spec, self.chk_remove_edge_all.isChecked()):
+            self._update_element_label()
+            self._refresh_edit_list()
+            self._refresh_detail_ranges()
+            self._populate_parameter_tab()
+            self._log("Gridding (STpre API) finished.")
+            return
         part_points = {
             p.name: np.asarray(p.points, dtype=np.float64) * 1000.0
             for p in self.cad_meshes

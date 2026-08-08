@@ -111,6 +111,40 @@ def build_grid_params(model, *, method: Optional[str] = None,
     return params
 
 
+def build_params_from_gridspec(spec, *, edge_contact: Optional[int] = None
+                               ) -> list[tuple[str, str, str, str]]:
+    """Map a native ``GridSpec`` (Mesh:Set Division dialog) to
+    ``SetGridParam`` tuples, so STpre API gridding uses the dialog settings.
+    """
+    vd_map = {
+        "all": "all", "representative": "main", "axis_plane": "plane",
+        "minmax": "minmax", "not_considered": "none", "uniform": "uniform",
+    }
+    vd = vd_map.get(getattr(spec, "vertex_detection", "minmax"), "minmax")
+    if getattr(spec, "method", "rough_and_detail") == "num_elements" \
+            and getattr(spec, "target_per_axis", None) is not None:
+        method = "auto3"
+    else:
+        method = {
+            "rough_only": "coarse",
+            "rough_and_detail": "detail",
+            "num_elements": "auto1",
+        }.get(getattr(spec, "method", "rough_and_detail"), "detail")
+    params: list[tuple[str, str, str, str]] = [
+        ("division_method", method, "", ""),
+        ("division_type", vd, "", ""),
+    ]
+    if method == "auto1" and getattr(spec, "target_elements", None):
+        params.append(("division_num", int(spec.target_elements), 0, 0))
+    elif method == "auto3" and getattr(spec, "target_per_axis", None):
+        params.append(("division_num",
+                       *(int(v) for v in spec.target_per_axis)))
+    params.append(("outer_ratio", *spec.ratio_external()))
+    params.append(("edge_contact",
+                   int(1 if edge_contact else 0), "", ""))
+    return params
+
+
 def build_relay_cab(model, archive, src_path: str | Path) -> bool:
     """Write the temp CAB relay from an official STpre XML template.
 

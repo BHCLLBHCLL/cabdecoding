@@ -1391,6 +1391,14 @@ RootBlock `<min>/<max>`（含 `<subblock><area>`）与 mesh_block min/max
 按 RootBlock 范围重建。实测 box+域 −25..25：输出 **51×51×51，范围恰为
 −25..25**；全仓 182 通过/4 跳过。
 
+四次修复（2026-08-08）：开启 STpre API 后 **Mesh:Set Division 窗口不再
+打开**（原实现直接走 API 并 return）。现改为：窗口**始终打开**，仅把
+执行后端切换为 STpre——`GriddingDialog.stpre_callback` 在点击 [Gridding]
+时把**窗口实际设置**（division_method/division_type/division_num/
+outer_ratio/edge_contact，见 `build_params_from_gridspec`）传给
+`_run_stpre_api` 驱动 STpre，成功则跳过原生写网格并刷新；失败回退原生。
+回归：`tests/test_stpre_api.py` 10 项；全仓 **186 通过 / 4 跳过**。
+
 ### 28.3 验证与集成
 
 - `tests/test_stpre_api.py`（5 项）：ProgID 注册检测、SetGridParam 参数

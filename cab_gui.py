@@ -2248,7 +2248,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         set_setting("use_stpre_api", "True" if on else "False")
         self.log(f"STpre API gridding/meshing: {'ON' if on else 'OFF'}")
 
-    def _run_stpre_api(self, action: str) -> str:
+    def _run_stpre_api(self, action: str,
+                       params: Optional[list] = None,
+                       method: str = "detail") -> str:
         """Run gridding/meshing in external STpre; returns stpre|native.
 
         File-relay: the current project is saved to a temp CAB, STpre
@@ -2274,10 +2276,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if not cab_stpre_api.build_relay_cab(
                     self.model, self.archive, src):
                 return "native"
-            params = cab_stpre_api.build_grid_params(self.model)
+            if params is None:
+                params = cab_stpre_api.build_grid_params(self.model)
             run_element = action != "grid"
             ok = cab_stpre_api.run_stpre_grid_mesh(
-                src, dst, method="detail", grid_params=params,
+                src, dst, method=method, grid_params=params,
                 run_element=run_element)
             if not ok or not os.path.isfile(dst):
                 detail = getattr(cab_stpre_api, "last_error", None)
@@ -2310,16 +2313,30 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
-        if self._run_stpre_api("grid") == "stpre":
-            return
         snap = self._snapshot()
         dlg = _GriddingDialog(
             self.model, self._cad_meshes, self)
+        if self._stpre_api_enabled():
+            dlg.stpre_callback = self._stpre_grid_from_dialog
         if dlg.exec_():
             self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
             self.log("Grid saved; save the cab to persist.")
+
+    def _stpre_grid_from_dialog(self, spec, edge_contact: bool) -> bool:
+        """Run STpre API gridding with the dialog's actual settings."""
+        try:
+            import cab_stpre_api
+            params = cab_stpre_api.build_params_from_gridspec(
+                spec, edge_contact=1 if edge_contact else 0)
+            method = dict((p[0], p[1]) for p in params)[
+                "division_method"]
+            return self._run_stpre_api("grid", params=params,
+                                       method=method) == "stpre"
+        except Exception as exc:
+            self.log(f"STpre API gridding failed: {exc}; native.", "WARN")
+            return False
 
     def _meshing_dialog(self) -> None:
         """Mesh -> Meshing (M4): generate element occupancy from CAD."""
