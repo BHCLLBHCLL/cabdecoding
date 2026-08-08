@@ -303,6 +303,8 @@ def test_stpre_session_reopen_logic(qapp, monkeypatch):
     """ensure_open re-opens a new relay file without restarting COM."""
     import cab_stpre_api
     pytest.importorskip("win32com.client")
+    monkeypatch.setattr(cab_stpre_api, "_stpre_process_running",
+                        lambda: False)
     calls = {"open": [], "quit": 0}
 
     class _Flag:

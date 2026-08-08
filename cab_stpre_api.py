@@ -49,6 +49,37 @@ def api_available() -> bool:
         return False
 
 
+def _stpre_process_running() -> bool:
+    """True when an STpre process is already running.
+
+    STpre is a single-instance COM server: ``Dispatch(PROGID)`` returns the
+    object of an already-running instance instead of starting a private one.
+    If that instance belongs to the user (an open STpre window), hiding it
+    (``Visible=False``) or quitting it (``Quit``) would destroy the user's
+    session.  Automation therefore refuses to attach while any STpre
+    process is alive; the GUI falls back to the native gridding/meshing.
+    """
+    import subprocess
+    names = ("STpre_Bx64net.exe", "STprePMesh_Bx64net.exe")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    for name in names:
+        try:
+            out = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {name}", "/NH"],
+                capture_output=True, text=True, timeout=5,
+                creationflags=flags).stdout
+        except Exception:
+            continue
+        if name.lower() in (out or "").lower():
+            return True
+    try:
+        import win32com.client
+        win32com.client.GetActiveObject(PROGID)
+        return True
+    except Exception:
+        return False
+
+
 def _invoke(obj, name: str, *args):
     """Call a COM member, flagging it as a method first.
 
@@ -243,29 +274,22 @@ class STpreSession:
         self._doc = None
         self._mesher = None
         self._cab_in: Optional[str] = None
+        # False when the COM object is a pre-existing STpre instance the
+        # user may be watching.  Only self-started instances are hidden
+        # (Visible=False) and terminated (Quit); attached ones are never
+        # touched beyond the automation calls themselves.
+        self._owned = False
 
     def ensure_open(self, cab_in: str | Path) -> bool:
         global last_error
-        import win32com.client
         cab_in = str(cab_in)
         if self._app is None:
-            app = win32com.client.Dispatch(PROGID)
-            app.Visible = False
-            doc = _invoke(app, "GetDocument")
-            rc = _invoke(doc, "OpenCabFile", cab_in)
-            if rc != 1:
-                last_error = f"OpenCabFile rc={rc}"
-                try:
-                    _invoke(app, "Quit")
-                except Exception:
-                    pass
+            if _stpre_process_running():
+                last_error = (
+                    "STpre is already running; refusing to attach "
+                    "(automation would hide/quit the user's instance)")
                 return False
-            self._app = app
-            self._doc = doc
-            self._mesher = _invoke(doc, "GetMesher")
-            self._cab_in = cab_in
-            last_error = None
-            return True
+            return self._start(cab_in)
         if self._cab_in == cab_in:
             return True
         # A later [Gridding]/[Meshing] click writes a *new* relay CAB, so
@@ -280,7 +304,31 @@ class STpreSession:
             return True
         self.close()
         last_error = f"reopen OpenCabFile rc={rc}; restarted session"
-        return self.ensure_open(cab_in)
+        return self._start(cab_in)
+
+    def _start(self, cab_in: str) -> bool:
+        """Start a private, hidden STpre instance and open the relay."""
+        global last_error
+        import win32com.client
+        app = win32com.client.Dispatch(PROGID)
+        self._owned = True
+        app.Visible = False
+        doc = _invoke(app, "GetDocument")
+        rc = _invoke(doc, "OpenCabFile", cab_in)
+        if rc != 1:
+            last_error = f"OpenCabFile rc={rc}"
+            if self._owned:
+                try:
+                    _invoke(app, "Quit")
+                except Exception:
+                    pass
+            return False
+        self._app = app
+        self._doc = doc
+        self._mesher = _invoke(doc, "GetMesher")
+        self._cab_in = cab_in
+        last_error = None
+        return True
 
     @property
     def is_open(self) -> bool:
@@ -317,20 +365,23 @@ class STpreSession:
 
     def close(self) -> None:
         if self._app is not None:
-            try:
-                _invoke(self._app, "Quit")
-            except Exception:
-                pass
+            if self._owned:
+                try:
+                    _invoke(self._app, "Quit")
+                except Exception:
+                    pass
             self._app = None
             self._doc = None
             self._mesher = None
             self._cab_in = None
+            self._owned = False
 
 
 def run_stpre_grid_mesh(cab_in: str | Path, cab_out: str | Path, *,
                         method: str = "detail",
                         division_type: str = "all",
                         grid_params: Optional[list[tuple]] = None,
+                        block_params: Optional[list[tuple]] = None,
                         run_element: bool = True) -> bool:
     """Launch STpre through COM and execute gridding (+ element division).
 

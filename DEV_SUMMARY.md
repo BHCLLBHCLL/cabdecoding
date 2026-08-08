@@ -1458,3 +1458,37 @@ STpre 中 Layout of Parts 的 RootBlock 蓝色线框不是一个独立可漂移�
 - `tests/test_cabxml.py` 新增 2 项：域改写后 RootBlock bounds 与域相等、
   内部网格线首末点跟随、extend 保留；无 mesh_block 时自动创建；
 - 全仓 `pytest`：**205 通过 / 4 跳过**。
+
+## 30. STpre 会话归属保护：不再 kill 用户已打开的 STpre（2026-08-08）
+
+### 30.1 现象与根因
+
+开启 `Gridding/Meshing via STpre API` 后执行 Gridding，会把用户正在
+使用的 STpre 程序关闭。根因：**STpre 是单实例 COM 服务器**，
+`Dispatch("STpre_Bx64net.Application.2025")` 在已有实例时返回的是
+用户正在运行的实例，而不是新建一个私有进程。随后 cab_stpre_api 会：
+
+1. `app.Visible = False` —— 隐藏用户窗口；
+2. 失败路径或会话 `close()` 时 `app.Quit()` —— 直接退出用户程序。
+
+旧实现把“自动化启动的实例”和“用户打开的实例”混为一谈，任何失败
+（OpenCabFile rc≠1、reopen 失败、网格异常、关窗、关开关）都会 Quit。
+
+### 30.2 修复（cab_stpre_api.STpreSession 归属权）
+
+- `_stpre_process_running()`：用 `tasklist` 查 `STpre_Bx64net.exe` /
+  `STprePMesh_Bx64net.exe`，再叠加 `GetActiveObject` 探测运行实例；
+- `ensure_open`：检测到已有 STpre 进程时**拒绝接管**，`last_error`
+  说明原因并回退原生网格（不 Dispatch、不 Visible、不 Quit）；
+- 新实例才置 `_owned=True`，只有 owned 实例执行 `Visible=False` 与
+  `Quit()`；会话 `close()` 对未 owned 的实例不做任何退出操作；
+- reopen 失败的重启路径改为直接 `_start()`，避免刚 Quit 的进程残留
+  导致误判“已在运行”。
+
+### 30.3 验证
+
+- 新增 `tests/test_stpre_session_guard.py`（5 项）：tasklist 探测、
+  运行中拒绝接管（不 Dispatch）、未 owned 不 Quit、owned 隐藏并退出；
+- 修正 `test_stpre_session_reopen_logic` 显式关闭进程检测（本机有
+  常驻 STpre 进程时原测试会被新保护拦住）；
+- 全仓 `pytest`：**210 通过 / 4 跳过**。
