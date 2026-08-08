@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import re
 import struct
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
@@ -98,76 +97,16 @@ def import_stl_file(path: str | Path, **kw) -> list[ImportedBody]:
     return import_stl_bytes(path.read_bytes(), name=path.stem, **kw)
 
 
-def _cradle_programs() -> Optional[Path]:
-    try:
-        import ps_facet2_nodes
-        return ps_facet2_nodes.find_cradle_programs()
-    except Exception:
-        return None
-
-
-def _convert_with_cadthru(in_path: Path, out_path: Path,
-                          exe_names: list[str]) -> bool:
-    """Best-effort CADthru/STEPAssistant CLI conversion to x_t."""
-    prog = _cradle_programs()
-    exe = None
-    if prog is not None:
-        for n in exe_names:
-            p = prog / n
-            if p.is_file():
-                exe = str(p)
-                break
-    if exe is None:
-        return False
-    patterns = [
-        [in_path, out_path],
-        ["-i", in_path, "-o", out_path],
-        ["/i", in_path, "/o", out_path],
-        ["InterOp", in_path, out_path],
-    ]
-    for args in patterns:
-        if out_path.exists():
-            out_path.unlink()
-        try:
-            subprocess.run([exe] + [str(a) for a in args],
-                           timeout=90, capture_output=True)
-        except Exception:
-            continue
-        if out_path.exists() and out_path.stat().st_size > 0:
-            return True
-    return False
-
-
-def _convert_cad_to_xt(path: Path, suffix: str) -> bytes:
-    """Convert STEP/SAT/IGES to x_t via the Cradle CAD conversion library."""
-    exe_names = ["CADthru_Bx64net.exe"]
-    if suffix in (".step", ".stp", ".igs", ".iges"):
-        exe_names.append("STEPAssistant_Bx64.exe")
-    out = path.with_suffix(".x_t")
-    ok = _convert_with_cadthru(path, out, exe_names)
-    if not ok:
-        raise RuntimeError(
-            f"CAD conversion failed for {path.name}: Cradle CADthru/"
-            "STEPAssistant did not produce an x_t file. Convert the file "
-            "with your own tool first and import the resulting .x_t.")
-    raw = out.read_bytes()
-    try:
-        out.unlink()
-    except Exception:
-        pass
-    return raw
-
-
 def import_step_file(path: str | Path, **kw) -> list[ImportedBody]:
-    """Import STEP (.step/.stp) via CAD conversion to x_t."""
-    raw = _convert_cad_to_xt(Path(path), Path(path).suffix.lower())
-    return import_xt_bytes(raw, **kw)
+    """Import STEP (.step/.stp) via OpenCascade (OCC) tessellation."""
+    bodies, _raw, _fmt = import_file_with_payload(path, **kw)
+    return bodies
 
 
 def import_sat_file(path: str | Path, **kw) -> list[ImportedBody]:
-    """Import ACIS SAT (.sat/.sab) via CAD conversion to x_t."""
-    raw = _convert_cad_to_xt(Path(path), Path(path).suffix.lower())
-    return import_xt_bytes(raw, **kw)
+    """Import ACIS SAT (.sat/.sab) via OpenCascade (OCC) tessellation."""
+    bodies, _raw, _fmt = import_file_with_payload(path, **kw)
+    return bodies
 
 
 def import_file(path: str | Path, **kw) -> list[ImportedBody]:
@@ -188,11 +127,17 @@ def import_file_with_payload(path: str | Path, **kw
         raw = Path(path).read_bytes()
         return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
     if suffix in (".step", ".stp"):
-        raw = _convert_cad_to_xt(Path(path), suffix)
-        return import_xt_bytes(raw, **kw), raw, "xt"
+        import cab_occ
+        pts, tris = cab_occ.step_to_triangles(Path(path))
+        raw = cab_occ.triangles_to_stl(
+            pts, tris, name=Path(path).stem)
+        return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
     if suffix in (".sat", ".sab"):
-        raw = _convert_cad_to_xt(Path(path), suffix)
-        return import_xt_bytes(raw, **kw), raw, "xt"
+        import cab_occ
+        pts, tris = cab_occ.sat_to_triangles(Path(path))
+        raw = cab_occ.triangles_to_stl(
+            pts, tris, name=Path(path).stem)
+        return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
     raise ValueError(f"unsupported geometry format: {suffix}")
 
 

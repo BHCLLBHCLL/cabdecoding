@@ -1300,13 +1300,23 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
   `<parts type="polygon">`；重开时 `_tessellate_members` 直接解析成员
   重建几何（不依赖转换器）。
 
-### 27.2 STEP / SAT（Cradle CAD 转换库，best-effort）
+### 27.2 STEP / SAT（OpenCascade / OCC）
 
-- `_convert_cad_to_xt`：调用 `CADthru_Bx64net.exe`（STEP 另备
-  `STEPAssistant_Bx64.exe`），依次尝试 `[in,out]`/`-i -o`/`/i /o`/
-  `InterOp` 四种命令行形态，检查输出 `.x_t` 非空；
-- 转换成功后**持久化转换后的 x_t 成员**（后续重开不再需要转换器）；
-- 转换器缺失/失败时抛带指引的 `RuntimeError`（建议先自行转 x_t 再导入）。
+- 背景：`CADthru_Bx64net.exe` / `STEPAssistant_Bx64.exe` 是 GUI 程序，
+  无头调用会**挂起**（实测 4 种参数形态均超时）；pskernel 只读原生
+  `.x_t`。因此 STEP/SAT 改为 **OpenCascade（pythonocc-core / OCP）**：
+  `pip install OCP`；
+- 新模块 `cab_occ.py`：
+  - `step_to_triangles`：`STEPControl_Reader` → `BRepMesh_IncrementalMesh`
+    三角化 → `(points, triangles)`；
+  - `sat_to_triangles`：`SATControl_Reader`（OCC ≥ 7.4；该 OCP 构建无
+    SATControl 时给出明确提示）；
+  - `triangles_to_stl`：ASCII STL 输出，供 cab 成员持久化；
+- 导入管线：STEP/SAT → OCC 三角化 → 注册 `<parts type="polygon">` +
+  `.stl` 成员（重开无需 OCC）；OCC 缺失时**立即报错**（含安装指引），
+  绝不调用 GUI 转换器；
+- CrossCadWare `_dtkConvert`/`dtkConvertSC` 经 ctypes 实测失败
+  （rc=1/-1000，需 DataKit 初始化与 license），不采用。
 
 ### 27.3 GUI 与分派
 
@@ -1318,5 +1328,6 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 ### 27.4 验证
 
 - `tests/test_import.py` 新增 3 项：文本 STL 解析（8 点/12 面）、
-  STL 成员保存→重开重建、扩展名分派与转换器缺失时报错（STEP/SAT）。
-- 全仓 `pytest`：**166 通过 / 4 跳过**。
+  STL 成员保存→重开重建、扩展名分派与 OCC 缺失时报错（STEP/SAT，
+  无 GUI 转换器调用）。
+- 全仓 `pytest`：**170 通过 / 4 跳过**。

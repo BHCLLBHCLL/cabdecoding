@@ -137,7 +137,7 @@
 | Open… | Ctrl+O | ✅ | 打开 `.cab` |
 | Save | Ctrl+S | ✅ | 写回当前路径（若无则 Save As） |
 | Save As… | Ctrl+Shift+S | ✅ | 重打包 CAB |
-| Import… | | ✅ | x_t / STEP / STL / SAT 导入：STL 原生解析（polygon 成员），STEP/SAT 经 CADthru/STEPAssistant 转 x_t，导入后自动三角化 |
+| Import… | | ✅ | x_t / STEP / STL / SAT 导入：STL 原生解析（polygon 成员），STEP/SAT 经 OpenCascade（OCC）三角化（需 `pip install OCP`），导入后自动三角化 |
 | Export… | Ctrl+E | ✅ | 对话框：S File / XEMT File（手册 Export 子集） |
 | Print | | ✅ | Draw 窗口截图预览 + Save PNG + 系统打印（QPrinter） |
 | Execute Solver | | ✅ | 确认后导出临时 `.s/.xemt` 并启动 `stsol_Dx64net.exe` |

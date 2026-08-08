@@ -484,9 +484,9 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 | 项 | 实现 |
 |---|---|
 | STL | 原生文本/二进制解析（`cab_import.parse_stl_bytes`），polygon 部件 + `.stl` 成员持久化 + 重开重建 |
-| STEP / SAT | `CADthru_Bx64net.exe` / `STEPAssistant_Bx64.exe` best-effort 转 x_t（4 种 CLI 形态），持久化转换结果；缺失时报错指引 |
+| STEP / SAT | OpenCascade（`cab_occ.py`：STEPControl/SATControl + BRepMesh 三角化）→ polygon + `.stl` 成员持久化；**移除 GUI 转换器**（CADthru 无头会挂起），OCC 缺失立即报错 |
 | 分派/GUI | `import_file(WithPayload)` 按扩展名分派；File→Import 过滤器扩展 |
-| 回归 | `tests/test_import.py` 3 项；全仓 **166 通过 / 4 跳过** |
+| 回归 | `tests/test_import.py` 3 项；全仓 **170 通过 / 4 跳过** |
 
 文档：DEV_SUMMARY §27；README/CAB_GUI_DESIGN 导入格式更新。
 

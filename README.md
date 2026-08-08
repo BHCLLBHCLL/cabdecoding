@@ -12,8 +12,9 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
 
 - 打开/保存/另存 `.cab`，导出 `.s` + `.xemt`；
 - `File → Import…` 导入几何：`.x_t`（原生 Parasolid）、`.stl`（原生
-  polygon 解析）、`.step/.stp` 与 `.sat/.sab`（经 Cradle CADthru/
-  STEPAssistant 转换），导入后自动三角化并刷新 3D；
+  polygon 解析）、`.step/.stp` 与 `.sat/.sab`（经 OpenCascade/OCC
+  三角化，需 `pip install OCP`；无 GUI 转换器），导入后自动三角化并
+  刷新 3D；
 - `Edit → Reset Computational Domain` 设置计算域（坐标类型/单位/
   min-max/材料/CAD Data Size/Extend/Preview）；
 - `Mesh` 菜单 6 项齐全：`Gridding`（六标签 `Mesh:Set division`）、
