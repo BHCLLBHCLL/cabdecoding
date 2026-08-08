@@ -126,3 +126,39 @@ def test_cab_rebuild_with_edited_xml():
     m2 = StpreModel(parse_stpre(re_members["ex4_e.xml"]))
     assert m2.find_part("battery_pack") is not None
     assert m2.find_part("battery") is None
+
+
+def test_apply_domain_syncs_root_block_to_domain():
+    """STpre: RootBlock wireframe follows Domain position and size."""
+    import cab_domain
+    model = StpreModel(parse_stpre(_members()["ex4_e.xml"]))
+    model.set_root_block_range(
+        (-50.0, -50.0, -50.0), (50.0, 50.0, 50.0),
+        extend_min=(5.0, 5.0, 5.0), extend_max=(6.0, 6.0, 6.0))
+    spec = cab_domain.DomainSpec(
+        unit="mm", xyz_min=(-25.0, -25.0, -25.0),
+        xyz_max=(25.0, 25.0, 25.0))
+    cab_domain.apply_domain(model, spec)
+    assert model.domain_base() == (-25.0, -25.0, -25.0)
+    assert model.domain_size() == (50.0, 50.0, 50.0)
+    assert model.root_block_bounds() == (
+        -25.0, -25.0, -25.0, 25.0, 25.0, 25.0)
+    axes = model.mesh_axes()
+    assert axes["x"][0] == -25.0 and axes["x"][-1] == 25.0
+    assert axes["y"][0] == -25.0 and axes["y"][-1] == 25.0
+    assert axes["z"][0] == -25.0 and axes["z"][-1] == 25.0
+    assert model.root_block_extend() == (
+        (5.0, 5.0, 5.0), (6.0, 6.0, 6.0))
+
+
+def test_apply_domain_creates_root_block_when_missing():
+    import cab_domain
+    model = StpreModel(parse_stpre(_members()["ex4_e.xml"]))
+    mb = model.mesh_block()
+    if mb is not None:
+        model.root.remove(mb)
+    spec = cab_domain.DomainSpec(
+        unit="mm", xyz_min=(0.0, 0.0, 0.0), xyz_max=(10.0, 20.0, 30.0))
+    cab_domain.apply_domain(model, spec)
+    assert model.mesh_block() is not None
+    assert model.root_block_bounds() == (0.0, 0.0, 0.0, 10.0, 20.0, 30.0)

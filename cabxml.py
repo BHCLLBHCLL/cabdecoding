@@ -862,6 +862,33 @@ class StpreModel:
             return True
         return el.text.strip().upper() != "F"
 
+    def root_block_extend(
+            self
+    ) -> Optional[tuple[tuple[float, float, float],
+                        tuple[float, float, float]]]:
+        """RootBlock ``extend_min`` / ``extend_max`` (mm) when present.
+
+        STpre keeps the RootBlock cuboid glued to the computational domain;
+        when a domain edit moves/sizes the cuboid, these per-axis extension
+        values are preserved instead of being reset to zero.
+        """
+        mb = self.mesh_block()
+        if mb is None:
+            return None
+        out = []
+        for tag in ("extend_min", "extend_max"):
+            el = _first(mb, tag)
+            if el is None or not el.text:
+                return None
+            try:
+                vals = tuple(float(x.strip()) for x in el.text.split(",")[:3])
+            except ValueError:
+                return None
+            if len(vals) != 3:
+                return None
+            out.append(vals)
+        return (out[0], out[1])
+
     def set_root_block_visible(self, on: bool) -> None:
         mb = self.mesh_block()
         if mb is None:

@@ -81,6 +81,21 @@ def apply_domain(model: StpreModel, spec: DomainSpec,
     model.set_domain_monitor(spec.monitor)
     if spec.initial_temperature is not None:
         model.set_ambient_temperature(spec.initial_temperature)
+    # STpre behaviour: the Layout -> RootBlock wireframe follows the
+    # Domain(cuboid) position and size.  Keep mesh_block/mesh_control
+    # RootBlock AABB identical to the domain (internal grid lines are
+    # preserved by set_root_block_range; per-axis extensions too).
+    extend = model.root_block_extend()
+    try:
+        model.set_root_block_range(
+            base,
+            (base[0] + size[0], base[1] + size[1], base[2] + size[2]),
+            unit="mm",
+            extend_min=extend[0] if extend is not None else (0.0, 0.0, 0.0),
+            extend_max=extend[1] if extend is not None else (0.0, 0.0, 0.0),
+        )
+    except Exception:
+        pass
     return True
 
 

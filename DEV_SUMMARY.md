@@ -1426,6 +1426,35 @@ outer_ratio/edge_contact，见 `build_params_from_gridspec`）传给
 - 修正并行 agent 引入的样例改名（`_box_all.x_t`→`box_all.x_t`）与
   RootBlock 双击改调 `_mesh_block_dialog` 后的测试引用；Mesh 菜单顺序
   断言加入新开关项；
-- 全仓 `pytest --basetemp=.pytest_tmp_runM12`：**203 通过 / 4 跳过**；
+- 全仓 `pytest --basetemp=.pytest_tmp_runM12`：**205 通过 / 4 跳过**（含
+  §29 RootBlock 随动测试）；
 - 一并提交并行 agent 的 Layer/ActivePart 工作（测试全绿，避免混合
   工作区）。
+
+## 29. RootBlock 线框随 Domain(cuboid) 随动（2026-08-08）
+
+### 29.1 行为（对齐 STpre）
+
+STpre 中 Layout of Parts 的 RootBlock 蓝色线框不是一个独立可漂移的
+盒子：Domain(cuboid) 的位置/尺寸改变时，RootBlock AABB 同步跟随，网格
+线（x/y/z 表）保留在域内并更新首末边界。
+
+### 29.2 实现
+
+- `cabxml.StpreModel.root_block_extend()`：读取 mesh_block 的
+  `extend_min/extend_max`，供联动时保留用户设置的外扩量；
+- `cab_domain.apply_domain()`：写回 domain 后统一调用
+  `set_root_block_range(domain_min, domain_max)`，使
+  `mesh_block`/`mesh_control block` 的 RootBlock min/max 与域完全一致；
+  已有内部网格线由 `set_root_block_range` 裁剪保留，extend 值不重置；
+- 无 mesh_block 的项目（如 tr03.cab）在编辑域时自动物化 RootBlock
+  2 点线框，与 `_new_project` 的默认工作区一致；
+- 覆盖所有域编辑入口：Edit→Reset Computational Domain（含 Preview/
+  Apply/OK/Cancel 恢复）与 Wizard 的 domain 步骤，因为二者都走
+  `apply_domain`；打开 cab 文件不强制改写，保留文件中存储的 RootBlock。
+
+### 29.3 验证
+
+- `tests/test_cabxml.py` 新增 2 项：域改写后 RootBlock bounds 与域相等、
+  内部网格线首末点跟随、extend 保留；无 mesh_block 时自动创建；
+- 全仓 `pytest`：**205 通过 / 4 跳过**。
