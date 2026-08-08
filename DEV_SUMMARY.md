@@ -1288,3 +1288,35 @@ git 版本串）。全仓 **139 通过 / 4 跳过**（M7-3 未影响其它模块
 - `tests/test_mesh.py`：corners 多采样为 center 结果的保守子集；
 - Edit 页回归测试改用非网格坐标（5.25/6.25），因更精确的网格已含 5.0/6.0；
 - 全仓 `pytest`：**163 通过 / 4 跳过**。
+
+## 27. Import 扩展：STEP / STL / SAT（2026-08-08）
+
+### 27.1 STL（原生）
+
+- `cab_import.parse_stl_bytes`：文本与二进制 STL 解析（二进制按
+  `84 + 50*n` 布局校验，顶点按 1e-9 去重），返回 `(points, triangles)`；
+- `import_stl_file/import_stl_bytes`：生成 polygon TessPart；
+- 持久化：原始 STL 存为独立 cab 成员（`<partname>.stl`），部件注册为
+  `<parts type="polygon">`；重开时 `_tessellate_members` 直接解析成员
+  重建几何（不依赖转换器）。
+
+### 27.2 STEP / SAT（Cradle CAD 转换库，best-effort）
+
+- `_convert_cad_to_xt`：调用 `CADthru_Bx64net.exe`（STEP 另备
+  `STEPAssistant_Bx64.exe`），依次尝试 `[in,out]`/`-i -o`/`/i /o`/
+  `InterOp` 四种命令行形态，检查输出 `.x_t` 非空；
+- 转换成功后**持久化转换后的 x_t 成员**（后续重开不再需要转换器）；
+- 转换器缺失/失败时抛带指引的 `RuntimeError`（建议先自行转 x_t 再导入）。
+
+### 27.3 GUI 与分派
+
+- `cab_import.import_file/import_file_with_payload`：按扩展名分派
+  （.x_t/.xmt_txt、.stl、.step/.stp、.sat/.sab）；
+- File→Import 过滤器扩展为 Geometry（XT/STEP/STL/SAT），导入后按格式
+  选择成员持久化与部件类型。
+
+### 27.4 验证
+
+- `tests/test_import.py` 新增 3 项：文本 STL 解析（8 点/12 面）、
+  STL 成员保存→重开重建、扩展名分派与转换器缺失时报错（STEP/SAT）。
+- 全仓 `pytest`：**166 通过 / 4 跳过**。

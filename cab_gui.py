@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 import numpy as np
 
@@ -683,52 +684,63 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._recent_menu.addAction(act)
 
     def _tessellate_members(self, members: dict) -> Optional[list]:
-        """Tessellate every ``.x_t`` member (facet_2 first, GO fallback)."""
+        """Tessellate every ``.x_t``/``.stl`` member (facet_2 first)."""
         xt_names = [n for n in members if n.endswith(".x_t")]
-        if not xt_names:
+        stl_names = [n for n in members if n.endswith(".stl")]
+        if not xt_names and not stl_names:
             return None
-        try:
-            from cab_options import get_setting
-            facet_tol = float(get_setting("facet_tol", 1e-4))
-            facet_angle = float(get_setting("facet_angle", 12.0))
-        except Exception:
-            facet_tol, facet_angle = 1e-4, 12.0
-        try:
-            import ps_facet2_nodes
-            if ps_facet2_nodes.available():
-                meshes: list = []
-                for xt_name in xt_names:
-                    try:
-                        meshes += ps_facet2_nodes.tessellate_xt(
-                            members[xt_name], adaptive=True,
-                            facet_tol=facet_tol,
-                            facet_angle_deg=facet_angle)
-                    except Exception as exc:
-                        self.log(
-                            f"facet_2 tessellation skipped {xt_name}: "
-                            f"{exc}", "WARN")
-                if meshes:
-                    return meshes
-        except Exception as exc:
-            self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
-                     "WARN")
-        try:
-            import ps_tessellate
-            if ps_tessellate.available():
-                meshes = []
-                for xt_name in xt_names:
-                    try:
-                        meshes += ps_tessellate.tessellate_xt(
-                            members[xt_name], facet_tol=facet_tol,
-                            facet_angle_deg=facet_angle)
-                    except Exception as exc:
-                        self.log(
-                            f"GO tessellation skipped {xt_name}: {exc}",
-                            "WARN")
-                return meshes or None
-        except Exception as exc:
-            self.log(f"Parasolid GO tessellation skipped: {exc}", "WARN")
-        return None
+        out: list = []
+        if xt_names:
+            try:
+                from cab_options import get_setting
+                facet_tol = float(get_setting("facet_tol", 1e-4))
+                facet_angle = float(get_setting("facet_angle", 12.0))
+            except Exception:
+                facet_tol, facet_angle = 1e-4, 12.0
+            try:
+                import ps_facet2_nodes
+                if ps_facet2_nodes.available():
+                    for xt_name in xt_names:
+                        try:
+                            out += ps_facet2_nodes.tessellate_xt(
+                                members[xt_name], adaptive=True,
+                                facet_tol=facet_tol,
+                                facet_angle_deg=facet_angle)
+                        except Exception as exc:
+                            self.log(
+                                f"facet_2 tessellation skipped {xt_name}: "
+                                f"{exc}", "WARN")
+            except Exception as exc:
+                self.log(f"Parasolid facet_2 tessellation skipped: {exc}",
+                         "WARN")
+            if not out:
+                try:
+                    import ps_tessellate
+                    if ps_tessellate.available():
+                        for xt_name in xt_names:
+                            try:
+                                out += ps_tessellate.tessellate_xt(
+                                    members[xt_name], facet_tol=facet_tol,
+                                    facet_angle_deg=facet_angle)
+                            except Exception as exc:
+                                self.log(
+                                    f"GO tessellation skipped {xt_name}: "
+                                    f"{exc}", "WARN")
+                except Exception as exc:
+                    self.log(
+                        f"Parasolid GO tessellation skipped: {exc}", "WARN")
+        if stl_names:
+            try:
+                import cab_import
+                import ps_facet2_nodes as _f2
+                for name in stl_names:
+                    pts, tris = cab_import.parse_stl_bytes(members[name])
+                    out.append(_f2.TessPart(
+                        name=Path(name).stem, points=pts,
+                        triangles=tris.astype(np.int32), tag=0))
+            except Exception as exc:
+                self.log(f"STL member rebuild skipped: {exc}", "WARN")
+        return out or None
 
     # ------------------------------------------------------- undo / redo
 
@@ -1450,8 +1462,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log("No project open.", "WARN")
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Import XT", "",
-            "Parasolid XT (*.x_t *.xmt_txt);;All files (*)")
+            self, "Import Geometry", "",
+            "Geometry (*.x_t *.xmt_txt *.step *.stp *.stl *.sat *.sab);;"
+            "Parasolid XT (*.x_t *.xmt_txt);;STEP (*.step *.stp);;"
+            "STL (*.stl);;ACIS SAT (*.sat *.sab);;All files (*)")
         if not path:
             return
         snap = self._snapshot()
@@ -1462,16 +1476,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     self, "导入不可用",
                     "未找到 Cradle pskernel.dll，无法导入 x_t。")
                 return
-            bodies = cab_import.import_xt_file(path)
+            bodies, raw, fmt = cab_import.import_file_with_payload(path)
             if not bodies:
                 QMessageBox.warning(
-                    self, "导入失败", "x_t 中没有可显示的 body。")
+                    self, "导入失败", "文件中没有可显示的 body。")
                 return
-            with open(path, "rb") as fh:
-                raw = fh.read()
-            member = cab_import.add_xt_member(self.archive, raw)
-            self.model.add_body_file(member.name)
-            added = cab_import.register_parts(self.model, bodies)
+            if fmt == "stl":
+                member = cab_import.add_stl_member(
+                    self.archive, raw,
+                    name=Path(path).stem + ".stl")
+                added = cab_import.register_parts(
+                    self.model, bodies, kind="polygon")
+            else:
+                member = cab_import.add_xt_member(self.archive, raw)
+                self.model.add_body_file(member.name)
+                added = cab_import.register_parts(self.model, bodies)
             self._cad_meshes = list(self._cad_meshes or []) + \
                 [b.tess for b in bodies]
             self._push_undo(snap)
