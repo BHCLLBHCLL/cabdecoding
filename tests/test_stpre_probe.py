@@ -16,7 +16,7 @@ def test_default_cases_matrix():
 
 
 def test_special_matrices():
-    assert len(stpre_probe.auto1_sweep_cases()) == 12
+    assert len(stpre_probe.auto1_sweep_cases()) == 13
     assert len(stpre_probe.tr03_vd_cases()) == 9
     assert len(stpre_probe.ex4e_vd_cases()) == 9
     assert len(stpre_probe.stl_registration_cases()) == 2

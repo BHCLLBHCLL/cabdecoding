@@ -164,3 +164,54 @@ python stpre_probe.py --analyze data/stpre_probe_20260808_all.json
   `<parts><file> lshape.stl </file>` 仍不被 STpre API 网格化
   （stlreg 2 例均退化为 51³ 空域网格）——STpre API 的 relay 只认
   x_t body 部件。
+
+## 6. DLL 反汇编结论（STpreBase_Bx64.dll，2026-08-08）
+
+工具：lief 0.12.3 + capstone 5.0.7；导出函数按 RVA 定位，常量按
+RIP-relative 解析。
+
+### 6.1 `MeshBlock::SetElementNum`（RVA 0x1E3C40）— auto1 每轴分配
+
+反汇编得到（非轴对称分支）：
+
+```
+nx = trunc(((Lx^2 / (Ly*Lz)) * N)^(1/3) + 0.5)
+ny = trunc(nx * Ly / Lx + 0.5)
+nz = trunc(nx * Lz / Lx + 0.5)
+```
+
+轴对称分支：`nx=trunc(sqrt((Lx/Lz)*N)+0.5)`、`nz=trunc(nx*Lz/Lx+0.5)`、
+`ny=1`。已用黑盒实测验证：域 100×50×25、N=8000 → STpre 输出
+41×21×11 点（40×20×10 cell），与公式完全一致；立方域即
+`round(N^(1/3))`。实现见 `stpre_rules.auto1_per_axis_counts`。
+
+### 6.2 `MeshBlock::CalcFineCoord`（RVA 0x1CB000）— 几何级数坐标
+
+给定区间长 L、段数 n、比值 q，首间距：
+
+```
+g0 = L * (1 - q) / (1 - q^n)     （q==1 时 g0 = L/n）
+```
+
+坐标按 `x[i+1] = x[i] + g0; g0 *= q` 累加。这是“给定 q 反解 g0”的
+路径（内区 ratio_in 的名义值再经 CalcRatio1 求实际 q）。
+
+### 6.3 `MeshBlock::CalcRatio1/CalcRatio2`（RVA 0x1CB4F0 / 0x1CB840）
+
+几何比求解器：q 从 1.01（或 0.99）起步、步长 0.01 扫描，容差
+1e-5，随后 30 次牛顿精化（0x1CB770 循环），上限 500 次迭代；
+常量 1.0 / 0.1 / 0.0001 / 1e-5 均在代码中确认。
+
+### 6.4 已固化为可测试模块
+
+`stpre_rules.py`：
+
+- `auto1_per_axis_counts`（SetElementNum 公式，含轴对称分支）；
+- `geometric_first_spacing` / `geometric_coords`（CalcFineCoord）；
+- `split_outer_counts`（auto1 外区 L/R：枚举使 |g0L−g0R| 最小，
+  §5.1 黑盒规则，反汇编确认存在 CalcRatio 求解器支撑）；
+- `inner_segment_split`（顶点段 `n=trunc(len/std+0.5)`）；
+- `calc_ratio`（几何和方程二分求解，对齐 CalcRatio 语义）。
+
+验证：`tests/test_stpre_rules.py` 7 项，含非立方域 auto1 与
+`split_outer_counts(25,15,14) → (8,6)` 对拍黑盒数据。

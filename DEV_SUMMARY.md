@@ -1541,3 +1541,19 @@ STpre 中 Layout of Parts 的 RootBlock 蓝色线框不是一个独立可漂移�
 - 规则细节与数据文件见 `STPRE_GRID_RULES.md` §5 及
   `data/stpre_probe_20260808_{auto1,tr03,ex4e,stlreg}.json`；
 - 全仓 `pytest`：**215 通过 / 4 跳过**。
+
+### 31.5 DLL 反汇编：auto1 与几何比公式落地（2026-08-08）
+
+- 反汇编 `STpreBase_Bx64.dll`：
+  - `MeshBlock::SetElementNum`（RVA 0x1E3C40）：auto1 每轴 cell 数
+    公式 `nx=trunc(((Lx²/(Ly·Lz))·N)^(1/3)+0.5)`，ny/nz 按长度比，
+    轴对称分支用 sqrt；已用 100×50×25 域实测验证（40×20×10）；
+  - `MeshBlock::CalcFineCoord`（RVA 0x1CB000）：几何级数首间距
+    `g0=L·(1-q)/(1-qⁿ)`；
+  - `CalcRatio1/CalcRatio2`（0x1CB4F0/0x1CB840）：q 迭代求解器
+    （1.01/0.99 起步、容差 1e-5、牛顿精化）；
+- 新增 `stpre_rules.py` 固化公式（auto1 分配、几何坐标、外区拆分、
+  顶点段拆分、q 求解），`tests/test_stpre_rules.py` 7 项，含非立方
+  域 auto1 与 L/R=(8,6) 对拍；
+- 规则档案见 `STPRE_GRID_RULES.md` §6；全仓 `pytest`：**222 通过 /
+  4 跳过**。

@@ -231,6 +231,10 @@ def auto1_sweep_cases() -> list[ProbeCase]:
         domain_min=(0.0, 0.0, 0.0), domain_max=(100.0, 100.0, 100.0),
         method="auto1", target_elements=8000))
     cases.append(ProbeCase(
+        name="auto1_8000_domain_100x50x25",
+        domain_min=(0.0, 0.0, 0.0), domain_max=(100.0, 50.0, 25.0),
+        method="auto1", target_elements=8000))
+    cases.append(ProbeCase(
         name="auto1_8000_scale_0_5", **base, method="auto1",
         target_elements=8000,
         part_transform="0.5,0,0,0,0,0.5,0,0,0,0,0.5,0,0,0,0,1"))
