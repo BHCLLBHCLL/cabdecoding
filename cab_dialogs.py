@@ -29,6 +29,7 @@ Framework pieces (reusable for every other settings dialog):
 Concrete dialogs:
 
 - :class:`DomainDialog`   — [Edit Computational Domain], STpre layout;
+- :class:`MeshBlockDialog` — [Mesh:block] RootBlock editor (Layout tree);
 - :class:`PartDialog`     — [Part] - [Cuboid]-style part editor;
 - :class:`GriddingDialog` — [Gridding] Basic Settings on the framework.
 """
@@ -931,6 +932,253 @@ class DomainDialog(StpreDialogBase):
         if parent is not None and hasattr(parent, "log"):
             parent.log(f"Calculate Part Region: {lo * scale} ~ {hi * scale} "
                        f"[{unit}]")
+
+
+# --------------------------------------------------------------- Mesh:block
+
+
+class MeshBlockDialog(QDialog if _HAS_GUI_DEPS else object):
+    """STpre ``Mesh:block`` — edit RootBlock range (Layout of Parts).
+
+    Double-click / Reference on ``RootBlock`` opens this dialog (not
+    Mesh→Gridding / ``Mesh:Set division``).
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        self.setWindowTitle("Mesh:block")
+        self.setMinimumWidth(420)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(6)
+        lay.addWidget(DialogHeader(
+            "Edits parameters of mesh block.", "mesh", self))
+
+        form = QGridLayout()
+        form.addWidget(QLabel("Block name", self), 0, 0)
+        self.name_edit = QLineEdit(self)
+        form.addWidget(self.name_edit, 0, 1, 1, 3)
+        form.addWidget(QLabel("Parent block name", self), 1, 0)
+        self.parent_edit = QLineEdit(self)
+        form.addWidget(self.parent_edit, 1, 1, 1, 3)
+        lay.addLayout(form)
+
+        # Minimum / Maximum table
+        rng = QGridLayout()
+        rng.addWidget(QLabel("", self), 0, 0)
+        for i, ax in enumerate("XYZ"):
+            lab = QLabel(ax, self)
+            lab.setAlignment(Qt.AlignCenter)
+            rng.addWidget(lab, 0, i + 1)
+        self.min_spins: dict[str, QDoubleSpinBox] = {}
+        self.max_spins: dict[str, QDoubleSpinBox] = {}
+        rng.addWidget(QLabel("Minimum", self), 1, 0)
+        rng.addWidget(QLabel("Maximum", self), 2, 0)
+        for i, ax in enumerate("xyz"):
+            for row, store in ((1, self.min_spins), (2, self.max_spins)):
+                sb = QDoubleSpinBox(self)
+                sb.setRange(-1e9, 1e9)
+                sb.setDecimals(6)
+                sb.setMinimumWidth(72)
+                store[ax] = sb
+                rng.addWidget(sb, row, i + 1)
+        lay.addLayout(rng)
+
+        sel_row = QHBoxLayout()
+        self.select_edit = QLineEdit(self)
+        self.select_edit.setEnabled(False)
+        sel_row.addWidget(self.select_edit, 1)
+        self.btn_select = QPushButton("Select", self)
+        self.btn_select.setEnabled(False)
+        sel_row.addWidget(self.btn_select)
+        lay.addLayout(sel_row)
+        hint = QLabel(
+            "By clicking 'select' button, part and/or group can be "
+            "selected from the tree or draw window and set to range.",
+            self)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #555;")
+        lay.addWidget(hint)
+
+        # Extend surroundings
+        self.extend_cb = QCheckBox("Extend surroundings", self)
+        lay.addWidget(self.extend_cb)
+        ext = QGridLayout()
+        ext.addWidget(QLabel("Minimum", self), 1, 0)
+        ext.addWidget(QLabel("Maximum", self), 2, 0)
+        for i, ax in enumerate("XYZ"):
+            ext.addWidget(QLabel(ax, self), 0, i + 1)
+        self.ext_min: dict[str, QDoubleSpinBox] = {}
+        self.ext_max: dict[str, QDoubleSpinBox] = {}
+        for i, ax in enumerate("xyz"):
+            for row, store in ((1, self.ext_min), (2, self.ext_max)):
+                sb = QDoubleSpinBox(self)
+                sb.setRange(-1e9, 1e9)
+                sb.setDecimals(6)
+                sb.setValue(0.0)
+                store[ax] = sb
+                ext.addWidget(sb, row, i + 1)
+        self._ext_host = QWidget(self)
+        self._ext_host.setLayout(ext)
+        lay.addWidget(self._ext_host)
+        self.extend_cb.toggled.connect(self._ext_host.setEnabled)
+        self._ext_host.setEnabled(False)
+
+        # Parameter
+        self.param_cb = QCheckBox("Parameter", self)
+        lay.addWidget(self.param_cb)
+        prm = QGridLayout()
+        for i, ax in enumerate("XYZ"):
+            prm.addWidget(QLabel(ax, self), 0, i + 1)
+        self.std: dict[str, QDoubleSpinBox] = {}
+        self.thr: dict[str, QDoubleSpinBox] = {}
+        self.ratio: dict[str, QDoubleSpinBox] = {}
+        self.common: dict[str, QCheckBox] = {}
+        rows = (("Standard length", self.std, 1.0),
+                ("Threshold length", self.thr, 0.1),
+                ("Geometric ratio", self.ratio, 1.0))
+        for r, (label, store, default) in enumerate(rows, 1):
+            prm.addWidget(QLabel(label, self), r, 0)
+            for i, ax in enumerate("xyz"):
+                sb = QDoubleSpinBox(self)
+                sb.setRange(1e-9, 1e9)
+                sb.setDecimals(6)
+                sb.setValue(default)
+                store[ax] = sb
+                prm.addWidget(sb, r, i + 1)
+            cb = QCheckBox("Common", self)
+            if label == "Geometric ratio":
+                cb.setChecked(True)
+            self.common[label] = cb
+            prm.addWidget(cb, r, 4)
+        self._prm_host = QWidget(self)
+        self._prm_host.setLayout(prm)
+        lay.addWidget(self._prm_host)
+        self.param_cb.toggled.connect(self._prm_host.setEnabled)
+        self._prm_host.setEnabled(False)
+
+        unit_row = QHBoxLayout()
+        unit_row.addStretch(1)
+        unit_row.addWidget(QLabel("Unit : mm", self))
+        lay.addLayout(unit_row)
+
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        for label, slot in (("Preview", self._on_preview),
+                            ("OK", self._on_ok),
+                            ("Cancel", self.reject)):
+            btn = QPushButton(label, self)
+            if label == "OK":
+                btn.setDefault(True)
+            btn.clicked.connect(slot)
+            brow.addWidget(btn)
+        lay.addLayout(brow)
+
+        self._load()
+
+    def _load(self) -> None:
+        from cabxml import _first
+        mb = self.model.mesh_block()
+        name = "RootBlock"
+        if mb is not None:
+            n = _first(mb, "name")
+            if n is not None and n.text:
+                name = n.text.strip()
+        self.name_edit.setText(name)
+        bb = self.model.root_block_bounds()
+        if bb is None:
+            bb = (0.0, 0.0, 0.0, 100.0, 100.0, 100.0)
+        for i, ax in enumerate("xyz"):
+            self.min_spins[ax].setValue(bb[i])
+            self.max_spins[ax].setValue(bb[i + 3])
+        if mb is not None:
+            for tag, store in (("extend_min", self.ext_min),
+                               ("extend_max", self.ext_max)):
+                el = _first(mb, "extend_min" if tag == "extend_min"
+                            else "extend_max")
+                if el is not None and el.text:
+                    try:
+                        vals = [float(x.strip())
+                                for x in el.text.split(",")[:3]]
+                        if len(vals) == 3:
+                            for i, ax in enumerate("xyz"):
+                                store[ax].setValue(vals[i])
+                            if any(abs(v) > 1e-15 for v in vals):
+                                self.extend_cb.setChecked(True)
+                    except ValueError:
+                        pass
+        mc = _first(self.model.root, "mesh_control")
+        blk = _first(mc, "block") if mc is not None else None
+        lim = _first(blk, "limit") if blk is not None else None
+        if lim is not None and lim.text:
+            try:
+                vals = [float(x.strip()) for x in lim.text.split(",")[:3]]
+                if len(vals) == 3:
+                    for i, ax in enumerate("xyz"):
+                        self.thr[ax].setValue(vals[i])
+            except ValueError:
+                pass
+        ratio = _first(mc, "divide_ratio2") if mc is not None else None
+        if ratio is not None and ratio.text:
+            try:
+                vals = [float(x.strip()) for x in ratio.text.split(",")[:3]]
+                if len(vals) == 3:
+                    for i, ax in enumerate("xyz"):
+                        self.ratio[ax].setValue(vals[i])
+            except ValueError:
+                pass
+
+    def _values(self):
+        name = self.name_edit.text().strip() or "RootBlock"
+        mn = tuple(self.min_spins[a].value() for a in "xyz")
+        mx = tuple(self.max_spins[a].value() for a in "xyz")
+        if any(mx[i] <= mn[i] for i in range(3)):
+            QMessageBox.warning(
+                self, "Mesh:block",
+                "Maximum must be greater than Minimum on each axis.")
+            return None
+        if self.extend_cb.isChecked():
+            emin = tuple(self.ext_min[a].value() for a in "xyz")
+            emax = tuple(self.ext_max[a].value() for a in "xyz")
+        else:
+            emin = (0.0, 0.0, 0.0)
+            emax = (0.0, 0.0, 0.0)
+        thr = ratio = None
+        if self.param_cb.isChecked():
+            thr = tuple(self.thr[a].value() for a in "xyz")
+            ratio = tuple(self.ratio[a].value() for a in "xyz")
+        return name, mn, mx, emin, emax, thr, ratio
+
+    def _apply(self) -> bool:
+        vals = self._values()
+        if vals is None:
+            return False
+        name, mn, mx, emin, emax, thr, ratio = vals
+        kw = dict(name=name, extend_min=emin, extend_max=emax)
+        if thr is not None:
+            kw["threshold"] = thr
+        if ratio is not None:
+            kw["ratio"] = ratio
+        self.model.set_root_block_range(mn, mx, **kw)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "log"):
+            parent.log(
+                f"RootBlock '{name}': "
+                f"({mn[0]:g},{mn[1]:g},{mn[2]:g}) – "
+                f"({mx[0]:g},{mx[1]:g},{mx[2]:g}) mm")
+        return True
+
+    def _on_preview(self) -> None:
+        if not self._apply():
+            return
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "_rebuild_scene"):
+            parent._root_block_visible = True
+            parent._rebuild_scene(fit=False)
+
+    def _on_ok(self) -> None:
+        if self._apply():
+            self.accept()
 
 
 # ------------------------------------------------------------------ parts

@@ -65,14 +65,15 @@ class SketchPlane:
     u: tuple[float, float, float] = (1.0, 0.0, 0.0)
     v: tuple[float, float, float] = (0.0, 1.0, 0.0)
     w: tuple[float, float, float] = (0.0, 0.0, 1.0)
-    u_range: tuple[float, float] = (0.0, 1.0)              # m
-    v_range: tuple[float, float] = (0.0, 1.0)
+    # Defaults match STpre empty-project look (0…125 mm, Δ=5 mm)
+    u_range: tuple[float, float] = (0.0, 0.125)            # m
+    v_range: tuple[float, float] = (0.0, 0.125)
     w_range: tuple[float, float] = (0.0, 0.0)
-    delta: tuple[float, float, float] = (0.1, 0.1, 0.1)    # m
-    snap: tuple[float, float, float] = (0.1, 0.1, 0.1)
+    delta: tuple[float, float, float] = (0.005, 0.005, 0.005)  # m
+    snap: tuple[float, float, float] = (0.005, 0.005, 0.005)
     gridsnap: bool = True
     minus: bool = False
-    color: tuple[int, int, int, int] = (170, 170, 170, 255)
+    color: tuple[int, int, int, int] = (160, 160, 160, 255)
 
 
 def _first(el, tag):

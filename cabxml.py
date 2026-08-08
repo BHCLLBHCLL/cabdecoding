@@ -808,6 +808,134 @@ class StpreModel:
     def mesh_block(self) -> Optional[ET.Element]:
         return _first(self.root, "mesh_block")
 
+    def root_block_bounds(self) -> Optional[tuple[float, float, float,
+                                                    float, float, float]]:
+        """RootBlock AABB in mm: ``(xmin, ymin, zmin, xmax, ymax, zmax)``.
+
+        Prefers ``mesh_block`` ``<min>/<max>``, then axis extents, then the
+        computational domain. Returns ``None`` when no geometry is known.
+        """
+        mb = self.mesh_block()
+        if mb is not None:
+            mn = _first(mb, "min")
+            mx = _first(mb, "max")
+            if (mn is not None and mx is not None
+                    and mn.text and mx.text):
+                try:
+                    a = [float(x.strip()) for x in mn.text.split(",")[:3]]
+                    b = [float(x.strip()) for x in mx.text.split(",")[:3]]
+                    if len(a) == 3 and len(b) == 3:
+                        return (a[0], a[1], a[2], b[0], b[1], b[2])
+                except ValueError:
+                    pass
+            axes = self.mesh_axes()
+            if all(len(axes.get(ax, [])) >= 2 for ax in "xyz"):
+                return (axes["x"][0], axes["y"][0], axes["z"][0],
+                        axes["x"][-1], axes["y"][-1], axes["z"][-1])
+        # mesh_control/block min-max
+        mc = _first(self.root, "mesh_control")
+        block = _first(mc, "block") if mc is not None else None
+        if block is not None:
+            mn = _first(block, "min")
+            mx = _first(block, "max")
+            if (mn is not None and mx is not None
+                    and mn.text and mx.text):
+                try:
+                    a = [float(x.strip()) for x in mn.text.split(",")[:3]]
+                    b = [float(x.strip()) for x in mx.text.split(",")[:3]]
+                    if len(a) == 3 and len(b) == 3:
+                        return (a[0], a[1], a[2], b[0], b[1], b[2])
+                except ValueError:
+                    pass
+        base = self.domain_base()
+        size = self.domain_size()
+        if base is not None and size is not None:
+            return (base[0], base[1], base[2],
+                    base[0] + size[0], base[1] + size[1], base[2] + size[2])
+        return None
+
+    def root_block_visible(self) -> bool:
+        """``mesh_block/<visible>`` — Layout of Parts RootBlock checkbox."""
+        mb = self.mesh_block()
+        el = _first(mb, "visible") if mb is not None else None
+        if el is None or not el.text:
+            return True
+        return el.text.strip().upper() != "F"
+
+    def set_root_block_visible(self, on: bool) -> None:
+        mb = self.mesh_block()
+        if mb is None:
+            return
+        el = _first(mb, "visible")
+        if el is None:
+            el = ET.SubElement(mb, "visible")
+            el.tail = "\n      "
+        set_text(el, "T" if on else "F")
+
+    def set_root_block_range(
+            self,
+            xyz_min: tuple[float, float, float],
+            xyz_max: tuple[float, float, float],
+            *,
+            name: str = "RootBlock",
+            unit: str = "mm",
+            extend_min: tuple[float, float, float] = (0.0, 0.0, 0.0),
+            extend_max: tuple[float, float, float] = (0.0, 0.0, 0.0),
+            threshold: Optional[tuple[float, float, float]] = None,
+            ratio: Optional[tuple[float, float, float]] = None,
+    ) -> None:
+        """Update RootBlock AABB (STpre ``Mesh:block`` dialog).
+
+        Writes ``mesh_block`` + ``mesh_control/block`` min/max. When no axis
+        table exists yet, creates a 2-point (B) axis on each side so the blue
+        wireframe has geometry to display.
+        """
+        mn = (float(xyz_min[0]), float(xyz_min[1]), float(xyz_min[2]))
+        mx = (float(xyz_max[0]), float(xyz_max[1]), float(xyz_max[2]))
+        axes = self.mesh_axes()
+        if not all(len(axes.get(a, [])) >= 2 for a in "xyz"):
+            axes = {
+                "x": [mn[0], mx[0]],
+                "y": [mn[1], mx[1]],
+                "z": [mn[2], mx[2]],
+            }
+        else:
+            for i, a in enumerate("xyz"):
+                vals = list(axes[a])
+                mid = [v for v in vals[1:-1] if mn[i] < v < mx[i]]
+                axes[a] = [mn[i]] + mid + [mx[i]]
+
+        mc0 = _first(self.root, "mesh_control")
+        blk0 = _first(mc0, "block") if mc0 is not None else None
+        thr = threshold or self._parse_vec3(
+            _first(blk0, "limit") if blk0 is not None else None
+        ) or (0.1, 0.1, 0.1)
+        rat = ratio or self._parse_vec3(
+            _first(mc0, "divide_ratio2") if mc0 is not None else None
+        ) or (1.0, 1.0, 1.0)
+
+        self.set_mesh(
+            axes, unit=unit, domain_min=mn, domain_max=mx,
+            threshold=thr, ratio=rat)
+        mb = self.mesh_block()
+        if mb is not None:
+            self._mesh_child(mb, "name", name)
+            self._mesh_child(mb, "extend_min", self._vec_text(extend_min),
+                             {"unit": unit})
+            self._mesh_child(mb, "extend_max", self._vec_text(extend_max),
+                             {"unit": unit})
+            self._mesh_child(mb, "visible", "T")
+
+    @staticmethod
+    def _parse_vec3(el) -> Optional[tuple[float, float, float]]:
+        if el is None or not getattr(el, "text", None):
+            return None
+        try:
+            vals = [float(x.strip()) for x in el.text.split(",")[:3]]
+        except ValueError:
+            return None
+        return (vals[0], vals[1], vals[2]) if len(vals) == 3 else None
+
     def mesh_axes(self) -> dict[str, list[float]]:
         """Coordinates per axis from ``mesh_block`` (unit mm as stored)."""
         mb = self.mesh_block()

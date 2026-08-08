@@ -13,6 +13,7 @@ Output is ``vtkPolyData`` ready for the GUI.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -256,6 +257,47 @@ def domain_frame(model: StpreModel) -> Optional[PartBox]:
     return PartBox("Domain", bb, (0.4, 0.7, 1.0), 1.0, cells=[bb])
 
 
+def root_block_frame(model: StpreModel) -> Optional[PartBox]:
+    """STpre Layout→RootBlock AABB (mm→m) for the blue wireframe cuboid."""
+    bb_mm = model.root_block_bounds()
+    if bb_mm is None:
+        return None
+    xmin, ymin, zmin, xmax, ymax, zmax = bb_mm
+    bb: Bounds = (xmin / 1000.0, ymin / 1000.0, zmin / 1000.0,
+                  xmax / 1000.0, ymax / 1000.0, zmax / 1000.0)
+    # Thin solid blue matching STpre RootBlock (screenshot wireframe)
+    return PartBox("RootBlock", bb, (0.12, 0.35, 0.95), 1.0, cells=[bb])
+
+
+def root_block_actor(model: StpreModel, line_width: float = 1.15):
+    """Thin blue wireframe cuboid for Layout of Parts → RootBlock."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    frame = root_block_frame(model)
+    if frame is None:
+        return None
+    pd = _make_box_polydata(frame, wireframe=True)
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(pd)
+    mapper.ScalarVisibilityOff()
+    try:
+        mapper.SetResolveCoincidentTopologyToPolygonOffset()
+        mapper.SetRelativeCoincidentTopologyLineOffsetParameters(-1, -4)
+    except Exception:
+        pass
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetColor(*frame.color)
+    prop.SetOpacity(1.0)
+    prop.SetRepresentationToWireframe()
+    prop.SetLineWidth(line_width)
+    prop.SetAmbient(1.0)
+    prop.SetDiffuse(0.0)
+    prop.LightingOff()
+    return actor
+
+
 def _bounds_polydata(bounds: Bounds, wireframe: bool):
     xmin, ymin, zmin, xmax, ymax, zmax = bounds
     pts = np.array([
@@ -426,95 +468,291 @@ def edges_actor(pd, color: tuple[float, float, float] = (0.15, 0.15, 0.18),
     return actor
 
 
+def _sketch_axis_samples(lo: float, hi: float, delta: float) -> np.ndarray:
+    """Inclusive samples from ``lo`` to ``hi`` at ``delta`` (metres)."""
+    if hi < lo:
+        lo, hi = hi, lo
+    d = delta if delta > 1e-15 else max(hi - lo, 1e-9)
+    n = int(round((hi - lo) / d))
+    if n < 1:
+        return np.array([lo, hi], dtype=np.float64)
+    vals = lo + d * np.arange(n + 1, dtype=np.float64)
+    vals[-1] = hi
+    return vals
+
+
+def _lines_polydata(segments: list[tuple[np.ndarray, np.ndarray]]):
+    """Build vtkPolyData lines from ``(p0, p1)`` segments (metres)."""
+    vtk_pts = vtk.vtkPoints()
+    cells = vtk.vtkCellArray()
+    for a, b in segments:
+        i0 = vtk_pts.InsertNextPoint(float(a[0]), float(a[1]), float(a[2]))
+        i1 = vtk_pts.InsertNextPoint(float(b[0]), float(b[1]), float(b[2]))
+        cells.InsertNextCell(2)
+        cells.InsertCellPoint(i0)
+        cells.InsertCellPoint(i1)
+    pd = vtk.vtkPolyData()
+    pd.SetPoints(vtk_pts)
+    pd.SetLines(cells)
+    return pd
+
+
+def sketch_plane_major_stride(plane, target_majors: int = 5) -> int:
+    """How many minor intervals per major line (STpre-style 5 → labels 0,25,…)."""
+    du = plane.delta[0] if plane.delta[0] > 0 else 0.005
+    span = abs(plane.u_range[1] - plane.u_range[0])
+    n_minor = max(int(round(span / du)), 1)
+    # Prefer 5 (classic STpre); fall back so ~4–8 majors across the span.
+    for cand in (5, 4, 2, 10, 1):
+        if n_minor >= cand or cand == 1:
+            return cand
+    return 5
+
+
 def sketch_plane_grid(plane, points: bool = False):
-    """Grid lines (or points) of a sketch plane in world metres."""
+    """All grid lines of a sketch plane (compat; prefer major/minor helpers)."""
+    minor, major, _labels = sketch_plane_grid_layers(plane)
+    if points:
+        return major
+    # Merge for callers that expect a single polydata
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    append = vtk.vtkAppendPolyData()
+    append.AddInputData(minor)
+    append.AddInputData(major)
+    append.Update()
+    return append.GetOutput()
+
+
+def sketch_plane_grid_layers(plane):
+    """Return ``(minor_pd, major_pd, edge_labels)``.
+
+    ``edge_labels`` is a list of ``(world_xyz_m, text)`` for major ticks
+    along the +U and +V borders (mm integers, STpre style).
+    """
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
     o = np.asarray(plane.origin, float) / 1000.0
     u = np.asarray(plane.u, float)
     v = np.asarray(plane.v, float)
-    u0, u1 = plane.u_range
-    v0, v1 = plane.v_range
-    du = plane.delta[0] if plane.delta[0] > 0 else (u1 - u0)
-    dv = plane.delta[1] if plane.delta[1] > 0 else (v1 - v0)
-    us = np.arange(u0, u1 + du * 0.5, du)
-    vs = np.arange(v0, v1 + dv * 0.5, dv)
-    if len(us) < 2:
-        us = np.array([u0, u1])
-    if len(vs) < 2:
-        vs = np.array([v0, v1])
-    pts = []
-    lines = []
-    for uu in us:
-        base = len(pts)
-        pts.append(o + uu * u + v0 * v)
-        pts.append(o + uu * u + v1 * v)
-        lines.append([base, base + 1])
-    for vv in vs:
-        base = len(pts)
-        pts.append(o + u0 * u + vv * v)
-        pts.append(o + u1 * u + vv * v)
-        lines.append([base, base + 1])
-    vtk_pts = vtk.vtkPoints()
-    for p in pts:
-        vtk_pts.InsertNextPoint(*p)
-    pd = vtk.vtkPolyData()
-    pd.SetPoints(vtk_pts)
-    cells = vtk.vtkCellArray()
-    if points:
-        for i in range(len(pts)):
-            cells.InsertNextCell(1)
-            cells.InsertCellPoint(i)
-        pd.SetVerts(cells)
-    else:
-        for a, b in lines:
-            cells.InsertNextCell(2)
-            cells.InsertCellPoint(a)
-            cells.InsertCellPoint(b)
-        pd.SetLines(cells)
-    return pd
+    nu = np.linalg.norm(u)
+    nv = np.linalg.norm(v)
+    if nu > 1e-12:
+        u = u / nu
+    if nv > 1e-12:
+        v = v / nv
+    u0, u1 = float(plane.u_range[0]), float(plane.u_range[1])
+    v0, v1 = float(plane.v_range[0]), float(plane.v_range[1])
+    du = plane.delta[0] if plane.delta[0] > 0 else max(abs(u1 - u0) / 10, 1e-9)
+    dv = plane.delta[1] if plane.delta[1] > 0 else max(abs(v1 - v0) / 10, 1e-9)
+    us = _sketch_axis_samples(u0, u1, du)
+    vs = _sketch_axis_samples(v0, v1, dv)
+    stride = sketch_plane_major_stride(plane)
+    minor_seg: list[tuple[np.ndarray, np.ndarray]] = []
+    major_seg: list[tuple[np.ndarray, np.ndarray]] = []
+    labels: list[tuple[tuple[float, float, float], str]] = []
+
+    def _put(uu, vv0, vv1, major: bool):
+        p0 = o + uu * u + vv0 * v
+        p1 = o + uu * u + vv1 * v
+        (major_seg if major else minor_seg).append((p0, p1))
+
+    def _put_h(vv, uu0, uu1, major: bool):
+        p0 = o + uu0 * u + vv * v
+        p1 = o + uu1 * u + vv * v
+        (major_seg if major else minor_seg).append((p0, p1))
+
+    for i, uu in enumerate(us):
+        is_maj = (i % stride == 0) or i == 0 or i == len(us) - 1
+        _put(uu, v0, v1, is_maj)
+        if is_maj:
+            # label along the far (+V) edge
+            pos = o + uu * u + v1 * v
+            labels.append(((float(pos[0]), float(pos[1]), float(pos[2])),
+                           f"{uu * 1000:g}"))
+    for j, vv in enumerate(vs):
+        is_maj = (j % stride == 0) or j == 0 or j == len(vs) - 1
+        _put_h(vv, u0, u1, is_maj)
+        if is_maj:
+            pos = o + u0 * u + vv * v
+            labels.append(((float(pos[0]), float(pos[1]), float(pos[2])),
+                           f"{vv * 1000:g}"))
+
+    return (_lines_polydata(minor_seg), _lines_polydata(major_seg), labels)
 
 
-def sketch_plane_actor(plane, opacity: float = 0.9):
-    """Actor for the sketch-plane grid (colour from ``sketch_control``)."""
+def _line_actor(pd, color, line_width: float, opacity: float = 1.0):
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputData(pd)
+    mapper.ScalarVisibilityOff()
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetColor(*color)
+    prop.SetOpacity(opacity)
+    prop.SetLineWidth(line_width)
+    prop.SetAmbient(1.0)
+    prop.SetDiffuse(0.0)
+    prop.LightingOff()
+    try:
+        prop.SetRepresentationToWireframe()
+    except Exception:
+        pass
+    return actor
+
+
+def sketch_plane_actors(plane, opacity: float = 1.0) -> list:
+    """STpre sketch grid: thin minor + thick major lines (+ mm tick labels)."""
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
-    pd = sketch_plane_grid(plane)
-    color = tuple(c / 255.0 for c in plane.color[:3])
-    return edges_actor(pd, color=color, opacity=opacity, line_width=1.0)
+    minor_pd, major_pd, labels = sketch_plane_grid_layers(plane)
+    base = tuple(c / 255.0 for c in plane.color[:3])
+    # Minor: light grey; major: darker (STpre thick/thin combo)
+    minor_col = tuple(min(1.0, c + 0.12) for c in base)
+    major_col = tuple(max(0.0, c - 0.25) for c in base)
+    if sum(major_col) / 3 > 0.65:
+        minor_col = (0.72, 0.74, 0.78)
+        major_col = (0.38, 0.40, 0.46)
+    actors = [
+        _line_actor(minor_pd, minor_col, 1.0, opacity * 0.85),
+        _line_actor(major_pd, major_col, 2.2, opacity),
+    ]
+    # Tick labels (skip duplicates at corners by text)
+    seen: set[str] = set()
+    for (x, y, z), text in labels:
+        key = f"{text}@{x:.6g},{y:.6g},{z:.6g}"
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            cap = vtk.vtkBillboardTextActor3D()
+            cap.SetInput(text)
+            cap.SetPosition(x, y, z)
+            tp = cap.GetTextProperty()
+            tp.SetFontSize(14)
+            tp.SetColor(0.25, 0.25, 0.28)
+            tp.SetBold(0)
+            tp.ShadowOff()
+            actors.append(cap)
+        except Exception:
+            pass
+    return actors
+
+
+def sketch_plane_actor(plane, opacity: float = 0.95):
+    """Single combined actor (compat). Prefer :func:`sketch_plane_actors`."""
+    actors = sketch_plane_actors(plane, opacity=opacity)
+    return actors[1] if len(actors) > 1 else actors[0]
+
+
+def _arrow_actor(origin, direction, length: float, color,
+                 tip_length: float = 0.22, tip_radius: float = 0.06,
+                 shaft_radius: float = 0.02):
+    """Unit-X arrow transformed to ``origin → origin+dir*length``."""
+    d = np.asarray(direction, float)
+    n = np.linalg.norm(d)
+    if n < 1e-12 or length <= 0:
+        return None
+    d = d / n
+    arrow = vtk.vtkArrowSource()
+    arrow.SetTipResolution(20)
+    arrow.SetShaftResolution(16)
+    arrow.SetTipLength(tip_length)
+    arrow.SetTipRadius(tip_radius)
+    arrow.SetShaftRadius(shaft_radius)
+    # map unit-X arrow → direction, then scale/translate
+    x = np.array([1.0, 0.0, 0.0])
+    cross = np.cross(x, d)
+    dot = float(np.dot(x, d))
+    tform = vtk.vtkTransform()
+    tform.Identity()
+    tform.Translate(float(origin[0]), float(origin[1]), float(origin[2]))
+    if np.linalg.norm(cross) < 1e-8:
+        if dot < 0:
+            tform.RotateWXYZ(180.0, 0.0, 1.0, 0.0)
+    else:
+        ang = math.degrees(math.acos(max(-1.0, min(1.0, dot))))
+        tform.RotateWXYZ(ang, float(cross[0]), float(cross[1]), float(cross[2]))
+    tform.Scale(length, length, length)
+    tf_filter = vtk.vtkTransformPolyDataFilter()
+    tf_filter.SetTransform(tform)
+    tf_filter.SetInputConnection(arrow.GetOutputPort())
+    tf_filter.Update()
+    mapper = vtk.vtkPolyDataMapper()
+    mapper.SetInputConnection(tf_filter.GetOutputPort())
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    prop = actor.GetProperty()
+    prop.SetColor(*color)
+    prop.SetAmbient(0.35)
+    prop.SetDiffuse(0.75)
+    prop.SetSpecular(0.15)
+    return actor
 
 
 def sketch_axes_actors(plane, length: Optional[float] = None):
-    """Three coloured U/V/W arrows + origin dot for the sketch plane."""
+    """STpre U/V/W triad: coloured arrows + labels + small grey origin ball.
+
+    Axis length ≈ 28% of the larger U/V span (matches STpre proportions vs grid).
+    """
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
     o = np.asarray(plane.origin, float) / 1000.0
     ur = plane.u_range
     vr = plane.v_range
-    default_len = 0.1 * max(ur[1] - ur[0], vr[1] - vr[0], 0.01)
-    ln = length or default_len
+    span = max(abs(ur[1] - ur[0]), abs(vr[1] - vr[0]), 0.01)
+    ln = length if length is not None else 0.28 * span
+    # Clamp so axes never dwarf a tiny domain nor vanish on a large grid
+    ln = float(min(max(ln, 0.012), 0.08))
     actors = []
-    for vec, col in ((np.asarray(plane.u), (0.85, 0.15, 0.15)),
-                     (np.asarray(plane.v), (0.15, 0.75, 0.15)),
-                     (np.asarray(plane.w), (0.15, 0.25, 0.9))):
-        src = vtk.vtkLineSource()
-        src.SetPoint1(*o)
-        src.SetPoint2(*(o + vec * ln))
-        mapper = vtk.vtkPolyDataMapper()
-        mapper.SetInputConnection(src.GetOutputPort())
-        actor = vtk.vtkActor()
-        actor.SetMapper(mapper)
-        actor.GetProperty().SetColor(*col)
-        actor.GetProperty().SetLineWidth(2.2)
-        actors.append(actor)
+    specs = (
+        (np.asarray(plane.u, float), (0.90, 0.20, 0.55), "U"),   # pink
+        (np.asarray(plane.v, float), (0.15, 0.72, 0.22), "V"),   # green
+        (np.asarray(plane.w, float), (0.18, 0.32, 0.92), "W"),   # blue
+    )
+    for vec, col, label in specs:
+        n = np.linalg.norm(vec)
+        if n < 1e-12:
+            continue
+        vec = vec / n
+        arr = _arrow_actor(o, vec, ln, col,
+                           tip_length=0.24, tip_radius=0.055,
+                           shaft_radius=0.018)
+        if arr is not None:
+            try:
+                arr.SetUseBounds(False)
+            except Exception:
+                pass
+            actors.append(arr)
+        # Letter at arrow tip
+        tip = o + vec * (ln * 1.08)
+        try:
+            cap = vtk.vtkBillboardTextActor3D()
+            cap.SetInput(label)
+            cap.SetPosition(float(tip[0]), float(tip[1]), float(tip[2]))
+            tp = cap.GetTextProperty()
+            tp.SetFontSize(18)
+            tp.SetBold(1)
+            tp.SetColor(*col)
+            tp.ShadowOff()
+            actors.append(cap)
+        except Exception:
+            pass
+    # Origin ball — dark grey, ~6% of axis length (STpre)
     sp = vtk.vtkSphereSource()
-    sp.SetCenter(*o)
-    sp.SetRadius(ln * 0.05)
+    sp.SetCenter(float(o[0]), float(o[1]), float(o[2]))
+    sp.SetRadius(ln * 0.06)
+    sp.SetThetaResolution(20)
+    sp.SetPhiResolution(20)
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputConnection(sp.GetOutputPort())
     dot = vtk.vtkActor()
     dot.SetMapper(mapper)
-    dot.GetProperty().SetColor(0.85, 0.1, 0.1)
+    dot.GetProperty().SetColor(0.35, 0.35, 0.38)
+    try:
+        dot.SetUseBounds(False)
+    except Exception:
+        pass
     actors.append(dot)
     return actors
 

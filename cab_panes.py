@@ -249,8 +249,10 @@ class TreeListView(QWidget):
             n = _first(mb, "name")
             if n is not None and n.text:
                 bname = n.text.strip()
+        # Always list RootBlock (falls back to domain AABB when no mesh yet)
+        rb_on = model.root_block_visible() if mb is not None else True
         self._add(domain, bname, ("mesh_block", bname), "mesh",
-                  checkable=True, checked=True)
+                  checkable=True, checked=rb_on)
 
         # --- Region: always Xmin…Zmax (DomainBoundary) then other regions ---
         reg_root = self._add(tree, "Region", ("region_folder", None),
@@ -544,9 +546,13 @@ class TreeListView(QWidget):
                            lambda: self.context_action.emit(
                                "refer", kind, name))
         elif kind == "mesh_block":
-            menu.addAction("Gridding…",
+            menu.addAction("Reference (Edit Mesh Block)",
                            lambda: self.context_action.emit(
                                "refer", kind, name))
+            menu.addAction("Display RootBlock",
+                           lambda: self._set_checked(item, True))
+            menu.addAction("Hide RootBlock",
+                           lambda: self._set_checked(item, False))
         if not menu.isEmpty():
             menu.exec_(self.layout_tree.viewport().mapToGlobal(pos))
 
@@ -580,12 +586,12 @@ class ControlWindow(QWidget):
         ("Mesh block", "mesh_block", True),
         ("Element division", "element", True),
         ("Condition (flow, etc)", "condition", False),
-        ("Sketch plane", "sketch_plane", False),
+        ("Sketch plane", "sketch_plane", True),
         ("Domain frame", "domain_frame", True),
         ("Mesh", "mesh", False),
         ("Face division", "face", False),
         ("Axis (Global)", "axis_global", True),
-        ("Axis (Sketch)", "axis_sketch", False),
+        ("Axis (Sketch)", "axis_sketch", True),
         ("Origin", "origin", True),
         ("Point", "point", False),
         ("Aspect ratio", "aspect_ratio", False),
@@ -798,9 +804,9 @@ class ControlWindow(QWidget):
             gg.addWidget(lab, 0, i + 1)
         self.sk_grid: dict[str, dict[str, QDoubleSpinBox]] = {}
         gdefs = {
-            "(U)": (5.0, -25.0, 125.0, 5.0),
-            "(V)": (5.0, -25.0, 125.0, 5.0),
-            "(W)": (5.0, -25.0, 125.0, 5.0),
+            "(U)": (5.0, 0.0, 125.0, 5.0),
+            "(V)": (5.0, 0.0, 125.0, 5.0),
+            "(W)": (5.0, 0.0, 125.0, 5.0),
         }
         for r, row in enumerate(("(U)", "(V)", "(W)"), start=1):
             gg.addWidget(QLabel(row, grd), r, 0)

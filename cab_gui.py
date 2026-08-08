@@ -67,6 +67,7 @@ import cab_dialogs  # noqa: E402
 
 _DomainDialog = cab_dialogs.DomainDialog
 _GriddingDialog = cab_dialogs.GriddingDialog
+_MeshBlockDialog = cab_dialogs.MeshBlockDialog
 _PartDialog = cab_dialogs.PartDialog
 
 
@@ -86,8 +87,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.actors: list[tuple] = []
         self._layer_actors: dict[str, list] = {
             "domain_frame": [], "axis_global": [], "origin": [],
-            "mesh": [], "mesh_block": [], "element": [], "face": [],
-            "section": [],
+            "mesh": [], "mesh_block": [], "root_block": [],
+            "element": [], "face": [], "section": [],
         }
         self.current_path: str | None = None
         self._dirty = False
@@ -97,6 +98,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._hidden_parts: set[str] = set()
         # Domain names in opaque "face mode" (tree checkbox checked)
         self._domain_face_mode: set[str] = set()
+        # Layout of Parts → RootBlock blue wireframe (STpre)
+        self._root_block_visible: bool = True
         self._recent: list[str] = []
         self._orientation = None
         self._trackball_style = None
@@ -156,6 +159,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.control.active_part_apply.connect(self._on_active_part_apply)
         self.control.lib_tree.itemSelectionChanged.connect(
             self._on_lib_selected)
+        # Opening Control→Sketch should show the sketch plane (STpre-like)
+        self.control.tabs.currentChanged.connect(self._on_control_tab)
 
         left = QSplitter(Qt.Vertical, self)
         left.addWidget(PaneFrame("Tree/List View", self.tree_view))
@@ -581,12 +586,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._cad_meshes = None
         self._hidden_parts.clear()
         self._domain_face_mode = set()
+        self._root_block_visible = True
         self._dirty = False
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
+        self._ensure_sketch_plane()
         self.control.load_sketch(self.model)
         self.control.clear_property()
-        self._rebuild_scene()
+        self._rebuild_scene(fit=True)
         self._update_title()
         if not silent:
             self.log(
@@ -607,6 +614,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._dirty = False
         self._hidden_parts.clear()
         self._domain_face_mode.clear()
+        self._root_block_visible = True
         members = {m.name: m.data for m in archive.members}
         xml_name = next(n for n in members if n.endswith(".xml")
                         and not n.startswith("_"))
@@ -631,14 +639,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._prop_member = prop_name
         # Default: Domain face mode ON (matches tree checkbox checked=True)
         self._domain_face_mode = set(self.model.analysis_names())
+        self._root_block_visible = self.model.root_block_visible()
         self._cad_meshes = self._tessellate_members(members)
         self._append_primitive_tess()
         self._clear_undo()
         self.tree_view.populate(self.model, archive.members)
         self.control.populate_library(self.props)
+        self._ensure_sketch_plane()
         self.control.load_sketch(self.model)
         self.control.clear_property()
-        self._rebuild_scene()
+        self._rebuild_scene(fit=True)
         self._update_title()
         self._add_recent(path)
         boxes = cab_vtk.part_boxes(self.model, self._cad_meshes)
@@ -766,7 +776,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.model, self.archive.members if self.archive else [])
         self.control.populate_library(self.props)
         self.control.load_sketch(self.model)
-        self._rebuild_scene()
+        self._rebuild_scene(fit=True)
         self._mark_dirty()
         self._update_title()
 
@@ -915,11 +925,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_item_activated(self, kind: str, name) -> None:
         """Double-click behaviour (STpre tree): Domain -> edit dialog;
-        mesh block -> gridding dialog; part -> part edit dialog."""
+        RootBlock -> Mesh:block dialog; part -> part edit dialog."""
         if kind == "domain":
             self._domain_dialog()
         elif kind == "mesh_block":
-            self._gridding_dialog()
+            self._mesh_block_dialog()
         elif kind == "part" and name:
             self._part_dialog(name)
 
@@ -936,7 +946,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if kind == "domain":
                 self._domain_dialog()
             elif kind == "mesh_block":
-                self._gridding_dialog()
+                self._mesh_block_dialog()
             elif kind == "part" and name:
                 self._part_dialog(name)
             else:
@@ -951,9 +961,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if self.model is not None:
                 self._rebuild_scene()
             return
-        if kind in ("domain_face", "mesh_block", "others"):
-            # Layout checkboxes for DomainBoundary / RootBlock — layer
-            # Drawing On/Off still owns Mesh block visibility.
+        if kind == "mesh_block":
+            # Layout → RootBlock: blue AABB wireframe (not Drawing→Mesh block)
+            self._root_block_visible = visible
+            if self.model is not None:
+                self.model.set_root_block_visible(visible)
+            for actor in self._layer_actors.get("root_block", []):
+                actor.SetVisibility(1 if visible else 0)
+            if self.renderer and self._enable_3d:
+                # Rebuild if actors were never created (e.g. first check-on)
+                if visible and not self._layer_actors.get("root_block"):
+                    self._rebuild_scene(fit=False)
+                else:
+                    self.renderer.GetRenderWindow().Render()
+            return
+        if kind in ("domain_face", "others"):
             return
         if visible:
             self._hidden_parts.discard(name)
@@ -988,7 +1010,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._set_orientation_marker(on)
         elif key in ("sketch_plane", "axis_sketch"):
             if self.model is not None:
-                self._rebuild_scene()
+                # Keep camera — auto-fit was making the grid look "wrong"
+                # and washing out the UVW / Origin triad.
+                if key == "sketch_plane" and on:
+                    cb = self.control.layer_checks.get("axis_sketch")
+                    if cb is not None and not cb.isChecked():
+                        cb.blockSignals(True)
+                        cb.setChecked(True)
+                        cb.blockSignals(False)
+                self._rebuild_scene(fit=False)
             return
         else:
             for actor in self._layer_actors.get(key, []):
@@ -997,6 +1027,37 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.renderer.GetRenderWindow().Render()
         if key in ("condition", "aspect_ratio") and on:
             self._nyi(f"Drawing layer — {key}")
+
+    def _on_control_tab(self, index: int) -> None:
+        """Show/Select ↔ Sketch: turn Sketch plane Drawing On when needed."""
+        try:
+            w = self.control.tabs.widget(index)
+        except Exception:
+            return
+        if w is getattr(self.control, "sketch_page", None):
+            cb = self.control.layer_checks.get("sketch_plane")
+            if cb is not None and not cb.isChecked():
+                cb.setChecked(True)  # emits layer_toggled → rebuild
+            elif self.model is not None:
+                self._rebuild_scene()
+
+    def _ensure_sketch_plane(self, *, force_fit: bool = False) -> None:
+        """Create/fit ``<sketch_control>`` from the computational domain."""
+        if self.model is None:
+            return
+        try:
+            import cab_sketch
+        except Exception:
+            return
+        from cabxml import _first
+        sc = _first(self.model.root, "sketch_control")
+        if sc is None or force_fit:
+            if self.model.analysis_region() is not None:
+                plane = cab_sketch.reset_plane_to_domain(self.model)
+                plane = cab_sketch.fit_plane_to_domain(self.model, plane)
+            else:
+                plane = cab_sketch.SketchPlane()
+            cab_sketch.apply_plane(self.model, plane)
 
     def _on_sketch_action(self, mode: str) -> None:
         """Control -> Sketch: update / reset / fit the sketch plane."""
@@ -1016,6 +1077,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         else:
             plane = self.control.sketch_plane()
         cab_sketch.apply_plane(self.model, plane)
+        # Applying sketch settings should make the plane visible
+        cb = self.control.layer_checks.get("sketch_plane")
+        if cb is not None and not cb.isChecked():
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.blockSignals(False)
         self.control.load_sketch(self.model)
         self._rebuild_scene()
         self._mark_dirty()
@@ -1197,7 +1264,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         b = frame.bounds
         return max(b[1] - b[0], b[3] - b[2], b[5] - b[4], 1e-6)
 
-    def _rebuild_scene(self) -> None:
+    def _rebuild_scene(self, *, fit: bool = False) -> None:
+        """Rebuild Draw Window actors.
+
+        ``fit=True`` resets the camera (load / import / Fit). Layer toggles
+        such as Sketch plane must pass ``fit=False`` so enabling the grid
+        does not yank the view or make axes appear to vanish.
+        """
         if not self._enable_3d or self.model is None or self.renderer is None:
             return
         self._ensure_interactor()
@@ -1328,17 +1401,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                         key = "element" if element_on else "mesh"
                         self._layer_actors[key].append(dom_edge)
                 if mesh_block_on and not face_mode:
-                    # Coarser magenta Mesh-block overlay (STpre Mesh block)
+                    # Interior mesh-block grid only (nmax>2); outer blue
+                    # silhouette is Layout→RootBlock.
                     axes = self.model.mesh_axes()
-                    nmax = max((len(v) for v in axes.values()), default=2)
-                    stride = max(6, nmax // 10)
-                    grid = cab_vtk.mesh_block_grid(self.model, stride=stride)
-                    if grid is not None and grid.GetNumberOfCells() > 0:
-                        mb_actor = cab_vtk.edges_actor(
-                            grid, color=(0.82, 0.22, 0.58),
-                            line_width=1.8, opacity=0.95)
-                        self.renderer.AddActor(mb_actor)
-                        self._layer_actors["mesh_block"].append(mb_actor)
+                    nmax = max((len(v) for v in axes.values()), default=0)
+                    if nmax > 2:
+                        stride = max(6, nmax // 10)
+                        grid = cab_vtk.mesh_block_grid(
+                            self.model, stride=stride)
+                        if grid is not None and grid.GetNumberOfCells() > 0:
+                            mb_actor = cab_vtk.edges_actor(
+                                grid, color=(0.82, 0.22, 0.58),
+                                line_width=1.8, opacity=0.95)
+                            self.renderer.AddActor(mb_actor)
+                            self._layer_actors["mesh_block"].append(
+                                mb_actor)
 
         if self.control.layer_on("domain_frame"):
             frame = cab_vtk.domain_frame(self.model)
@@ -1356,7 +1433,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
 
-        # STpre sketch plane grid + U/V/W axes
+        # Layout of Parts → RootBlock: STpre thin blue AABB wireframe
+        # (independent of Mesh→Gridding / Drawing→Mesh block dense grid)
+        if self._root_block_visible:
+            try:
+                rb_actor = cab_vtk.root_block_actor(self.model)
+            except Exception as exc:
+                self.log(f"RootBlock draw failed: {exc}", "WARN")
+                rb_actor = None
+            if rb_actor is not None:
+                self.renderer.AddActor(rb_actor)
+                self._layer_actors.setdefault("root_block", []).append(
+                    rb_actor)
+
+        # STpre sketch plane (major/minor grid) + U/V/W arrow triad
         try:
             import cab_sketch
             plane = cab_sketch.plane_from_xml(self.model)
@@ -1364,52 +1454,94 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             plane = None
         if plane is not None and self.control.layer_on("sketch_plane"):
             try:
-                sk_actor = cab_vtk.sketch_plane_actor(plane)
-                self.renderer.AddActor(sk_actor)
-                self._layer_actors.setdefault(
-                    "sketch_plane", []).append(sk_actor)
-            except Exception:
-                pass
-        if plane is not None and self.control.layer_on("axis_sketch"):
+                for sk_actor in cab_vtk.sketch_plane_actors(plane):
+                    self.renderer.AddActor(sk_actor)
+                    self._layer_actors.setdefault(
+                        "sketch_plane", []).append(sk_actor)
+            except Exception as exc:
+                self.log(f"Sketch plane draw failed: {exc}", "WARN")
+            # UVW triad travels with the sketch plane (STpre); Axis(Sketch)
+            # can still hide it independently.
+            if self.control.layer_on("axis_sketch"):
+                try:
+                    for ax_actor in cab_vtk.sketch_axes_actors(plane):
+                        self.renderer.AddActor(ax_actor)
+                        self._layer_actors.setdefault(
+                            "axis_sketch", []).append(ax_actor)
+                except Exception as exc:
+                    self.log(f"Sketch axes draw failed: {exc}", "WARN")
+        elif plane is not None and self.control.layer_on("axis_sketch"):
+            # Axes without grid still allowed
             try:
                 for ax_actor in cab_vtk.sketch_axes_actors(plane):
                     self.renderer.AddActor(ax_actor)
                     self._layer_actors.setdefault(
                         "axis_sketch", []).append(ax_actor)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.log(f"Sketch axes draw failed: {exc}", "WARN")
 
-        # Mesh Block overview when Domain is in face mode (or alone)
+        # Drawing→Mesh block: dense *interior* grid only (many axis points).
+        # Outer blue AABB is Layout→RootBlock above — do not substitute a
+        # magenta cage for the 2-point RootBlock silhouette.
         if mesh_block_on:
-            face_any = bool(self._domain_face_mode)
-            if face_any or not (element_on or mesh_on):
-                axes = self.model.mesh_axes()
-                nmax = max((len(v) for v in axes.values()), default=2)
-                stride = 1 if nmax <= 80 else max(1, nmax // 40)
-                grid = cab_vtk.mesh_block_grid(self.model, stride=stride)
-                if grid is not None and grid.GetNumberOfCells() > 0:
-                    mesh_actor = cab_vtk.edges_actor(
-                        grid, color=(0.75, 0.25, 0.55), line_width=1.4)
-                    self.renderer.AddActor(mesh_actor)
-                    self._layer_actors["mesh_block"].append(mesh_actor)
+            axes = self.model.mesh_axes()
+            nmax = max((len(v) for v in axes.values()), default=0)
+            if nmax > 2:
+                face_any = bool(self._domain_face_mode)
+                if face_any or not (element_on or mesh_on):
+                    stride = 1 if nmax <= 80 else max(1, nmax // 40)
+                    grid = cab_vtk.mesh_block_grid(
+                        self.model, stride=stride)
+                    if grid is not None and grid.GetNumberOfCells() > 0:
+                        mesh_actor = cab_vtk.edges_actor(
+                            grid, color=(0.75, 0.25, 0.55),
+                            line_width=1.4)
+                        self.renderer.AddActor(mesh_actor)
+                        self._layer_actors["mesh_block"].append(
+                            mesh_actor)
 
         self._set_orientation_marker(self.control.layer_on("axis_global"))
 
         if self.control.layer_on("origin"):
+            # World-origin triad (Drawing→Origin). Sized from domain; excluded
+            # from ResetCamera so it never swallows the view.
             scale = self._domain_scale()
+            ln = min(max(scale * 0.18, 0.008), 0.04)
+            for vec, col in (
+                    ((1, 0, 0), (0.85, 0.15, 0.15)),
+                    ((0, 1, 0), (0.15, 0.72, 0.22)),
+                    ((0, 0, 1), (0.18, 0.35, 0.9))):
+                arr = cab_vtk._arrow_actor(
+                    (0.0, 0.0, 0.0), vec, ln, col,
+                    tip_length=0.24, tip_radius=0.055, shaft_radius=0.018)
+                if arr is None:
+                    continue
+                try:
+                    arr.SetUseBounds(False)
+                except Exception:
+                    pass
+                self.renderer.AddActor(arr)
+                self._layer_actors["origin"].append(arr)
             src = vtk.vtkSphereSource()
-            src.SetRadius(max(scale * 0.008, 1e-4))
+            src.SetRadius(ln * 0.06)
             src.SetThetaResolution(16)
             src.SetPhiResolution(16)
             mapper = vtk.vtkPolyDataMapper()
             mapper.SetInputConnection(src.GetOutputPort())
             actor = vtk.vtkActor()
             actor.SetMapper(mapper)
-            actor.GetProperty().SetColor(0.25, 0.25, 0.25)
+            actor.GetProperty().SetColor(0.35, 0.35, 0.38)
+            try:
+                actor.SetUseBounds(False)
+            except Exception:
+                pass
             self.renderer.AddActor(actor)
             self._layer_actors["origin"].append(actor)
 
-        self._fit_view()
+        if fit:
+            self._fit_view()
+        elif self.renderer.GetRenderWindow() is not None:
+            self.renderer.GetRenderWindow().Render()
 
     def _set_drawing_mode(self, mode: str) -> None:
         # Compat: old "Mesh lines" mode → Shading + Element division
@@ -1531,9 +1663,25 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 added = cab_import.register_parts(self.model, bodies)
             self._cad_meshes = list(self._cad_meshes or []) + \
                 [b.tess for b in bodies]
+            # Tree checkboxes reset to ON — clear stale hide flags so the
+            # new CAD is actually drawn (was easy to confuse with Origin).
+            self._hidden_parts.clear()
             self._push_undo(snap)
             self.tree_view.populate(self.model, self.archive.members)
-            self._rebuild_scene()
+            self._ensure_sketch_plane(force_fit=True)
+            self.control.load_sketch(self.model)
+            # Imported CAD defaults to Shading (even if Options/toolbar is Line)
+            self._drawing_mode = "Shading"
+            self._wireframe = False
+            self._translucent = False
+            if self.tb_display.currentText() != "Shading":
+                self.tb_display.blockSignals(True)
+                idx = self.tb_display.findText("Shading")
+                if idx >= 0:
+                    self.tb_display.setCurrentIndex(idx)
+                self.tb_display.blockSignals(False)
+            self.control.set_drawing_mode("Shading")
+            self._rebuild_scene(fit=True)
             self._mark_dirty()
             skipped = len(bodies) - len(added)
             self.log(
@@ -1812,7 +1960,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._update_title()
             self.tree_view.populate(
                 self.model, self.archive.members if self.archive else [])
-            self._rebuild_scene()
+            # Wizard may have imported CAD — show Shading by default
+            self._drawing_mode = "Shading"
+            self._wireframe = False
+            self._translucent = False
+            self.control.set_drawing_mode("Shading")
+            if self.tb_display.currentText() != "Shading":
+                self.tb_display.blockSignals(True)
+                idx = self.tb_display.findText("Shading")
+                if idx >= 0:
+                    self.tb_display.setCurrentIndex(idx)
+                self.tb_display.blockSignals(False)
+            self._rebuild_scene(fit=True)
             self.log("Initial Setting finished; save the cab to persist.")
 
     def _domain_dialog(self) -> None:
@@ -2021,8 +2180,25 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"{len(axes.get('x', []))}×{len(axes.get('y', []))}×"
             f"{len(axes.get('z', []))} points")
 
+    def _mesh_block_dialog(self) -> None:
+        """Layout → RootBlock: STpre ``Mesh:block`` (not Mesh:Set division)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        snap = self._snapshot()
+        dlg = _MeshBlockDialog(self.model, self)
+        if dlg.exec_():
+            self._push_undo(snap)
+            self._root_block_visible = True
+            self.tree_view.populate(
+                self.model, self.archive.members if self.archive else [])
+            self._rebuild_scene(fit=False)
+            self._mark_dirty()
+            self._update_title()
+            self.log("RootBlock updated; save the cab to persist.")
+
     def _gridding_dialog(self) -> None:
-        """Mesh -> Gridding (M3)."""
+        """Mesh -> Gridding (M3) — ``Mesh:Set division``."""
         if self.model is None:
             self.log("No project open.", "WARN")
             return
