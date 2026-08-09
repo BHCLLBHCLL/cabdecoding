@@ -1688,3 +1688,53 @@ M31 启动矩阵文档）+ M24 真 B-rep Boolean + M29 13/13 环境页仍为缺�
 2. 补 M26 格式矩阵回归测试（OBJ/DXF/MDL/STL/XT/Property 双向）；
 3. M27 金标占用收敛：在 box 对拍基础上扩展到 tr03/ex4_e 全部件；
 4. 完成 M31 启动矩阵文档（可选，低优先级）。
+
+## 34. M1–M31 全量开发状态清单（2026-08-09）
+
+> 依据：DEV_PLAN.md 各里程碑任务/验收 + 代码存在性核对（关键类/函数
+> grep）+ 全仓测试。当前 HEAD `af8297a`；工作区干净；全仓 **16 失败 /
+> 229 通过 / 4 跳过**（失败清单见 §33.2，M24–M31 交付后测试套件未同步）。
+
+### 34.1 里程碑状态
+
+| 里程碑 | 状态 | 核心交付（代码证据） | 未实现/降级点 |
+|---|---|---|---|
+| M1 x_t 导入 | ✅ 完成 | `cab_import.import_xt_bytes/file/add_xt_member/register_parts`、`cabxml.add_part/body_files`、GUI Import、空工程初始化 | 无（持久化采用独立成员而非合并 `_all.x_t`，已记录） |
+| M2 计算域 | ✅ 完成 | `cab_domain.DomainSpec/apply_domain/part_bounds`、`cabxml.ensure_domain`（6 face_list）、DomainDialog | cylindrical/axial 坐标系为一期近似（cube/cylinder 类型标记），细化待 STpre 对拍 |
+| M3 gridding | ✅ 完成 | `cab_grid.GridSpec/rough_grids/refine_grids/build_axes`、六种检测、三种方法、`cabxml.set_mesh`、六标签对话框 | 早期 approximation 已由 M9/M15–M18 按 STpre 规则大幅替换；multiblock/圆柱生成未做 |
+| M4 meshing | ✅ 完成 | `cab_mesh.classify_cells/apply_elements/classify_interferences/resolve_interferences`、GUI 进度 | panel/开放曲面精确处理、STpre 精确行程编码未完成（并入 M27 金标收敛） |
+| M5 验证/文档 | ✅ 完成 | `tests/test_workflow.py`、DLL 逆向档案（DEV_SUMMARY §18）、CAB_FORMAT_SPEC、README、STpre 对话框框架 + 六标签 GriddingDialog | 5 项黄金对拍清单中“圆柱/轴对称、cut-cell、panel 行程编码”仍未收敛 |
+| M6 Mesh/Wizard | ✅ 完成 | `InterferenceDialog/EditMeshDialog/SectionDialog/SFileCheckDialog`、`InitialWizard/ConditionWizard`、模型层 condition/value 系列 API | Condition Wizard ~150 页未实现（M28 仅子集）；截面 Face/Element 映射简化；multiblock 单 RootBlock |
+| M7 六菜单 | ✅ 完成 | File(Print/Solver/Post)、Edit(Undo/Redo/Deletion/Group)、View/Help、Part 创建、`OptionsDialog`、`cab_options` 持久化 | 专用件热属性完整模型（M30）、Environment 13/13 页（M29）未满 |
+| M8 Sketch | ✅ 完成 | `cab_sketch.py`（plane/part/XML 持久化/重开重建）、Control Sketch 页、`SketchPartDialog` | 无大项 |
+| M9 算法精度 | ✅ 完成 | `_stpre_external/_equal_split`、B-rep 顶点、`samples="corners"` | 与 STpre 精确对拍仍留 M27 |
+| M10 Import 扩展 | ✅ 完成 | STL 原生解析、`cab_occ.py`（STEP/SAT）、移除 CADthru | OCC 缺失时 STEP/SAT 报错（已记录） |
+| M11 STpre API 开关 | ✅ 完成 | `cab_stpre_api.py`、`_FlagAsMethod`、会话归属保护（M13）、默认原生 | 仅作对比/回归通道；原生已替代（M18） |
+| M12–M22 延伸 | ✅ 摘要 | gridding 规则逼近、面网格/深度遮挡、Condition Wizard 页面、启动告警过滤等（见 §28–32、§33） | 细节见各自章节；其中 auto1 内区 P 已闭式（M17） |
+| M23 Initial/Edit | ✅ 完成 | `cab_iwizard_pages.py`、冷启动自动 Initial Setting、Edit 菜单 24/24（`cab_edit_dialogs/ops`） | Edit 深度：Boolean=CSG、其余多为对话框+AABB/意图写回（M24 承接） |
+| M24 Edit 内核 | ⚠️ MVP | `cab_ps_ops.mesh_boolean/reconstruct_facet`、`cab_edit_ops.boolean_mesh_parts/flip/reconstruct_part_facets`、vtkCellPicker | **真 B-rep Boolean（PK_BODY_boolean_2）未绑定**；Paneling/Sweep 为 chrome/代理 |
+| M25 选择/测量/View | ✅ MVP | Control Target Face/Vertices 拾取、Distance/Reference 对话框、Hide/Display All/Clipping | 拾取精度/顶点吸附未深做 |
+| M26 Import/Export | ⚠️ MVP | OBJ/DXF/MDL 导入、XT/STL/Property XML 导出 | **格式矩阵回归测试未做** |
+| M27 Mesh 保真 | ⚠️ 部分 | `cab_dialogs._create_child_block`（ChildBlock XML stub）、Cut Cell Option MVP | **meshing 金标占用收敛未完成**（box 单例已对拍，全场景未收敛） |
+| M28 Wizard 扩展 | ⚠️ 子集 | `cab_cwizard_pages.py`、Humidity/Porous/Radiation 页 + 写回 | **Source 细节深度/全物理覆盖未完成** |
+| M29 Option/Environment | ⚠️ 子集 | `OptionsDialog` Folder/File、Color、Unit 三 tab、Selection/Viewer 模式、QSettings | **未满 13/13 环境页** |
+| M30 Part 专用件 | ⚠️ 代理 | `cab_parts.PRIMITIVE_KINDS`（enclosure/plate_fin/pin_fin/peltier/two_resistor）+ tess 代理 | **专用热属性完整模型未完成** |
+| M31 Solver/Post | ⚠️ MVP | `_execute_solver`（workdir/restart/env 文件）、`_execute_post`（fld/r/cab 路径） | **启动矩阵文档化未完成** |
+
+### 34.2 未实现点汇总（按优先级）
+
+1. **当前回归**：16 项测试失败需先修复（§33.2 清单）；
+2. M27：Meshing 与金标 cab 占用差收敛（含 panel/开放面、行程编码）；
+3. M26：格式矩阵回归测试（OBJ/DXF/MDL/STL/XT/Property 双向）；
+4. M28：Condition Wizard 全物理覆盖 / Source 细节深度；
+5. M24：真 B-rep Boolean（`PK_BODY_boolean_2`）；
+6. M29：Environment Settings 13/13 页；
+7. M30：专用件热属性完整模型；
+8. M31：启动矩阵文档化；
+9. M2/M3：圆柱/轴对称坐标系网格细化（一期近似保留）。
+
+### 34.3 结论
+
+M1–M11、M23 按当时验收“已完成”；M12–M22 为延伸摘要；M24–M31 均为
+MVP/子集/代理/stub，**不是完整实现**。当前 HEAD 全仓测试非全绿，
+建议先修回归，再按 §34.2 顺序补齐缺口。
