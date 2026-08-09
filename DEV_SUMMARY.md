@@ -1634,3 +1634,57 @@ P = min{ p>=1 : p + ceil(log(1+L_out(q-1)/s)/log q)
   cab_gui 代码（仓库中无此类窗口），来自外部 Qt 进程/旧版本，
   过滤不改变本程序窗口行为；
 - 全仓 `pytest`：**230 通过 / 4 跳过**。
+
+## 33. 当前开发状态快照（2026-08-09）
+
+### 33.1 Git / 工作区
+
+- HEAD：`af8297a M24-M31: deliver edit kernel, I/O, wizard, options, and
+  solver MVP`（此前 `597faad` 更新计划、`779e5f3` M23、`60dbf0f` M21）；
+- 工作区干净（无未提交修改）；远程 main 与本地一致（已推送）。
+
+### 33.2 全仓测试（非全绿）
+
+`pytest --basetemp=.pytest_tmp_status`：**16 失败 / 229 通过 / 4 跳过**。
+
+失败分布（按文件）：
+
+- `test_dialogs.py`（3）：Domain 改名/部件编辑/双击路由断言过期；
+- `test_gridding_tabs.py`（1）：Others 页持久化；
+- `test_import.py`（1）：多 x_t 成员加载；
+- `test_menus_other.py`（2）：Part 菜单 kinds 顺序与
+  `PRIMITIVE_KINDS` 不一致（enclosure/fan 顺序）；
+- `test_mesh_edit.py`（2）：element 段解析；
+- `test_mesh_menus.py`（1）：Edit Mesh 对话框；
+- `test_ps_facet2_nodes.py` / `test_ps_tessellate.py`（3）：facet_2/
+  tessellation 结果；
+- `test_tree_layout.py`（2）：fixture 加载的工程与断言部件名不一致
+  （期望 box，实际 tr03/tr02）；
+- `test_wizards.py`（1）：Condition Wizard 应用结果。
+
+性质：以“测试期望与实现/夹具不一致”为主，M24–M31 交付提交后测试套件
+尚未同步；需先修复回归再视为可发布状态。
+
+### 33.3 M24–M31 完成度（对照 DEV_PLAN §13.6）
+
+| 里程碑 | 状态 | 说明 |
+|---|---|---|
+| M24 Edit 内核脊柱 | ✅ MVP | Boolean(tess CSG)/Facet 重建/面拾取 Flip 已实现；真 B-rep Boolean 未绑定 |
+| M25 选择/测量/View | ✅ MVP | Face/Vertices 拾取、Distance/Reference、Hide/Clipping |
+| M26 Import/Export | ✅ MVP | OBJ/DXF/MDL 导入、XT/STL/Property XML 导出；**格式矩阵回归测试未做** |
+| M27 Mesh 保真 | ⚠️ 部分 | ChildBlock stub + Cut Cell MVP 完成；**meshing 金标占用收敛未完成** |
+| M28 Condition Wizard | ✅ 子集 | Humidity/Porous/Radiation 页 + 写回；**Source 深度/全物理未完成** |
+| M29 Option/Environment | ⚠️ 子集 | Folder/File/Color/Unit、Selection/Viewer 模式、持久化；**未满 13/13 页** |
+| M30 Part 专用件 | ✅ 几何代理 | Enclosure/Plate/Pin Fin/Peltier·2R 菜单 + tess；**热属性完整模型未完成** |
+| M31 Solver/Post | ✅ MVP | 求解器 workdir/restart/env 文件、Post 场数据路径；**启动矩阵文档未做** |
+
+结论：8 项均按“MVP/子集/代理/stub”交付，**不是全部完整实现**；5 个
+计划内未勾选项（M26 矩阵测试、M27 金标收敛、M28 Source 深度、M30 热属性、
+M31 启动矩阵文档）+ M24 真 B-rep Boolean + M29 13/13 环境页仍为缺口。
+
+### 33.4 下一步建议
+
+1. 先修复 §33.2 的 16 项回归（测试期望与实现/夹具对齐）；
+2. 补 M26 格式矩阵回归测试（OBJ/DXF/MDL/STL/XT/Property 双向）；
+3. M27 金标占用收敛：在 box 对拍基础上扩展到 tr03/ex4_e 全部件；
+4. 完成 M31 启动矩阵文档（可选，低优先级）。
