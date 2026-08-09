@@ -212,6 +212,217 @@ class CuboidSchematic(QWidget if _HAS_GUI_DEPS else object):
         p.end()
 
 
+class FanSchematic(QWidget if _HAS_GUI_DEPS else object):
+    """STpre Part(Fan) Scale figure: square frame + annulus + dimension labels."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumSize(200, 150)
+
+    def paintEvent(self, _ev) -> None:  # noqa: N802
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        w, h = self.width(), self.height()
+        cx, cy = w * 0.42, h * 0.48
+        side = min(w, h) * 0.55
+        # isometric-ish square (fan housing)
+        ux, uy = side * 0.55, 0.0
+        vx, vy = 0.0, -side * 0.55
+        wx, wy = -side * 0.28, -side * 0.18
+
+        def pt(a, b, c=0.0):
+            return QPointF(cx + a * ux + b * vx + c * wx,
+                           cy + a * uy + b * vy + c * wy)
+
+        # front face square
+        q = [pt(0, 0), pt(1, 0), pt(1, 1), pt(0, 1)]
+        p.setPen(QPen(QColor("#333"), 1.4))
+        p.setBrush(QBrush(QColor("#e8e8e8")))
+        p.drawPolygon(QPolygon([pp.toPoint() for pp in q]))
+        # depth edges
+        p.setPen(QPen(QColor("#666"), 1.1))
+        for a, b in ((pt(1, 0), pt(1, 0, 1)), (pt(1, 1), pt(1, 1, 1)),
+                     (pt(0, 1), pt(0, 1, 1))):
+            p.drawLine(a, b)
+        p.drawLine(pt(1, 0, 1), pt(1, 1, 1))
+        p.drawLine(pt(1, 1, 1), pt(0, 1, 1))
+        # outer / inner circles on front face
+        center = pt(0.5, 0.5)
+        ro = side * 0.22
+        ri = side * 0.10
+        p.setBrush(QBrush(QColor("#f5f5f5")))
+        p.setPen(QPen(QColor("#222"), 1.3))
+        p.drawEllipse(center, ro, ro)
+        p.setBrush(QBrush(QColor("#ffffff")))
+        p.drawEllipse(center, ri, ri)
+        # Thickness dimension (along depth)
+        p.setPen(QPen(QColor("#1a5fd0"), 1.3))
+        t0, t1 = pt(1.05, 0.15), pt(1.05, 0.15, 1)
+        p.drawLine(t0, t1)
+        p.drawText(QPointF(t1.x() - 8, t1.y() - 6), "Thickness")
+        # Inner radius dimension
+        p.drawLine(center, QPointF(center.x() + ri, center.y()))
+        p.drawText(QPointF(center.x() + ri + 4, center.y() - 4),
+                   "Inner radius")
+        p.end()
+
+
+class FanConditionPanel(QGroupBox if _HAS_GUI_DEPS else object):
+    """STpre Part(Fan) right-hand [Condition] group (flow / PQ / location)."""
+
+    def __init__(self, parent=None):
+        super().__init__("Condition", parent)
+        lay = QVBoxLayout(self)
+        lay.setSpacing(4)
+
+        self.rb_rate = QRadioButton("Constant flow rate", self)
+        self.rb_vel = QRadioButton("Constant velocity", self)
+        self.rb_pq = QRadioButton("P-Q characteristics", self)
+        self.rb_rate.setChecked(True)
+        self._flow_group = QButtonGroup(self)
+        for rb in (self.rb_rate, self.rb_vel, self.rb_pq):
+            self._flow_group.addButton(rb)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(self.rb_rate)
+        self.rate = QDoubleSpinBox(self)
+        self.rate.setRange(0, 1e9)
+        self.rate.setDecimals(6)
+        self.rate.setValue(1.0)
+        self.rate_unit = QComboBox(self)
+        self.rate_unit.addItems(["m3/s", "m3/min", "CFM"])
+        row1.addWidget(self.rate)
+        row1.addWidget(self.rate_unit)
+        lay.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(self.rb_vel)
+        self.vel = QDoubleSpinBox(self)
+        self.vel.setRange(0, 1e6)
+        self.vel.setDecimals(4)
+        self.vel.setValue(1.0)
+        self.vel_unit = QComboBox(self)
+        self.vel_unit.addItems(["m/s", "km/h"])
+        row2.addWidget(self.vel)
+        row2.addWidget(self.vel_unit)
+        lay.addLayout(row2)
+
+        row3 = QHBoxLayout()
+        row3.addWidget(self.rb_pq)
+        self.pq = QComboBox(self)
+        self.pq.addItems(["@T:pq-curve0"])
+        self.pq.setEditable(True)
+        row3.addWidget(self.pq, 1)
+        self.pq_btn = QPushButton("…", self)
+        self.pq_btn.setFixedWidth(28)
+        row3.addWidget(self.pq_btn)
+        lay.addLayout(row3)
+
+        loc = QGroupBox("Location of setting", self)
+        ll = QVBoxLayout(loc)
+        self.rb_internal = QRadioButton("Internal", loc)
+        self.rb_boundary = QRadioButton(
+            "On the computational domain boundary or obstacle face", loc)
+        self.rb_internal.setChecked(True)
+        self._loc_group = QButtonGroup(loc)
+        self._loc_group.addButton(self.rb_internal)
+        self._loc_group.addButton(self.rb_boundary)
+        ll.addWidget(self.rb_internal)
+        ll.addWidget(self.rb_boundary)
+        lay.addWidget(loc)
+
+        tip = QLabel(
+            "These settings are applicable only when the fan is on the "
+            "computational domain or obstacle face.", self)
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color:#666; font-size:11px;")
+        lay.addWidget(tip)
+
+        trow = QHBoxLayout()
+        trow.addWidget(QLabel("Inflow temperature", self))
+        self.inflow_temp = QDoubleSpinBox(self)
+        self.inflow_temp.setRange(-273.15, 1e6)
+        self.inflow_temp.setValue(20.0)
+        trow.addWidget(self.inflow_temp)
+        trow.addWidget(QLabel("C", self))
+        lay.addLayout(trow)
+
+        prow = QHBoxLayout()
+        prow.addWidget(QLabel("External pressure", self))
+        self.ext_press = QDoubleSpinBox(self)
+        self.ext_press.setRange(-1e9, 1e9)
+        self.ext_press.setValue(0.0)
+        self.press_unit = QComboBox(self)
+        self.press_unit.addItems(["Pa", "atm", "bar"])
+        prow.addWidget(self.ext_press)
+        prow.addWidget(self.press_unit)
+        lay.addLayout(prow)
+
+        self.straight = QCheckBox("Flow-straightening effect", self)
+        lay.addWidget(self.straight)
+        srow = QHBoxLayout()
+        self.rb_by_panel = QRadioButton("By Panel", self)
+        self.rb_by_force = QRadioButton("By force", self)
+        self.rb_by_panel.setChecked(True)
+        self._str_group = QButtonGroup(self)
+        self._str_group.addButton(self.rb_by_panel)
+        self._str_group.addButton(self.rb_by_force)
+        srow.addWidget(self.rb_by_panel)
+        srow.addWidget(self.rb_by_force)
+        lay.addLayout(srow)
+        self.output_shape = QCheckBox("Output only part shape", self)
+        self.virtual_chk = QCheckBox("Virtual part", self)
+        lay.addWidget(self.output_shape)
+        lay.addWidget(self.virtual_chk)
+        lay.addStretch(1)
+
+        def _sync():
+            self.rate.setEnabled(self.rb_rate.isChecked())
+            self.rate_unit.setEnabled(self.rb_rate.isChecked())
+            self.vel.setEnabled(self.rb_vel.isChecked())
+            self.vel_unit.setEnabled(self.rb_vel.isChecked())
+            self.pq.setEnabled(self.rb_pq.isChecked())
+            self.pq_btn.setEnabled(self.rb_pq.isChecked())
+            on_bnd = self.rb_boundary.isChecked()
+            self.inflow_temp.setEnabled(on_bnd)
+            self.ext_press.setEnabled(on_bnd)
+            self.press_unit.setEnabled(on_bnd)
+            self.rb_by_panel.setEnabled(self.straight.isChecked())
+            self.rb_by_force.setEnabled(self.straight.isChecked())
+
+        for rb in (self.rb_rate, self.rb_vel, self.rb_pq,
+                   self.rb_internal, self.rb_boundary):
+            rb.toggled.connect(lambda _=False: _sync())
+        self.straight.toggled.connect(lambda _=False: _sync())
+        _sync()
+
+    def values(self) -> dict:
+        if self.rb_vel.isChecked():
+            mode = "velocity"
+        elif self.rb_pq.isChecked():
+            mode = "pq"
+        else:
+            mode = "flow_rate"
+        return {
+            "flow_mode": mode,
+            "flow_rate": self.rate.value(),
+            "flow_rate_unit": self.rate_unit.currentText(),
+            "velocity": self.vel.value(),
+            "velocity_unit": self.vel_unit.currentText(),
+            "pq_curve": self.pq.currentText(),
+            "setting_location": (
+                "boundary" if self.rb_boundary.isChecked() else "internal"),
+            "inflow_temperature": self.inflow_temp.value(),
+            "external_pressure": self.ext_press.value(),
+            "press_unit": self.press_unit.currentText(),
+            "flow_straightening": self.straight.isChecked(),
+            "straighten_by": (
+                "force" if self.rb_by_force.isChecked() else "panel"),
+            "output_only_shape": self.output_shape.isChecked(),
+            "virtual": self.virtual_chk.isChecked(),
+        }
+
+
 class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
     """STpre [Attribute/Condition] group (right column of part dialogs)."""
 
@@ -351,10 +562,15 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
         # STpre: Obstacle disables most thermal / panel options
         attr = (text or "").lower()
         is_panel = "panel" in attr
+        is_fan = attr == "fan" or "flow fan" in attr or "blower" in attr
         is_obstacle = attr == "obstacle"
-        for w in (self.opening_chk, self.thickness, self.flip_chk):
-            if w is not None:
-                w.setEnabled(is_panel)
+        # STpre: Opening enabled for Panel and Fan; Flip only for Panel
+        if self.opening_chk is not None:
+            self.opening_chk.setEnabled(is_panel or is_fan)
+        if self.thickness is not None:
+            self.thickness.setEnabled(is_panel)
+        if self.flip_chk is not None:
+            self.flip_chk.setEnabled(is_panel)
         thermal = not is_obstacle
         self.init_temp_chk.setEnabled(thermal or is_panel)
         if self.heat_chk is not None:

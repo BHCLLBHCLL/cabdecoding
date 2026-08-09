@@ -1901,6 +1901,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         try:
             x, y = obj.GetEventPosition()
+            dlg = getattr(self, "_sketch_dlg", None)
+            if dlg is not None and getattr(
+                    dlg, "accepts_plane_picks", lambda: False)():
+                import cab_sketch
+                uv = cab_sketch.pick_sketch_uv_mm(
+                    self.renderer, float(x), float(y), dlg.plane)
+                if uv is not None:
+                    self._coord_label.setText(
+                        f"UV( {uv[0]:.4g} , {uv[1]:.4g} ) mm")
+                    return
             picker = vtk.vtkWorldPointPicker()
             picker.Pick(float(x), float(y), 0.0, self.renderer)
             wx, wy, wz = picker.GetPickPosition()
@@ -1911,14 +1921,44 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             pass
 
     def _on_left_click(self, obj, _event) -> None:
-        """M24/M25: Face/Vertex pick via vtkCellPicker."""
-        if self.renderer is None or not hasattr(self, "_cell_picker"):
+        """Sketch-plane vertex pick, or Face/Vertex pick via vtkCellPicker."""
+        if self.renderer is None:
+            return
+        try:
+            x, y = obj.GetEventPosition()
+        except Exception:
+            return
+
+        # Sketch Part dialog open → click sketch plane to add UV vertices
+        dlg = getattr(self, "_sketch_dlg", None)
+        if dlg is not None and getattr(dlg, "accepts_plane_picks", lambda: False)():
+            try:
+                import cab_sketch
+                uv = cab_sketch.pick_sketch_uv_mm(
+                    self.renderer, float(x), float(y), dlg.plane)
+                if uv is not None:
+                    dlg.add_picked_vertex(uv[0], uv[1])
+                    self._refresh_sketch_edit_overlay()
+                    self.log(
+                        f"sketch select[{dlg.points_table.rowCount()}] "
+                        f"({uv[0]:g},{uv[1]:g})")
+                    self.statusBar().showMessage(
+                        f"sketch select[{dlg.points_table.rowCount()}] "
+                        f"({uv[0]:g},{uv[1]:g})", 3000)
+                    try:
+                        obj.SetAbortFlag(1)
+                    except Exception:
+                        pass
+                    return
+            except Exception as exc:
+                self.log(f"Sketch pick failed: {exc}", "WARN")
+
+        if not hasattr(self, "_cell_picker"):
             return
         target = getattr(self, "_sel_target", "Part")
         if target in ("Part", "Parts", None):
             return
         try:
-            x, y = obj.GetEventPosition()
             self._cell_picker.Pick(float(x), float(y), 0.0, self.renderer)
             actor = self._cell_picker.GetActor()
             if actor is None:
@@ -2037,6 +2077,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.renderer.RemoveAllViewProps()
         self.actors.clear()
         self._edge_actors: list[tuple] = []
+        # Overlay actors were removed with ViewProps; drop stale refs
+        self._sketch_edit_actors = []
         for k in self._layer_actors:
             self._layer_actors[k] = []
 
@@ -2251,6 +2293,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             for actor in cab_vtk.world_origin_marker_actors(scale):
                 self.renderer.AddActor(actor)
                 self._layer_actors["origin"].append(actor)
+
+        # Keep in-progress Sketch Part outline after full scene rebuild
+        if getattr(self, "_sketch_dlg", None) is not None:
+            self._refresh_sketch_edit_overlay()
 
         if fit:
             self._fit_view()
@@ -2966,6 +3012,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        part = next((p for p in self.model.parts() if p.name == name), None)
+        if part is not None and part.kind == "sketch":
+            self._edit_sketch_part(name)
+            return
         snap = self._snapshot()
         dlg = _PartDialog(self.model, self.props, name, self)
         if dlg.exec_():
@@ -2978,21 +3028,25 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                      f"save the cab to persist.")
 
     def _append_primitive_tess(self) -> None:
-        """Regenerate primitive (cube/cylinder/sphere/panel) previews."""
+        """Regenerate primitive / sketch previews (replace same-name meshes)."""
         try:
             import cab_parts
             prim = cab_parts.primitives_from_model(self.model)
         except Exception:
             prim = []
-        if prim:
-            self._cad_meshes = list(self._cad_meshes or []) + prim
         try:
             import cab_sketch
             sket = cab_sketch.sketch_parts_from_model(self.model)
         except Exception:
             sket = []
-        if sket:
-            self._cad_meshes = list(self._cad_meshes or []) + sket
+        extras = list(prim) + list(sket)
+        if not extras:
+            return
+        by_name = {getattr(m, "name", None): m
+                   for m in (self._cad_meshes or [])}
+        for m in extras:
+            by_name[getattr(m, "name", None)] = m
+        self._cad_meshes = [m for k, m in by_name.items() if k]
 
     def _create_part_dialog(self, kind: str) -> None:
         """Part(P) → create primitive (STpre Part menu)."""
@@ -3069,8 +3123,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"Created {spec['kind']} part '{spec['name']}' "
             f"(attribute={spec['attribute']}, material={spec['material']})")
 
-    def _sketch_part_dialog(self) -> None:
-        """Part -> Sketch Part: full sketch-plane based creation (M8)."""
+    def _sketch_part_dialog(self, edit_name: Optional[str] = None) -> None:
+        """Part -> Sketch Part: non-modal so Draw Window can receive picks."""
         if self.model is None:
             self.log("No project open.", "WARN")
             return
@@ -3079,23 +3133,167 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         except Exception:
             self.log("cab_sketch unavailable.", "ERROR")
             return
+        existing = getattr(self, "_sketch_dlg", None)
+        if existing is not None and existing.isVisible():
+            if edit_name and getattr(existing, "edit_name", None) == edit_name:
+                existing.raise_()
+                existing.activateWindow()
+                return
+            existing.close()
+        # Ensure sketch plane is visible for picking
+        self._ensure_sketch_plane(force_fit=False)
+        cb = self.control.layer_checks.get("sketch_plane")
+        if cb is not None and not cb.isChecked():
+            cb.blockSignals(True)
+            cb.setChecked(True)
+            cb.blockSignals(False)
+        self.control.load_sketch(self.model)
+        self._rebuild_scene(fit=False)
+
         dlg = cab_sketch.SketchPartDialog(
-            self.model, self.props, parent=self)
-        if not dlg.exec_():
+            self.model, self.props, parent=self, edit_name=edit_name)
+        dlg.setAttribute(Qt.WA_DeleteOnClose, True)
+        dlg.accepted.connect(lambda: self._commit_sketch_part(dlg))
+        dlg.rejected.connect(self._on_sketch_dialog_closed)
+        dlg.finished.connect(lambda _r: self._on_sketch_dialog_closed())
+        if getattr(dlg, "preview_requested", None) is not None:
+            dlg.preview_requested.connect(self._preview_sketch_part)
+        if getattr(dlg, "vertex_added", None) is not None:
+            dlg.vertex_added.connect(
+                lambda *_a: self._refresh_sketch_edit_overlay())
+        # Table edits / Reset / Delete also refresh the Draw Window
+        try:
+            dlg.points_table.itemChanged.connect(
+                lambda *_a: self._refresh_sketch_edit_overlay())
+            dlg.btn_reset.clicked.connect(
+                lambda: self._refresh_sketch_edit_overlay())
+            dlg.btn_del.clicked.connect(
+                lambda: self._refresh_sketch_edit_overlay())
+            dlg.geometry_type.currentIndexChanged.connect(
+                lambda *_a: self._refresh_sketch_edit_overlay())
+            dlg.close_chk.toggled.connect(
+                lambda *_a: self._refresh_sketch_edit_overlay())
+        except Exception:
+            pass
+        self._sketch_dlg = dlg
+        self._sketch_edit_actors = []
+        dlg.show()
+        self._refresh_sketch_edit_overlay()
+        if edit_name:
+            self.log(f"Edit Sketch Part '{edit_name}'.")
+        else:
+            self.log(
+                "Sketch Part: click the sketch plane to add vertices "
+                "(Point sequence), then OK.")
+
+    def _edit_sketch_part(self, name: str) -> None:
+        """Tree double-click / Refer → open Sketch Part definition dialog."""
+        self._sketch_part_dialog(edit_name=name)
+
+    def _on_sketch_dialog_closed(self) -> None:
+        self._sketch_dlg = None
+        self._clear_sketch_edit_overlay()
+        if self.vtk_widget is not None:
+            self.vtk_widget.GetRenderWindow().Render()
+
+    def _clear_sketch_edit_overlay(self) -> None:
+        if self.renderer is None:
+            self._sketch_edit_actors = []
+            return
+        for actor in getattr(self, "_sketch_edit_actors", []) or []:
+            try:
+                self.renderer.RemoveActor(actor)
+            except Exception:
+                pass
+        self._sketch_edit_actors = []
+
+    def _refresh_sketch_edit_overlay(self) -> None:
+        """Draw current Sketch Part vertices/edges on the sketch plane."""
+        if self.renderer is None:
+            return
+        self._clear_sketch_edit_overlay()
+        dlg = getattr(self, "_sketch_dlg", None)
+        if dlg is None or not dlg.isVisible():
+            if self.vtk_widget is not None:
+                self.vtk_widget.GetRenderWindow().Render()
+            return
+        try:
+            import cab_vtk
+            profile = dlg._profile()
+            # Rectangle / Circle: show derived polygon; Point sequence: table
+            uv = list(profile.polygon())
+            if profile.geometry_type == "point_sequence":
+                uv = list(profile.points)
+                close = bool(profile.close)
+            else:
+                close = True
+            actors = cab_vtk.sketch_profile_actors(
+                dlg.plane, uv, close=close and len(uv) >= 3)
+            for a in actors:
+                self.renderer.AddActor(a)
+                self._sketch_edit_actors.append(a)
+        except Exception as exc:
+            self.log(f"Sketch outline draw failed: {exc}", "WARN")
+        if self.vtk_widget is not None:
+            self.vtk_widget.GetRenderWindow().Render()
+
+    def _preview_sketch_part(self, spec: dict) -> None:
+        """Live preview tessellation without committing the part."""
+        try:
+            import cab_sketch
+        except Exception:
+            return
+        profile = spec.get("profile")
+        if profile is None:
+            return
+        plane = cab_sketch.plane_from_xml(self.model)
+        try:
+            tess = cab_sketch.sketch_tess(
+                plane, profile, spec.get("model_type", "extrusion"),
+                float(spec.get("thickness", 5.0)))
+        except Exception as exc:
+            self.log(f"Sketch preview failed: {exc}", "WARN")
+            return
+        tess.name = (spec.get("name") or "preview") + "__preview"
+        # Replace previous preview mesh
+        meshes = [m for m in (self._cad_meshes or [])
+                  if not str(getattr(m, "name", "")).endswith("__preview")]
+        meshes.append(tess)
+        self._cad_meshes = meshes
+        self._rebuild_scene(fit=False)
+        self._refresh_sketch_edit_overlay()
+        self.log(f"Sketch preview: {len(profile.polygon())} outline pts")
+
+    def _commit_sketch_part(self, dlg) -> None:
+        """Finalize Sketch Part after non-modal OK (create or update)."""
+        self._clear_sketch_edit_overlay()
+        self._sketch_dlg = None
+        if self.model is None:
+            return
+        try:
+            import cab_sketch
+        except Exception:
+            self.log("cab_sketch unavailable.", "ERROR")
             return
         spec = dlg.spec()
         name = spec["name"]
+        edit_name = getattr(dlg, "edit_name", None)
         if not name:
             self.log("Sketch Part: a part name is required.", "WARN")
             return
-        if self.model.find_part(name) is not None:
+        if edit_name is None and self.model.find_part(name) is not None:
             QMessageBox.warning(
                 self, "Sketch Part", f"Part '{name}' already exists.")
             return
-        poly = spec["profile"].polygon()
+        if edit_name and name != edit_name and \
+                self.model.find_part(name) is not None:
+            QMessageBox.warning(
+                self, "Sketch Part", f"Part '{name}' already exists.")
+            return
         if spec["profile"].geometry_type == "point_sequence":
             need = 3 if spec["profile"].close else 2
-            if len(poly) < need:
+            n_unique = len(spec["profile"].points)
+            if n_unique < need:
                 QMessageBox.warning(
                     self, "Sketch Part",
                     "Point sequence needs >= 3 vertices (closed) "
@@ -3103,26 +3301,44 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 return
         snap = self._snapshot()
         plane = cab_sketch.plane_from_xml(self.model)
-        ok = cab_sketch.register_sketch_part(
-            self.model, name=name, plane=plane,
-            profile=spec["profile"], model_type=spec["model_type"],
+        common = dict(
+            plane=plane, profile=spec["profile"],
+            model_type=spec["model_type"],
             thickness_mm=spec["thickness"], material=spec["material"],
-            attribute=spec["attribute"])
+            attribute=spec["attribute"],
+            color=spec.get("color", "120,160,220,255"),
+            layer=spec.get("layer", "1"),
+            orientation=spec.get("orientation", "W-Axis(Positive)"),
+            scale_type=spec.get("scale_type", "Solid"))
+        if edit_name:
+            ok = cab_sketch.update_sketch_part(
+                self.model, name=edit_name, new_name=name, **common)
+        else:
+            ok = cab_sketch.register_sketch_part(
+                self.model, name=name, **common)
         if not ok:
             self.log("Sketch Part: registration failed.", "ERROR")
             return
         tess = cab_sketch.sketch_tess(
             plane, spec["profile"], spec["model_type"], spec["thickness"])
         tess.name = name
-        self._cad_meshes = list(self._cad_meshes or []) + [tess]
+        # Replace prior mesh for this part + drop temporary previews
+        drop = {edit_name, name, None}
+        meshes = [
+            m for m in (self._cad_meshes or [])
+            if not str(getattr(m, "name", "")).endswith("__preview")
+            and getattr(m, "name", None) not in drop]
+        meshes.append(tess)
+        self._cad_meshes = meshes
         self._push_undo(snap)
         self._mark_dirty()
         self._update_title()
         self.tree_view.populate(
             self.model, self.archive.members if self.archive else [])
         self._rebuild_scene()
+        verb = "Updated" if edit_name else "Created"
         self.log(
-            f"Created sketch part '{name}' "
+            f"{verb} sketch part '{name}' "
             f"({spec['model_type']}, {spec['profile'].geometry_type}, "
             f"thickness={spec['thickness']} mm)")
 

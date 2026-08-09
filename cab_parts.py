@@ -378,16 +378,23 @@ def point_tess(center_mm, marker_mm: float = 1.0) -> PrimitivePart:
 def annulus_disk_tess(center_mm, outer_r: float, inner_r: float,
                       thickness: float, axis: str = "+Z",
                       divisions: int = 24) -> PrimitivePart:
-    """Thick annular disk (Fan / Axial-Flow Fan visual)."""
+    """Thick annular disk (Fan / Axial-Flow Fan).
+
+    STpre places the mid-plane of the thickness at ``center`` (flow is
+    applied on that mid face).  Local +Z is mapped to the flow axis.
+    """
     c = np.asarray(center_mm, float) / 1000.0
-    ro = max(float(outer_r), float(inner_r)) / 1000.0
-    ri = min(float(outer_r), float(inner_r)) / 1000.0
+    ro = max(float(outer_r), float(inner_r), 1e-9) / 1000.0
+    ri = max(min(float(outer_r), float(inner_r)), 0.0) / 1000.0
+    if ri >= ro:
+        ri = 0.0
     h = max(float(thickness), 1e-3) / 1000.0
-    n = max(4, int(divisions))
+    n = max(8, int(divisions))
     ang = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
     rings = []
-    for z in (0.0, h):
-        for r in (ri, ro):
+    # Mid-plane centred: z ∈ [-h/2, +h/2]
+    for z in (-0.5 * h, 0.5 * h):
+        for r in (ri if ri > 1e-12 else 0.0, ro):
             rings.append(np.stack(
                 [r * np.cos(ang), r * np.sin(ang), np.full(n, z)], 1))
     # order: z0-inner, z0-outer, z1-inner, z1-outer
@@ -396,16 +403,23 @@ def annulus_disk_tess(center_mm, outer_r: float, inner_r: float,
     tris = []
     for i in range(n):
         j = (i + 1) % n
-        # bottom
+        # bottom (-h/2)
         tris += [[i, n + j, n + i], [i, j, n + j]]
-        # top
+        # top (+h/2)
         tris += [[2 * n + i, 3 * n + i, 3 * n + j],
                  [2 * n + i, 3 * n + j, 2 * n + j]]
-        # outer
+        # outer wall
         tris += [[n + i, n + j, 3 * n + j], [n + i, 3 * n + j, 3 * n + i]]
         if ri > 1e-12:
             tris += [[i, 2 * n + i, 2 * n + j], [i, 2 * n + j, j]]
     return PrimitivePart("", pts, np.asarray(tris, dtype=np.int64))
+
+
+def fan_tess(center_mm, outer_r: float, inner_r: float, thickness: float,
+             axis: str = "+Z", divisions: int = 24) -> PrimitivePart:
+    """STpre Part(Fan) geometry helper."""
+    return annulus_disk_tess(
+        center_mm, outer_r, inner_r, thickness, axis, divisions)
 
 
 def pipe_tess(start_mm, end_mm, radius: float,
@@ -489,7 +503,10 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
     name = getattr(part, "name", "")
     p: Optional[PrimitivePart] = None
 
-    if kind in ("cube", "sketch", "blower_fan", "enclosure", "peltier",
+    if kind == "sketch":
+        # Parametric UV profile — tessellated by cab_sketch.tess_for_sketch_part
+        return None
+    if kind in ("cube", "blower_fan", "enclosure", "peltier",
                 "two_resistor"):
         p = cube_tess(_el_vec(el, "base"),
                       _el_vec(el, "size", (10.0, 10.0, 10.0)))
@@ -556,20 +573,28 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
         p = point_tess(_el_vec(el, "center"),
                        _el_scalar(el, "marker", 1.0))
     elif kind == "fan":
-        base = _el_vec(el, "base")
-        size = _el_vec(el, "size", (20, 20, 2))
+        from cabxml import _first
         axis = _el_text(el, "direction", "+Z")
-        # place annulus in face of size box
-        ai = int(np.argmax(np.abs(_axis_vector(axis))))
-        outer = 0.5 * max(size[(ai + 1) % 3], size[(ai + 2) % 3])
-        center = (base[0] + size[0] * 0.5, base[1] + size[1] * 0.5,
-                  base[2] + size[2] * 0.5)
-        # shift center to upstream face along axis
-        c = list(center)
-        c[ai] = base[ai] if _axis_vector(axis)[ai] > 0 else base[ai] + size[ai]
-        thick = size[ai] if size[ai] > 1e-6 else _el_scalar(el, "thickness", 2.0)
-        p = annulus_disk_tess(
-            c, outer, _el_scalar(el, "inner_radius", 0.0), thick, axis,
+        # Prefer explicit STpre fields; fall back to base/size AABB
+        if _first(el, "center") is not None:
+            center = _el_vec(el, "center")
+        else:
+            base = _el_vec(el, "base")
+            size = _el_vec(el, "size", (10, 10, 2))
+            center = (base[0] + size[0] * 0.5, base[1] + size[1] * 0.5,
+                      base[2] + size[2] * 0.5)
+        outer = _el_scalar(el, "outer_radius", 0.0)
+        if outer <= 1e-12:
+            size = _el_vec(el, "size", (10, 10, 2))
+            ai = int(np.argmax(np.abs(_axis_vector(axis))))
+            outer = 0.5 * max(size[(ai + 1) % 3], size[(ai + 2) % 3], 1e-6)
+        thick = _el_scalar(el, "thickness", 2.0)
+        if thick <= 1e-12:
+            size = _el_vec(el, "size", (10, 10, 2))
+            ai = int(np.argmax(np.abs(_axis_vector(axis))))
+            thick = size[ai] if size[ai] > 1e-12 else 2.0
+        p = fan_tess(
+            center, outer, _el_scalar(el, "inner_radius", 0.0), thick, axis,
             int(_el_scalar(el, "divisions", 24)))
     elif kind == "axial_fan":
         p = annulus_disk_tess(
@@ -660,8 +685,11 @@ def primitives_from_model(model: StpreModel) -> list[PrimitivePart]:
 
 def tess_for_spec(kind: str, params: dict) -> PrimitivePart:
     # M30 specialty thermal parts → cuboid / fin array proxies
-    if kind in ("cube", "sketch", "blower_fan", "enclosure", "peltier",
+    if kind in ("cube", "blower_fan", "enclosure", "peltier",
                 "two_resistor"):
+        return cube_tess(params["base"], params["size"])
+    if kind == "sketch":
+        # Creation path uses cab_sketch.sketch_tess; keep a cuboid proxy here
         return cube_tess(params["base"], params["size"])
     if kind == "plate_fin":
         return _plate_fin_tess(params)
@@ -700,16 +728,23 @@ def tess_for_spec(kind: str, params: dict) -> PrimitivePart:
     if kind == "point":
         return point_tess(params["center"], params.get("marker", 1.0))
     if kind == "fan":
-        base = params["base"]
-        size = params["size"]
         axis = params.get("direction", "+Z")
-        ai = int(np.argmax(np.abs(_axis_vector(axis))))
-        outer = 0.5 * max(size[(ai + 1) % 3], size[(ai + 2) % 3])
-        center = [base[i] + size[i] * 0.5 for i in range(3)]
-        center[ai] = (base[ai] if _axis_vector(axis)[ai] > 0
-                      else base[ai] + size[ai])
-        thick = size[ai] if size[ai] > 1e-6 else params.get("thickness", 2.0)
-        return annulus_disk_tess(
+        center = params.get("center")
+        if center is None:
+            base = params["base"]
+            size = params["size"]
+            center = [base[i] + size[i] * 0.5 for i in range(3)]
+        outer = float(params.get("outer_radius", 0.0) or 0.0)
+        if outer <= 1e-12:
+            size = params.get("size", (10, 10, 2))
+            ai = int(np.argmax(np.abs(_axis_vector(axis))))
+            outer = 0.5 * max(size[(ai + 1) % 3], size[(ai + 2) % 3], 1e-6)
+        thick = float(params.get("thickness", 0.0) or 0.0)
+        if thick <= 1e-12:
+            size = params.get("size", (10, 10, 2))
+            ai = int(np.argmax(np.abs(_axis_vector(axis))))
+            thick = size[ai] if size[ai] > 1e-12 else 2.0
+        return fan_tess(
             center, outer, params.get("inner_radius", 0.0), thick, axis,
             params.get("divisions", 24))
     if kind == "axial_fan":
@@ -749,7 +784,7 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
 
     mm = lambda v: ",".join(f"{x:.12g}" for x in np.ravel(v))  # noqa: E731
 
-    if kind in ("cube", "panel", "sketch", "blower_fan", "fan",
+    if kind in ("cube", "panel", "sketch", "blower_fan",
                 "enclosure", "plate_fin", "pin_fin", "peltier",
                 "two_resistor"):
         add("base", mm(params["base"]), "mm")
@@ -761,13 +796,33 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
         add("pin_nx", str(params.get("pin_nx", 4)))
         add("pin_ny", str(params.get("pin_ny", 4)))
         add("pin_radius", f"{params.get('pin_radius', 1.0):.12g}")
-    if kind in ("panel", "fan"):
+    if kind == "panel":
         add("direction", params.get("direction", "+Z"))
     if kind == "fan":
-        add("inner_radius", f"{params.get('inner_radius', 0):.12g}")
-        add("thickness", f"{params.get('thickness', params['size'][2]):.12g}")
+        # STpre Fan: Center / Size / Outer·Inner radius / Thickness / Condition
+        add("center", mm(params.get("center", (0, 0, 0))), "mm")
+        add("base", mm(params.get("base", (0, 0, 0))), "mm")
+        add("size", mm(params.get("size", (10, 10, 0))), "mm")
+        add("direction", params.get("direction", "+Z"))
+        add("flow_ui", params.get("flow_ui", "W-Axis(Positive)"))
+        add("ref_coord", params.get("ref_coord", "Sketch coordinate system"))
+        add("location_mode", params.get("location_mode", "center"))
+        add("outer_radius",
+            f"{params.get('outer_radius', 5.0):.12g}", "mm")
+        add("inner_radius",
+            f"{params.get('inner_radius', 0):.12g}", "mm")
+        add("thickness",
+            f"{params.get('thickness', 2.0):.12g}", "mm")
+        add("flow_mode", params.get("flow_mode", "flow_rate"))
         if "flow_rate" in params:
             add("flow_rate", f"{params['flow_rate']:.12g}")
+        add("flow_rate_unit", params.get("flow_rate_unit", "m3/s"))
+        if "velocity" in params:
+            add("velocity", f"{params['velocity']:.12g}")
+        add("setting_location", params.get("setting_location", "internal"))
+        if "sketch_origin" in params:
+            add("sketch_origin", mm(params["sketch_origin"]), "mm")
+        add("divisions", str(int(params.get("divisions", 32))))
     if kind == "hexahedron":
         if "points" in params:
             add("points", mm(params["points"]), "mm")
@@ -840,10 +895,18 @@ _FLOW_UI = [
     "Y-Axis(Positive)", "Y-Axis(Negative)",
     "Z-Axis(Positive)", "Z-Axis(Negative)",
 ]
+_FLOW_UVW_UI = [
+    "U-Axis(Positive)", "U-Axis(Negative)",
+    "V-Axis(Positive)", "V-Axis(Negative)",
+    "W-Axis(Positive)", "W-Axis(Negative)",
+]
 _FLOW_TO_AXIS = {
     "X-Axis(Positive)": "+X", "X-Axis(Negative)": "-X",
     "Y-Axis(Positive)": "+Y", "Y-Axis(Negative)": "-Y",
     "Z-Axis(Positive)": "+Z", "Z-Axis(Negative)": "-Z",
+    "U-Axis(Positive)": "+U", "U-Axis(Negative)": "-U",
+    "V-Axis(Positive)": "+V", "V-Axis(Negative)": "-V",
+    "W-Axis(Positive)": "+W", "W-Axis(Negative)": "-W",
 }
 
 _DEFAULT_NAME = {
@@ -923,15 +986,18 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                  parent=None, single_kind: bool = True):
         super().__init__(parent)
         from cab_dialogs import (
-            AttributePanel, ColorButton, CuboidSchematic, MaterialListDialog,
+            AttributePanel, ColorButton, CuboidSchematic, FanConditionPanel,
+            FanSchematic, MaterialListDialog,
         )
         self.model = model
         self.props = props
         self._kind = initial_kind if initial_kind in PRIMITIVE_KINDS else "cube"
         self._MaterialListDialog = MaterialListDialog
+        self._FanSchematic = FanSchematic
         title = KIND_TITLES.get(self._kind, "Part")
         self.setWindowTitle(f"Part ({title})")
-        self.resize(780, 520)
+        self.resize(820 if self._kind == "fan" else 780,
+                    560 if self._kind == "fan" else 520)
 
         root = QVBoxLayout(self)
         root.setSpacing(6)
@@ -964,20 +1030,37 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         self.scale_lay.setSpacing(4)
         cols.addWidget(self.scale_box, 3)
 
-        attrs = _ATTRIBUTES.get(self._kind, ["Obstacle", "Solid"])
-        self.attr_panel = AttributePanel(
-            main, attributes=attrs, attribute_enabled=True,
-            heat_source=True, virtual_part=True, full_stpre=True)
-        self.attr_panel.configure_requested.connect(self._configure_material)
-        if self.props is not None and self.props.material_names():
-            # Obstacle material label like STpre default
-            mats = self.props.material_names()
-            obst = next((m for m in mats if "obstacle" in m.lower()
-                         or m == "Obstacle"), mats[0])
-            self.attr_panel.set_material(obst)
+        # STpre Fan uses a dedicated [Condition] panel (not Attribute/Condition)
+        self.fan_condition = None
+        if self._kind == "fan":
+            self.fan_condition = FanConditionPanel(main)
+            self.attr_panel = None
+            cols.addWidget(self.fan_condition, 2)
         else:
-            self.attr_panel.set_material("Obstacle")
-        cols.addWidget(self.attr_panel, 2)
+            attrs = _ATTRIBUTES.get(self._kind, ["Obstacle", "Solid"])
+            self.attr_panel = AttributePanel(
+                main, attributes=attrs, attribute_enabled=True,
+                heat_source=True, virtual_part=True, full_stpre=True)
+            self.attr_panel.configure_requested.connect(
+                self._configure_material)
+            if self.props is not None and self.props.material_names():
+                mats = self.props.material_names()
+                if self._kind in ("axial_fan", "blower_fan"):
+                    mat = next(
+                        (m for m in mats
+                         if "air" in m.lower() and "incompress" in m.lower()),
+                        next((m for m in mats if m.lower().startswith("air")),
+                             mats[0]))
+                else:
+                    mat = next((m for m in mats if "obstacle" in m.lower()
+                                or m == "Obstacle"), mats[0])
+                self.attr_panel.set_material(mat)
+            else:
+                self.attr_panel.set_material(
+                    "air(incompressible/20C)"
+                    if self._kind in ("axial_fan", "blower_fan")
+                    else "Obstacle")
+            cols.addWidget(self.attr_panel, 2)
         mlay.addLayout(cols, 1)
 
         self.tabs.addTab(main, title)
@@ -999,7 +1082,10 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             self.tabs.setTabText(0, "Center Line of Pipe")
         root.addWidget(self.tabs, 1)
 
-        self._build_scale(self.scale_lay, CuboidSchematic)
+        if self._kind == "fan":
+            self._build_fan_scale(self.scale_lay)
+        else:
+            self._build_scale(self.scale_lay, CuboidSchematic)
 
         brow = QHBoxLayout()
         brow.addStretch(1)
@@ -1039,6 +1125,159 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         lab = QLabel("Unit: mm" + (f"   Notes){extra}" if extra else ""), self)
         lab.setStyleSheet("color:#444; font-size:11px;")
         lay.addWidget(lab)
+
+    def _fan_sync_size_from_outer(self, value: float) -> None:
+        """STpre: Size U/V = 2×Outer; Size W = 0 (flow along W)."""
+        if not hasattr(self, "_spins"):
+            return
+        diam = float(value) * 2.0
+        for ax, val in (("u", diam), ("v", diam), ("w", 0.0)):
+            key = f"Size_{ax}"
+            if key not in self._spins:
+                # legacy XYZ keys
+                key = f"Size_{'xyz'['uvw'.index(ax)]}"
+            if key not in self._spins:
+                continue
+            sb = self._spins[key]
+            sb.blockSignals(True)
+            sb.setValue(val)
+            sb.blockSignals(False)
+
+    def _build_fan_scale(self, lay) -> None:
+        """STpre Part(Fan) Scale: Sketch UVW + Location Center/End point."""
+        lay.addWidget(self._FanSchematic(self), 0, Qt.AlignHCenter)
+
+        # Reference coordinate system (Sketch — matches STpre Fan dialog)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Reference coordinate system", self))
+        self.ref_coord = QComboBox(self)
+        self.ref_coord.addItems([
+            "Sketch coordinate system", "Global coordinate system"])
+        row.addWidget(self.ref_coord, 1)
+        lay.addLayout(row)
+
+        form = QFormLayout()
+        self.fan_dir = QComboBox(self)
+        self.fan_dir.addItems(_FLOW_UVW_UI + _FLOW_UI)
+        self.fan_dir.setCurrentText("W-Axis(Positive)")
+        form.addRow("Flow direction", self.fan_dir)
+        lay.addLayout(form)
+
+        # Location: Center / End point
+        loc_box = QGroupBox("Location", self)
+        loc_lay = QVBoxLayout(loc_box)
+        lrow = QHBoxLayout()
+        self.rb_fan_center = QRadioButton("Center", loc_box)
+        self.rb_fan_end = QRadioButton("End point", loc_box)
+        self.rb_fan_center.setChecked(True)
+        self._fan_loc_group = QtWidgets.QButtonGroup(loc_box)
+        self._fan_loc_group.addButton(self.rb_fan_center)
+        self._fan_loc_group.addButton(self.rb_fan_end)
+        lrow.addWidget(self.rb_fan_center)
+        lrow.addWidget(self.rb_fan_end)
+        lrow.addStretch(1)
+        loc_lay.addLayout(lrow)
+
+        grid, self._spins = self._uvw_grid([
+            ("Center", (0, 0, 0)), ("Size", (10, 10, 0))])
+        loc_lay.addLayout(grid)
+
+        form2 = QFormLayout()
+        self.fan_inner = QDoubleSpinBox(self)
+        self.fan_inner.setRange(0, 1e6)
+        self.fan_inner.setDecimals(4)
+        self.fan_inner.setValue(2.5)
+        self.fan_outer = QDoubleSpinBox(self)
+        self.fan_outer.setRange(1e-6, 1e6)
+        self.fan_outer.setDecimals(4)
+        self.fan_outer.setValue(5.0)
+        self.fan_thick = QDoubleSpinBox(self)
+        self.fan_thick.setRange(1e-6, 1e6)
+        self.fan_thick.setDecimals(4)
+        self.fan_thick.setValue(2.0)
+        form2.addRow("Inner radius", self.fan_inner)
+        form2.addRow("Outer radius", self.fan_outer)
+        form2.addRow("Thickness", self.fan_thick)
+        loc_lay.addLayout(form2)
+        unit = QLabel("Unit: mm", loc_box)
+        unit.setStyleSheet("color:#444; font-size:11px;")
+        loc_lay.addWidget(unit)
+        lay.addWidget(loc_box)
+
+        # Sketch origin (world XYZ of sketch plane origin)
+        org = QHBoxLayout()
+        org.addWidget(QLabel("Sketch origin", self))
+        self.fan_origin = {}
+        try:
+            import cab_sketch
+            plane = cab_sketch.plane_from_xml(self.model)
+            origin = plane.origin
+        except Exception:
+            origin = (0.0, 0.0, 0.0)
+        for i, ax in enumerate("XYZ"):
+            org.addWidget(QLabel(ax, self))
+            sb = QDoubleSpinBox(self)
+            sb.setRange(-1e7, 1e7)
+            sb.setDecimals(4)
+            sb.setValue(float(origin[i]))
+            self.fan_origin[ax.lower()] = sb
+            org.addWidget(sb)
+        org.addStretch(1)
+        lay.addLayout(org)
+
+        self.fan_outer.valueChanged.connect(self._fan_sync_size_from_outer)
+        self.ref_coord.currentIndexChanged.connect(self._fan_on_ref_changed)
+
+    def _uvw_grid(self, labels_rows) -> tuple:
+        """U/V/W coordinate grid (STpre Sketch Fan)."""
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(4)
+        for i, ax in enumerate("UVW"):
+            lab = QLabel(ax, self)
+            lab.setAlignment(Qt.AlignCenter)
+            grid.addWidget(lab, 0, i + 1)
+        spins: dict = {}
+        for r, (name, defaults) in enumerate(labels_rows, start=1):
+            grid.addWidget(QLabel(name, self), r, 0)
+            for i, ax in enumerate("uvw"):
+                sb = QDoubleSpinBox(self)
+                sb.setRange(-1e9, 1e9)
+                sb.setDecimals(6)
+                sb.setValue(float(defaults[i]))
+                sb.setMinimumWidth(70)
+                grid.addWidget(sb, r, i + 1)
+                spins[f"{name}_{ax}"] = sb
+        return grid, spins
+
+    def _fan_on_ref_changed(self) -> None:
+        """Toggle Flow direction labels for Sketch vs Global."""
+        sketch = "Sketch" in self.ref_coord.currentText()
+        cur = self.fan_dir.currentText()
+        self.fan_dir.blockSignals(True)
+        self.fan_dir.clear()
+        self.fan_dir.addItems(_FLOW_UVW_UI if sketch else _FLOW_UI)
+        # map W↔Z, U↔X, V↔Y when switching
+        swap = {
+            "W-Axis(Positive)": "Z-Axis(Positive)",
+            "W-Axis(Negative)": "Z-Axis(Negative)",
+            "U-Axis(Positive)": "X-Axis(Positive)",
+            "U-Axis(Negative)": "X-Axis(Negative)",
+            "V-Axis(Positive)": "Y-Axis(Positive)",
+            "V-Axis(Negative)": "Y-Axis(Negative)",
+        }
+        inv = {v: k for k, v in swap.items()}
+        target = (cur if (sketch and cur in _FLOW_UVW_UI)
+                  or (not sketch and cur in _FLOW_UI)
+                  else (inv.get(cur) if sketch else swap.get(cur)))
+        if target:
+            i = self.fan_dir.findText(target)
+            if i >= 0:
+                self.fan_dir.setCurrentIndex(i)
+        elif sketch:
+            self.fan_dir.setCurrentText("W-Axis(Positive)")
+        else:
+            self.fan_dir.setCurrentText("Z-Axis(Positive)")
+        self.fan_dir.blockSignals(False)
 
     def _xyz_grid(self, labels_rows) -> tuple[QGridLayout, dict]:
         """Build X/Y/Z grid. ``labels_rows`` = list of (row_label, defaults)."""
@@ -1310,36 +1549,8 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             self._unit_note(lay)
 
         elif kind == "fan":
-            form = QFormLayout()
-            self.fan_dir = QComboBox(self)
-            self.fan_dir.addItems(_FLOW_UI)
-            self.fan_dir.setCurrentText("Z-Axis(Positive)")
-            form.addRow("Flow direction", self.fan_dir)
-            lay.addLayout(form)
-            grid, self._spins = self._xyz_grid([
-                ("Center", (0, 0, 0)), ("Size", (10, 10, 0))])
-            lay.addLayout(grid)
-            form2 = QFormLayout()
-            self.fan_inner = QDoubleSpinBox(self)
-            self.fan_inner.setRange(0, 1e6)
-            self.fan_inner.setValue(2.5)
-            self.fan_outer = QDoubleSpinBox(self)
-            self.fan_outer.setRange(1e-6, 1e6)
-            self.fan_outer.setValue(5.0)
-            self.fan_thick = QDoubleSpinBox(self)
-            self.fan_thick.setRange(1e-6, 1e6)
-            self.fan_thick.setValue(2.0)
-            self.fan_rate = QDoubleSpinBox(self)
-            self.fan_rate.setRange(0, 1e9)
-            self.fan_rate.setValue(1.0)
-            form2.addRow("Inner radius", self.fan_inner)
-            form2.addRow("Outer radius", self.fan_outer)
-            form2.addRow("Thickness", self.fan_thick)
-            form2.addRow("Constant flow rate [m3/s]", self.fan_rate)
-            lay.addLayout(form2)
-            self._unit_note(lay)
-            self.fan_base = {f"base_{a}": _FakeSpin(0) for a in "xyz"}
-            self.fan_size = {f"size_{a}": _FakeSpin(10) for a in "xyz"}
+            # Built by _build_fan_scale (Sketch UVW layout)
+            pass
 
         elif kind == "axial_fan":
             form = QFormLayout()
@@ -1459,12 +1670,86 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         pass
 
     def _configure_material(self) -> None:
+        if self.attr_panel is None:
+            return
         dlg = self._MaterialListDialog(
             self.props, self,
             current=self.attr_panel.material_name(),
             part_name=self.name_edit.text().strip())
         if dlg.exec_() and dlg.selected_material():
             self.attr_panel.set_material(dlg.selected_material())
+
+    def _fan_world_center_and_axis(self) -> tuple[tuple, str]:
+        """Map Fan UVW (or XYZ) Center + flow direction → world center / axis."""
+        sketch = ("Sketch" in self.ref_coord.currentText()
+                  if hasattr(self, "ref_coord") else True)
+        if sketch and "Center_u" in self._spins:
+            cu = self._spins["Center_u"].value()
+            cv = self._spins["Center_v"].value()
+            cw = self._spins["Center_w"].value()
+            try:
+                import cab_sketch
+                plane = cab_sketch.plane_from_xml(self.model)
+                # Prefer dialog Sketch origin if edited
+                o = np.array([
+                    self.fan_origin["x"].value(),
+                    self.fan_origin["y"].value(),
+                    self.fan_origin["z"].value()], float)
+                u = np.asarray(plane.u, float)
+                v = np.asarray(plane.v, float)
+                w = np.asarray(plane.w, float)
+                for vec in (u, v, w):
+                    n = np.linalg.norm(vec)
+                    if n > 1e-12:
+                        vec /= n
+                center = tuple(o + cu * u + cv * v + cw * w)
+            except Exception:
+                center = (cu, cv, cw)
+            flow = self.fan_dir.currentText()
+            # UVW flow → world axis from sketch plane
+            try:
+                import cab_sketch
+                plane = cab_sketch.plane_from_xml(self.model)
+                mapping = {
+                    "+U": plane.u, "-U": tuple(-x for x in plane.u),
+                    "+V": plane.v, "-V": tuple(-x for x in plane.v),
+                    "+W": plane.w, "-W": tuple(-x for x in plane.w),
+                }
+                key = _FLOW_TO_AXIS.get(flow, "+W")
+                direction = mapping.get(key, plane.w)
+                # pick nearest global axis label for storage / tess
+                d = np.asarray(direction, float)
+                d = d / (np.linalg.norm(d) or 1.0)
+                absd = np.abs(d)
+                ai = int(np.argmax(absd))
+                sign = "+" if d[ai] >= 0 else "-"
+                axis = f"{sign}{'XYZ'[ai]}"
+            except Exception:
+                axis = "+Z"
+            # End point: shift by half thickness along flow
+            if getattr(self, "rb_fan_end", None) and self.rb_fan_end.isChecked():
+                thick = self.fan_thick.value()
+                try:
+                    key = _FLOW_TO_AXIS.get(flow, "+W")
+                    import cab_sketch
+                    plane = cab_sketch.plane_from_xml(self.model)
+                    vecs = {"+U": plane.u, "-U": tuple(-x for x in plane.u),
+                            "+V": plane.v, "-V": tuple(-x for x in plane.v),
+                            "+W": plane.w, "-W": tuple(-x for x in plane.w)}
+                    fw = np.asarray(vecs.get(key, plane.w), float)
+                    fw = fw / (np.linalg.norm(fw) or 1.0)
+                    center = tuple(np.asarray(center) + fw * (thick * 0.5))
+                except Exception:
+                    pass
+            return center, axis
+        # Global XYZ path
+        c = (self._spins["Center_x"].value(),
+             self._spins["Center_y"].value(),
+             self._spins["Center_z"].value())
+        axis = _FLOW_TO_AXIS.get(self.fan_dir.currentText(), "+Z")
+        if axis.startswith(("+", "-")) and axis[1] in "UVW":
+            axis = "+Z"
+        return c, axis
 
     def _table_points(self, table: "QTableWidget") -> list:
         pts = []
@@ -1554,24 +1839,47 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             params["center"] = xyz(self.pt_center, "center")
             params["marker"] = self.pt_marker.value()
         elif kind == "fan":
-            c = xyz(self._spins, "Center")
-            s = xyz(self._spins, "Size")
-            # Location from center - half size in XY; thickness along flow
-            axis = _FLOW_TO_AXIS.get(self.fan_dir.currentText(), "+Z")
+            # STpre Sketch Fan: UVW Center/Size → world center + flow axis
+            c, axis = self._fan_world_center_and_axis()
+            if "Size_u" in self._spins:
+                s = (self._spins["Size_u"].value(),
+                     self._spins["Size_v"].value(),
+                     self._spins["Size_w"].value())
+            else:
+                s = xyz(self._spins, "Size")
+            outer = float(self.fan_outer.value())
+            inner = min(float(self.fan_inner.value()), outer)
+            thick = float(self.fan_thick.value())
             ai = {"+X": 0, "-X": 0, "+Y": 1, "-Y": 1, "+Z": 2, "-Z": 2}[axis]
-            size = [self.fan_outer.value() * 2] * 3
-            size[ai] = self.fan_thick.value()
-            if s[0] > 0 or s[1] > 0:
-                size[0], size[1] = (s[0] if s[0] > 0 else size[0],
-                                    s[1] if s[1] > 0 else size[1])
-                size[ai] = self.fan_thick.value()
-            base = [c[i] - size[i] * 0.5 for i in range(3)]
+            bbox = [outer * 2, outer * 2, outer * 2]
+            if "Size_u" in self._spins:
+                bbox[0] = s[0] if s[0] > 1e-12 else outer * 2
+                bbox[1] = s[1] if s[1] > 1e-12 else outer * 2
+            bbox[ai] = thick
+            base = [c[i] - bbox[i] * 0.5 for i in range(3)]
+            params["center"] = tuple(float(x) for x in c)
             params["base"] = tuple(base)
-            params["size"] = tuple(size)
+            params["size"] = tuple(s)
+            params["bbox_size"] = tuple(bbox)
             params["direction"] = axis
-            params["inner_radius"] = self.fan_inner.value()
-            params["thickness"] = self.fan_thick.value()
-            params["flow_rate"] = self.fan_rate.value()
+            params["flow_ui"] = self.fan_dir.currentText()
+            params["ref_coord"] = self.ref_coord.currentText()
+            params["location_mode"] = (
+                "end" if self.rb_fan_end.isChecked() else "center")
+            params["outer_radius"] = outer
+            params["inner_radius"] = inner
+            params["thickness"] = thick
+            params["divisions"] = 32
+            if self.fan_condition is not None:
+                params.update(self.fan_condition.values())
+            else:
+                params["flow_rate"] = 1.0
+                params["flow_rate_unit"] = "m3/s"
+            if hasattr(self, "fan_origin"):
+                params["sketch_origin"] = (
+                    self.fan_origin["x"].value(),
+                    self.fan_origin["y"].value(),
+                    self.fan_origin["z"].value())
         elif kind == "axial_fan":
             params["center"] = xyz(self.af_center, "center")
             params["outer_radius"] = self.af_outer.value()
@@ -1598,18 +1906,36 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             params["divisions"] = self.pipe_div.value()
 
         rgba = self.color_btn.rgba()
+        if kind == "fan" and self.fan_condition is not None:
+            cond = self.fan_condition.values()
+            attribute = "Fan"
+            material = "air(incompressible/20C)"
+            if self.props is not None and self.props.material_names():
+                mats = self.props.material_names()
+                material = next(
+                    (m for m in mats
+                     if "air" in m.lower() and "incompress" in m.lower()),
+                    next((m for m in mats if m.lower().startswith("air")),
+                         mats[0]))
+            monitor = False
+            virtual = bool(cond.get("virtual"))
+        else:
+            attribute = self.attr_panel.attribute.currentText()
+            material = self.attr_panel.material_name()
+            monitor = self.attr_panel.monitor()
+            virtual = bool(
+                self.attr_panel.virtual_chk
+                and self.attr_panel.virtual_chk.isChecked())
         return {
             "name": self.name_edit.text().strip(),
             "kind": kind,
             "params": params,
-            "attribute": self.attr_panel.attribute.currentText(),
-            "material": self.attr_panel.material_name(),
+            "attribute": attribute,
+            "material": material,
             "color": ",".join(str(v) for v in rgba),
             "layer": str(self.layer_spin.value()),
-            "monitor": self.attr_panel.monitor(),
-            "virtual": bool(
-                self.attr_panel.virtual_chk
-                and self.attr_panel.virtual_chk.isChecked()),
+            "monitor": monitor,
+            "virtual": virtual,
         }
 
 

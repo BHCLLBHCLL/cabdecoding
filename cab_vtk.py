@@ -720,6 +720,81 @@ def sketch_plane_actor(plane, opacity: float = 0.95):
     return actors[1] if len(actors) > 1 else actors[0]
 
 
+def sketch_profile_actors(plane, uv_points_mm, *, close: bool = True,
+                          color=(0.62, 0.18, 0.78),
+                          line_width: float = 2.5,
+                          point_radius_mm: float = 1.2,
+                          lift_mm: float = 0.15) -> list:
+    """Draw an in-progress sketch profile (polyline + dots + # labels).
+
+    ``uv_points_mm`` is a sequence of ``(U, V)`` in millimetres on ``plane``.
+    Geometry is lifted slightly along ``W`` to avoid z-fighting the grid.
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    pts_uv = list(uv_points_mm or [])
+    if not pts_uv:
+        return []
+    o = np.asarray(plane.origin, float) / 1000.0
+    u = np.asarray(plane.u, float)
+    v = np.asarray(plane.v, float)
+    w = np.asarray(plane.w, float)
+    for vec in (u, v, w):
+        n = np.linalg.norm(vec)
+        if n > 1e-12:
+            vec /= n
+    lift = float(lift_mm) / 1000.0
+    world = []
+    for uu, vv in pts_uv:
+        p = o + (float(uu) / 1000.0) * u + (float(vv) / 1000.0) * v + lift * w
+        world.append(p)
+
+    actors: list = []
+    # Polyline (+ optional close segment)
+    if len(world) >= 2:
+        segs = [(world[i], world[i + 1]) for i in range(len(world) - 1)]
+        if close and len(world) >= 3:
+            segs.append((world[-1], world[0]))
+        actors.append(_line_actor(
+            _lines_polydata(segs), color, line_width, 1.0))
+
+    # Vertex spheres
+    r = max(float(point_radius_mm) / 1000.0, 1e-5)
+    for p in world:
+        sph = vtk.vtkSphereSource()
+        sph.SetCenter(float(p[0]), float(p[1]), float(p[2]))
+        sph.SetRadius(r)
+        sph.SetThetaResolution(12)
+        sph.SetPhiResolution(12)
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputConnection(sph.GetOutputPort())
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        prop = actor.GetProperty()
+        prop.SetColor(*color)
+        prop.SetOpacity(1.0)
+        prop.LightingOff()
+        actors.append(actor)
+
+    # Number labels (1-based), STpre style
+    for i, p in enumerate(world):
+        try:
+            cap = vtk.vtkBillboardTextActor3D()
+            cap.SetInput(str(i + 1))
+            # offset slightly in U+V so text is not buried in the sphere
+            off = p + (1.8 * r) * (u + v)
+            cap.SetPosition(float(off[0]), float(off[1]), float(off[2]))
+            tp = cap.GetTextProperty()
+            tp.SetFontSize(16)
+            tp.SetColor(*color)
+            tp.SetBold(1)
+            tp.ShadowOff()
+            actors.append(cap)
+        except Exception:
+            pass
+    return actors
+
+
 def _arrow_actor(origin, direction, length: float, color,
                  tip_length: float = 0.22, tip_radius: float = 0.06,
                  shaft_radius: float = 0.02):
