@@ -521,6 +521,8 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
             rrow.addWidget(QLabel("Type of radiation", self))
             self.rad_type = QComboBox(self)
             self.rad_type.addItems(["Specify emissivity", "None"])
+            self.rad_type.currentTextChanged.connect(
+                lambda _t: self._on_attr_changed(self.attribute.currentText()))
             rrow.addWidget(self.rad_type, 1)
             lay.addLayout(rrow)
             erow = QHBoxLayout()
@@ -575,10 +577,20 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
         self.init_temp_chk.setEnabled(thermal or is_panel)
         if self.heat_chk is not None:
             self.heat_chk.setEnabled(thermal)
-        for w in (self.rad_type, self.emissivity, self.rad_indiv,
-                  self.absorptance, getattr(self, "abs_cfg", None)):
-            if w is not None:
-                w.setEnabled(False)  # radiation needs radiation analysis
+        # D7: allow emissivity edit for Solid/Panel (radiation analysis
+        # still gates solver use; UI no longer permanently disabled).
+        rad_ok = thermal or is_panel
+        if self.rad_type is not None:
+            self.rad_type.setEnabled(rad_ok)
+        if self.emissivity is not None:
+            self.emissivity.setEnabled(
+                rad_ok and self.rad_type.currentText() == "Specify emissivity")
+        if self.rad_indiv is not None:
+            self.rad_indiv.setEnabled(rad_ok)
+        if self.absorptance is not None:
+            self.absorptance.setEnabled(False)
+        if getattr(self, "abs_cfg", None) is not None:
+            self.abs_cfg.setEnabled(False)
         self.monitor_chk.setEnabled(thermal)
         if self.virtual_chk is not None:
             self.virtual_chk.setEnabled(True)
@@ -606,6 +618,35 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
 
     def monitor(self) -> bool:
         return self.monitor_chk.isChecked()
+
+    def heat_source(self) -> Optional[tuple[float, str]]:
+        if self.heat_chk is None or not self.heat_chk.isChecked():
+            return None
+        return self.heat.value(), self.heat_unit.currentText()
+
+    def condition_values(self) -> dict:
+        """Fields persisted onto ``<parts>`` (D7 thermal Attribute write-back)."""
+        out: dict = {
+            "monitor": self.monitor(),
+            "virtual": bool(
+                self.virtual_chk is not None and self.virtual_chk.isChecked()),
+            "initial_temperature": self.initial_temperature(),
+        }
+        hs = self.heat_source()
+        if hs is not None:
+            out["heat_source"] = hs[0]
+            out["heat_source_unit"] = hs[1]
+        if self.opening_chk is not None and self.opening_chk.isChecked():
+            out["opening"] = True
+        if self.thickness is not None and self.thickness.isEnabled():
+            out["panel_thickness"] = self.thickness.value()
+        if self.flip_chk is not None and self.flip_chk.isChecked():
+            out["flip_panel"] = True
+        if (self.rad_type is not None
+                and self.rad_type.currentText() == "Specify emissivity"
+                and self.emissivity is not None):
+            out["emissivity"] = self.emissivity.value()
+        return out
 
 
 class MaterialListDialog(QDialog if _HAS_GUI_DEPS else object):

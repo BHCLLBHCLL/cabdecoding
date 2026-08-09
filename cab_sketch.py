@@ -388,7 +388,12 @@ def register_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
                          layer: str = "1",
                          orientation: str = "W-Axis(Positive)",
                          scale_type: str = "Solid",
-                         cutout_target: str = "") -> bool:
+                         cutout_target: str = "",
+                         monitor: bool = True,
+                         virtual: bool = False,
+                         initial_temperature: Optional[float] = None,
+                         heat_source: Optional[float] = None,
+                         heat_source_unit: str = "W") -> bool:
     """Add a ``<parts type="sketch">`` entry with profile parameters."""
     if model.find_part(name) is not None:
         return False
@@ -400,6 +405,10 @@ def register_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
         el, plane=plane, profile=profile, model_type=model_type,
         thickness_mm=thickness_mm, orientation=orientation,
         scale_type=scale_type, cutout_target=cutout_target)
+    _write_sketch_condition(
+        el, monitor=monitor, virtual=virtual,
+        initial_temperature=initial_temperature,
+        heat_source=heat_source, heat_source_unit=heat_source_unit)
     return True
 
 
@@ -412,6 +421,11 @@ def update_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
                        orientation: str = "W-Axis(Positive)",
                        scale_type: str = "Solid",
                        cutout_target: str = "",
+                       monitor: bool = True,
+                       virtual: bool = False,
+                       initial_temperature: Optional[float] = None,
+                       heat_source: Optional[float] = None,
+                       heat_source_unit: str = "W",
                        new_name: Optional[str] = None) -> bool:
     """Rewrite an existing sketch part's geometry / attributes."""
     from cabxml import set_text
@@ -439,7 +453,44 @@ def update_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
         el, plane=plane, profile=profile, model_type=model_type,
         thickness_mm=thickness_mm, orientation=orientation,
         scale_type=scale_type, cutout_target=cutout_target)
+    _write_sketch_condition(
+        el, monitor=monitor, virtual=virtual,
+        initial_temperature=initial_temperature,
+        heat_source=heat_source, heat_source_unit=heat_source_unit)
     return True
+
+
+def _write_sketch_condition(el, *, monitor: bool, virtual: bool,
+                            initial_temperature: Optional[float],
+                            heat_source: Optional[float],
+                            heat_source_unit: str) -> None:
+    from cabxml import _first, set_text
+    import xml.etree.ElementTree as ET
+    mon = _first(el, "monitor")
+    if mon is None:
+        mon = ET.SubElement(el, "monitor")
+        mon.tail = "\n         "
+    set_text(mon, "T" if monitor else "F")
+    virt = _first(el, "virtual")
+    if virt is None:
+        virt = ET.SubElement(el, "virtual")
+        virt.tail = "\n         "
+    set_text(virt, "T" if virtual else "F")
+
+    def add(tag, value, unit=None):
+        c = _first(el, tag)
+        if c is None:
+            c = ET.SubElement(el, tag)
+            c.tail = "\n         "
+        c.text = f" {value} "
+        if unit:
+            c.attrib["unit"] = unit
+
+    if initial_temperature is not None:
+        add("temperature", f"{float(initial_temperature):.12g}")
+    if heat_source is not None:
+        add("heat_source", f"{float(heat_source):.12g}")
+        add("heat_source_unit", heat_source_unit or "W")
 
 
 def read_sketch_part(model: StpreModel, name: str
@@ -1133,6 +1184,7 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
 
     def spec(self) -> dict:
         rgba = self.color_btn.rgba()
+        cond = self.attr_panel.condition_values()
         return {
             "name": self.name_edit.text().strip(),
             "model_type": self._resolved_model_type(),
@@ -1144,9 +1196,10 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             "material": self.attr_panel.material_name(),
             "color": ",".join(str(v) for v in rgba),
             "layer": str(self.layer_spin.value()),
-            "monitor": self.attr_panel.monitor(),
-            "virtual": bool(
-                self.attr_panel.virtual_chk
-                and self.attr_panel.virtual_chk.isChecked()),
+            "monitor": bool(cond.get("monitor")),
+            "virtual": bool(cond.get("virtual")),
+            "initial_temperature": cond.get("initial_temperature"),
+            "heat_source": cond.get("heat_source"),
+            "heat_source_unit": cond.get("heat_source_unit", "W"),
             "cutout_target": self.cutout_target.text().strip(),
         }

@@ -3433,7 +3433,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.model, name=spec["name"], kind=spec["kind"],
                 params=spec["params"], material=spec["material"],
                 attribute=spec["attribute"], color=color,
-                layer=spec.get("layer", "1")):
+                layer=spec.get("layer", "1"),
+                monitor=spec.get("monitor"),
+                virtual=spec.get("virtual")):
             self.log("Create Part: registration failed.", "ERROR")
             return
         tess = cab_parts.tess_for_spec(spec["kind"], spec["params"])
@@ -3447,9 +3449,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tree_view.populate(
             self.model, self.archive.members if self.archive else [])
         self._rebuild_scene()
+        extras = []
+        if spec.get("params", {}).get("heat_source") is not None:
+            extras.append(f"Q={spec['params']['heat_source']}")
+        if spec["kind"] in ("peltier", "two_resistor", "plate_fin",
+                            "pin_fin", "enclosure"):
+            extras.append("thermal attrs")
         self.log(
             f"Created {spec['kind']} part '{spec['name']}' "
-            f"(attribute={spec['attribute']}, material={spec['material']})")
+            f"(attribute={spec['attribute']}, material={spec['material']}"
+            + ("; " + ", ".join(extras) if extras else "") + ")")
 
     def _sketch_part_dialog(self, edit_name: Optional[str] = None) -> None:
         """Part -> Sketch Part: non-modal so Draw Window can receive picks."""
@@ -3638,7 +3647,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             layer=spec.get("layer", "1"),
             orientation=spec.get("orientation", "W-Axis(Positive)"),
             scale_type=spec.get("scale_type", "Solid"),
-            cutout_target=spec.get("cutout_target", ""))
+            cutout_target=spec.get("cutout_target", ""),
+            monitor=bool(spec.get("monitor", True)),
+            virtual=bool(spec.get("virtual", False)),
+            initial_temperature=spec.get("initial_temperature"),
+            heat_source=spec.get("heat_source"),
+            heat_source_unit=spec.get("heat_source_unit", "W"))
         if edit_name:
             ok = cab_sketch.update_sketch_part(
                 self.model, name=edit_name, new_name=name, **common)

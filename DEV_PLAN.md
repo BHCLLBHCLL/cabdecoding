@@ -809,17 +809,17 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 - [ ] 其余 Edit 对话框字段级二次核对（后续）
 - 触点：`cab_edit_dialogs.py`、`cab_gui` 包装槽
 
-#### D4 ✅ Part 对话框回归（首轮）
+#### D4 ✅ Part 对话框回归
 
-- [x] Fan：既有 Sketch UVW + Condition 布局保留（截图二次回归可选）
-- [x] Sketch Part：Cutout Select 启用 + 目标部件选择写回 XML
+- [x] Fan：Sketch UVW + Condition；PQ/温度/压力/整流写回 XML
+- [x] Sketch Part：Cutout Select + Attribute heat/monitor/virtual 写回
 - [x] Pipe：子集说明标签已存在
 - 触点：`cab_parts.py`、`cab_sketch.py`、`cab_dialogs.py`
 
-#### D5 ✅ Wizard（首轮）
+#### D5 ✅ Wizard
 
 - [x] Initial：文档化 Project 合并 Import CAD；Purpose 边界文案诚实标注
-- [ ] Condition：未实现页显式 chrome；Source/Humidity 写回加深（后续）
+- [x] Condition：Humidity / Porous / Radiation Grouping 加深写回；Source Option 加载
 - 触点：`cab_wizards.py`、`cab_*wizard_pages.py`
 
 #### D6 ✅ File / Solver-Post（首轮）
@@ -828,16 +828,21 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 - [x] Execute Solver/Post 对话框字段标签（Working directory / Environment / Field）
 - 触点：`cab_gui.py`、`cab_import.py`
 
-#### D7 ⬜ 热专用 Part 属性
+#### D7 ✅ 热专用 Part 属性
 
-- [ ] Enclosure / Fin / Peltier / 2R：Attribute/Condition 子集
-- 触点：`cab_parts.py`、材料/属性 XML
+- [x] Enclosure：模式选择 + Attribute/Condition 热字段写回
+- [x] Plate/Pin Fin：厚度 / 半径 UI + XML/tess
+- [x] Peltier：Current / ΔT / Hot face
+- [x] Two-Resistor：Rjc / Rjb / Package power
+- [x] AttributePanel `condition_values()` → `<parts>`（heat/temp/emissivity/monitor/virtual）
+- 触点：`cab_parts.py`、`cab_dialogs.py`、`cab_gui.py`
+- 测试：`tests/test_d7_thermal_cw.py`
 
 ### 14.5 验收标准
 
 1. 每个批次：对照 Pre_eng 对应页或实机截图，字段名/默认值/启用规则一致或有文档化子集说明。  
 2. Message 窗口对 chrome/代理操作有明确 INFO/WARN，无静默假成功。  
-3. 回归：`tests/test_edit_menu.py`、`tests/test_sketch_part_dialog.py`、`tests/test_m24_m31_mvp.py`、`tests/test_m32_dialog_align.py`。  
+3. 回归：`tests/test_m32_dialog_align.py`、`tests/test_d7_thermal_cw.py`、`tests/test_sketch_part_dialog.py`、`tests/test_m24_m31_mvp.py`。  
 4. **回归守卫：** 切换「Gridding/Meshing via STpre API」前后行为与改前一致。
 
 ### 14.6 进度跟踪
@@ -847,10 +852,10 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | D1 | ✅ | View Setting/Dialog + 工具栏 + Paneling MVP |
 | D2 | ✅ | Environment ≈13 页 + Mouse/Tree/Shortcut |
 | D3 | ✅ 首轮 | Edit chrome 诚实标注 |
-| D4 | ✅ 首轮 | Sketch Cutout Select + Fan/Pipe |
-| D5 | ✅ 首轮 | Initial 步骤说明 / Purpose 文案 |
+| D4 | ✅ | Fan Condition XML + Sketch Attribute 写回 |
+| D5 | ✅ | CW Humidity/Porous/Rad 加深写回 |
 | D6 | ✅ 首轮 | File 过滤器英文化 |
-| D7 | ⬜ | 热属性（后续） |
+| D7 | ✅ | 热专用 Part 属性 + Attribute 写回 |
 | API 路径 | 🔒 冻结 | 不实施 |
 
 ---
@@ -1056,7 +1061,7 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | M29 | Option / Environment 补全 | M7-5 | ✅ 子集 |
 | M30 | Part 专用件包 | M7-4/M8 | ✅ 代理 |
 | M31 | Solver/Post 产品化 | M7-1 | ✅ MVP |
-| **M32** | 菜单对话框 vs STpre 逐项核对（§14 D1–D7） | M24–M31 | 🔄 进行中 |
+| **M32** | 菜单对话框 vs STpre 逐项核对（§14 D1–D7） | M24–M31 | ✅ D1–D7 首轮 |
 | M32+ | i18n / 热显示 / Wiring 几何等 | M32 | 后备 |
 
 依赖主线：**M32** 按 §14 批次 D1→D7；**冻结** Gridding/Meshing via STpre API。

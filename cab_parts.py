@@ -758,11 +758,77 @@ def tess_for_spec(kind: str, params: dict) -> PrimitivePart:
     return cube_tess((0, 0, 0), (10, 10, 10))
 
 
+def _write_part_condition_xml(el, params: dict) -> None:
+    """Persist Attribute/Condition + Fan Condition fields onto ``<parts>``."""
+    from cabxml import _first, set_text
+    import xml.etree.ElementTree as ET
+
+    def add(tag, value, unit=None):
+        c = _first(el, tag)
+        if c is None:
+            c = ET.SubElement(el, tag)
+            c.tail = "\n         "
+        c.text = f" {value} "
+        if unit:
+            c.attrib["unit"] = unit
+
+    if params.get("initial_temperature") is not None:
+        add("temperature", f"{float(params['initial_temperature']):.12g}")
+    if params.get("heat_source") is not None:
+        add("heat_source", f"{float(params['heat_source']):.12g}")
+        add("heat_source_unit", params.get("heat_source_unit", "W"))
+    if params.get("emissivity") is not None:
+        add("emissivity", f"{float(params['emissivity']):.12g}")
+    if params.get("opening"):
+        add("opening", "T")
+    if params.get("panel_thickness") is not None:
+        add("panel_thickness",
+            f"{float(params['panel_thickness']):.12g}", "mm")
+    if params.get("flip_panel"):
+        add("flip_panel", "T")
+    # Fan Condition extras
+    for key in ("pq_curve", "velocity_unit", "press_unit", "straighten_by"):
+        if key in params and params[key] not in (None, ""):
+            add(key, str(params[key]))
+    if "inflow_temperature" in params:
+        add("inflow_temperature",
+            f"{float(params['inflow_temperature']):.12g}")
+    if "external_pressure" in params:
+        add("external_pressure",
+            f"{float(params['external_pressure']):.12g}")
+    if "flow_straightening" in params:
+        add("flow_straightening",
+            "T" if params["flow_straightening"] else "F")
+    if "output_only_shape" in params:
+        add("output_only_shape",
+            "T" if params["output_only_shape"] else "F")
+    # Thermal specialty
+    for key in ("enclosure_mode", "peltier_current", "peltier_delta_t",
+                "peltier_hot_face", "rjc", "rjb", "package_power"):
+        if key in params and params[key] not in (None, ""):
+            val = params[key]
+            if isinstance(val, (int, float)):
+                add(key, f"{float(val):.12g}")
+            else:
+                add(key, str(val))
+    mon = _first(el, "monitor")
+    if mon is not None and "monitor" in params:
+        set_text(mon, "T" if params["monitor"] else "F")
+    virt = _first(el, "virtual")
+    if "virtual" in params:
+        if virt is None:
+            virt = ET.SubElement(el, "virtual")
+            virt.tail = "\n         "
+        set_text(virt, "T" if params["virtual"] else "F")
+
+
 def register_primitive(model: StpreModel, *, name: str, kind: str,
                        params: dict, material: str = "",
                        attribute: str = "solid",
                        color: str = "25,117,255,255",
-                       layer: str = "1") -> bool:
+                       layer: str = "1",
+                       monitor: Optional[bool] = None,
+                       virtual: Optional[bool] = None) -> bool:
     """Add a primitive ``<parts>`` entry with its geometry parameters."""
     if kind not in PRIMITIVE_KINDS or model.find_part(name) is not None:
         return False
@@ -792,6 +858,8 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
     if kind == "plate_fin":
         add("fin_count", str(params.get("fin_count", 5)))
         add("fin_thickness", f"{params.get('fin_thickness', 1.0):.12g}")
+        if "fin_pitch" in params:
+            add("fin_pitch", f"{float(params['fin_pitch']):.12g}", "mm")
     if kind == "pin_fin":
         add("pin_nx", str(params.get("pin_nx", 4)))
         add("pin_ny", str(params.get("pin_ny", 4)))
@@ -876,6 +944,12 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
         add("model_type", params.get("model_type", "extrusion"))
     if kind == "blower_fan":
         add("rotation_axis", params.get("rotation_axis", "+Z"))
+    cond = dict(params)
+    if monitor is not None:
+        cond["monitor"] = monitor
+    if virtual is not None:
+        cond["virtual"] = virtual
+    _write_part_condition_xml(el, cond)
     return True
 
 
@@ -1348,9 +1422,13 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                 self.fin_count = QSpinBox(self)
                 self.fin_count.setRange(1, 200)
                 self.fin_count.setValue(5)
-                fr = QHBoxLayout()
-                fr.addWidget(QLabel("Fin count", self))
-                fr.addWidget(self.fin_count)
+                self.fin_thickness = QDoubleSpinBox(self)
+                self.fin_thickness.setRange(1e-6, 1e6)
+                self.fin_thickness.setDecimals(3)
+                self.fin_thickness.setValue(1.0)
+                fr = QFormLayout()
+                fr.addRow("Fin count", self.fin_count)
+                fr.addRow("Fin thickness (mm)", self.fin_thickness)
                 lay.addLayout(fr)
             if kind == "pin_fin":
                 self.pin_nx = QSpinBox(self)
@@ -1358,11 +1436,76 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                 for w in (self.pin_nx, self.pin_ny):
                     w.setRange(1, 50)
                     w.setValue(4)
-                pr = QHBoxLayout()
-                pr.addWidget(QLabel("Pin nx/ny", self))
-                pr.addWidget(self.pin_nx)
-                pr.addWidget(self.pin_ny)
+                self.pin_radius = QDoubleSpinBox(self)
+                self.pin_radius.setRange(1e-6, 1e6)
+                self.pin_radius.setDecimals(3)
+                self.pin_radius.setValue(1.0)
+                pr = QFormLayout()
+                row = QHBoxLayout()
+                row.addWidget(self.pin_nx)
+                row.addWidget(self.pin_ny)
+                pr.addRow("Pin nx / ny", row)
+                pr.addRow("Pin radius (mm)", self.pin_radius)
                 lay.addLayout(pr)
+            if kind == "enclosure":
+                self.enclosure_mode = QComboBox(self)
+                self.enclosure_mode.addItems([
+                    "Radiation enclosure", "Simple box (geometry only)"])
+                er = QFormLayout()
+                er.addRow("Enclosure mode", self.enclosure_mode)
+                tip = QLabel(
+                    "Thermal: use Attribute/Condition for heat source / "
+                    "initial temperature. Surface radiation uses Condition "
+                    "Wizard when radiation analysis is on.", self)
+                tip.setWordWrap(True)
+                tip.setStyleSheet("color:#555; font-size:11px;")
+                lay.addLayout(er)
+                lay.addWidget(tip)
+            if kind == "peltier":
+                self.peltier_current = QDoubleSpinBox(self)
+                self.peltier_current.setRange(0.0, 1e6)
+                self.peltier_current.setDecimals(3)
+                self.peltier_current.setValue(1.0)
+                self.peltier_delta_t = QDoubleSpinBox(self)
+                self.peltier_delta_t.setRange(-500.0, 500.0)
+                self.peltier_delta_t.setDecimals(2)
+                self.peltier_delta_t.setValue(40.0)
+                self.peltier_hot_face = QComboBox(self)
+                self.peltier_hot_face.addItems(
+                    ["+Z", "-Z", "+Y", "-Y", "+X", "-X"])
+                pf = QFormLayout()
+                pf.addRow("Current (A)", self.peltier_current)
+                pf.addRow("ΔT (C)", self.peltier_delta_t)
+                pf.addRow("Hot face", self.peltier_hot_face)
+                tip = QLabel(
+                    "Peltier Device Model (MVP): geometry is a cuboid; "
+                    "Current/ΔT/hot face are stored on the part for solver "
+                    "conditioning.", self)
+                tip.setWordWrap(True)
+                tip.setStyleSheet("color:#555; font-size:11px;")
+                lay.addLayout(pf)
+                lay.addWidget(tip)
+            if kind == "two_resistor":
+                self.rjc = QDoubleSpinBox(self)
+                self.rjb = QDoubleSpinBox(self)
+                self.package_power = QDoubleSpinBox(self)
+                for w, v in ((self.rjc, 1.0), (self.rjb, 5.0),
+                             (self.package_power, 1.0)):
+                    w.setRange(0.0, 1e9)
+                    w.setDecimals(4)
+                    w.setValue(v)
+                tr = QFormLayout()
+                tr.addRow("Rjc (C/W)", self.rjc)
+                tr.addRow("Rjb (C/W)", self.rjb)
+                tr.addRow("Package power (W)", self.package_power)
+                tip = QLabel(
+                    "Thermal Circuit Model (Two-Resistor) MVP: Rjc/Rjb/"
+                    "power stored on part; geometry remains a cuboid proxy.",
+                    self)
+                tip.setWordWrap(True)
+                tip.setStyleSheet("color:#555; font-size:11px;")
+                lay.addLayout(tr)
+                lay.addWidget(tip)
 
         elif kind == "hexahedron":
             self.hexa_table = QTableWidget(8, 3, self)
@@ -1785,12 +1928,30 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                     "two_resistor"):
             params["base"] = xyz(self.cube_base, "base")
             params["size"] = xyz(self.cube_size, "size")
-            if kind == "plate_fin" and hasattr(self, "fin_count"):
-                params["fin_count"] = self.fin_count.value()
+            if kind == "plate_fin":
+                if hasattr(self, "fin_count"):
+                    params["fin_count"] = self.fin_count.value()
+                if hasattr(self, "fin_thickness"):
+                    params["fin_thickness"] = self.fin_thickness.value()
             if kind == "pin_fin":
                 if hasattr(self, "pin_nx"):
                     params["pin_nx"] = self.pin_nx.value()
                     params["pin_ny"] = self.pin_ny.value()
+                if hasattr(self, "pin_radius"):
+                    params["pin_radius"] = self.pin_radius.value()
+            if kind == "enclosure" and hasattr(self, "enclosure_mode"):
+                params["enclosure_mode"] = self.enclosure_mode.currentText()
+            if kind == "peltier":
+                if hasattr(self, "peltier_current"):
+                    params["peltier_current"] = self.peltier_current.value()
+                    params["peltier_delta_t"] = self.peltier_delta_t.value()
+                    params["peltier_hot_face"] = (
+                        self.peltier_hot_face.currentText())
+            if kind == "two_resistor":
+                if hasattr(self, "rjc"):
+                    params["rjc"] = self.rjc.value()
+                    params["rjb"] = self.rjb.value()
+                    params["package_power"] = self.package_power.value()
         elif kind == "hexahedron":
             params["points"] = self._table_points(self.hexa_table)
         elif kind == "cylinder":
@@ -1906,8 +2067,10 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             params["divisions"] = self.pipe_div.value()
 
         rgba = self.color_btn.rgba()
+        condition = {}
         if kind == "fan" and self.fan_condition is not None:
             cond = self.fan_condition.values()
+            condition = dict(cond)
             attribute = "Fan"
             material = "air(incompressible/20C)"
             if self.props is not None and self.props.material_names():
@@ -1922,10 +2085,15 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         else:
             attribute = self.attr_panel.attribute.currentText()
             material = self.attr_panel.material_name()
-            monitor = self.attr_panel.monitor()
-            virtual = bool(
-                self.attr_panel.virtual_chk
-                and self.attr_panel.virtual_chk.isChecked())
+            condition = self.attr_panel.condition_values()
+            monitor = bool(condition.get("monitor"))
+            virtual = bool(condition.get("virtual"))
+            # Merge thermal Attribute fields into params for XML write-back
+            for k, v in condition.items():
+                if k not in ("monitor", "virtual") and v is not None:
+                    params[k] = v
+        params["monitor"] = monitor
+        params["virtual"] = virtual
         return {
             "name": self.name_edit.text().strip(),
             "kind": kind,
@@ -1936,6 +2104,7 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             "layer": str(self.layer_spin.value()),
             "monitor": monitor,
             "virtual": virtual,
+            "condition": condition,
         }
 
 

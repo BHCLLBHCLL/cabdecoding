@@ -21,9 +21,9 @@ try:
     from PyQt5.QtWidgets import (
         QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFileDialog,
         QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-        QLineEdit, QMenu, QMessageBox, QPushButton, QRadioButton, QSplitter,
-        QStyle, QTabWidget, QTableWidget, QTableWidgetItem, QTextEdit,
-        QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+        QLineEdit, QMenu, QMessageBox, QPushButton, QRadioButton, QSpinBox,
+        QSplitter, QStyle, QTabWidget, QTableWidget, QTableWidgetItem,
+        QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     )
     _HAS_GUI = True
 except Exception:  # pragma: no cover
@@ -124,6 +124,9 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.hs_auto = QCheckBox(
             "Heat generation per volume is automatically calculated "
             "from the total amount of heat generation", opt)
+        hs_flag = (model.analysis_set_value("heat_source_auto", "F")
+                   or "F").strip().upper()
+        self.hs_auto.setChecked(hs_flag in ("T", "1"))
         ol.addWidget(self.hs_auto)
         ol.addStretch(1)
         self.tabs.addTab(opt, "Option (Heat Source)")
@@ -134,6 +137,12 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.vf_on.hide()
         self.pl_on = QCheckBox(self)
         self.pl_on.hide()
+        vf = (model.analysis_set_value("source_volumetric", "F")
+              or "F").strip().upper()
+        pl = (model.analysis_set_value("source_pressure_loss", "F")
+              or "F").strip().upper()
+        self.vf_on.setChecked(vf in ("T", "1"))
+        self.pl_on.setChecked(pl in ("T", "1"))
         self.vol_display.currentIndexChanged.connect(self.refresh)
         self.area_display.currentIndexChanged.connect(self.refresh)
         self.perf_display.currentIndexChanged.connect(self.refresh)
@@ -6168,19 +6177,25 @@ class _CwConfirmPage(QWidget if _HAS_GUI else object):
 
 
 class _CwHumidityPage(QWidget if _HAS_GUI else object):
-    """Condition Wizard ? Humidity (M28 subset)."""
+    """Condition Wizard — Humidity (analysis_set + initial RH value)."""
 
     def __init__(self, model: StpreModel, parent=None):
         super().__init__(parent)
         self.model = model
         lay = QVBoxLayout(self)
         lay.addWidget(_note(
-            "Humidity analysis options (STpre Condition Wizard subset).", self))
+            "Humidity analysis options. Enable syncs Analysis Types; "
+            "default RH is written as an initial humidity value.", self))
         g = QGroupBox("Humidity", self)
         f = QFormLayout(g)
         self.enable = QCheckBox("Consider humidity", g)
-        self.enable.setChecked(
-            model.project_value("humidity_enable", "F") == "T")
+        # Prefer analysis_set flag when present
+        aset_on = (model.analysis_set_value("humidity", "") or "").strip()
+        if aset_on in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("humidity_enable", "F") == "T")
         self.rh = QDoubleSpinBox(g)
         self.rh.setRange(0.0, 100.0)
         self.rh.setDecimals(1)
@@ -6188,33 +6203,56 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
             self.rh.setValue(float(model.project_value("humidity_rh", "50")))
         except ValueError:
             self.rh.setValue(50.0)
+        self.bind_domain = QCheckBox(
+            "Bind default RH to computational domain", g)
+        self.bind_domain.setChecked(
+            model.project_value("humidity_bind_domain", "T") == "T")
         f.addRow(self.enable)
         f.addRow("Default relative humidity (%)", self.rh)
+        f.addRow(self.bind_domain)
         lay.addWidget(g)
         lay.addStretch(1)
 
     def apply(self) -> None:
+        on = self.enable.isChecked()
         self.model.set_project_value(
-            "humidity_enable", "T" if self.enable.isChecked() else "F")
+            "humidity_enable", "T" if on else "F")
         self.model.set_project_value("humidity_rh", f"{self.rh.value():g}")
-        self.model.set_analysis_set_value(
-            "humidity", "1" if self.enable.isChecked() else "0")
+        self.model.set_project_value(
+            "humidity_bind_domain",
+            "T" if self.bind_domain.isChecked() else "F")
+        self.model.set_analysis_set_value("humidity", "1" if on else "0")
+        # Deeper write-back: initial humidity value + optional domain bind
+        vname = "Humidity_RH_default"
+        self.model.upsert_value(
+            "humidity", vname,
+            [("relative_humidity", f"{self.rh.value():g}", "%"),
+             ("humidity_enable", "1" if on else "0", None)])
+        if on and self.bind_domain.isChecked():
+            domain = self.model.domain_name() or "Domain"
+            self.model.bind_condition("analysis", domain, vname)
 
 
 class _CwPorousPage(QWidget if _HAS_GUI else object):
-    """Condition Wizard ? Porous Media (M28 subset)."""
+    """Condition Wizard — Porous Media (analysis_set + coeff value)."""
 
     def __init__(self, model: StpreModel, parent=None):
         super().__init__(parent)
         self.model = model
         lay = QVBoxLayout(self)
         lay.addWidget(_note(
-            "Porous media pressure-loss / heat models (subset).", self))
+            "Porous media pressure-loss / heat models. Enable syncs "
+            "analysis_set; coefficients are stored as a porous value.",
+            self))
         g = QGroupBox("Porous Media", self)
         f = QFormLayout(g)
         self.enable = QCheckBox("Enable porous media", g)
-        self.enable.setChecked(
-            model.project_value("porous_enable", "F") == "T")
+        aset = (model.analysis_set_value("porous_media", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("porous_enable", "F") == "T")
         self.model_type = QComboBox(g)
         self.model_type.addItems([
             "Isotropic", "Anisotropic", "Pressure Loss Heat (Fluid-Solid)"])
@@ -6222,28 +6260,68 @@ class _CwPorousPage(QWidget if _HAS_GUI else object):
         i = self.model_type.findText(cur)
         if i >= 0:
             self.model_type.setCurrentIndex(i)
+        self.alpha = QDoubleSpinBox(g)
+        self.alpha.setRange(0.0, 1e12)
+        self.alpha.setDecimals(6)
+        try:
+            self.alpha.setValue(float(
+                model.project_value("porous_alpha", "0")))
+        except ValueError:
+            self.alpha.setValue(0.0)
+        self.beta = QDoubleSpinBox(g)
+        self.beta.setRange(0.0, 1e12)
+        self.beta.setDecimals(6)
+        try:
+            self.beta.setValue(float(
+                model.project_value("porous_beta", "0")))
+        except ValueError:
+            self.beta.setValue(0.0)
+        self.target_part = QComboBox(g)
+        self.target_part.addItem("(none)")
+        for p in model.parts():
+            self.target_part.addItem(p.name)
         f.addRow(self.enable)
         f.addRow("Model", self.model_type)
+        f.addRow("Viscous resistance α (1/m2)", self.alpha)
+        f.addRow("Inertial resistance β (1/m)", self.beta)
+        f.addRow("Bind to part", self.target_part)
         lay.addWidget(g)
         lay.addStretch(1)
 
     def apply(self) -> None:
+        on = self.enable.isChecked()
+        mtype = self.model_type.currentText()
         self.model.set_project_value(
-            "porous_enable", "T" if self.enable.isChecked() else "F")
+            "porous_enable", "T" if on else "F")
+        self.model.set_project_value("porous_model", mtype)
         self.model.set_project_value(
-            "porous_model", self.model_type.currentText())
+            "porous_alpha", f"{self.alpha.value():g}")
+        self.model.set_project_value(
+            "porous_beta", f"{self.beta.value():g}")
+        self.model.set_analysis_set_value(
+            "porous_media", "1" if on else "0")
+        vname = "Porous_default"
+        self.model.upsert_value(
+            "porous_media", vname,
+            [("model", mtype, None),
+             ("alpha", f"{self.alpha.value():g}", "1/m2"),
+             ("beta", f"{self.beta.value():g}", "1/m"),
+             ("enable", "1" if on else "0", None)])
+        part = self.target_part.currentText()
+        if on and part and part != "(none)":
+            self.model.bind_condition("parts", part, vname)
 
 
 class _CwRadiationGroupingPage(QWidget if _HAS_GUI else object):
-    """Condition Wizard ? Radiation Grouping (M28 priority)."""
+    """Condition Wizard — Radiation Grouping (part rad_group_num)."""
 
     def __init__(self, model: StpreModel, parent=None):
         super().__init__(parent)
         self.model = model
         lay = QVBoxLayout(self)
         lay.addWidget(_note(
-            "Radiation grouping of part faces / regions (priority subset).",
-            self))
+            "Radiation grouping of parts. Assigns rad_group_num on selected "
+            "solid/obstacle parts when enabled.", self))
         g = QGroupBox("Radiation Grouping", self)
         gl = QVBoxLayout(g)
         self.enable = QCheckBox("Enable radiation grouping", g)
@@ -6251,16 +6329,56 @@ class _CwRadiationGroupingPage(QWidget if _HAS_GUI else object):
             model.project_value("rad_group_enable", "F") == "T")
         self.group_name = QLineEdit(
             model.project_value("rad_group_name", "RadGroup1"), g)
+        self.group_num = QSpinBox(g)
+        self.group_num.setRange(1, 999)
+        try:
+            self.group_num.setValue(int(float(
+                model.project_value("rad_group_num", "1"))))
+        except ValueError:
+            self.group_num.setValue(1)
+        self.apply_all = QCheckBox(
+            "Assign group number to all Solid/Obstacle parts", g)
+        self.apply_all.setChecked(True)
         row = QHBoxLayout()
         row.addWidget(QLabel("Group name", g))
         row.addWidget(self.group_name, 1)
+        row2 = QHBoxLayout()
+        row2.addWidget(QLabel("Group number", g))
+        row2.addWidget(self.group_num)
+        row2.addStretch(1)
         gl.addWidget(self.enable)
         gl.addLayout(row)
+        gl.addLayout(row2)
+        gl.addWidget(self.apply_all)
         lay.addWidget(g)
         lay.addStretch(1)
 
     def apply(self) -> None:
+        from cabxml import _first, set_text
+        import xml.etree.ElementTree as ET
+        on = self.enable.isChecked()
+        gname = self.group_name.text().strip() or "RadGroup1"
+        gnum = self.group_num.value()
         self.model.set_project_value(
-            "rad_group_enable", "T" if self.enable.isChecked() else "F")
-        self.model.set_project_value(
-            "rad_group_name", self.group_name.text().strip() or "RadGroup1")
+            "rad_group_enable", "T" if on else "F")
+        self.model.set_project_value("rad_group_name", gname)
+        self.model.set_project_value("rad_group_num", str(gnum))
+        self.model.set_analysis_set_value(
+            "radiation_grouping", "1" if on else "0")
+        self.model.upsert_value(
+            "radiation_group", gname,
+            [("group_num", str(gnum), None),
+             ("enable", "1" if on else "0", None)])
+        if on and self.apply_all.isChecked():
+            for p in self.model.parts():
+                attr = (p.attribute or "").lower()
+                if attr not in ("solid", "obstacle", ""):
+                    continue
+                el = self.model.find_part(p.name)
+                if el is None:
+                    continue
+                c = _first(el, "rad_group_num")
+                if c is None:
+                    c = ET.SubElement(el, "rad_group_num")
+                    c.tail = "\n         "
+                set_text(c, str(gnum))
