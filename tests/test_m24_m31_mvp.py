@@ -69,4 +69,6 @@ def test_m29_options_tabs_exist():
 
     assert hasattr(OptionsDialog, "_folder_tab")
     assert hasattr(OptionsDialog, "_color_tab")
+    assert hasattr(OptionsDialog, "_color_part_tab")
     assert hasattr(OptionsDialog, "_unit_tab")
+    assert hasattr(OptionsDialog, "_mouse_tab")

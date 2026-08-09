@@ -63,6 +63,14 @@ def _bottom_buttons(dlg, labels_slots) -> QHBoxLayout:
     return row
 
 
+def _capability_note(text: str, parent=None) -> QLabel:
+    """Persistent honesty label for chrome / MVP Edit dialogs."""
+    lab = QLabel(text, parent)
+    lab.setWordWrap(True)
+    lab.setStyleSheet("color: #555; font-size: 11px;")
+    return lab
+
+
 class _EditDlg(QDialog if _HAS_GUI else object):
     """Shared chrome: DialogHeader + body + status flag ``applied``."""
 
@@ -861,6 +869,9 @@ class BooleanOperationDialog(_EditDlg):
         self.model = model
         self.cad_meshes = cad_meshes
         self.result_name: Optional[str] = None
+        self.body.addWidget(_capability_note(
+            "MVP: tessellation CSG (not Parasolid B-rep Boolean). "
+            "Seamless / Divide use best-effort mesh ops.", self))
 
         form = QFormLayout()
         names = _part_names(model)
@@ -889,6 +900,9 @@ class BooleanOperationDialog(_EditDlg):
         self.chk_keep_a = QCheckBox("Keep A", op)
         self.chk_keep_b = QCheckBox("Keep B", op)
         self.chk_seamless = QCheckBox("Seamless", op)
+        self.chk_seamless.setEnabled(False)
+        self.chk_seamless.setToolTip(
+            "Seamless B-rep merge not available (tessellation CSG only).")
         ol.addWidget(self.chk_keep_a)
         ol.addWidget(self.chk_keep_b)
         ol.addWidget(self.chk_seamless)
@@ -951,6 +965,9 @@ class ShapeChangeBooleanDialog(_EditDlg):
             "Change in geometry by Boolean operation",
             "Change in geometry by Boolean operation", parent)
         self.model = model
+        self.body.addWidget(_capability_note(
+            "Registers the Boolean shape-change intent on the project "
+            "(geometry kernel application pending).", self))
         form = QFormLayout()
         names = ["Domain(cuboid)"] + _part_names(model)
         self.part_a = QComboBox(self)
@@ -1136,6 +1153,9 @@ class EditSolidDialog(_EditDlg):
     def __init__(self, model: StpreModel, parent=None):
         super().__init__("Edit Solid", "Edit Solid", parent)
         self.model = model
+        self.body.addWidget(_capability_note(
+            "Layout matches STpre Edit Solid types. Parasolid solid edits "
+            "are recorded as project intent; B-rep execution pending.", self))
         form = QFormLayout()
         self.edit_type = QComboBox(self)
         self.edit_type.addItems(self.TYPES)
@@ -1186,6 +1206,10 @@ class PartSimplificationDialog(_EditDlg):
         super().__init__("Part Simplification", "Part Simplification",
                          parent)
         self.model = model
+        self.body.addWidget(_capability_note(
+            "STpre face-selection simplification chrome. Face pick + "
+            "delete applies when a CAD face registry exists; otherwise "
+            "intent is logged only.", self))
         row = QHBoxLayout()
         row.addWidget(QLabel("Target", self))
         self.part = QComboBox(self)
@@ -1320,6 +1344,10 @@ class WrappingDialog(_EditDlg):
         self.model = model
         self.cad_meshes = cad_meshes
         self.created_name: Optional[str] = None
+        self.body.addWidget(_capability_note(
+            "MVP: Convex hull from tessellation AABB / point cloud. "
+            "Specify wrapping accuracy uses hull with inflated margin.",
+            self))
         form = QFormLayout()
         self.target = QComboBox(self)
         self.target.addItems(_part_names(model))

@@ -395,7 +395,11 @@ from cab_iwizard_pages import (
 
 
 class InitialWizard(WizardBase):
-    """[Wizard] - [Initial Setting]: the STpre Initial Wizard (6 steps)."""
+    """[Wizard] - [Initial Setting]: STpre Initial Wizard (6 steps).
+
+    Pre_eng lists Import CAD Data as its own step; here it is embedded in
+    the Project page (checkbox + table) so navigation stays 6 pages.
+    """
 
     # Custom dialog result: user chose Open Existing Project (.cab).
     RESULT_OPEN_EXISTING = 2

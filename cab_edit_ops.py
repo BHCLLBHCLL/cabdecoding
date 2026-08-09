@@ -497,3 +497,92 @@ def flip_selected_triangles(cad_meshes, name: str,
         tess.triangles = arr
         return True
     return False
+
+
+def panel_direction_from_normal(n: np.ndarray) -> str:
+    """Map a face normal to STpre panel direction ``±X/±Y/±Z``."""
+    n = np.asarray(n, dtype=np.float64).ravel()
+    if n.size < 3 or float(np.linalg.norm(n)) < 1e-15:
+        return "+Z"
+    ax = int(np.argmax(np.abs(n[:3])))
+    sign = "+" if n[ax] >= 0.0 else "-"
+    return f"{sign}{'XYZ'[ax]}"
+
+
+def panel_params_from_aabb(lo_mm: np.ndarray, hi_mm: np.ndarray,
+                           direction: str
+                           ) -> tuple[np.ndarray, np.ndarray]:
+    """Panel base/size (mm) lying on the AABB face for ``direction``."""
+    lo = np.asarray(lo_mm, dtype=np.float64).ravel()[:3].copy()
+    hi = np.asarray(hi_mm, dtype=np.float64).ravel()[:3].copy()
+    size = hi - lo
+    ax = {"X": 0, "Y": 1, "Z": 2}[direction[-1]]
+    sign = 1.0 if direction.startswith("+") else -1.0
+    base = lo.copy()
+    if sign > 0:
+        base[ax] = hi[ax]
+    else:
+        base[ax] = lo[ax]
+    size[ax] = 0.0
+    # zero-thickness panel needs a tiny extent so meshing/display stays valid
+    eps = max(1e-3, 1e-6 * float(np.linalg.norm(hi - lo)))
+    size[ax] = eps
+    if sign < 0:
+        base[ax] -= eps
+    return base, size
+
+
+def panelize_part_face(model: StpreModel, cad_meshes, name: str,
+                       cell_id: Optional[int] = None,
+                       *, result_name: Optional[str] = None
+                       ) -> Optional[str]:
+    """Create a Panel part on a selected face (MVP: AABB face from normal).
+
+    STpre: Esc after face pick panelizes Parasolid faces; sketch/pipe excluded.
+    """
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return None
+    kind = (getattr(info, "kind", None) or "").lower()
+    if kind in ("sketch", "pipe"):
+        return None
+    bounds = part_world_bounds(model, name, cad_meshes)
+    if bounds is None:
+        return None
+    lo, hi = bounds
+    direction = "+Z"
+    if cell_id is not None:
+        meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
+        tess = meshes.get(name)
+        if tess is not None:
+            pts = np.asarray(tess.points, dtype=np.float64)
+            tris = np.asarray(tess.triangles, dtype=np.int64)
+            if 0 <= int(cell_id) < len(tris) and pts.size:
+                pts_w = cab_vtk._apply_transform(
+                    pts, info.transform if info else "")
+                i0, i1, i2 = (int(x) for x in tris[int(cell_id)][:3])
+                n = np.cross(pts_w[i1] - pts_w[i0], pts_w[i2] - pts_w[i0])
+                direction = panel_direction_from_normal(n)
+    else:
+        # Largest AABB face → panel normal along the thinnest axis opposite
+        size = hi - lo
+        areas = (size[1] * size[2], size[0] * size[2], size[0] * size[1])
+        ax = int(np.argmax(areas))
+        direction = f"+{'XYZ'[ax]}"
+
+    base, psz = panel_params_from_aabb(lo, hi, direction)
+    import cab_parts
+    pname = unique_part_name(
+        model, result_name or f"{name}_panel")
+    ok = cab_parts.register_primitive(
+        model, name=pname, kind="panel",
+        params={"base": base, "size": psz, "direction": direction},
+        material="", attribute="Panel",
+        color="80,180,80,255")
+    if not ok:
+        return None
+    tess = cab_parts.panel_tess(base, psz, direction)
+    tess.name = pname
+    if cad_meshes is not None:
+        cad_meshes.append(tess)
+    return pname

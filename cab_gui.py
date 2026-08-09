@@ -151,6 +151,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Reusable STpre COM session: Gridding/Meshing share one STpre
         # process instead of cold-starting COM + OpenCabFile per click.
         self._stpre_session = None
+        self._paneling_mode = False
+        self._paneling_faces: list = []
+        self._act_paneling_esc = None
+        self._hide_virtual_parts = False
+        self._material_filter: Optional[str] = None
 
         self._build_ui()
         self._apply_style()
@@ -333,10 +338,25 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._act_fit = add(m, "Fit to DrawWindow", self._fit_view, "Ctrl+F")
         add(m, "Reset DrawWindow", self._reset_view)
         m.addSeparator()
-        # M25 View Setting
-        add(m, "Display All Parts", self._view_display_all)
-        add(m, "Hide Selected Parts", self._view_hide_selected)
-        add(m, "Clipping…", self._view_clipping_dialog)
+        # STpre [View] - [(Setting)] / [(Dialog)] (Pre_eng)
+        m_set = m.addMenu("(Setting)")
+        add(m_set, "Display All", self._view_display_all)
+        add(m_set, "Clipping Display…", self._view_clipping_dialog)
+        add(m_set, "Hide Selected Part", self._view_hide_selected)
+        add(m_set, "Display the distribution of thermal conditions…",
+            self._view_thermal_condition_display)
+        self._act_virtual_parts = QAction("Display Virtual Part", self)
+        self._act_virtual_parts.setCheckable(True)
+        self._act_virtual_parts.setChecked(True)
+        self._act_virtual_parts.triggered.connect(self._view_toggle_virtual)
+        m_set.addAction(self._act_virtual_parts)
+        add(m_set, "Display parts by materials…",
+            self._view_parts_by_material)
+        m_dlg = m.addMenu("(Dialog)")
+        add(m_dlg, "List of Part…", self._view_list_of_part)
+        add(m_dlg, "Editing Part Face…", self._view_editing_part_face)
+        add(m_dlg, "Editing Contact Thermal Resistance…",
+            self._view_editing_contact_tr)
         m.addSeparator()
         # Shortcuts X/Y/Z (and Shift+*) installed on the Draw Window widget
         self._act_xy = add(m, "XY Plane", lambda: self._set_plane("xy"))
@@ -491,6 +511,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.addToolBar(self.tb_disp)
 
         self.tb_parts = tb("Parts")
+        # Keep in sync with cab_parts.PART_MENU_ITEMS (STpre Part menu)
         for text, kind, icon in (
                 ("Cuboid", "cube", "cube"),
                 ("Hexahedron", "hexahedron", "cube"),
@@ -501,6 +522,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 ("Quad Panel", "quad_panel", "panel"),
                 ("Revolved", "revolved", "cylinder"),
                 ("Point", "point", "condition"),
+                ("Enclosure", "enclosure", "cube"),
+                ("Plate Fin", "plate_fin", "panel"),
+                ("Pin Fin", "pin_fin", "panel"),
+                ("Peltier", "peltier", "part"),
+                ("Two-Resistor", "two_resistor", "part"),
                 ("Fan", "fan", "part"),
                 ("Axial Fan", "axial_fan", "part"),
                 ("Blower", "blower_fan", "part"),
@@ -1235,15 +1261,87 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             + (f" cell {tri_ids[0]}" if tri_ids else "") + ".")
 
     def _part_face_paneling(self) -> None:
-        """Edit -> Part Face Paneling (Esc commits in STpre)."""
+        """Edit -> Part Face Paneling (Esc commits, STpre Pre_eng)."""
         if not self._edit_require_model():
             return
-        QMessageBox.information(
-            self, "Part Face Paneling",
-            "Select a Parasolid part face in the Draw Window "
-            "(selected faces turn red). Press Esc to panelize.\n\n"
-            "Use Part → Panel to create a panel from parameters when "
-            "interactive face pick is unavailable.")
+        self._paneling_mode = True
+        self._paneling_faces = []  # list[(part_name, cell_id|None)]
+        # Face pick target (Control Window Target of selection)
+        self._sel_target = "Face"
+        self._target_label.setText("Face")
+        try:
+            grp = getattr(self.control, "sel_group", None)
+            if grp is not None:
+                for rb in grp.buttons():
+                    if rb.text() == "Faces":
+                        rb.setChecked(True)
+                        break
+        except Exception:
+            pass
+        self._ensure_paneling_esc()
+        if self._act_paneling_esc is not None:
+            self._act_paneling_esc.setEnabled(True)
+        self.log(
+            "Part Face Paneling: pick face(s) in Draw Window, "
+            "then Esc to panelize (sketch/pipe excluded).",
+            "INFO")
+        self.statusBar().showMessage(
+            "Part Face Paneling — pick Face, Esc to commit")
+
+    def _ensure_paneling_esc(self) -> None:
+        if getattr(self, "_act_paneling_esc", None) is not None:
+            return
+        act = QAction(self)
+        act.setShortcut(QKeySequence("Esc"))
+        act.setShortcutContext(Qt.WindowShortcut)
+        act.setEnabled(False)
+        act.triggered.connect(self._commit_part_face_paneling)
+        self.addAction(act)
+        self._act_paneling_esc = act
+
+    def _commit_part_face_paneling(self) -> None:
+        if not getattr(self, "_paneling_mode", False):
+            return
+        self._paneling_mode = False
+        if self._act_paneling_esc is not None:
+            self._act_paneling_esc.setEnabled(False)
+        faces = list(getattr(self, "_paneling_faces", []) or [])
+        picked = getattr(self, "_picked_face", None)
+        if not faces and picked:
+            faces = [picked]
+        if not faces and getattr(self, "_selected_kind", None) == "part" \
+                and self._selected_name:
+            faces = [(self._selected_name, None)]
+        if not faces:
+            self.log("Part Face Paneling: no face selected.", "WARN")
+            self.statusBar().showMessage("Ready")
+            return
+        import cab_edit_ops
+        snap = self._snapshot()
+        created = []
+        seen_parts = set()
+        for name, cell in faces:
+            # One panel per part face pick; skip duplicate part+cell
+            key = (name, cell)
+            if key in seen_parts:
+                continue
+            seen_parts.add(key)
+            pname = cab_edit_ops.panelize_part_face(
+                self.model, self._cad_meshes, name,
+                None if cell is None else int(cell))
+            if pname:
+                created.append(pname)
+            else:
+                self.log(
+                    f"Part Face Paneling: skipped '{name}' "
+                    "(sketch/pipe or no geometry).", "WARN")
+        if created:
+            self._edit_finish(
+                snap,
+                f"Part Face Paneling: created {', '.join(created)}.")
+        else:
+            self.log("Part Face Paneling: nothing created.", "WARN")
+        self.statusBar().showMessage("Ready")
 
     def _sweep_part_face_dialog(self) -> None:
         if not self._edit_require_model():
@@ -1977,13 +2075,31 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._picked_face = (name, int(cell))
             self._selected_kind = "part"
             self._selected_name = name
-            self.log(f"Picked {target}: part='{name}' cell={cell}")
+            if getattr(self, "_paneling_mode", False):
+                faces = getattr(self, "_paneling_faces", None)
+                if faces is None:
+                    self._paneling_faces = []
+                    faces = self._paneling_faces
+                key = (name, int(cell))
+                if key in faces:
+                    faces.remove(key)
+                    self.log(
+                        f"Part Face Paneling: deselected '{name}' "
+                        f"cell={cell}")
+                else:
+                    faces.append(key)
+                    self.log(
+                        f"Part Face Paneling: selected '{name}' "
+                        f"cell={cell} ({len(faces)} face(s))")
+            else:
+                self.log(f"Picked {target}: part='{name}' cell={cell}")
             self._mode_label.setText(f"{target}")
         except Exception as exc:
             self.log(f"Pick failed: {exc}", "WARN")
 
     def _view_display_all(self) -> None:
         self._hidden_parts.clear()
+        self._material_filter = None
         self._rebuild_scene()
         self.log("View: Display All Parts")
 
@@ -2052,6 +2168,215 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         ok.clicked.connect(_apply)
         cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _view_toggle_virtual(self, on: bool = True) -> None:
+        """View → (Setting) → Display Virtual Part."""
+        self._hide_virtual_parts = not bool(on)
+        if self.model is not None:
+            for p in self.model.parts():
+                el = self.model.find_part(p.name)
+                if el is None:
+                    continue
+                from cabxml import _first
+                virt = _first(el, "virtual")
+                is_v = virt is not None and (
+                    (virt.text or "").strip().upper() in ("T", "1", "TRUE"))
+                if is_v and self._hide_virtual_parts:
+                    self._hidden_parts.add(p.name)
+                elif is_v and not self._hide_virtual_parts:
+                    self._hidden_parts.discard(p.name)
+            self._rebuild_scene()
+        self.log(
+            "View: Display Virtual Part "
+            + ("ON" if on else "OFF"))
+
+    def _view_thermal_condition_display(self) -> None:
+        """View → (Setting) → Thermal Condition Display (MVP chrome)."""
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QCheckBox, QPushButton, QHBoxLayout, QLabel,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Thermal Condition Display")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Set the distribution display of heat source and thermal "
+            "conductivity per part (STpre subset).", dlg))
+        chk_hs = QCheckBox("Heat source distribution", dlg)
+        chk_tc = QCheckBox("Thermal conductivity distribution", dlg)
+        chk_hs.setChecked(True)
+        lay.addWidget(chk_hs)
+        lay.addWidget(chk_tc)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _ok() -> None:
+            self.log(
+                f"Thermal Condition Display: heat_source={chk_hs.isChecked()}, "
+                f"conductivity={chk_tc.isChecked()} "
+                "(color overlay pending)")
+            dlg.accept()
+
+        ok.clicked.connect(_ok)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _view_parts_by_material(self) -> None:
+        """View → (Setting) → Display parts by materials."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QComboBox, QPushButton, QHBoxLayout,
+            QFormLayout, QLabel,
+        )
+        mats = sorted({
+            (p.property or "").strip() or "(none)"
+            for p in self.model.parts()})
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Display parts")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        combo = QComboBox(dlg)
+        combo.addItem("(all materials)")
+        combo.addItems(mats)
+        form.addRow("Material", combo)
+        lay.addLayout(form)
+        lay.addWidget(QLabel(
+            "Parts with other materials are hidden in the Draw Window.",
+            dlg))
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _ok() -> None:
+            mat = combo.currentText()
+            if mat == "(all materials)":
+                self._material_filter = None
+                self._view_display_all()
+            else:
+                self._material_filter = None if mat == "(none)" else mat
+                want = "" if mat == "(none)" else mat
+                for p in self.model.parts():
+                    prop = (p.property or "").strip()
+                    if prop == want:
+                        self._hidden_parts.discard(p.name)
+                    else:
+                        self._hidden_parts.add(p.name)
+                self._rebuild_scene()
+                self.log(f"View: Display parts by material '{mat}'")
+            dlg.accept()
+
+        ok.clicked.connect(_ok)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _view_list_of_part(self) -> None:
+        """View → (Dialog) → List of Part."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
+            QPushButton, QHBoxLayout, QHeaderView,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("List of Part")
+        dlg.resize(560, 360)
+        lay = QVBoxLayout(dlg)
+        parts = list(self.model.parts())
+        tbl = QTableWidget(len(parts), 4, dlg)
+        tbl.setHorizontalHeaderLabels(
+            ["Name", "Attribute", "Material", "Kind"])
+        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        for i, p in enumerate(parts):
+            tbl.setItem(i, 0, QTableWidgetItem(p.name))
+            tbl.setItem(i, 1, QTableWidgetItem(p.attribute or ""))
+            tbl.setItem(i, 2, QTableWidgetItem(p.property or ""))
+            tbl.setItem(i, 3, QTableWidgetItem(p.kind or ""))
+        lay.addWidget(tbl)
+
+        def _select() -> None:
+            row = tbl.currentRow()
+            if row < 0:
+                return
+            name = tbl.item(row, 0).text()
+            self._on_item_selected("part", name)
+            self.log(f"List of Part: selected '{name}'")
+
+        row = QHBoxLayout()
+        sel = QPushButton("Select", dlg)
+        close = QPushButton("Close", dlg)
+        sel.clicked.connect(_select)
+        close.clicked.connect(dlg.accept)
+        row.addStretch(1)
+        row.addWidget(sel)
+        row.addWidget(close)
+        lay.addLayout(row)
+        dlg.exec_()
+
+    def _view_editing_part_face(self) -> None:
+        """View → (Dialog) → Editing Part Face (chrome + part list)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QListWidget, QPushButton, QHBoxLayout, QLabel,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Editing Part Face")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Common-control face registry (STpre). Select a part, then use "
+            "Edit → Flipping Part Face / Part Face Paneling for geometry.",
+            dlg))
+        lst = QListWidget(dlg)
+        for p in self.model.parts():
+            lst.addItem(p.name)
+        lay.addWidget(lst, 1)
+        row = QHBoxLayout()
+        close = QPushButton("Close", dlg)
+        close.clicked.connect(dlg.accept)
+        row.addStretch(1)
+        row.addWidget(close)
+        lay.addLayout(row)
+        dlg.exec_()
+
+    def _view_editing_contact_tr(self) -> None:
+        """View → (Dialog) → Editing Contact Thermal Resistance."""
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QLabel, QPushButton, QHBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Editing Contact Thermal Resistance")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Opens the common-control contact thermal resistance list.\n"
+            "Full pair editing is available in Wizard → Condition Setting → "
+            "Thermal Boundary → Between Parts.", dlg))
+        row = QHBoxLayout()
+        open_w = QPushButton("Open Condition Wizard…", dlg)
+        close = QPushButton("Close", dlg)
+
+        def _wiz() -> None:
+            dlg.accept()
+            self._wizard_condition()
+
+        open_w.clicked.connect(_wiz)
+        close.clicked.connect(dlg.accept)
+        row.addStretch(1)
+        row.addWidget(open_w)
+        row.addWidget(close)
+        lay.addLayout(row)
         dlg.exec_()
 
     def _domain_scale(self) -> float:
@@ -2451,7 +2776,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _open_dialog(self) -> None:
         path, _ = QFileDialog.getOpenFileName(
-            self, "打开 cab", "", "scSTREAM project (*.cab);;All (*)")
+            self, "Open", "",
+            "scSTREAM project (*.cab);;All files (*)")
         if path:
             self.load(path)
 
@@ -2474,13 +2800,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             import cab_import
             if not cab_import.available():
                 QMessageBox.warning(
-                    self, "导入不可用",
-                    "未找到 Cradle pskernel.dll，无法导入 x_t。")
+                    self, "Import",
+                    "Cradle pskernel.dll not found; cannot import XT/CAD.")
                 return
             bodies, raw, fmt = cab_import.import_file_with_payload(path)
             if not bodies:
                 QMessageBox.warning(
-                    self, "导入失败", "文件中没有可显示的 body。")
+                    self, "Import",
+                    "No displayable body found in the file.")
                 return
             if fmt == "stl":
                 member = cab_import.add_stl_member(
@@ -2520,7 +2847,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"parts added: {', '.join(added) or '-'}"
                 + (f", {skipped} duplicate name(s) skipped" if skipped else ""))
         except Exception as exc:
-            QMessageBox.critical(self, "导入失败", str(exc))
+            QMessageBox.critical(self, "Import", str(exc))
             self.log(f"Import failed: {exc}", "ERROR")
 
     def _reload(self) -> None:
@@ -2543,7 +2870,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             return
         path, _ = QFileDialog.getSaveFileName(
-            self, "另存为 cab", "", "scSTREAM project (*.cab)")
+            self, "Save As", "", "scSTREAM project (*.cab)")
         if not path:
             return
         if self._rebuild_to(path):
@@ -2579,9 +2906,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None or self.props is None:
             return
         path, selected = QFileDialog.getSaveFileName(
-            self, "导出", self.model.project_name or "export",
+            self, "Export", self.model.project_name or "export",
             "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*);;"
-            "STL (*.stl);;Parasolid XT (*.x_t);;Property XML (*_property.xml)")
+            "STL (*.stl);;Parasolid XT (*.x_t);;"
+            "Property XML (*_property.xml);;All files (*)")
         if not path:
             return
         base, ext = os.path.splitext(path)
@@ -3309,7 +3637,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             color=spec.get("color", "120,160,220,255"),
             layer=spec.get("layer", "1"),
             orientation=spec.get("orientation", "W-Axis(Positive)"),
-            scale_type=spec.get("scale_type", "Solid"))
+            scale_type=spec.get("scale_type", "Solid"),
+            cutout_target=spec.get("cutout_target", ""))
         if edit_name:
             ok = cab_sketch.update_sketch_part(
                 self.model, name=edit_name, new_name=name, **common)

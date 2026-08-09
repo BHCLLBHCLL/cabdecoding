@@ -44,8 +44,8 @@ try:
     from PyQt5.QtWidgets import (
         QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox,
         QFormLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-        QPushButton, QRadioButton, QSpinBox, QTabWidget, QTableWidget,
-        QTableWidgetItem, QVBoxLayout, QWidget,
+        QMessageBox, QPushButton, QRadioButton, QSpinBox, QTabWidget,
+        QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
     )
     try:
         from cab_widgets import CoordSpinBox
@@ -338,7 +338,8 @@ def sketch_tess(plane: SketchPlane, profile: SketchProfile,
 def _write_sketch_fields(el, *, plane: SketchPlane, profile: SketchProfile,
                          model_type: str, thickness_mm: float,
                          orientation: str = "W-Axis(Positive)",
-                         scale_type: str = "Solid") -> None:
+                         scale_type: str = "Solid",
+                         cutout_target: str = "") -> None:
     import xml.etree.ElementTree as ET
     from cabxml import _first as f1
 
@@ -354,6 +355,8 @@ def _write_sketch_fields(el, *, plane: SketchPlane, profile: SketchProfile,
     add("model_type", model_type)
     add("scale_type", scale_type)
     add("orientation", orientation)
+    if cutout_target:
+        add("cutout_target", cutout_target)
     add("geometry_type", profile.geometry_type)
     add("close", "T" if profile.close else "F")
     add("thickness", f"{thickness_mm:.12g}", "mm")
@@ -384,7 +387,8 @@ def register_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
                          color: str = "25,117,255,255",
                          layer: str = "1",
                          orientation: str = "W-Axis(Positive)",
-                         scale_type: str = "Solid") -> bool:
+                         scale_type: str = "Solid",
+                         cutout_target: str = "") -> bool:
     """Add a ``<parts type="sketch">`` entry with profile parameters."""
     if model.find_part(name) is not None:
         return False
@@ -395,7 +399,7 @@ def register_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
     _write_sketch_fields(
         el, plane=plane, profile=profile, model_type=model_type,
         thickness_mm=thickness_mm, orientation=orientation,
-        scale_type=scale_type)
+        scale_type=scale_type, cutout_target=cutout_target)
     return True
 
 
@@ -407,6 +411,7 @@ def update_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
                        layer: str = "1",
                        orientation: str = "W-Axis(Positive)",
                        scale_type: str = "Solid",
+                       cutout_target: str = "",
                        new_name: Optional[str] = None) -> bool:
     """Rewrite an existing sketch part's geometry / attributes."""
     from cabxml import set_text
@@ -433,7 +438,7 @@ def update_sketch_part(model: StpreModel, *, name: str, plane: SketchPlane,
     _write_sketch_fields(
         el, plane=plane, profile=profile, model_type=model_type,
         thickness_mm=thickness_mm, orientation=orientation,
-        scale_type=scale_type)
+        scale_type=scale_type, cutout_target=cutout_target)
     return True
 
 
@@ -485,6 +490,7 @@ def read_sketch_part(model: StpreModel, name: str
         "material": part.property or "",
         "color": part.color or "120,160,220,255",
         "layer": text("layer", "1") or "1",
+        "cutout_target": text("cutout_target", ""),
     }
     return profile, meta
 
@@ -682,10 +688,11 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         cut = QHBoxLayout()
         self.cutout_target = QLineEdit(page)
         self.cutout_target.setEnabled(False)
-        btn_sel = QPushButton("Select", page)
-        btn_sel.setEnabled(False)
+        self.btn_cutout_sel = QPushButton("Select", page)
+        self.btn_cutout_sel.setEnabled(False)
+        self.btn_cutout_sel.clicked.connect(self._select_cutout_target)
         cut.addWidget(self.cutout_target, 1)
-        cut.addWidget(btn_sel)
+        cut.addWidget(self.btn_cutout_sel)
         f.addRow("(2) Target part for cutout", cut)
 
         grow = QHBoxLayout()
@@ -891,13 +898,26 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         self.rect_widget.setVisible(g == "Rectangle")
         self.circle_widget.setVisible(g == "Circle")
 
+    def _select_cutout_target(self) -> None:
+        """STpre: Select target solid for Cutout model type."""
+        names = [p.name for p in self.model.parts()
+                 if (p.kind or "").lower() not in ("sketch", "pipe", "panel")]
+        if not names:
+            QMessageBox.information(
+                self, "Cutout",
+                "No solid/body part available as cutout target.")
+            return
+        from PyQt5.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getItem(
+            self, "Target part for cutout", "Part:", names, 0, False)
+        if ok and name:
+            self.cutout_target.setText(name)
+
     def _on_model_type(self) -> None:
         is_cut = self.model_type.currentText() == "Cutout"
         self.cutout_target.setEnabled(is_cut)
-        # Select button is sibling in the same row — find via parent layout
-        for btn in self.findChildren(QPushButton):
-            if btn.text() == "Select":
-                btn.setEnabled(is_cut)
+        if hasattr(self, "btn_cutout_sel"):
+            self.btn_cutout_sel.setEnabled(is_cut)
         defaults = {
             "Extrusion": "Extrusion1",
             "Panel": "Panel1",
@@ -947,6 +967,11 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             self.model_type.blockSignals(True)
             self.model_type.setCurrentIndex(idx)
             self.model_type.blockSignals(False)
+        self.cutout_target.setText(meta.get("cutout_target", ""))
+        is_cut = self.model_type.currentText() == "Cutout"
+        self.cutout_target.setEnabled(is_cut)
+        if hasattr(self, "btn_cutout_sel"):
+            self.btn_cutout_sel.setEnabled(is_cut)
         # Geometry + vertices
         gmap = {
             "point_sequence": "Point sequence",
@@ -1123,4 +1148,5 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             "virtual": bool(
                 self.attr_panel.virtual_chk
                 and self.attr_panel.virtual_chk.isChecked()),
+            "cutout_target": self.cutout_target.text().strip(),
         }

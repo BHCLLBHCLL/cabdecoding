@@ -1,8 +1,10 @@
-"""M7: Option menu dialogs (Environment Settings / Detailed Program Settings).
+"""M7/M29/M32: Option menu dialogs (Environment / Detailed Program Settings).
 
-Aligned with the Pre_eng pages (Basic Setting / Parts / Mesh / Message
-Window / User Interface); settings persist through QSettings and are applied
-live by :class:`cab_gui.CabViewer._apply_options`.
+Aligned with Pre_eng Environment Setting pages (≈13). Settings persist through
+QSettings and are applied live by :class:`cab_gui.CabViewer._apply_options`.
+
+**Frozen:** Mesh tab ``use_stpre_api`` semantics must not change (STpre API
+Gridding/Meshing path).
 """
 
 from __future__ import annotations
@@ -44,25 +46,36 @@ def set_setting(key: str, value) -> None:
 
 
 class OptionsDialog(QDialog):
-    """Environment Settings / Detailed Program Settings (subset)."""
+    """Environment Settings / Detailed Program Settings (STpre page set)."""
 
     def __init__(self, parent=None, props=None, detailed: bool = False):
         super().__init__(parent)
         self.props = props
+        self.detailed = detailed
         self.setWindowTitle(
             "Detailed Program Settings" if detailed
             else "Environment Settings")
-        self.resize(520, 460)
+        self.resize(560, 520)
         lay = QVBoxLayout(self)
         self.tabs = QTabWidget(self)
+        # Pre_eng Environment Setting page order (subset labels)
         self.tabs.addTab(self._basic_tab(), "Basic Setting")
         self.tabs.addTab(self._parts_tab(), "Parts")
         self.tabs.addTab(self._mesh_tab(), "Mesh")
-        self.tabs.addTab(self._folder_tab(), "Folder/File")
-        self.tabs.addTab(self._color_tab(), "Color")
-        self.tabs.addTab(self._unit_tab(), "Unit")
+        self.tabs.addTab(self._folder_tab(), "Folder")
+        self.tabs.addTab(self._file_tab(), "File")
+        self.tabs.addTab(self._io_tab(), "Input/Output")
+        self.tabs.addTab(self._unit_tab(), "Units")
+        self.tabs.addTab(self._color_part_tab(), "Color (Part)")
+        self.tabs.addTab(self._color_mesh_tab(), "Color (Mesh)")
+        self.tabs.addTab(self._color_other_tab(), "Color (Others)")
         self.tabs.addTab(self._message_tab(), "Message Window")
+        self.tabs.addTab(self._parametric_tab(), "Parametric Study")
         self.tabs.addTab(self._ui_tab(), "User Interface")
+        # Extra pages (Detailed Program Settings + Environment both expose)
+        self.tabs.addTab(self._mouse_tab(), "Mouse")
+        self.tabs.addTab(self._tree_tab(), "Tree/List View")
+        self.tabs.addTab(self._shortcut_tab(), "Shortcut")
         lay.addWidget(self.tabs)
         brow = QHBoxLayout()
         brow.addStretch(1)
@@ -147,6 +160,7 @@ class OptionsDialog(QDialog):
         self.facet_angle.setDecimals(2)
         self.facet_angle.setValue(float(get_setting("facet_angle", 12.0)))
         f.addRow("Surface facet angle (deg)", self.facet_angle)
+        # Frozen: STpre API Gridding/Meshing toggle — do not rename/repurpose
         self.use_stpre_api = QCheckBox(
             "Use STpre API for Gridding/Meshing (external automation)", w)
         self.use_stpre_api.setChecked(
@@ -155,7 +169,6 @@ class OptionsDialog(QDialog):
         return w
 
     def _folder_tab(self):
-        """M29 Environment → Folder/File."""
         from PyQt5.QtWidgets import QWidget
         w = QWidget(self)
         f = QFormLayout(w)
@@ -170,17 +183,65 @@ class OptionsDialog(QDialog):
         f.addRow("Temporary folder", self.temp_folder)
         return w
 
-    def _color_tab(self):
+    def _file_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.default_cab_ext = QComboBox(w)
+        self.default_cab_ext.addItems([".cab", ".CAB"])
+        self.default_cab_ext.setCurrentText(
+            str(get_setting("default_cab_ext", ".cab")))
+        f.addRow("Default CAB extension", self.default_cab_ext)
+        self.autosave_name = QLineEdit(
+            str(get_setting("autosave_name", "autosave.cab")), w)
+        f.addRow("Auto-save file name", self.autosave_name)
+        return w
+
+    def _io_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.mesh_info_txt = QCheckBox(
+            "Output messages of meshing to mesh_info.txt", w)
+        self.mesh_info_txt.setChecked(
+            str(get_setting("mesh_info_txt", "False")) == "True")
+        self.s_info_txt = QCheckBox(
+            "Output messages of S file output to s_info.txt", w)
+        self.s_info_txt.setChecked(
+            str(get_setting("s_info_txt", "False")) == "True")
+        f.addRow(self.mesh_info_txt)
+        f.addRow(self.s_info_txt)
+        return w
+
+    def _color_part_tab(self):
         from PyQt5.QtWidgets import QWidget
         w = QWidget(self)
         f = QFormLayout(w)
         self.part_color = QLineEdit(
             str(get_setting("default_part_color", "180,180,180,255")), w)
+        f.addRow("Default part color (RGBA)", self.part_color)
+        return w
+
+    def _color_mesh_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.mesh_line_color = QLineEdit(
+            str(get_setting("mesh_line_color", "30,30,36,255")), w)
+        f.addRow("Element division line color (RGBA)", self.mesh_line_color)
+        return w
+
+    def _color_other_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
         self.domain_color = QLineEdit(
             str(get_setting("default_domain_color", "0,255,255,255")), w)
-        f.addRow("Default part color (RGBA)", self.part_color)
         f.addRow("Default domain color (RGBA)", self.domain_color)
         return w
+
+    # Compat alias used by older tests / callers
+    _color_tab = _color_part_tab
 
     def _unit_tab(self):
         from PyQt5.QtWidgets import QWidget
@@ -213,6 +274,21 @@ class OptionsDialog(QDialog):
         f.addRow("Maximum message blocks", self.max_blocks)
         return w
 
+    def _parametric_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.param_enable = QCheckBox("Enable parametric study UI", w)
+        self.param_enable.setChecked(
+            str(get_setting("parametric_study", "False")) == "True")
+        f.addRow(self.param_enable)
+        note = QLabel(
+            "Parametric cases are registered in the model; solver matrix "
+            "execution is separate.", w)
+        note.setWordWrap(True)
+        f.addRow(note)
+        return w
+
     def _ui_tab(self):
         from PyQt5.QtWidgets import QWidget
         w = QWidget(self)
@@ -226,12 +302,78 @@ class OptionsDialog(QDialog):
         self.show_status.setChecked(
             str(get_setting("show_status_bar", "True")) == "True")
         f.addRow(self.show_status)
+        self.enable_thermal_parts = QCheckBox(
+            "Enable thermal design part (toolbar/menu)", w)
+        self.enable_thermal_parts.setChecked(
+            str(get_setting("enable_thermal_parts", "True")) == "True")
+        f.addRow(self.enable_thermal_parts)
+        self.add_view_dialogs = QCheckBox(
+            "Add List of Part / Edit Part Face / Contact TR to View menu", w)
+        self.add_view_dialogs.setChecked(
+            str(get_setting("add_view_dialogs", "True")) == "True")
+        f.addRow(self.add_view_dialogs)
+        self.auto_sketch = QCheckBox(
+            "Automatic sketch mode at selection of part", w)
+        self.auto_sketch.setChecked(
+            str(get_setting("auto_sketch_mode", "False")) == "True")
+        f.addRow(self.auto_sketch)
+        self.english_names = QCheckBox(
+            "Set the default name of a part/region/condition in English", w)
+        self.english_names.setChecked(
+            str(get_setting("english_default_names", "True")) == "True")
+        f.addRow(self.english_names)
+        return w
+
+    def _mouse_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.mouse_mode = QComboBox(w)
+        self.mouse_mode.addItems(["Trackball", "Rubber Band Zoom"])
+        cur = str(get_setting("mouse_mode", "Trackball"))
+        self.mouse_mode.setCurrentText(
+            cur if cur in ("Trackball", "Rubber Band Zoom") else "Trackball")
+        f.addRow("Default mouse mode", self.mouse_mode)
+        self.wheel_zoom = QCheckBox("Enable mouse-wheel zoom", w)
+        self.wheel_zoom.setChecked(
+            str(get_setting("wheel_zoom", "True")) == "True")
+        f.addRow(self.wheel_zoom)
+        return w
+
+    def _tree_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.tree_expand = QComboBox(w)
+        self.tree_expand.addItems(["Expanded", "Collapsed"])
+        self.tree_expand.setCurrentText(
+            str(get_setting("tree_expand_default", "Expanded")))
+        f.addRow("Default tree expand state", self.tree_expand)
+        self.show_groups = QCheckBox("Show groups in Tree/List View", w)
+        self.show_groups.setChecked(
+            str(get_setting("tree_show_groups", "True")) == "True")
+        f.addRow(self.show_groups)
+        return w
+
+    def _shortcut_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        note = QLabel(
+            "Draw Window: X/Y/Z plane views, Shift+X/Y/Z opposite, "
+            "F Fit (when Draw focused). Menu: Ctrl+N/O/S/E, Ctrl+Z/Y Undo.",
+            w)
+        note.setWordWrap(True)
+        f.addRow(note)
+        self.fit_key = QLineEdit(str(get_setting("shortcut_fit", "F")), w)
+        self.fit_key.setMaxLength(1)
+        f.addRow("Fit key (Draw Window)", self.fit_key)
         return w
 
     # -- values -----------------------------------------------------------
 
     def values(self) -> dict:
-        return {
+        out = {
             "user_name": self.user_name.text(),
             "undo_levels": self.undo_levels.value(),
             "autosave_min": self.autosave.value(),
@@ -247,16 +389,32 @@ class OptionsDialog(QDialog):
             "work_folder": self.work_folder.text(),
             "lib_folder": self.lib_folder.text(),
             "temp_folder": self.temp_folder.text(),
+            "default_cab_ext": self.default_cab_ext.currentText(),
+            "autosave_name": self.autosave_name.text(),
+            "mesh_info_txt": self.mesh_info_txt.isChecked(),
+            "s_info_txt": self.s_info_txt.isChecked(),
             "default_part_color": self.part_color.text(),
+            "mesh_line_color": self.mesh_line_color.text(),
             "default_domain_color": self.domain_color.text(),
             "temp_unit": self.temp_unit.currentText(),
             "press_unit": self.press_unit.currentText(),
             "message_font": self.font_name.text(),
             "log_level": self.log_level.currentText(),
             "message_max_blocks": self.max_blocks.value(),
+            "parametric_study": self.param_enable.isChecked(),
             "drawing_mode": self.drawing_mode.currentText(),
             "show_status_bar": self.show_status.isChecked(),
+            "enable_thermal_parts": self.enable_thermal_parts.isChecked(),
+            "add_view_dialogs": self.add_view_dialogs.isChecked(),
+            "auto_sketch_mode": self.auto_sketch.isChecked(),
+            "english_default_names": self.english_names.isChecked(),
+            "mouse_mode": self.mouse_mode.currentText(),
+            "wheel_zoom": self.wheel_zoom.isChecked(),
+            "tree_expand_default": self.tree_expand.currentText(),
+            "tree_show_groups": self.show_groups.isChecked(),
+            "shortcut_fit": self.fit_key.text() or "F",
         }
+        return out
 
     def _save_and_accept(self) -> None:
         for key, value in self.values().items():

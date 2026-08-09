@@ -1,4 +1,9 @@
-"""STpre Initial Wizard pages (5-step flow aligned with Pre_eng + STpreIwiz)."""
+"""STpre Initial Wizard pages (aligned with Pre_eng + STpreIwiz).
+
+STpre lists Project / Import CAD Data as separate steps; cabdecoding merges
+Import CAD into the Project page (checkbox + table) for a 6-step wizard:
+Project → Domain → Analysis Type → Initial/Gravity → Purpose → Confirm.
+"""
 
 from __future__ import annotations
 
@@ -61,10 +66,10 @@ PURPOSE_BC = {
         "Top boundary  : Enclosure heat release (A=1.3 B=0.25 eps=0.9)\n"
         "Bottom boundary: Enclosure heat release (A=0.65 B=0.25 eps=0.9)\n"
         "Side boundary : Enclosure heat release (A=1.4 B=0.25 eps=0.9)\n"
-        "(phase 1: informational only — not written to the cab)"),
+        "(MVP: coefficients shown; full AENT write-back pending)"),
     "external_buildings": (
         "Power-law inflow boundary on the inflow side.\n"
-        "(phase 1: informational only — not written to the cab)"),
+        "(MVP: description only; power-law profile write-back pending)"),
 }
 
 
@@ -299,6 +304,9 @@ class _IwProjectPage(QWidget if _HAS_GUI else object):
         self.comment = QLineEdit(comment or "project no.1", self)
         _row(root, "Comments", self.comment)
 
+        root.addWidget(_note(
+            "STpre lists Import CAD Data as a separate wizard step; "
+            "here it is on the Project page (check below).", self))
         self.import_cad = QCheckBox("Import CAD data", self)
         self.import_cad.toggled.connect(self._toggle_cad)
         root.addWidget(self.import_cad)

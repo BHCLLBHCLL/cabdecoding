@@ -1,6 +1,6 @@
 # cab_gui 功能补齐开发计划（逆向驱动）
 
-> 日期：2026-08-09（§6.M23+ / §13 与画布同步刷新）
+> 日期：2026-08-09（§14 菜单对话框逐项核对计划已写入；实施中）
 > 仓库：`cabdecoding`
 > 关联文档：[CAB_GUI_DESIGN.md](CAB_GUI_DESIGN.md)（UI 布局）、
 > [DEV_SUMMARY.md](DEV_SUMMARY.md)（逆向档案）、
@@ -8,6 +8,8 @@
 > 交互画布：`.cursor/projects/.../canvases/cab-gui-stpre-gap.canvas.tsx`
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
 > 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
+>
+> **当前主线：** §14 对话框 UI/逻辑对齐 STpre（**不含** Gridding/Meshing via STpre API）。
 
 ---
 
@@ -668,7 +670,188 @@ CAB 读写、STpre 布局 chrome、XT facet 显示、Domain/Gridding 规则逼�
 #### M32+ 抛光（后备）
 
 i18n、3DfindIT（或明确放弃）、热条件显示、Wiring Gerber 几何、Undo 与
-Parasolid 会话对齐。
+Parasolid 会话对齐。详见 **§14**（菜单对话框逐项核对与实施批次）。
+
+---
+
+## 14. 菜单对话框 vs STpre 逐项核对与实施计划（M32）
+
+> **目标：** 把 `cab_gui.py` 各菜单项打开的设置对话框，与 Cradle STpre
+> （Pre_eng / 实机 UI）逐项核对，修正**界面设计与逻辑**不一致处。  
+> **硬性例外：** `Mesh → Gridding/Meshing via STpre API` 及
+> `cab_stpre_api` / Option Mesh 中对应勾选的 COM 流程**保持不变**。  
+> **原则：** Menu chrome ≠ 内核忠实；优先修「错布局 / 错字段 / 错启用规则 /
+> 假可用」；真 B-rep 内核另列，不阻断对话框对齐。
+
+### 14.1 总判据
+
+| 维度 | 估计 | 说明 |
+|---|---|---|
+| 菜单项覆盖 | ~85% | File/Edit/View/Part/Wizard/Mesh/Option/Help 表面齐全 |
+| 对话框可用度 | ~68% | 大量 Edit CAD / Wizard 深度 / Environment 页仍为子集或代理 |
+| 最高债务 | Edit CAD + View Setting + Environment 满页 + Part 专用对话框 | Sketch/Fan 已部分对齐，需回归核对 |
+
+**Fidelity：** `chrome`=壳 · `MVP`=可用子集 · `gap`=与 STpre 明显不一致或缺失
+
+### 14.2 明确排除（冻结）
+
+| 项 | 路径 | 规则 |
+|---|---|---|
+| Gridding/Meshing via STpre API | `cab_gui` 菜单勾选、`cab_stpre_api.py`、Option→Mesh 勾选 | **禁止改**开关语义、COM 调用与结果合并 |
+| 原生网格算法金标收敛 | `cab_grid` / `cab_mesh` 内核 | 不在本对话框对齐批次（属 M27） |
+
+原生 Mesh **对话框 chrome**（Interference / Edit Mesh / Section / S-File）仍可做 UI 抛光。
+
+### 14.3 菜单库存（核对表）
+
+#### File
+
+| 菜单路径 | 对话框/模块 | 保真 | 核对动作 |
+|---|---|---|---|
+| New / Open / Save / Save As | `cab_gui` | MVP | 确认冷启动 Initial Wizard 与 STpre Finish/Open/Cancel |
+| Import… | `cab_import` | MVP | 过滤器文案与扩展名矩阵对齐 Pre |
+| Export… | `_export_dialog` | MVP | S/XEMT/STL/XT/Property 过滤器与扩展绑定 |
+| Print / Execute Solver / Post | `_print_*` / `_execute_*` | MVP | Solver cwd/env/restart；Post 场路径 |
+| Recent / Exit | — | MVP | — |
+| *(STpre)* 3DfindIT | — | gap | 明确不做或占位禁用 |
+
+#### Edit
+
+| 菜单路径 | 对话框/模块 | 保真 | 核对动作 |
+|---|---|---|---|
+| Undo / Redo | 快照栈 | MVP | 文案注明非 Parasolid 会话回滚 |
+| Group / Deletion / Parts Conversion | `cab_edit_dialogs` | MVP | 字段标签/多选行为 vs Pre |
+| Reconstruct of Part Facet | FacetAccuracy + facet_2 | MVP | Reconstruct 启用条件（需 XT） |
+| Flipping Part Face | 拾取 + flip | MVP | Face target 提示与选中三角 |
+| Part Face Paneling | 信息框 | **chrome** | → 拾取/选中部件生成 Panel |
+| Sweep Part Face | FaceExtrusion | chrome | 字段对齐；失败诚实提示 |
+| Alignment / Place / Mirror / Connected | 各 Dialog | MVP | 坐标单位 mm、Apply/OK |
+| Boolean Operation | tess CSG | MVP | 标题/操作名对齐；注明非 B-rep |
+| Shape change by Boolean / Cutting / Edit Solid / Simplify / FEM / Wrapping | 各 Dialog | chrome | 控件布局对齐 + 未实现禁用或代理标注 |
+| Reset Computational Domain | Reset…Dialog | MVP | 与树双击 Edit Domain **区分**保持 |
+| Edit Wiring / Placement of Image | chrome | chrome | 布局对齐；几何后续 |
+
+#### View
+
+| 菜单路径 | 保真 | 核对动作 |
+|---|---|---|
+| Fit / Reset / Planes / Mouse / Bars | MVP | — |
+| Display All / Hide / Clipping | MVP | — |
+| *(STpre)* View Setting / Dialog（热显示、部件列表…） | **gap** | 增加 Setting/Dialog 子菜单子集 |
+
+#### Part
+
+| 菜单路径 | 保真 | 核对动作 |
+|---|---|---|
+| Cuboid…Point | MVP | Scale+Attribute 字段与启用规则 |
+| Enclosure / Fin / Peltier / 2R | 代理 | 对话框字段 vs 热属性（增量） |
+| Fan（Sketch UVW + Condition） | MVP→核对 | 与实机截图字段逐项回归 |
+| Axial / Blower | MVP | 布局对齐 Pre |
+| Sketch Part | MVP→核对 | Model Type 启用规则；Size/Attribute |
+| Pipe | MVP | 多点折线或明确子集标签 |
+| Parts 工具栏 | gap | 与 Part 菜单项同步（含专用件） |
+
+#### Wizard
+
+| 菜单路径 | 保真 | 核对动作 |
+|---|---|---|
+| Initial Setting | MVP/gap | 步骤数/Import CAD 分步 vs STpre；文案 |
+| Condition Setting | 子集 | Source/Humidity/Porous/Rad 深度；未实现物理 chrome |
+
+#### Mesh（API 除外）
+
+| 菜单路径 | 保真 | 核对动作 |
+|---|---|---|
+| Gridding…（原生） | MVP | 6 页签标签与启用；**不改** API 路径 |
+| Meshing（原生） | MVP | 对话框选项 vs Pre；**不改** API |
+| Interference / Edit Mesh / Section / S-File | MVP | 按钮/过滤器文案 |
+| **Gridding/Meshing via STpre API** | — | **冻结** |
+
+#### Option / Help
+
+| 菜单路径 | 保真 | 核对动作 |
+|---|---|---|
+| Distance / Reference / Cut Cell / Selection / Viewer | MVP | 拾取联动（非仅 spin） |
+| Environment / Detailed | ~8/13 页 | 补 Mouse、Tree/List、Drawing、Shortcut 等 |
+| Help | MVP | — |
+
+### 14.4 实施批次（按序）
+
+```
+D1  View Setting/Dialog + Parts 工具栏同步 + Edit Paneling MVP
+D2  Option Environment 逼近 13 页（保留 use_stpre_api 语义）
+D3  Edit chrome 对话框布局/启用规则/诚实标注（Boolean 文案等）
+D4  Part：Fan/Sketch/Axial/Pipe 字段回归与启用逻辑
+D5  Wizard：Initial 步骤模型 + Condition 深度 chrome
+D6  File Import/Export 过滤器与 Solver/Post 对话框抛光
+D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
+—— 全程不触碰 STpre API Gridding/Meshing ——
+```
+
+#### D1 ✅ View / 工具栏 / Paneling
+
+- [x] View → (Setting) / (Dialog) 子菜单（Pre_eng 结构）
+- [x] Parts 工具栏补 Enclosure / Plate·Pin Fin / Peltier / Two-Resistor
+- [x] Edit → Part Face Paneling：Face 拾取 + Esc → Panel（AABB MVP）
+- 触点：`cab_gui.py`、`cab_edit_ops.py`、`cab_parts.py`
+
+#### D2 ✅ Option Environment 页
+
+- [x] 13 Environment 页名对齐 + Mouse / Tree·List / Shortcut
+- [x] Detailed 与 Environment 共用页集（入口标题区分）
+- [x] **未改** `use_stpre_api` 勾选行为
+- 触点：`cab_options.py`、`cab_gui._apply_options`
+
+#### D3 ✅ Edit 对话框对齐（首轮）
+
+- [x] chrome 项：能力说明标签（Boolean / ShapeChange / Edit Solid / Simplification / Wrapping）
+- [x] Boolean Seamless 禁用 + 持久 CSG 标注
+- [ ] 其余 Edit 对话框字段级二次核对（后续）
+- 触点：`cab_edit_dialogs.py`、`cab_gui` 包装槽
+
+#### D4 ✅ Part 对话框回归（首轮）
+
+- [x] Fan：既有 Sketch UVW + Condition 布局保留（截图二次回归可选）
+- [x] Sketch Part：Cutout Select 启用 + 目标部件选择写回 XML
+- [x] Pipe：子集说明标签已存在
+- 触点：`cab_parts.py`、`cab_sketch.py`、`cab_dialogs.py`
+
+#### D5 ✅ Wizard（首轮）
+
+- [x] Initial：文档化 Project 合并 Import CAD；Purpose 边界文案诚实标注
+- [ ] Condition：未实现页显式 chrome；Source/Humidity 写回加深（后续）
+- 触点：`cab_wizards.py`、`cab_*wizard_pages.py`
+
+#### D6 ✅ File / Solver-Post（首轮）
+
+- [x] Import/Export/Open/Save As 英文过滤器与标题对齐 Pre
+- [x] Execute Solver/Post 对话框字段标签（Working directory / Environment / Field）
+- 触点：`cab_gui.py`、`cab_import.py`
+
+#### D7 ⬜ 热专用 Part 属性
+
+- [ ] Enclosure / Fin / Peltier / 2R：Attribute/Condition 子集
+- 触点：`cab_parts.py`、材料/属性 XML
+
+### 14.5 验收标准
+
+1. 每个批次：对照 Pre_eng 对应页或实机截图，字段名/默认值/启用规则一致或有文档化子集说明。  
+2. Message 窗口对 chrome/代理操作有明确 INFO/WARN，无静默假成功。  
+3. 回归：`tests/test_edit_menu.py`、`tests/test_sketch_part_dialog.py`、`tests/test_m24_m31_mvp.py`、`tests/test_m32_dialog_align.py`。  
+4. **回归守卫：** 切换「Gridding/Meshing via STpre API」前后行为与改前一致。
+
+### 14.6 进度跟踪
+
+| 批次 | 状态 | 备注 |
+|---|---|---|
+| D1 | ✅ | View Setting/Dialog + 工具栏 + Paneling MVP |
+| D2 | ✅ | Environment ≈13 页 + Mouse/Tree/Shortcut |
+| D3 | ✅ 首轮 | Edit chrome 诚实标注 |
+| D4 | ✅ 首轮 | Sketch Cutout Select + Fan/Pipe |
+| D5 | ✅ 首轮 | Initial 步骤说明 / Purpose 文案 |
+| D6 | ✅ 首轮 | File 过滤器英文化 |
+| D7 | ⬜ | 热属性（后续） |
+| API 路径 | 🔒 冻结 | 不实施 |
 
 ---
 
@@ -861,7 +1044,7 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | M12–M22 | Gridding 规则、CW 扩展、Draw Mesh 等 | ✅ |
 | M23 | Initial Setting 自动弹出 + Edit 24 项 UI | ✅ |
 
-### 11.2 二期（§13，与画布同步）
+### 11.2 二期（§13 / §14）
 
 | 里程碑 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
@@ -873,10 +1056,10 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | M29 | Option / Environment 补全 | M7-5 | ✅ 子集 |
 | M30 | Part 专用件包 | M7-4/M8 | ✅ 代理 |
 | M31 | Solver/Post 产品化 | M7-1 | ✅ MVP |
-| M32+ | i18n / 热显示 / Wiring 几何等 | — | 后备 |
+| **M32** | 菜单对话框 vs STpre 逐项核对（§14 D1–D7） | M24–M31 | 🔄 进行中 |
+| M32+ | i18n / 热显示 / Wiring 几何等 | M32 | 后备 |
 
-依赖主线：**M24 → M25**（拾取打通后解锁 Edit/View/Option 测量）；
-M26/M27/M28 可与 M25 后半并行。
+依赖主线：**M32** 按 §14 批次 D1→D7；**冻结** Gridding/Meshing via STpre API。
 
 ---
 
