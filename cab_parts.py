@@ -52,6 +52,12 @@ PART_MENU_ITEMS: list[tuple[str, str] | None] = [
     ("Revolved Rectangle…", "revolved"),
     ("Point…", "point"),
     None,
+    ("Enclosure…", "enclosure"),
+    ("Plate Fin…", "plate_fin"),
+    ("Pin Fin…", "pin_fin"),
+    ("Peltier Device Model…", "peltier"),
+    ("Thermal Circuit Model (Two-Resistor)…", "two_resistor"),
+    None,
     ("Fan…", "fan"),
     ("Axial-Flow Fan…", "axial_fan"),
     ("Blower Fan…", "blower_fan"),
@@ -64,6 +70,7 @@ PRIMITIVE_KINDS = (
     "cube", "hexahedron", "cylinder", "conical", "sphere", "panel",
     "quad_panel", "revolved", "point", "fan", "axial_fan", "blower_fan",
     "sketch", "pipe",
+    "enclosure", "plate_fin", "pin_fin", "peltier", "two_resistor",
 )
 
 KIND_TITLES = {
@@ -81,6 +88,11 @@ KIND_TITLES = {
     "blower_fan": "Blower Fan",
     "sketch": "Sketch Part",
     "pipe": "Pipe Part",
+    "enclosure": "Enclosure",
+    "plate_fin": "Plate Fin",
+    "pin_fin": "Pin Fin",
+    "peltier": "Peltier Device Model",
+    "two_resistor": "Thermal Circuit Model (Two-Resistor)",
 }
 
 
@@ -477,9 +489,25 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
     name = getattr(part, "name", "")
     p: Optional[PrimitivePart] = None
 
-    if kind in ("cube", "sketch", "blower_fan"):
+    if kind in ("cube", "sketch", "blower_fan", "enclosure", "peltier",
+                "two_resistor"):
         p = cube_tess(_el_vec(el, "base"),
                       _el_vec(el, "size", (10.0, 10.0, 10.0)))
+    elif kind == "plate_fin":
+        p = _plate_fin_tess({
+            "base": _el_vec(el, "base"),
+            "size": _el_vec(el, "size", (10.0, 10.0, 10.0)),
+            "fin_count": int(_el_scalar(el, "fin_count", 5)),
+            "fin_thickness": _el_scalar(el, "fin_thickness", 0.5),
+        })
+    elif kind == "pin_fin":
+        p = _pin_fin_tess({
+            "base": _el_vec(el, "base"),
+            "size": _el_vec(el, "size", (10.0, 10.0, 10.0)),
+            "pin_nx": int(_el_scalar(el, "pin_nx", 4)),
+            "pin_ny": int(_el_scalar(el, "pin_ny", 4)),
+            "pin_radius": _el_scalar(el, "pin_radius", 1.0),
+        })
     elif kind == "hexahedron":
         pts = _el_points(
             el, "points", 8,
@@ -573,6 +601,53 @@ def _hexa_from_base_size(base, size):
     ])
 
 
+def _plate_fin_tess(params: dict) -> PrimitivePart:
+    """M30: plate-fin proxy = base plate + N thin vertical plates."""
+    base = np.asarray(params["base"], float)
+    size = np.asarray(params["size"], float)
+    n = max(1, int(params.get("fin_count", 5)))
+    thick = float(params.get("fin_thickness", max(size[0] / (2 * n), 0.5)))
+    parts = [cube_tess(base, size)]
+    span = size[0]
+    for i in range(n):
+        x = base[0] + (i + 0.5) * span / n - thick * 0.5
+        parts.append(cube_tess(
+            (x, base[1], base[2]),
+            (thick, size[1], size[2] * 1.2)))
+    return _merge_primitive_parts("plate_fin", parts)
+
+
+def _pin_fin_tess(params: dict) -> PrimitivePart:
+    """M30: pin-fin proxy = base + nx*ny short cylinders as cubes."""
+    base = np.asarray(params["base"], float)
+    size = np.asarray(params["size"], float)
+    nx = max(1, int(params.get("pin_nx", 4)))
+    ny = max(1, int(params.get("pin_ny", 4)))
+    r = float(params.get("pin_radius", 1.0))
+    parts = [cube_tess(base, (size[0], size[1], size[2] * 0.2))]
+    for i in range(nx):
+        for j in range(ny):
+            cx = base[0] + (i + 0.5) * size[0] / nx - r
+            cy = base[1] + (j + 0.5) * size[1] / ny - r
+            parts.append(cube_tess(
+                (cx, cy, base[2] + size[2] * 0.2),
+                (2 * r, 2 * r, size[2] * 0.8)))
+    return _merge_primitive_parts("pin_fin", parts)
+
+
+def _merge_primitive_parts(name: str, parts: list) -> PrimitivePart:
+    pts = []
+    tris = []
+    for p in parts:
+        off = len(pts)
+        pts.extend(np.asarray(p.points).tolist())
+        for t in np.asarray(p.triangles):
+            tris.append([int(t[0]) + off, int(t[1]) + off, int(t[2]) + off])
+    return PrimitivePart(
+        name, np.asarray(pts, dtype=np.float64),
+        np.asarray(tris, dtype=np.int64))
+
+
 def _quad_from_base_size(base, size, direction="+Z"):
     pan = panel_tess(base, size, direction)
     return pan.points * 1000.0  # back to mm for reshape path
@@ -584,8 +659,14 @@ def primitives_from_model(model: StpreModel) -> list[PrimitivePart]:
 
 
 def tess_for_spec(kind: str, params: dict) -> PrimitivePart:
-    if kind in ("cube", "sketch", "blower_fan"):
+    # M30 specialty thermal parts → cuboid / fin array proxies
+    if kind in ("cube", "sketch", "blower_fan", "enclosure", "peltier",
+                "two_resistor"):
         return cube_tess(params["base"], params["size"])
+    if kind == "plate_fin":
+        return _plate_fin_tess(params)
+    if kind == "pin_fin":
+        return _pin_fin_tess(params)
     if kind == "hexahedron":
         if "points" in params:
             return hexahedron_tess(params["points"])
@@ -668,9 +749,18 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
 
     mm = lambda v: ",".join(f"{x:.12g}" for x in np.ravel(v))  # noqa: E731
 
-    if kind in ("cube", "panel", "sketch", "blower_fan", "fan"):
+    if kind in ("cube", "panel", "sketch", "blower_fan", "fan",
+                "enclosure", "plate_fin", "pin_fin", "peltier",
+                "two_resistor"):
         add("base", mm(params["base"]), "mm")
         add("size", mm(params["size"]), "mm")
+    if kind == "plate_fin":
+        add("fin_count", str(params.get("fin_count", 5)))
+        add("fin_thickness", f"{params.get('fin_thickness', 1.0):.12g}")
+    if kind == "pin_fin":
+        add("pin_nx", str(params.get("pin_nx", 4)))
+        add("pin_ny", str(params.get("pin_ny", 4)))
+        add("pin_radius", f"{params.get('pin_radius', 1.0):.12g}")
     if kind in ("panel", "fan"):
         add("direction", params.get("direction", "+Z"))
     if kind == "fan":
@@ -762,6 +852,8 @@ _DEFAULT_NAME = {
     "quad_panel": "QuadPanel1", "revolved": "RevolvedRect1", "point": "Point1",
     "fan": "Fan1", "axial_fan": "FanModel1", "blower_fan": "BlowerFan1",
     "sketch": "SketchPart1", "pipe": "Pipe1",
+    "enclosure": "Enclosure1", "plate_fin": "PlateFin1", "pin_fin": "PinFin1",
+    "peltier": "Peltier1", "two_resistor": "TwoResistor1",
 }
 _DEFAULT_COLOR = {
     "cube": (180, 180, 180, 255), "hexahedron": (180, 200, 160, 255),
@@ -771,6 +863,9 @@ _DEFAULT_COLOR = {
     "point": (255, 0, 200, 255), "fan": (255, 140, 0, 255),
     "axial_fan": (255, 160, 40, 255), "blower_fan": (140, 220, 40, 255),
     "sketch": (120, 160, 220, 255), "pipe": (100, 160, 200, 255),
+    "enclosure": (160, 160, 200, 255), "plate_fin": (200, 160, 120, 255),
+    "pin_fin": (200, 180, 100, 255), "peltier": (120, 200, 160, 255),
+    "two_resistor": (180, 140, 200, 255),
 }
 _ATTRIBUTES = {
     "cube": ["Obstacle", "Solid", "Condition region", "Fluid"],
@@ -791,6 +886,11 @@ _ATTRIBUTES = {
     "blower_fan": ["Blower fan"],
     "sketch": ["Obstacle", "Solid", "Panel", "Condition region"],
     "pipe": ["Obstacle", "Solid", "Panel"],
+    "enclosure": ["Obstacle", "Solid", "Condition region"],
+    "plate_fin": ["Solid", "Obstacle"],
+    "pin_fin": ["Solid", "Obstacle"],
+    "peltier": ["Solid"],
+    "two_resistor": ["Solid"],
 }
 _EXTRA_TABS = {
     "cube": ["Particle Generation"],
@@ -963,7 +1063,9 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
 
     def _build_scale(self, lay, CuboidSchematic) -> None:
         kind = self._kind
-        if kind in ("cube", "hexahedron", "blower_fan", "sketch"):
+        if kind in ("cube", "hexahedron", "blower_fan", "sketch",
+                    "enclosure", "plate_fin", "pin_fin", "peltier",
+                    "two_resistor"):
             lay.addWidget(CuboidSchematic(self, face="#cfe8a9"), 0,
                           Qt.AlignHCenter)
         elif kind in ("panel", "quad_panel"):
@@ -992,7 +1094,8 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
 
         self._ref_coord_row(lay)
 
-        if kind == "cube":
+        if kind in ("cube", "enclosure", "plate_fin", "pin_fin", "peltier",
+                    "two_resistor"):
             grid, self._spins = self._xyz_grid([
                 ("Location", (0, 0, 0)), ("Size", (10, 10, 10))])
             lay.addLayout(grid)
@@ -1002,6 +1105,25 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                               for a in "xyz"}
             self.cube_size = {f"size_{a}": self._spins[f"Size_{a}"]
                               for a in "xyz"}
+            if kind == "plate_fin":
+                self.fin_count = QSpinBox(self)
+                self.fin_count.setRange(1, 200)
+                self.fin_count.setValue(5)
+                fr = QHBoxLayout()
+                fr.addWidget(QLabel("Fin count", self))
+                fr.addWidget(self.fin_count)
+                lay.addLayout(fr)
+            if kind == "pin_fin":
+                self.pin_nx = QSpinBox(self)
+                self.pin_ny = QSpinBox(self)
+                for w in (self.pin_nx, self.pin_ny):
+                    w.setRange(1, 50)
+                    w.setValue(4)
+                pr = QHBoxLayout()
+                pr.addWidget(QLabel("Pin nx/ny", self))
+                pr.addWidget(self.pin_nx)
+                pr.addWidget(self.pin_ny)
+                lay.addLayout(pr)
 
         elif kind == "hexahedron":
             self.hexa_table = QTableWidget(8, 3, self)
@@ -1374,9 +1496,16 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         def xyz(spins, prefix):
             return tuple(spins[f"{prefix}_{a}"].value() for a in "xyz")
 
-        if kind == "cube":
+        if kind in ("cube", "enclosure", "plate_fin", "pin_fin", "peltier",
+                    "two_resistor"):
             params["base"] = xyz(self.cube_base, "base")
             params["size"] = xyz(self.cube_size, "size")
+            if kind == "plate_fin" and hasattr(self, "fin_count"):
+                params["fin_count"] = self.fin_count.value()
+            if kind == "pin_fin":
+                if hasattr(self, "pin_nx"):
+                    params["pin_nx"] = self.pin_nx.value()
+                    params["pin_ny"] = self.pin_ny.value()
         elif kind == "hexahedron":
             params["points"] = self._table_points(self.hexa_table)
         elif kind == "cylinder":

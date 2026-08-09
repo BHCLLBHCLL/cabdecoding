@@ -333,6 +333,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._act_fit = add(m, "Fit to DrawWindow", self._fit_view, "Ctrl+F")
         add(m, "Reset DrawWindow", self._reset_view)
         m.addSeparator()
+        # M25 View Setting
+        add(m, "Display All Parts", self._view_display_all)
+        add(m, "Hide Selected Parts", self._view_hide_selected)
+        add(m, "Clipping…", self._view_clipping_dialog)
+        m.addSeparator()
         # Shortcuts X/Y/Z (and Shift+*) installed on the Draw Window widget
         self._act_xy = add(m, "XY Plane", lambda: self._set_plane("xy"))
         self._act_xz = add(m, "XZ Plane", lambda: self._set_plane("xz"))
@@ -409,6 +414,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             lambda: self._set_mouse_mode("trackball"))
         add(m, "(Mouse) Rubber Band Zoom",
             lambda: self._set_mouse_mode("rubber"))
+        m.addSeparator()
+        add(m, "Distance…", self._option_distance_dialog)
+        add(m, "Reference…", self._option_reference_dialog)
+        add(m, "Cut Cell…", self._option_cutcell_dialog)
+        add(m, "Selection Mode…", self._option_selection_mode)
+        add(m, "Viewer Mode…", self._option_viewer_mode)
+        m.addSeparator()
         add(m, "Environment Settings", self._environment_settings)
         add(m, "Detailed Program Settings", self._detailed_settings)
 
@@ -557,6 +569,217 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg = OptionsDialog(self, props=self.props, detailed=True)
         if dlg.exec_():
             self._apply_options(dlg.values())
+
+    def _option_distance_dialog(self) -> None:
+        """M25 Option → Distance."""
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout,
+            QPushButton, QHBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Distance")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        spins = []
+        for lab in ("X1", "Y1", "Z1", "X2", "Y2", "Z2"):
+            sp = QDoubleSpinBox(dlg)
+            sp.setRange(-1e6, 1e6)
+            sp.setDecimals(3)
+            form.addRow(lab + " (mm)", sp)
+            spins.append(sp)
+        result = QLabel("Distance = —", dlg)
+        lay.addLayout(form)
+        lay.addWidget(result)
+        row = QHBoxLayout()
+        calc = QPushButton("Calculate", dlg)
+        close = QPushButton("Close", dlg)
+        row.addStretch(1)
+        row.addWidget(calc)
+        row.addWidget(close)
+        lay.addLayout(row)
+
+        def _calc() -> None:
+            p1 = np.array([spins[i].value() for i in range(3)])
+            p2 = np.array([spins[i].value() for i in range(3, 6)])
+            d = float(np.linalg.norm(p2 - p1))
+            result.setText(f"Distance = {d:.6g} mm")
+            self.log(f"Distance: {d:.6g} mm")
+
+        calc.clicked.connect(_calc)
+        close.clicked.connect(dlg.accept)
+        dlg.exec_()
+
+    def _option_reference_dialog(self) -> None:
+        """M25 Option → Reference (origin / axes marker)."""
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QDoubleSpinBox, QCheckBox, QVBoxLayout,
+            QPushButton, QHBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Reference")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        ox = QDoubleSpinBox(dlg)
+        oy = QDoubleSpinBox(dlg)
+        oz = QDoubleSpinBox(dlg)
+        for w, key in ((ox, "ref_ox"), (oy, "ref_oy"), (oz, "ref_oz")):
+            w.setRange(-1e6, 1e6)
+            w.setDecimals(3)
+            w.setValue(float(get_setting(key, 0.0)))
+        show = QCheckBox("Show reference axes", dlg)
+        show.setChecked(str(get_setting("ref_show", "True")) == "True")
+        form.addRow("Origin X (mm)", ox)
+        form.addRow("Origin Y (mm)", oy)
+        form.addRow("Origin Z (mm)", oz)
+        form.addRow(show)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _ok() -> None:
+            set_setting("ref_ox", ox.value())
+            set_setting("ref_oy", oy.value())
+            set_setting("ref_oz", oz.value())
+            set_setting("ref_show", show.isChecked())
+            self.log(
+                f"Reference origin=({ox.value():g},{oy.value():g},"
+                f"{oz.value():g}) show={show.isChecked()}")
+            dlg.accept()
+
+        ok.clicked.connect(_ok)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _option_cutcell_dialog(self) -> None:
+        """M27 Option → Cut Cell MVP."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QCheckBox, QDoubleSpinBox, QVBoxLayout,
+            QPushButton, QHBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Cut Cell")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        en = QCheckBox("Enable cut-cell", dlg)
+        en.setChecked(
+            self.model.project_value("cutcell_enable", "F") == "T")
+        tol = QDoubleSpinBox(dlg)
+        tol.setRange(0.0, 1.0)
+        tol.setDecimals(6)
+        try:
+            tol.setValue(float(
+                self.model.project_value("cutcell_tol", "0.01")))
+        except ValueError:
+            tol.setValue(0.01)
+        form.addRow(en)
+        form.addRow("Tolerance", tol)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _ok() -> None:
+            snap = self._snapshot()
+            self.model.set_project_value(
+                "cutcell_enable", "T" if en.isChecked() else "F")
+            self.model.set_project_value(
+                "cutcell_tol", f"{tol.value():g}")
+            self.model.set_analysis_set_value(
+                "cutcell", "1" if en.isChecked() else "0")
+            self._push_undo(snap)
+            self._mark_dirty()
+            self.log(f"Cut Cell: enable={en.isChecked()} tol={tol.value():g}")
+            dlg.accept()
+
+        ok.clicked.connect(_ok)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _option_selection_mode(self) -> None:
+        """M29 Option → Selection Mode."""
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QRadioButton, QPushButton, QHBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Selection Mode")
+        lay = QVBoxLayout(dlg)
+        cur = str(get_setting("selection_mode", "Single"))
+        radios = []
+        for lab in ("Single", "Multi", "Rubber box"):
+            rb = QRadioButton(lab, dlg)
+            rb.setChecked(lab == cur)
+            lay.addWidget(rb)
+            radios.append(rb)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _ok() -> None:
+            for rb in radios:
+                if rb.isChecked():
+                    set_setting("selection_mode", rb.text())
+                    self.log(f"Selection Mode: {rb.text()}")
+                    break
+            dlg.accept()
+
+        ok.clicked.connect(_ok)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _option_viewer_mode(self) -> None:
+        """M29 Option → Viewer Mode."""
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QVBoxLayout, QRadioButton, QPushButton, QHBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Viewer Mode")
+        lay = QVBoxLayout(dlg)
+        cur = str(get_setting("viewer_mode", "Edit"))
+        radios = []
+        for lab in ("Edit", "Viewer (read-only)"):
+            rb = QRadioButton(lab, dlg)
+            rb.setChecked(lab.startswith(cur) or lab == cur)
+            lay.addWidget(rb)
+            radios.append(rb)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _ok() -> None:
+            for rb in radios:
+                if rb.isChecked():
+                    mode = "Edit" if rb.text().startswith("Edit") else "Viewer"
+                    set_setting("viewer_mode", mode)
+                    self.log(f"Viewer Mode: {mode}")
+                    break
+            dlg.accept()
+
+        ok.clicked.connect(_ok)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
 
     def _apply_options(self, values: dict) -> None:
         self._undo_limit = int(values.get("undo_levels", 50))
@@ -958,10 +1181,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         import cab_edit_dialogs
         snap = self._snapshot()
-        dlg = cab_edit_dialogs.FacetAccuracyDialog(self.model, self)
+        if self._cad_meshes is None:
+            self._cad_meshes = []
+        dlg = cab_edit_dialogs.FacetAccuracyDialog(
+            self.model, self, archive=self.archive,
+            cad_meshes=self._cad_meshes)
         dlg.exec_()
         if dlg.applied:
-            self._edit_finish(snap, "Facet Accuracy: parameters stored.")
+            self._edit_finish(
+                snap,
+                f"Facet Accuracy: rebuilt {getattr(dlg, 'reconstructed', 0)} "
+                f"part(s).")
 
     def _flipping_part_face(self) -> None:
         """Edit -> Flipping Part Face (click part / flip selection)."""
@@ -969,7 +1199,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         import cab_edit_ops
         name = None
-        if getattr(self, "_selected_kind", None) == "part":
+        tri_ids = None
+        picked = getattr(self, "_picked_face", None)
+        if picked:
+            name, cid = picked
+            tri_ids = [cid]
+        elif getattr(self, "_selected_kind", None) == "part":
             name = self._selected_name
         if not name:
             parts = self.model.parts()
@@ -978,16 +1213,22 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not name:
             QMessageBox.information(
                 self, "Flipping Part Face",
-                "Select a part in the Layout tree, then run this command.\n"
-                "STpre: click a part to flip all faces; hold 1 and click "
-                "to flip a single face.")
+                "Select a part (or pick a Face in Draw Window), then run "
+                "this command.")
             return
         snap = self._snapshot()
-        if not cab_edit_ops.flip_part_faces(self._cad_meshes, name):
+        ok = cab_edit_ops.flip_selected_triangles(
+            self._cad_meshes, name, tri_ids) \
+            if tri_ids else cab_edit_ops.flip_part_faces(
+                self._cad_meshes, name)
+        if not ok:
             self.log(f"Flipping Part Face: no tessellation for '{name}'.",
                      "WARN")
             return
-        self._edit_finish(snap, f"Flipping Part Face: flipped '{name}'.")
+        self._edit_finish(
+            snap,
+            f"Flipping Part Face: flipped '{name}'"
+            + (f" cell {tri_ids[0]}" if tri_ids else "") + ".")
 
     def _part_face_paneling(self) -> None:
         """Edit -> Part Face Paneling (Esc commits in STpre)."""
@@ -1403,11 +1644,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_sel_target(self, target: str) -> None:
         self._target_label.setText(target)
+        self._sel_target = target
         if target == "Detail":
             self._nyi("Drawing On/Off — Detail…")
             return
-        if target not in ("Part", "Parts"):
-            self._nyi(f"Target of selection — {target}")
+        # M24/M25: Face / Vertices enable VTK cell pick (see _on_left_click)
+        if target in ("Part", "Parts", "Face", "Faces", "Faces + Vertices",
+                      "Vertices", "Vertex"):
+            self.log(f"Selection target: {target}")
+            return
+        self._nyi(f"Target of selection — {target}")
 
     def _on_layer_apply(self) -> None:
         """Control → Layer → Apply: filter part visibility by Display Layer."""
@@ -1582,6 +1828,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         iren.SetInteractorStyle(self._trackball_style)
         iren.AddObserver("MouseMoveEvent", self._on_mouse_move, 1.0)
         iren.AddObserver("KeyPressEvent", self._on_vtk_key_press, 1.0)
+        iren.AddObserver("LeftButtonPressEvent", self._on_left_click, 1.0)
+        self._cell_picker = vtk.vtkCellPicker()
+        self._cell_picker.SetTolerance(0.005)
+        self._sel_target = getattr(self, "_sel_target", "Part")
+        self._picked_face = None  # (part_name, cell_id)
         # QVTKRenderWindowInteractor.Initialize() sets up the Qt/VTK bridge;
         # falling back to the raw iren when the widget API is unavailable.
         if hasattr(self.vtk_widget, "Initialize"):
@@ -1654,6 +1905,110 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"( {wx * 1000:.4g} , {wy * 1000:.4g} , {wz * 1000:.4g} )")
         except Exception:
             pass
+
+    def _on_left_click(self, obj, _event) -> None:
+        """M24/M25: Face/Vertex pick via vtkCellPicker."""
+        if self.renderer is None or not hasattr(self, "_cell_picker"):
+            return
+        target = getattr(self, "_sel_target", "Part")
+        if target in ("Part", "Parts", None):
+            return
+        try:
+            x, y = obj.GetEventPosition()
+            self._cell_picker.Pick(float(x), float(y), 0.0, self.renderer)
+            actor = self._cell_picker.GetActor()
+            if actor is None:
+                return
+            cell = self._cell_picker.GetCellId()
+            name = None
+            # self.actors is list[(vtkActor, part_name)]
+            for act, pname in getattr(self, "actors", []) or []:
+                if act is actor:
+                    name = pname
+                    break
+            if name is None and getattr(self, "_selected_kind", None) == "part":
+                name = self._selected_name
+            if name is None or cell < 0:
+                return
+            self._picked_face = (name, int(cell))
+            self._selected_kind = "part"
+            self._selected_name = name
+            self.log(f"Picked {target}: part='{name}' cell={cell}")
+            self._mode_label.setText(f"{target}")
+        except Exception as exc:
+            self.log(f"Pick failed: {exc}", "WARN")
+
+    def _view_display_all(self) -> None:
+        self._hidden_parts.clear()
+        self._rebuild_scene()
+        self.log("View: Display All Parts")
+
+    def _view_hide_selected(self) -> None:
+        if getattr(self, "_selected_kind", None) == "part" and \
+                self._selected_name:
+            self._hidden_parts.add(self._selected_name)
+            self._rebuild_scene()
+            self.log(f"View: Hide '{self._selected_name}'")
+        else:
+            self.log("View: select a part to hide.", "WARN")
+
+    def _view_clipping_dialog(self) -> None:
+        """M25: Clipping plane on Draw Window."""
+        if self.renderer is None:
+            self.log("Clipping requires 3D view.", "WARN")
+            return
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QDoubleSpinBox, QPushButton, QHBoxLayout,
+            QVBoxLayout, QCheckBox, QComboBox,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Clipping")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        axis = QComboBox(dlg)
+        axis.addItems(["X", "Y", "Z"])
+        pos = QDoubleSpinBox(dlg)
+        pos.setRange(-1e6, 1e6)
+        pos.setDecimals(3)
+        pos.setValue(0.0)
+        en = QCheckBox("Enable clipping", dlg)
+        en.setChecked(True)
+        form.addRow("Axis", axis)
+        form.addRow("Position (mm)", pos)
+        form.addRow(en)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _apply() -> None:
+            if not en.isChecked():
+                self.renderer.RemoveAllClipPlanes()
+                self._rebuild_scene()
+                dlg.accept()
+                return
+            plane = vtk.vtkPlane()
+            n = [0.0, 0.0, 0.0]
+            n[{"X": 0, "Y": 1, "Z": 2}[axis.currentText()]] = 1.0
+            plane.SetNormal(*n)
+            o = [0.0, 0.0, 0.0]
+            o[{"X": 0, "Y": 1, "Z": 2}[axis.currentText()]] = \
+                pos.value() / 1000.0
+            plane.SetOrigin(*o)
+            self.renderer.RemoveAllClipPlanes()
+            self.renderer.AddClipPlane(plane)
+            if self.vtk_widget is not None:
+                self.vtk_widget.GetRenderWindow().Render()
+            self.log(f"Clipping: {axis.currentText()}={pos.value():g} mm")
+            dlg.accept()
+
+        ok.clicked.connect(_apply)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
 
     def _domain_scale(self) -> float:
         """Characteristic length (m) for origin marker sizing."""
@@ -2057,8 +2412,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         path, _ = QFileDialog.getOpenFileName(
             self, "Import Geometry", "",
-            "Geometry (*.x_t *.xmt_txt *.step *.stp *.stl *.sat *.sab);;"
+            "Geometry (*.x_t *.xmt_txt *.step *.stp *.stl *.sat *.sab "
+            "*.obj *.dxf *.mdl);;"
             "Parasolid XT (*.x_t *.xmt_txt);;STEP (*.step *.stp);;"
+            "OBJ (*.obj);;DXF (*.dxf);;MDL (*.mdl);;"
             "STL (*.stl);;ACIS SAT (*.sat *.sab);;All files (*)")
         if not path:
             return
@@ -2173,14 +2530,43 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         path, selected = QFileDialog.getSaveFileName(
             self, "导出", self.model.project_name or "export",
-            "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*)")
+            "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*);;"
+            "STL (*.stl);;Parasolid XT (*.x_t);;Property XML (*_property.xml)")
         if not path:
             return
         base, ext = os.path.splitext(path)
         if not ext:
             ext = ".s"
         wrote = []
-        if "XEMT" in selected and "S +" not in selected:
+        if "STL" in selected or ext.lower() == ".stl":
+            out = base + ".stl"
+            self._export_stl(out)
+            wrote.append(out)
+        elif "Parasolid" in selected or ext.lower() == ".x_t":
+            out = base + ".x_t"
+            self._export_xt(out)
+            wrote.append(out)
+        elif "Property XML" in selected or "property.xml" in ext.lower() \
+                or (ext.lower() == ".xml" and "Property" in selected):
+            out = path if path.lower().endswith(".xml") else \
+                (base + "_property.xml")
+            if not out.lower().endswith("_property.xml") and \
+                    not out.lower().endswith(".xml"):
+                out = base + "_property.xml"
+            raw = None
+            if self.props is not None and hasattr(self.props.doc, "serialize"):
+                raw = self.props.doc.serialize()
+            elif self.archive is not None:
+                for m in self.archive.members:
+                    if m.name.endswith("_property.xml"):
+                        raw = m.data
+                        break
+            if raw is None:
+                raise RuntimeError("no property XML to export")
+            with open(out, "wb") as fh:
+                fh.write(raw)
+            wrote.append(out)
+        elif "XEMT" in selected and "S +" not in selected:
             out = base + ".xemt"
             with open(out, "w", encoding="utf-8-sig", newline="") as fh:
                 fh.write(xemt_export.build_emt(self.model, self.props))
@@ -2201,6 +2587,43 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 fh.write(xemt_export.build_emt(self.model, self.props))
             wrote.append(base + ".xemt")
         self.log("Exported " + ", ".join(wrote))
+
+    def _export_stl(self, path: str) -> None:
+        """M26: dump current CAD tessellations as binary STL."""
+        import cab_import
+        meshes = list(self._cad_meshes or [])
+        if not meshes:
+            raise RuntimeError("no tessellation to export")
+        pts = []
+        tris = []
+        for m in meshes:
+            off = len(pts)
+            pts.extend(np.asarray(m.points).tolist())
+            for t in np.asarray(m.triangles):
+                tris.append([int(t[0]) + off, int(t[1]) + off,
+                             int(t[2]) + off])
+        raw = cab_import._tris_to_stl_bytes(
+            np.asarray(pts), np.asarray(tris), Path(path).stem)
+        with open(path, "wb") as fh:
+            fh.write(raw)
+
+    def _export_xt(self, path: str) -> None:
+        """M26: export XT archive member (prefer first CAD .x_t payload)."""
+        if self.archive is not None:
+            for m in self.archive.members:
+                if m.name.endswith(".x_t") and m.data:
+                    Path(path).write_bytes(m.data)
+                    return
+        # Fallback: try pskernel transmit if session helpers expose tags
+        try:
+            import cab_ps_ops
+            tags = getattr(self, "_ps_body_tags", None) or []
+            if tags and cab_ps_ops.available():
+                Path(path).write_bytes(cab_ps_ops.transmit_parts(list(tags)))
+                return
+        except Exception as exc:
+            self.log(f"XT transmit fallback failed: {exc}", "WARN")
+        raise RuntimeError("no .x_t member available to export")
 
     # ------------------------------------------------------ File: Print
 
@@ -2315,58 +2738,136 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             fh.write(xemt_export.build_emt(self.model, self.props))
         return base + ".s"
 
-    def _launch_program(self, exe: Optional[str], args: list[str]) -> bool:
+    def _launch_program(self, exe: Optional[str], args: list[str],
+                        cwd: Optional[str] = None) -> bool:
         if not exe:
             self.log("Program not found (Cradle CFD 2025.2).", "WARN")
             return False
         try:
-            subprocess.Popen([exe] + args)
-            self.log(f"Launched {os.path.basename(exe)}")
+            subprocess.Popen([exe] + args, cwd=cwd or None)
+            self.log(f"Launched {os.path.basename(exe)}"
+                     + (f" cwd={cwd}" if cwd else ""))
             return True
         except Exception as exc:
             self.log(f"Launch failed: {exc}", "ERROR")
             return False
 
     def _execute_solver(self) -> None:
-        """File -> Execute Solver: confirm, export temp S files, launch."""
+        """M31 File -> Execute Solver: cwd / restart / env options."""
         if self.model is None or self.props is None:
             self.log("No project open.", "WARN")
             return
-        ret = QMessageBox.question(
-            self, "Execute Solver",
-            "Solver 将读取当前工程的 S 文件并启动。继续？",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
-        if ret != QMessageBox.Yes:
-            return
-        sfile = self._export_temp_s_files()
-        if sfile is None:
-            self.log("Execute Solver: export failed.", "ERROR")
-            return
-        exe = self._find_program(
-            ["stsol_Dx64net.exe", "stsol_Sx64net.exe", "stsol.exe"])
-        if self._launch_program(exe, [sfile]):
-            self.log(f"Execute Solver: {sfile}")
-        else:
-            QMessageBox.warning(
-                self, "Execute Solver",
-                "未找到 stsol 求解器；S 文件已导出到:\n" + sfile)
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QLineEdit, QCheckBox, QVBoxLayout,
+            QPushButton, QHBoxLayout, QFileDialog as _FD,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Execute Solver")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        work = QLineEdit(str(get_setting(
+            "solver_workdir",
+            os.path.dirname(self.current_path or "") or os.getcwd())), dlg)
+        envf = QLineEdit(str(get_setting("solver_env", "")), dlg)
+        restart = QCheckBox("Restart from previous result", dlg)
+        restart.setChecked(
+            str(get_setting("solver_restart", "False")) == "True")
+        form.addRow("Working directory", work)
+        brow = QHBoxLayout()
+        brow.addWidget(envf, 1)
+        benv = QPushButton("…", dlg)
+        benv.clicked.connect(lambda: envf.setText(
+            _FD.getOpenFileName(dlg, "Solver env", "", "Env (*.env *.xenv);;All (*.*)")[0]
+            or envf.text()))
+        brow.addWidget(benv)
+        form.addRow("Environment file", brow)
+        form.addRow(restart)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("Execute", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _run() -> None:
+            set_setting("solver_workdir", work.text().strip())
+            set_setting("solver_env", envf.text().strip())
+            set_setting("solver_restart", restart.isChecked())
+            sfile = self._export_temp_s_files()
+            if sfile is None:
+                self.log("Execute Solver: export failed.", "ERROR")
+                return
+            exe = self._find_program(
+                ["stsol_Dx64net.exe", "stsol_Sx64net.exe", "stsol.exe"])
+            args = [sfile]
+            if envf.text().strip():
+                args += ["-env", envf.text().strip()]
+            if restart.isChecked():
+                args += ["-restart"]
+            cwd = work.text().strip() or None
+            if not self._launch_program(exe, args, cwd=cwd):
+                QMessageBox.warning(
+                    self, "Execute Solver",
+                    "未找到 stsol；S 文件已导出到:\n" + sfile)
+            else:
+                self.log(f"Execute Solver: {sfile} cwd={cwd}")
+            dlg.accept()
+
+        ok.clicked.connect(_run)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
 
     def _execute_post(self) -> None:
-        """File -> Execute Post: confirm and launch Postprocessor."""
+        """M31 File -> Execute Post: open cab / field file."""
         if self.model is None:
             self.log("No project open.", "WARN")
             return
-        ret = QMessageBox.question(
-            self, "Execute Post",
-            "启动 Postprocessor？", QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.Yes)
-        if ret != QMessageBox.Yes:
-            return
-        exe = self._find_program(
-            ["scPOST_Dx64net.exe", "scPOST_Sx64net.exe", "scPOST.exe"])
-        args = [self.current_path] if self.current_path else []
-        if not self._launch_program(exe, args):
-            QMessageBox.warning(self, "Execute Post", "未找到 scPOST 后处理。")
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QLineEdit, QVBoxLayout, QPushButton,
+            QHBoxLayout, QFileDialog as _FD,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Execute Post")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        field = QLineEdit(str(get_setting(
+            "post_field", self.current_path or "")), dlg)
+        brow = QHBoxLayout()
+        brow.addWidget(field, 1)
+        bb = QPushButton("…", dlg)
+        bb.clicked.connect(lambda: field.setText(
+            _FD.getOpenFileName(
+                dlg, "Open field / cab", "",
+                "Field/CAB (*.fld *.r *.cab);;All (*.*)")[0]
+            or field.text()))
+        brow.addWidget(bb)
+        form.addRow("Field / project", brow)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("Execute", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _run() -> None:
+            set_setting("post_field", field.text().strip())
+            exe = self._find_program(
+                ["scPOST_Dx64net.exe", "scPOST_Sx64net.exe", "scPOST.exe"])
+            args = [field.text().strip()] if field.text().strip() else []
+            if not self._launch_program(exe, args):
+                QMessageBox.warning(
+                    self, "Execute Post", "未找到 scPOST 后处理。")
+            dlg.accept()
+
+        ok.clicked.connect(_run)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
 
     def _wizard_initial(self) -> None:
         """Wizard → Initial Setting (also auto-shown on startup / File→New).

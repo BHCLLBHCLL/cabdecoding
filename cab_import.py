@@ -138,7 +138,106 @@ def import_file_with_payload(path: str | Path, **kw
         raw = cab_occ.triangles_to_stl(
             pts, tris, name=Path(path).stem)
         return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
+    if suffix == ".obj":
+        pts, tris = parse_obj_file(Path(path))
+        raw = _tris_to_stl_bytes(pts, tris, Path(path).stem)
+        return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
+    if suffix == ".dxf":
+        pts, tris = parse_dxf_meshish(Path(path))
+        raw = _tris_to_stl_bytes(pts, tris, Path(path).stem)
+        return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
+    if suffix == ".mdl":
+        # Cradle MDL: treat as text STL-like / fallback OBJ vertices
+        try:
+            pts, tris = parse_obj_file(Path(path))
+        except Exception:
+            raise ValueError(
+                "MDL import requires OBJ-compatible vertex data "
+                "(native Cradle MDL parser not bundled)")
+        raw = _tris_to_stl_bytes(pts, tris, Path(path).stem)
+        return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
     raise ValueError(f"unsupported geometry format: {suffix}")
+
+
+def parse_obj_file(path: Path):
+    """Minimal Wavefront OBJ → points/triangles (metres if file in m)."""
+    verts: list[list[float]] = []
+    faces: list[list[int]] = []
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("v "):
+            parts = line.split()
+            verts.append([float(parts[1]), float(parts[2]), float(parts[3])])
+        elif line.startswith("f "):
+            idx = []
+            for tok in line.split()[1:]:
+                i = int(tok.split("/")[0])
+                idx.append(i - 1 if i > 0 else len(verts) + i)
+            if len(idx) >= 3:
+                for k in range(1, len(idx) - 1):
+                    faces.append([idx[0], idx[k], idx[k + 1]])
+    if not faces:
+        raise ValueError("no OBJ faces found")
+    return (np.asarray(verts, dtype=np.float64),
+            np.asarray(faces, dtype=np.int64))
+
+
+def parse_dxf_meshish(path: Path):
+    """Very small DXF reader: 3DFACE entities → triangles (mm→m)."""
+    text = path.read_text(encoding="latin-1", errors="replace")
+    lines = text.splitlines()
+    faces = []
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().upper() == "3DFACE":
+            coords = {}
+            i += 1
+            while i + 1 < len(lines) and lines[i].strip() not in (
+                    "0", "ENDSEC"):
+                try:
+                    code = int(lines[i].strip())
+                    val = float(lines[i + 1].strip())
+                except ValueError:
+                    i += 1
+                    continue
+                coords[code] = val
+                i += 2
+            pts = []
+            for base in (10, 11, 12, 13):
+                if base in coords and base + 10 in coords and base + 20 in coords:
+                    pts.append([coords[base] / 1000.0,
+                                coords[base + 10] / 1000.0,
+                                coords[base + 20] / 1000.0])
+            if len(pts) >= 3:
+                faces.append(pts[:3])
+                if len(pts) == 4:
+                    faces.append([pts[0], pts[2], pts[3]])
+            continue
+        i += 1
+    if not faces:
+        raise ValueError("no DXF 3DFACE entities found")
+    arr = np.asarray(faces, dtype=np.float64).reshape(-1, 3)
+    uniq, inv = np.unique(np.round(arr, 9), axis=0, return_inverse=True)
+    return uniq, inv.reshape(-1, 3).astype(np.int64)
+
+
+def _tris_to_stl_bytes(pts, tris, name: str) -> bytes:
+    try:
+        import cab_occ
+        return cab_occ.triangles_to_stl(pts, tris, name=name)
+    except Exception:
+        # binary STL fallback
+        n = len(tris)
+        buf = bytearray(80) + struct.pack("<I", n)
+        for t in tris:
+            v = pts[list(t)]
+            nrm = np.cross(v[1] - v[0], v[2] - v[0])
+            ln = np.linalg.norm(nrm) or 1.0
+            nrm = nrm / ln
+            buf += struct.pack("<3f", *nrm)
+            for p in v:
+                buf += struct.pack("<3f", *p)
+            buf += struct.pack("<H", 0)
+        return bytes(buf)
 
 
 def add_stl_member(archive: CabArchive, stl_bytes: bytes,

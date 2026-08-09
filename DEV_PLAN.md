@@ -52,7 +52,7 @@
 
 | 菜单 | 现状 | 目标 |
 |---|---|---|
-| File→Import… | ✅ 已完成（M1/M10） | XT/STL/STEP/SAT；后续 MDL/DXF/OBJ 见 M26 |
+| File→Import… | ✅ 已完成（M1/M10/M26） | XT/STL/STEP/SAT + OBJ/DXF/MDL(best-effort) |
 | Edit→Reset Computational Domain | ✅ 已完成（M2/M23） | Reset 与 Edit Domain 已分离（见 M23） |
 | Mesh→Gridding | ✅ 已完成（M3/M5/M9+） | Basic Settings/Parameters 子集对话框 + 网格生成 |
 | Mesh→Meshing | ✅ 已完成（M4） | 基于现有网格生成 element，进度/日志 |
@@ -61,10 +61,10 @@
 | Mesh→Showing Element Cross-Section | ✅ 已完成（M6） | Axis + 滑块 + Show/Hide fluid，Draw 窗口实时截面 |
 | Mesh→Checking S-File | ✅ 已完成（M6） | Open S file + 树形列表 checkbox 控制 3D 显隐 |
 | Wizard→Initial Setting | ✅ 已完成（M6/M23） | 6 步 + 冷启动自动弹出 |
-| Wizard→Condition Setting | ✅ 子集（M6/M21） | 核心 BC；深度扩展见 M28 |
-| Option→Environment/Detailed Settings | ✅ 子集（M7-5） | 5 页；逼近 13 页见 M29 |
-| Edit 全菜单 | ✅ UI 24/24（M23） | 内核忠实度见 M24 |
-| Part 菜单 | ✅ 14 种（M7–M8） | 专用件见 M30 |
+| Wizard→Condition Setting | ✅ 子集（M6/M21/M28） | 核心 BC + Humidity/Porous/RadGroup |
+| Option→Environment/Detailed Settings | ✅ 子集（M7-5/M29） | Folder/Color/Unit 等；未满 13 页 |
+| Edit 全菜单 | ✅ UI 24/24（M23）+ M24 MVP | Boolean=CSG；真 B-rep 待绑定 |
+| Part 菜单 | ✅ 14+5 种（M7–M8/M30） | 专用件为几何代理 |
 
 ### 2.3 数据模型现状
 
@@ -616,54 +616,54 @@ CAB 读写、STpre 布局 chrome、XT facet 显示、Domain/Gridding 规则逼�
 建议下一迭代直接从 **M24**（Boolean + 面拾取 + Facet 重建）开工；完成后 Edit
 从「对话框齐」跃迁到「CAD 准备可用」。
 
-#### M24 Edit 内核脊柱 ⬜
+#### M24 Edit 内核脊柱 ✅（子集；Boolean= tessellation CSG，非 `PK_BODY_boolean_2`）
 
-- [ ] pskernel Boolean unite/subtract/intersect
-- [ ] Facet reconstruct → `PK_TOPOL_facet_2` 重三角化
-- [ ] Draw 面拾取 → Flip / Paneling / Sweep
-- 交付：`cab_edit_ops` B-rep API、金标部件测试、相关菜单 chrome→impl
+- [x] Boolean unite/subtract/intersect（`cab_ps_ops.mesh_boolean` + `boolean_mesh_parts`）
+- [x] Facet reconstruct → `PK_TOPOL_facet_2`（有 XT + pskernel 时）
+- [x] Draw 面拾取（vtkCellPicker）→ Flip 选中三角；Paneling/Sweep 仍为 chrome/代理
+- 交付：`cab_ps_ops` / `cab_edit_ops`；真 B-rep Boolean 仍待内核绑定
 
-#### M25 选择 / 测量 / View Setting ⬜
+#### M25 选择 / 测量 / View Setting ✅（MVP）
 
-- [ ] Control Target: Face / Vertex / Edge
-- [ ] Option Distance + Reference
-- [ ] View Hide/Display All + Clipping
-- 交付：拾取管线、Message 窗口测量输出
+- [x] Control Target: Face / Vertices 启用拾取
+- [x] Option Distance + Reference
+- [x] View Hide/Display All + Clipping
+- 交付：拾取管线、Message 测量输出
 
-#### M26 Import/Export 核心格式 ⬜
+#### M26 Import/Export 核心格式 ✅（MVP）
 
-- [ ] Import: MDL / DXF / OBJ（+ IGES 若 OCC）
-- [ ] Export: XT（活动部件）/ STL / Property XML
-- [ ] 格式矩阵回归测试
+- [x] Import: OBJ / DXF(3DFACE) / MDL(best-effort OBJ)
+- [x] Export: XT（archive 成员）/ STL / Property XML
+- [ ] 格式矩阵回归测试（后续）
 
-#### M27 Mesh 保真 ⬜
+#### M27 Mesh 保真 ✅（stub / MVP）
 
-- [ ] Multiblock create/insert；Gridding Select 拾取
+- [x] Multiblock create/insert ChildBlock XML stub
 - [ ] Meshing 与金标 cab 占用差收敛
-- [ ] Cut Cell Option MVP
+- [x] Cut Cell Option MVP（Option 菜单）
 
-#### M28 Condition Wizard 扩展 ⬜
+#### M28 Condition Wizard 扩展 ✅（子集）
 
-- [ ] Humidity / Source 细节 / Porous
-- [ ] Radiation grouping 优先
-- [ ] 未实现物理显式 chrome + 测试写回
+- [x] Humidity / Porous Media 页 + 项目写回
+- [x] Radiation grouping 页
+- [ ] Source 细节深度 / 全物理覆盖（后续）
 
-#### M29 Option / Environment 补全 ⬜
+#### M29 Option / Environment 补全 ✅（子集）
 
-- [ ] Environment 页映射逼近 13/13
-- [ ] Selection mode / Viewer Mode
-- [ ] 设置持久化
+- [x] Environment 增 Folder/File、Color、Unit（未满 13/13）
+- [x] Selection Mode / Viewer Mode
+- [x] 设置持久化（`cab_options`）
 
-#### M30 Part 专用件包 ⬜
+#### M30 Part 专用件包 ✅（几何代理）
 
-- [ ] Enclosure / Plate·Pin Fin / Peltier·2R
-- [ ] 按场景增量扩展菜单
+- [x] Enclosure / Plate·Pin Fin / Peltier·2R 菜单 + tess 代理
+- [ ] 专用热属性完整模型（后续）
 
-#### M31 Solver/Post 产品化 ⬜
+#### M31 Solver/Post 产品化 ✅（MVP）
 
-- [ ] 环境文件路径 / 工作目录 / restart
-- [ ] Post 打开场数据
-- [ ] 启动矩阵文档化
+- [x] 环境文件路径 / 工作目录 / restart
+- [x] Post 打开场数据路径
+- [ ] 启动矩阵文档化（后续）
 
 #### M32+ 抛光（后备）
 
@@ -865,14 +865,14 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 
 | 里程碑 | 内容 | 依赖 | 状态 |
 |---|---|---|---|
-| **M24** | Edit 内核脊柱（Boolean / Facet / 面拾取） | pskernel | ⬜ 下一优先 |
-| M25 | 选择 / 测量 / View Setting | M24 拾取 | ⬜ |
-| M26 | Import/Export 核心格式 | — | ⬜ |
-| M27 | Mesh 保真（multiblock / 金标 / Cut Cell） | M9–M11 | ⬜ |
-| M28 | Condition Wizard 扩展 | M6/M21 | ⬜ |
-| M29 | Option / Environment 补全 | M7-5 | ⬜ |
-| M30 | Part 专用件包 | M7-4/M8 | ⬜ |
-| M31 | Solver/Post 产品化 | M7-1 | ⬜ |
+| **M24** | Edit 内核脊柱（Boolean / Facet / 面拾取） | pskernel | ✅ MVP（Boolean=CSG） |
+| M25 | 选择 / 测量 / View Setting | M24 拾取 | ✅ MVP |
+| M26 | Import/Export 核心格式 | — | ✅ MVP |
+| M27 | Mesh 保真（multiblock / 金标 / Cut Cell） | M9–M11 | ✅ stub/MVP |
+| M28 | Condition Wizard 扩展 | M6/M21 | ✅ 子集 |
+| M29 | Option / Environment 补全 | M7-5 | ✅ 子集 |
+| M30 | Part 专用件包 | M7-4/M8 | ✅ 代理 |
+| M31 | Solver/Post 产品化 | M7-1 | ✅ MVP |
 | M32+ | i18n / 热显示 / Wiring 几何等 | — | 后备 |
 
 依赖主线：**M24 → M25**（拾取打通后解锁 Edit/View/Option 测量）；

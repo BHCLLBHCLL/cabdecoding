@@ -1739,14 +1739,50 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         from PyQt5.QtWidgets import QMenu
         menu = QMenu(self)
         menu.addAction("Edit mesh block", self._edit_mesh_block)
-        for label in ("Create mesh block", "Insert mesh block",
-                      "Cancel mesh block", "Create connected block",
+        menu.addAction("Create mesh block", self._create_child_block)
+        menu.addAction("Insert mesh block", self._create_child_block)
+        for label in ("Cancel mesh block", "Create connected block",
                       "Create bounding block"):
             menu.addAction(
                 label, lambda l=label: self._log(
-                    f"[{l}] multiblock editing not supported in cab viewer.",
+                    f"[{l}] advanced multiblock not yet supported.",
                     "WARN"))
         menu.exec_(self.block_tree.viewport().mapToGlobal(pos))
+
+    def _create_child_block(self) -> None:
+        """M27: register a child mesh block under RootBlock (XML stub)."""
+        import xml.etree.ElementTree as ET
+        from cabxml import _first, set_text
+        mc = self.model.mesh_control()
+        if mc is None:
+            self._log("Create mesh block: no mesh_control yet — "
+                      "run Gridding first.", "WARN")
+            return
+        existing = [c for c in list(mc) if c.tag not in (
+            "RootBlock",) and "Block" in c.tag or c.tag.startswith("Child")]
+        n = 1
+        while any((c.attrib.get("name") or c.tag) == f"ChildBlock{n}"
+                  for c in mc):
+            n += 1
+        name = f"ChildBlock{n}"
+        child = ET.SubElement(mc, "ChildBlock")
+        child.attrib["name"] = name
+        child.attrib["parent"] = "RootBlock"
+        # copy current RootBlock AABB as a starting range
+        rb = _first(mc, "RootBlock")
+        if rb is not None:
+            for attr in ("min", "max"):
+                if attr in rb.attrib:
+                    child.attrib[attr] = rb.attrib[attr]
+        child.tail = "\n   "
+        item = QTreeWidgetItem([name])
+        root_item = self.block_tree.invisibleRootItem().child(0)
+        if root_item is None:
+            self.block_tree.addTopLevelItem(item)
+        else:
+            root_item.addChild(item)
+        self.chk_child_only.setEnabled(True)
+        self._log(f"Created mesh block '{name}' (multiblock stub).")
 
     def _edit_mesh_block(self) -> None:
         """[Mesh: Block] dialog (subset): RootBlock std/ratio/threshold."""

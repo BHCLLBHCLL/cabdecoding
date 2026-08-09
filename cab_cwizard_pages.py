@@ -6161,3 +6161,106 @@ class _CwConfirmPage(QWidget if _HAS_GUI else object):
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(self._as_text())
 
+
+# ---------------------------------------------------------------------------
+# M28: Humidity / Porous / Radiation grouping (chrome + project writeback)
+# ---------------------------------------------------------------------------
+
+
+class _CwHumidityPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard ? Humidity (M28 subset)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Humidity analysis options (STpre Condition Wizard subset).", self))
+        g = QGroupBox("Humidity", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider humidity", g)
+        self.enable.setChecked(
+            model.project_value("humidity_enable", "F") == "T")
+        self.rh = QDoubleSpinBox(g)
+        self.rh.setRange(0.0, 100.0)
+        self.rh.setDecimals(1)
+        try:
+            self.rh.setValue(float(model.project_value("humidity_rh", "50")))
+        except ValueError:
+            self.rh.setValue(50.0)
+        f.addRow(self.enable)
+        f.addRow("Default relative humidity (%)", self.rh)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        self.model.set_project_value(
+            "humidity_enable", "T" if self.enable.isChecked() else "F")
+        self.model.set_project_value("humidity_rh", f"{self.rh.value():g}")
+        self.model.set_analysis_set_value(
+            "humidity", "1" if self.enable.isChecked() else "0")
+
+
+class _CwPorousPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard ? Porous Media (M28 subset)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Porous media pressure-loss / heat models (subset).", self))
+        g = QGroupBox("Porous Media", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Enable porous media", g)
+        self.enable.setChecked(
+            model.project_value("porous_enable", "F") == "T")
+        self.model_type = QComboBox(g)
+        self.model_type.addItems([
+            "Isotropic", "Anisotropic", "Pressure Loss Heat (Fluid-Solid)"])
+        cur = model.project_value("porous_model", "Isotropic")
+        i = self.model_type.findText(cur)
+        if i >= 0:
+            self.model_type.setCurrentIndex(i)
+        f.addRow(self.enable)
+        f.addRow("Model", self.model_type)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        self.model.set_project_value(
+            "porous_enable", "T" if self.enable.isChecked() else "F")
+        self.model.set_project_value(
+            "porous_model", self.model_type.currentText())
+
+
+class _CwRadiationGroupingPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard ? Radiation Grouping (M28 priority)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Radiation grouping of part faces / regions (priority subset).",
+            self))
+        g = QGroupBox("Radiation Grouping", self)
+        gl = QVBoxLayout(g)
+        self.enable = QCheckBox("Enable radiation grouping", g)
+        self.enable.setChecked(
+            model.project_value("rad_group_enable", "F") == "T")
+        self.group_name = QLineEdit(
+            model.project_value("rad_group_name", "RadGroup1"), g)
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Group name", g))
+        row.addWidget(self.group_name, 1)
+        gl.addWidget(self.enable)
+        gl.addLayout(row)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        self.model.set_project_value(
+            "rad_group_enable", "T" if self.enable.isChecked() else "F")
+        self.model.set_project_value(
+            "rad_group_name", self.group_name.text().strip() or "RadGroup1")

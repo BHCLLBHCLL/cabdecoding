@@ -58,6 +58,9 @@ class OptionsDialog(QDialog):
         self.tabs.addTab(self._basic_tab(), "Basic Setting")
         self.tabs.addTab(self._parts_tab(), "Parts")
         self.tabs.addTab(self._mesh_tab(), "Mesh")
+        self.tabs.addTab(self._folder_tab(), "Folder/File")
+        self.tabs.addTab(self._color_tab(), "Color")
+        self.tabs.addTab(self._unit_tab(), "Unit")
         self.tabs.addTab(self._message_tab(), "Message Window")
         self.tabs.addTab(self._ui_tab(), "User Interface")
         lay.addWidget(self.tabs)
@@ -151,6 +154,48 @@ class OptionsDialog(QDialog):
         f.addRow(self.use_stpre_api)
         return w
 
+    def _folder_tab(self):
+        """M29 Environment → Folder/File."""
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.work_folder = QLineEdit(
+            str(get_setting("work_folder", "")), w)
+        self.lib_folder = QLineEdit(
+            str(get_setting("lib_folder", "")), w)
+        self.temp_folder = QLineEdit(
+            str(get_setting("temp_folder", "")), w)
+        f.addRow("Work folder", self.work_folder)
+        f.addRow("Library folder", self.lib_folder)
+        f.addRow("Temporary folder", self.temp_folder)
+        return w
+
+    def _color_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.part_color = QLineEdit(
+            str(get_setting("default_part_color", "180,180,180,255")), w)
+        self.domain_color = QLineEdit(
+            str(get_setting("default_domain_color", "0,255,255,255")), w)
+        f.addRow("Default part color (RGBA)", self.part_color)
+        f.addRow("Default domain color (RGBA)", self.domain_color)
+        return w
+
+    def _unit_tab(self):
+        from PyQt5.QtWidgets import QWidget
+        w = QWidget(self)
+        f = QFormLayout(w)
+        self.temp_unit = QComboBox(w)
+        self.temp_unit.addItems(["C", "K", "F"])
+        self.temp_unit.setCurrentText(str(get_setting("temp_unit", "C")))
+        self.press_unit = QComboBox(w)
+        self.press_unit.addItems(["Pa", "atm", "bar"])
+        self.press_unit.setCurrentText(str(get_setting("press_unit", "Pa")))
+        f.addRow("Temperature unit", self.temp_unit)
+        f.addRow("Pressure unit", self.press_unit)
+        return w
+
     def _message_tab(self):
         from PyQt5.QtWidgets import QWidget
         w = QWidget(self)
@@ -199,6 +244,13 @@ class OptionsDialog(QDialog):
             "facet_tol": self.facet_tol.value(),
             "facet_angle": self.facet_angle.value(),
             "use_stpre_api": self.use_stpre_api.isChecked(),
+            "work_folder": self.work_folder.text(),
+            "lib_folder": self.lib_folder.text(),
+            "temp_folder": self.temp_folder.text(),
+            "default_part_color": self.part_color.text(),
+            "default_domain_color": self.domain_color.text(),
+            "temp_unit": self.temp_unit.currentText(),
+            "press_unit": self.press_unit.currentText(),
             "message_font": self.font_name.text(),
             "log_level": self.log_level.currentText(),
             "message_max_blocks": self.max_blocks.value(),

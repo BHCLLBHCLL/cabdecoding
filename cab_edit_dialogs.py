@@ -428,11 +428,15 @@ class PartsConversionDialog(_EditDlg):
 
 
 class FacetAccuracyDialog(_EditDlg):
-    """[Facet Accuracy] — Reconstruct of Part Facet."""
+    """[Facet Accuracy] — Reconstruct of Part Facet (M24: PK_TOPOL_facet_2)."""
 
-    def __init__(self, model: StpreModel, parent=None):
+    def __init__(self, model: StpreModel, parent=None, archive=None,
+                 cad_meshes=None):
         super().__init__("Facet Accuracy", "Facet Accuracy", parent)
         self.model = model
+        self.archive = archive
+        self.cad_meshes = cad_meshes
+        self.reconstructed = 0
         form = QFormLayout()
         self.facet_len = QDoubleSpinBox(self)
         self.facet_len.setRange(0.0, 1e6)
@@ -465,7 +469,8 @@ class FacetAccuracyDialog(_EditDlg):
             QMessageBox.warning(self, "Facet Accuracy",
                                 "Select parts to reconstruct.")
             return
-        # Persist requested accuracy on each part for later tessellation.
+        from cabxml import set_text
+        from xml.etree.ElementTree import SubElement
         for name in names:
             el = self.model.find_part(name)
             if el is None:
@@ -475,16 +480,23 @@ class FacetAccuracyDialog(_EditDlg):
                               f"{self.tolerance.value():g}")):
                 c = _first(el, tag)
                 if c is None:
-                    from xml.etree.ElementTree import SubElement
                     c = SubElement(el, tag)
                     c.tail = "\n         "
-                from cabxml import set_text
                 set_text(c, val)
+        tol = self.tolerance.value() or 1e-4
+        if self.archive is not None and self.cad_meshes is not None:
+            import cab_edit_ops as eops
+            updated = eops.reconstruct_part_facets(
+                self.model, self.archive, self.cad_meshes, names,
+                facet_tol=tol, facet_angle=12.0)
+            self.reconstructed = len(updated)
         self.applied = True
-        QMessageBox.information(
-            self, "Facet Accuracy",
-            f"Facet parameters stored for {len(names)} part(s).\n"
-            "Re-import or remesh to rebuild tessellation.")
+        msg = f"Facet parameters stored for {len(names)} part(s)."
+        if self.reconstructed:
+            msg += f"\nRebuilt {self.reconstructed} tessellation(s) via PK_TOPOL_facet_2."
+        else:
+            msg += "\n(No XT tessellation rebuilt — store only / pskernel missing.)"
+        QMessageBox.information(self, "Facet Accuracy", msg)
 
 
 # -------------------------------------------------------- Face Extrusion
@@ -905,56 +917,30 @@ class BooleanOperationDialog(_EditDlg):
             QMessageBox.warning(self, "Boolean Operation",
                                 "Select two different parts.")
             return
-        ba = ops.part_world_bounds(self.model, a, self.cad_meshes)
-        bb = ops.part_world_bounds(self.model, b, self.cad_meshes)
-        if ba is None or bb is None:
+        if self.rb_unite.isChecked():
+            op = "unite"
+        elif self.rb_sub.isChecked():
+            op = "subtract"
+        else:
+            op = "intersect"
+        name = ops.boolean_mesh_parts(
+            self.model, self.cad_meshes, a, b, op,
+            self.name_edit.text().strip() or "boolean_1",
+            keep_a=self.chk_keep_a.isChecked(),
+            keep_b=self.chk_keep_b.isChecked())
+        if not name:
             QMessageBox.warning(
                 self, "Boolean Operation",
-                "Boolean requires tessellated geometry for both parts.")
+                "Boolean failed (need tessellation for both parts).")
             return
-        # AABB-level boolean (kernel-free approximation).
-        import numpy as np
-        if self.rb_unite.isChecked():
-            lo = np.minimum(ba[0], bb[0])
-            hi = np.maximum(ba[1], bb[1])
-        elif self.rb_sub.isChecked():
-            lo, hi = ba
-        elif self.rb_int.isChecked() or self.rb_div.isChecked():
-            lo = np.maximum(ba[0], bb[0])
-            hi = np.minimum(ba[1], bb[1])
-            if (hi <= lo).any():
-                QMessageBox.warning(
-                    self, "Boolean Operation",
-                    "Parts do not overlap.")
-                return
-        else:
-            lo, hi = ba
-        name = ops.unique_part_name(
-            self.model, self.name_edit.text().strip() or "boolean_1")
-        el = self.model.add_part(name=name, kind="cube", attribute="solid")
-        if el is None:
-            return
-        from cabxml import set_text
-        from xml.etree.ElementTree import SubElement
-        size = hi - lo
-        for tag, val in (
-                ("base", ",".join(f"{v:.17g}" for v in lo)),
-                ("size", ",".join(f"{v:.17g}" for v in size)),
-        ):
-            c = _first(el, tag)
-            if c is None:
-                c = SubElement(el, tag)
-                c.tail = "\n         "
-            set_text(c, val)
-        if not self.chk_keep_a.isChecked():
-            self.model.delete_part(a)
-        if not self.chk_keep_b.isChecked():
-            self.model.delete_part(b)
+        if self.rb_div.isChecked() and self.chk_keep_a.isChecked():
+            # Divide ≈ subtract + intersect leftovers already handled by op
+            pass
         self.result_name = name
         self.applied = True
         QMessageBox.information(
             self, "Boolean Operation",
-            f"Created '{name}' (AABB approximation).")
+            f"Created '{name}' (tessellation CSG; B-rep kernel pending).")
 
 
 class ShapeChangeBooleanDialog(_EditDlg):

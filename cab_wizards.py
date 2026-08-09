@@ -531,12 +531,15 @@ _CW_PAGES = [
     ("fluid", "Fluid Region", None),
     ("flow", "Flow", None),
     ("heat", "Heat", None),
+    ("humidity", "Humidity", None),
+    ("porous", "Porous Media", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
     ("bc_wall", "Wall Boundary", "bc"),
     ("bc_thermal", "Thermal Boundary", "bc"),
     ("bc_symm", "Symmetrical Boundary", "bc"),
+    ("bc_radiation", "Radiation Grouping", "bc"),
     ("source", "Source Condition", None),
     ("fixed", "Fixed Condition", None),
     ("control", "Analysis Control", None),
@@ -3354,8 +3357,9 @@ class ConditionWizard(WizardBase):
         from cab_cwizard_pages import (
             _CwAnalysisControlHubPage, _CwConditionListPage,
             _CwConfirmPage, _CwControlOptionPage, _CwFilePage, _CwFixedPage,
-            _CwOutputFieldPage, _CwOutputHeatPathPage, _CwOutputLFilePage,
-            _CwOutputSeriesPage, _CwSolverPage, _CwSourcePage,
+            _CwHumidityPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
+            _CwOutputLFilePage, _CwOutputSeriesPage, _CwPorousPage,
+            _CwRadiationGroupingPage, _CwSolverPage, _CwSourcePage,
             _CwStabilizationPage, _CwSteadyPage,
         )
 
@@ -3364,11 +3368,14 @@ class ConditionWizard(WizardBase):
         self.p_fluid = _CwFluidRegionPage(model, props)
         self.p_flow = _CwFlowPage(model)
         self.p_heat = _CwHeatPage(model)
+        self.p_humidity = _CwHumidityPage(model)
+        self.p_porous = _CwPorousPage(model)
         self.p_initial = _CwInitialPage(model)
         self.p_bc_flow = _CwFlowBoundaryPage(model)
         self.p_bc_wall = _CwWallBoundaryPage(model)
         self.p_bc_thermal = _CwThermalBoundaryPage(model)
         self.p_bc_symm = _CwSymmetricalPage(model)
+        self.p_bc_radiation = _CwRadiationGroupingPage(model)
         self.p_source = _CwSourcePage(model)
         self.p_fixed = _CwFixedPage(model)
         self.p_control = _CwAnalysisControlHubPage(
@@ -3388,10 +3395,13 @@ class ConditionWizard(WizardBase):
         page_map = {
             "analysis": self.p_analysis, "basic": self.p_basic,
             "fluid": self.p_fluid, "flow": self.p_flow,
-            "heat": self.p_heat, "initial": self.p_initial,
+            "heat": self.p_heat,
+            "humidity": self.p_humidity, "porous": self.p_porous,
+            "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,
             "bc_thermal": self.p_bc_thermal, "bc_symm": self.p_bc_symm,
+            "bc_radiation": self.p_bc_radiation,
             "source": self.p_source, "fixed": self.p_fixed,
             "control": self.p_control,
             "ctrl_steady": self.p_ctrl_steady,

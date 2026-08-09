@@ -382,3 +382,118 @@ def place_part_by_centers(model: StpreModel, move_name: str, ref_name: str,
     b_c = 0.5 * (bb[0] + bb[1])
     delta = a_c - b_c + np.asarray(offset, dtype=np.float64)
     return translate_part(model, move_name, delta)
+
+
+def reconstruct_part_facets(model: StpreModel, archive, cad_meshes,
+                            names: list[str], *,
+                            facet_tol: float = 1e-4,
+                            facet_angle: float = 12.0) -> list:
+    """M24: re-run ``PK_TOPOL_facet_2`` for selected part names from XT members.
+
+    Returns updated TessPart list (may be empty when pskernel/XT missing).
+    """
+    import cab_ps_ops
+    if archive is None or not cab_ps_ops.available():
+        return []
+    want = set(names)
+    updated = []
+    for m in archive.members:
+        if not m.name.endswith(".x_t") or not m.data:
+            continue
+        try:
+            parts = cab_ps_ops.reconstruct_facet(
+                m.data, names=want, facet_tol=facet_tol,
+                facet_angle_deg=facet_angle, adaptive=True)
+        except Exception:
+            continue
+        updated.extend(parts)
+    if not updated or cad_meshes is None:
+        return updated
+    by_name = {getattr(t, "name", None): t for t in cad_meshes}
+    for t in updated:
+        by_name[t.name] = t
+    cad_meshes[:] = list(by_name.values())
+    return updated
+
+
+def boolean_mesh_parts(model: StpreModel, cad_meshes, part_a: str, part_b: str,
+                       op: str, result_name: str, *,
+                       keep_a: bool = False, keep_b: bool = False
+                       ) -> Optional[str]:
+    """M24: tessellation CSG → new polygon part (AABB tool for B)."""
+    import cab_ps_ops
+    from cab_parts import PrimitivePart
+
+    meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
+    ta, tb = meshes.get(part_a), meshes.get(part_b)
+    if ta is None or tb is None:
+        return None
+    info_a = next((p for p in model.parts() if p.name == part_a), None)
+    info_b = next((p for p in model.parts() if p.name == part_b), None)
+    bb = cab_ps_ops.tess_world_aabb(
+        tb, info_b.transform if info_b else "")
+    if bb is None:
+        return None
+    lo_b, hi_b = bb
+    pts = np.asarray(ta.points, dtype=np.float64)
+    tris = np.asarray(ta.triangles, dtype=np.int64)
+    import cab_vtk
+    pts = cab_vtk._apply_transform(
+        pts, info_a.transform if info_a else "")
+    if op == "unite":
+        # Concatenate A + B triangles
+        pts_b = cab_vtk._apply_transform(
+            np.asarray(tb.points, dtype=np.float64),
+            info_b.transform if info_b else "")
+        tris_b = np.asarray(tb.triangles, dtype=np.int64) + len(pts)
+        new_pts = np.vstack([pts, pts_b])
+        new_tris = np.vstack([tris, tris_b])
+    else:
+        new_pts, new_tris = cab_ps_ops.mesh_boolean(
+            pts, tris, lo_b, hi_b, op)
+    if new_tris.size == 0:
+        return None
+    name = unique_part_name(model, result_name)
+    el = model.add_part(name=name, kind="polygon", attribute="solid")
+    if el is None:
+        return None
+    # store as mm base/size for AABB fallback + attach tess
+    lo, hi = new_pts.min(0) * 1000.0, new_pts.max(0) * 1000.0
+    from xml.etree.ElementTree import SubElement
+    for tag, val in (
+            ("base", ",".join(f"{v:.17g}" for v in lo)),
+            ("size", ",".join(f"{v:.17g}" for v in (hi - lo))),
+    ):
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, val)
+    if cad_meshes is not None:
+        cad_meshes.append(PrimitivePart(name, new_pts, new_tris.astype(np.int64)))
+    if not keep_a:
+        model.delete_part(part_a)
+    if not keep_b:
+        model.delete_part(part_b)
+    return name
+
+
+def flip_selected_triangles(cad_meshes, name: str,
+                            tri_indices: Optional[list[int]] = None) -> bool:
+    """Flip all faces or a subset of triangle indices (M24 face pick)."""
+    for tess in cad_meshes or []:
+        if getattr(tess, "name", None) != name:
+            continue
+        arr = np.asarray(tess.triangles)
+        if arr.ndim != 2 or arr.shape[1] < 3:
+            return False
+        arr = arr.copy()
+        if tri_indices:
+            for i in tri_indices:
+                if 0 <= i < len(arr):
+                    arr[i, [1, 2]] = arr[i, [2, 1]]
+        else:
+            arr[:, [1, 2]] = arr[:, [2, 1]]
+        tess.triangles = arr
+        return True
+    return False
