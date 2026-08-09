@@ -1,11 +1,13 @@
 # cab_gui 功能补齐开发计划（逆向驱动）
 
-> 日期：2026-08-06
+> 日期：2026-08-09（§6.M23+ / §13 与画布同步刷新）
 > 仓库：`cabdecoding`
 > 关联文档：[CAB_GUI_DESIGN.md](CAB_GUI_DESIGN.md)（UI 布局）、
 > [DEV_SUMMARY.md](DEV_SUMMARY.md)（逆向档案）、
 > [CAB_FORMAT_SPEC.md](CAB_FORMAT_SPEC.md)（cab 格式规范）
+> 交互画布：`.cursor/projects/.../canvases/cab-gui-stpre-gap.canvas.tsx`
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
+> 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
 
 ---
 
@@ -43,22 +45,26 @@
 | 3D | `cab_vtk.py` | 点法线/锐边拆分/变换/域框/网格线/Element division |
 | GUI | `cab_gui.py` + `cab_panes.py` | 四窗格、菜单/工具栏、属性编辑、Message/Status |
 
-### 2.2 缺口清单（本次要补齐）
+### 2.2 缺口清单（一期目标 → 多已完成）
+
+> **2026-08-09 起：** 全量 vs STpre 差距与 M24+ 计划见 **§13**（自画布刷新）。  
+> 下表保留一期闭环完成记录；不再作为当前缺口的权威列表。
 
 | 菜单 | 现状 | 目标 |
 |---|---|---|
-| File→Import… | ✅ 已完成（M1） | XT/STL 导入对话框；后续扩展 MDL/DXF/OBJ/STEP |
-| Edit→Reset Computational Domain | ✅ 已完成（M2） | 完整域设置对话框（见 §6.2） |
-| Mesh→Gridding | ✅ 已完成（M3/M5） | Basic Settings/Parameters 子集对话框 + 网格生成 |
+| File→Import… | ✅ 已完成（M1/M10） | XT/STL/STEP/SAT；后续 MDL/DXF/OBJ 见 M26 |
+| Edit→Reset Computational Domain | ✅ 已完成（M2/M23） | Reset 与 Edit Domain 已分离（见 M23） |
+| Mesh→Gridding | ✅ 已完成（M3/M5/M9+） | Basic Settings/Parameters 子集对话框 + 网格生成 |
 | Mesh→Meshing | ✅ 已完成（M4） | 基于现有网格生成 element，进度/日志 |
 | Mesh→Checking Parts Interferences | ✅ 已完成（M6） | Select 部件 + Interference/Contact/Separation 列表 + Confirm/Reconstruct |
 | Mesh→Editing Mesh | ✅ 已完成（M6） | I/J/K 层选择 + ->Effective/->Ineffective 编辑单元属性 |
 | Mesh→Showing Element Cross-Section | ✅ 已完成（M6） | Axis + 滑块 + Show/Hide fluid，Draw 窗口实时截面 |
 | Mesh→Checking S-File | ✅ 已完成（M6） | Open S file + 树形列表 checkbox 控制 3D 显隐 |
-| Wizard→Initial Setting | ✅ 已完成（M6） | 完整 Initial Wizard（Project→Import CAD→Domain→Analysis Type→Initial Value/Gravity→Purpose→Boundary→Confirm） |
-| Wizard→Condition Setting | ✅ 已完成（M6） | Condition Wizard 子集（导航树 + Analysis Types/Basic/Fluid/Flow/Heat/Initial/BC/Control/File/Condition List/Confirm） |
-| Option→Environment/Detailed Settings | NYI | 一期：网格默认参数、显示精度 |
-| Part 工具栏 | NYI | 保持占位；不做 CAD 建模（长期项） |
+| Wizard→Initial Setting | ✅ 已完成（M6/M23） | 6 步 + 冷启动自动弹出 |
+| Wizard→Condition Setting | ✅ 子集（M6/M21） | 核心 BC；深度扩展见 M28 |
+| Option→Environment/Detailed Settings | ✅ 子集（M7-5） | 5 页；逼近 13 页见 M29 |
+| Edit 全菜单 | ✅ UI 24/24（M23） | 内核忠实度见 M24 |
+| Part 菜单 | ✅ 14 种（M7–M8） | 专用件见 M30 |
 
 ### 2.3 数据模型现状
 
@@ -503,6 +509,167 @@ new_property_bytes` + `CabViewer._new_project`），File→New（Ctrl+N）可随
 文档：DEV_SUMMARY §28；README/CAB_GUI_DESIGN 更新；一并提交并行
 Layer/ActivePart 工作。
 
+### M12–M22（延伸已完成，摘要）
+
+M11 之后已陆续完成（详见 git log / DEV_SUMMARY）：Gridding 规则逼近
+（auto1 / L-R / 顶点线）、Draw Window Mesh 面网格与深度遮挡、Condition Wizard
+页面扩展（`cab_cwizard_pages`）、Sketch/STpre API 对齐、启动告警过滤等。
+菜单 chrome 与网格表面能力已明显高于本文件早期 NYI 描述。
+
+### M23 Initial Setting 自动弹出 + Edit 菜单 24 项（2026-08-09）✅ 已完成
+
+| 项 | 实现 |
+|---|---|
+| 冷启动 / File→New | 对齐 STpre：无 CLI `.cab` 时自动弹出 Initial Setting；可 Finish / Open Existing / Cancel |
+| Initial Wizard | `cab_iwizard_pages.py` + `cab_wizard_icons.py`：6 步（Project→Domain→Analysis Type→Gravity→Purpose→Confirm） |
+| Edit 菜单 | Pre_eng toc **24/24** 项挂齐；`cab_edit_dialogs.py` + `cab_edit_ops.py` |
+| Reset vs Edit Domain | 菜单 **Reset Computational Domain**（坐标系/重力/默认值）与树双击 **Edit Computational Domain**（Scale+Attribute）分离 |
+| 回归 | `tests/test_edit_menu.py`、`tests/test_wizards.py`；提交 `779e5f3` |
+
+**深度说明（chrome ≠ 内核）：** Edit 中 Boolean / Edit Solid / Wrap / Simplify /
+Paneling / Wiring / Image 等为对话框齐全 + AABB/意图写回；真正 Parasolid B-rep
+操作列入 M24。
+
+---
+
+## 13. cab_gui vs STpre 功能差距与改进计划（2026-08-09）
+
+> 自交互画布 `cab-gui-stpre-gap.canvas.tsx` 刷新。  
+> **总判：** 菜单表面覆盖已较高（Edit 24/24、Mesh 6/6、Wizard 2/2），但**内核忠实度**
+> 明显偏低——Edit CAD、面拾取、Import/Export 广度、Condition Wizard 深度仍是主要差距。
+
+### 13.1 覆盖速览（加权粗算）
+
+| 指标 | 值 | 说明 |
+|---|---|---|
+| 菜单 UI 覆盖（加权） | **~85%** | Σ(cab UI) / Σ(STpre 叶子) |
+| 可用实现覆盖（加权） | **~68%** | Σ(useful) / Σ(STpre)；chrome 不计满 |
+| Edit 菜单项 | **24/24** | UI 齐全 |
+| Part 种类 | **14/30+** | 缺热设计专用件 |
+
+图例深度：`impl` 可用 · `partial` 近似 · `chrome` 对话框/意图 · `missing` 未挂菜单。
+
+### 13.2 分区覆盖
+
+| 区域 | STpre | cab UI | 可用 | 备注 |
+|---|---:|---:|---:|---|
+| File | 11 | 11 | 9 | Import/Export 格式子集；无 3DfindIT |
+| Edit | 24 | 24 | 12 | 菜单齐全；半数 CAD 为 AABB/chrome |
+| View | 13 | 13 | 13 | 相机/工具栏齐；缺 Setting/Dialog 项 |
+| Part | 30 | 14 | 14 | 基础体+风扇+草图；缺热设计专用件 |
+| Wizard | 2 | 2 | 2 | IW 强；CW 导航约 26/150+ 页 |
+| Mesh | 6 | 6 | 6 | 表面齐；multiblock/cut-cell 弱 |
+| Option | 10 | 4 | 4 | 缺 Distance/Cut Cell/Selection 等 |
+| Help | 2 | 3 | 3 | 含 Version/About |
+
+菜单 UI 覆盖率（%/区）：File 100 · Edit 100 · View 100 · Part ~47 · Wizard 100 ·
+Mesh 100 · Option 40 · Help 150（多 About）。
+
+可用实现覆盖率（%/区）：File ~82 · Edit 50 · View 100（已挂项） · Part ~47 ·
+Wizard 100（入口） · Mesh 100（近似计） · Option 40 · Help 150。
+
+### 13.3 深度差距（chrome ≠ 内核）
+
+| 区域 | 能力 | 深度 | 差距说明 |
+|---|---|---|---|
+| File | Open / Save / New | impl | 冷启动 Initial Wizard 已对齐 |
+| File | Import | partial | 有 XT/STL/STEP/SAT；缺 MDL/DXF/OBJ/IDF/主流 CAD |
+| File | Export | partial | 仅 `.s`/`.xemt`；缺 XT/STL/Neutral/XML |
+| File | Execute Solver / Post | partial | 能启动；Kicker/环境文件不完整 |
+| Edit | Undo/Redo / Group / Deletion / Reset Domain | impl | 快照 Undo ≠ Parasolid 历史 |
+| Edit | Mirror / Align / Place / Conversion / Sweep / Cutting | partial | 变换/包围盒近似，非完整 B-rep |
+| Edit | Boolean / Edit Solid / Wrap / Simplify / Paneling / Wiring | chrome | 对话框齐；内核级几何未接通 |
+| View | Fit / Planes / Toolbars / Message | impl | — |
+| View | Clipping / Hide / Thermal Display / Part lists | missing | Setting + Dialog 子菜单缺失 |
+| Part | Cuboid…Pipe / Fans / Sketch | impl | Tess 原语，非完整 Parasolid 实体编辑 |
+| Part | Enclosure / Fin / Peltier / AC / Diffuser… | missing | 约 16+ 专用件未进菜单 |
+| Wizard | Initial Setting | partial | 6 步可用；CAD Import/边界自动较好 |
+| Wizard | Condition Setting | partial | 核心 BC 有；湿度/辐射/多孔等深度不足 |
+| Mesh | Gridding / Meshing / Interference… | partial | 规则逼近中；cut-cell/multiblock 弱 |
+| Option | Environment / Detailed | partial | 5 页 vs STpre ~13 Environment 页 |
+| Option | Cut Cell / Distance / Reference / Selection / Viewer | missing | 未挂菜单 |
+| Control | Face/Vertex/Edge 选择目标 | chrome | 多为 `_nyi`；阻塞 Edit/Measure |
+
+### 13.4 跨切面缺口（按严重度）
+
+| 缺口 | 严重度 | 影响 |
+|---|---|---|
+| Parasolid 忠实 Edit CAD（Boolean/Solid/Wrap/Simplify/Paneling） | **Blocker** | 当前 AABB/chrome，无法做真实 CAD 准备 |
+| 交互式面/边拾取管线 | **High** | Face Paneling、Distance、Reference、Sweep 依赖 |
+| Import/Export 格式矩阵 | **High** | 工业 CAD 进出不齐 |
+| Meshing cut-cell / multiblock / 金标占用 | **High** | 求解前网格质量与 STpre 仍有差 |
+| Condition Wizard 深度（~150 页） | **High** | 产品完整度；Basic Exercise 可先子集 |
+| View Setting/Dialog + Option 工具菜单 | **Medium** | 显示/测量工作流缺口 |
+| Part 热设计专用库 | **Medium** | 电子散热场景常用 |
+| Solver/Post 产品化集成 | **Medium** | 启动可用，环境/重启选项不足 |
+| Undo 与 Parasolid 会话一致性 | **Medium** | XML 快照无法回滚内核实体 |
+| i18n / 3DfindIT 等 | **Low** | 非核心工作流 |
+
+### 13.5 当前优势（保持，不宜推倒）
+
+CAB 读写、STpre 布局 chrome、XT facet 显示、Domain/Gridding 规则逼近、Mesh
+菜单表面、Initial Wizard、原语 Part 创建、快照 Undo。这些是后续里程碑的底座。
+
+### 13.6 改进计划 M24+（优先内核与拾取）
+
+原则：**优先打通内核与拾取 → 补格式与网格 → Wizard/Option/专用件。**  
+建议下一迭代直接从 **M24**（Boolean + 面拾取 + Facet 重建）开工；完成后 Edit
+从「对话框齐」跃迁到「CAD 准备可用」。
+
+#### M24 Edit 内核脊柱 ⬜
+
+- [ ] pskernel Boolean unite/subtract/intersect
+- [ ] Facet reconstruct → `PK_TOPOL_facet_2` 重三角化
+- [ ] Draw 面拾取 → Flip / Paneling / Sweep
+- 交付：`cab_edit_ops` B-rep API、金标部件测试、相关菜单 chrome→impl
+
+#### M25 选择 / 测量 / View Setting ⬜
+
+- [ ] Control Target: Face / Vertex / Edge
+- [ ] Option Distance + Reference
+- [ ] View Hide/Display All + Clipping
+- 交付：拾取管线、Message 窗口测量输出
+
+#### M26 Import/Export 核心格式 ⬜
+
+- [ ] Import: MDL / DXF / OBJ（+ IGES 若 OCC）
+- [ ] Export: XT（活动部件）/ STL / Property XML
+- [ ] 格式矩阵回归测试
+
+#### M27 Mesh 保真 ⬜
+
+- [ ] Multiblock create/insert；Gridding Select 拾取
+- [ ] Meshing 与金标 cab 占用差收敛
+- [ ] Cut Cell Option MVP
+
+#### M28 Condition Wizard 扩展 ⬜
+
+- [ ] Humidity / Source 细节 / Porous
+- [ ] Radiation grouping 优先
+- [ ] 未实现物理显式 chrome + 测试写回
+
+#### M29 Option / Environment 补全 ⬜
+
+- [ ] Environment 页映射逼近 13/13
+- [ ] Selection mode / Viewer Mode
+- [ ] 设置持久化
+
+#### M30 Part 专用件包 ⬜
+
+- [ ] Enclosure / Plate·Pin Fin / Peltier·2R
+- [ ] 按场景增量扩展菜单
+
+#### M31 Solver/Post 产品化 ⬜
+
+- [ ] 环境文件路径 / 工作目录 / restart
+- [ ] Post 打开场数据
+- [ ] 启动矩阵文档化
+
+#### M32+ 抛光（后备）
+
+i18n、3DfindIT（或明确放弃）、热条件显示、Wiring Gerber 几何、Undo 与
+Parasolid 会话对齐。
+
 ---
 
 ## 7. 关键接口设计（草案）
@@ -679,15 +846,37 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 
 ## 11. 里程碑与时间线
 
-| 里程碑 | 内容 | 预估 |
-|---|---|---|
-| M1 | File→Import x_t/STL + 自动三角化 | 1–2 周 |
-| M2 | 计算域设置闭环 | 1 周 |
-| M3 | Gridding 生成 mesh_block | 2–3 周 |
-| M4 | Meshing 生成 element + 导出闭环 | 2–3 周 |
-| M5 | 测试、逆向档案、格式规范更新 | 1 周 |
+### 11.1 一期（已完成）
 
-依赖：M1 → M2 → M3 → M4；M5 与各阶段并行。
+| 里程碑 | 内容 | 状态 |
+|---|---|---|
+| M1 | File→Import x_t/STL + 自动三角化 | ✅ |
+| M2 | 计算域设置闭环 | ✅ |
+| M3 | Gridding 生成 mesh_block | ✅ |
+| M4 | Meshing 生成 element + 导出闭环 | ✅ |
+| M5 | 测试、逆向档案、格式规范 + 对话框框架 | ✅ |
+| M6 | Mesh 菜单补全 + Wizard | ✅ |
+| M7 | File/Edit/View/Part/Option/Help 补齐 | ✅ |
+| M8–M11 | Sketch / 网格算法 / STEP·SAT / STpre API | ✅ |
+| M12–M22 | Gridding 规则、CW 扩展、Draw Mesh 等 | ✅ |
+| M23 | Initial Setting 自动弹出 + Edit 24 项 UI | ✅ |
+
+### 11.2 二期（§13，与画布同步）
+
+| 里程碑 | 内容 | 依赖 | 状态 |
+|---|---|---|---|
+| **M24** | Edit 内核脊柱（Boolean / Facet / 面拾取） | pskernel | ⬜ 下一优先 |
+| M25 | 选择 / 测量 / View Setting | M24 拾取 | ⬜ |
+| M26 | Import/Export 核心格式 | — | ⬜ |
+| M27 | Mesh 保真（multiblock / 金标 / Cut Cell） | M9–M11 | ⬜ |
+| M28 | Condition Wizard 扩展 | M6/M21 | ⬜ |
+| M29 | Option / Environment 补全 | M7-5 | ⬜ |
+| M30 | Part 专用件包 | M7-4/M8 | ⬜ |
+| M31 | Solver/Post 产品化 | M7-1 | ⬜ |
+| M32+ | i18n / 热显示 / Wiring 几何等 | — | 后备 |
+
+依赖主线：**M24 → M25**（拾取打通后解锁 Edit/View/Option 测量）；
+M26/M27/M28 可与 M25 后半并行。
 
 ---
 
@@ -695,8 +884,9 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 
 | 文档 | 更新内容 | 时点 |
 |---|---|---|
-| `DEV_PLAN.md` | 本计划随实施进度标记完成状态 | 持续 |
-| `DEV_SUMMARY.md` | 新增 §14：导入/域/网格逆向档案（RVA、签名、MeshControl 偏移） | M3/M5 |
+| `DEV_PLAN.md` | 本计划随实施进度标记完成状态；§13 与画布同步 | 持续 |
+| `cab-gui-stpre-gap.canvas.tsx` | 交互差距看板（覆盖率/深度/M24+） | 2026-08-09 |
+| `DEV_SUMMARY.md` | 导入/域/网格逆向档案；Edit/Wizard 实施记录 | M3/M5/M23+ |
 | `CAB_FORMAT_SPEC.md` | 补 `mesh_control`/`element` 生成规范、x_t 成员合并规则 | M3/M4 |
-| `CAB_GUI_DESIGN.md` | 更新菜单/对话框功能说明 | M1/M2 |
+| `CAB_GUI_DESIGN.md` | 更新菜单/对话框功能说明（含 Edit 24 项深度） | M1/M23/M24 |
 | `README.md` | 使用流程（导入→域→网格→导出） | M5 |
