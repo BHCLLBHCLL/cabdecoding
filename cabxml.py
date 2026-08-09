@@ -637,6 +637,89 @@ class StpreModel:
             el.attrib["unit"] = unit
         return True
 
+    def ensure_analysis_file(self) -> ET.Element:
+        """``<analysis_set>/<file>`` block for Field/Restart/TM names."""
+        aset = self.ensure_analysis_set()
+        f = _first(aset, "file")
+        if f is not None:
+            return f
+        f = ET.SubElement(aset, "file")
+        f.text = "\n         "
+        f.tail = "\n   "
+        return f
+
+    def file_value(self, tag: str, default: str = "") -> str:
+        aset = _first(self.root, "analysis_set")
+        f = _first(aset, "file") if aset is not None else None
+        el = _first(f, tag) if f is not None else None
+        return (el.text or "").strip() if el is not None and el.text \
+            else default
+
+    def set_file_value(self, tag: str, text: str) -> bool:
+        f = self.ensure_analysis_file()
+        el = _first(f, tag)
+        if el is None:
+            el = ET.SubElement(f, tag)
+            el.tail = "\n         "
+        set_text(el, text)
+        return True
+
+    def ensure_output(self) -> ET.Element:
+        out = _first(self.root, "output")
+        if out is not None:
+            return out
+        out = ET.Element("output")
+        out.tail = "\n"
+        self.root.append(out)
+        return out
+
+    def output_value(self, tag: str, default: str = "", *,
+                     type_: Optional[str] = None) -> str:
+        out = _first(self.root, "output")
+        if out is None:
+            return default
+        for el in out:
+            if el.tag != tag:
+                continue
+            if type_ is not None and el.attrib.get("type") != type_:
+                continue
+            if type_ is None and "type" in el.attrib and tag in (
+                    "restart", "fout", "post", "minmax_var"):
+                continue
+            return (el.text or "").strip() if el.text else default
+        return default
+
+    def set_output_value(self, tag: str, text: str, *,
+                         type_: Optional[str] = None,
+                         type_extra: Optional[str] = None) -> bool:
+        """Set ``<output>/<tag>``; optional ``type`` attribute for typed tags."""
+        out = self.ensure_output()
+        el = None
+        for c in out:
+            if c.tag != tag:
+                continue
+            if type_ is not None and c.attrib.get("type") != type_:
+                continue
+            if type_ is None and "type" in c.attrib and tag in (
+                    "restart", "fout", "post", "minmax_var"):
+                continue
+            el = c
+            break
+        if el is None:
+            el = ET.SubElement(out, tag)
+            el.tail = "\n      "
+            if type_ is not None:
+                el.attrib["type"] = type_
+            if type_extra is not None:
+                # e.g. time_series_cycle type="cycle:L"
+                el.attrib["type"] = type_extra
+        elif type_ is not None:
+            el.attrib["type"] = type_
+        elif type_extra is not None:
+            el.attrib["type"] = type_extra
+        set_text(el, text)
+        return True
+
     def set_gravity(self, acceleration: float, vec: tuple[float, float, float]
                     ) -> bool:
         self.set_analysis_set_value("grav_abs", f"{acceleration:.17g}",
@@ -729,6 +812,66 @@ class StpreModel:
                 self.root.remove(c)
                 changed = True
         return changed
+
+    # -- region pairs (Thermal Boundary Between Parts) --------------------
+
+    def region_pairs(self) -> list[tuple[str, str, str]]:
+        """``(pair_name, part1, part2)`` for ``<region type="PartPair">``."""
+        out: list[tuple[str, str, str]] = []
+        for reg in self.root.iter("region"):
+            if reg.attrib.get("type") != "PartPair":
+                continue
+            n = _first(reg, "name")
+            p1 = _first(reg, "part1")
+            p2 = _first(reg, "part2")
+            name = (n.text or "").strip() if n is not None and n.text else ""
+            if not name:
+                continue
+            out.append((
+                name,
+                (p1.text or "").strip() if p1 is not None and p1.text else "",
+                (p2.text or "").strip() if p2 is not None and p2.text else "",
+            ))
+        return out
+
+    def find_region_pair(self, name: str) -> Optional[ET.Element]:
+        for reg in self.root.iter("region"):
+            if reg.attrib.get("type") != "PartPair":
+                continue
+            n = _first(reg, "name")
+            if n is not None and (n.text or "").strip() == name:
+                return reg
+        return None
+
+    def upsert_region_pair(self, name: str, part1: str, part2: str) -> bool:
+        """Create or update a PartPair region used by between-parts BCs."""
+        if not name or not part1 or not part2:
+            return False
+        reg = self.find_region_pair(name)
+        if reg is None:
+            reg = ET.Element("region")
+            reg.attrib["type"] = "PartPair"
+            reg.tail = "\n   "
+            self.root.append(reg)
+        for tag, text in (("name", name), ("part1", part1), ("part2", part2)):
+            c = _first(reg, tag)
+            if c is None:
+                c = ET.SubElement(reg, tag)
+                c.tail = "\n      "
+            set_text(c, text)
+        return True
+
+    def remove_region_pair(self, name: str) -> bool:
+        for parent in self.root.iter():
+            for child in list(parent):
+                if child.tag != "region" \
+                        or child.attrib.get("type") != "PartPair":
+                    continue
+                n = _first(child, "name")
+                if n is not None and (n.text or "").strip() == name:
+                    parent.remove(child)
+                    return True
+        return False
 
     def ensure_domain(self, *, name: str = "Domain(cuboid)",
                       base: tuple[float, float, float] = (0.0, 0.0, 0.0),

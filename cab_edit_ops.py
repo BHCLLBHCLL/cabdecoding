@@ -1,0 +1,384 @@
+"""Model-side helpers for STpre [Edit] menu operations.
+
+Geometry-heavy Parasolid ops (Boolean / Cutting / Sweep / …) are exposed as
+best-effort transforms or XML registration so the GUI dialogs stay usable
+without the native kernel.  Bounding-box and transform ops are exact.
+"""
+
+from __future__ import annotations
+
+import copy
+import xml.etree.ElementTree as ET
+from typing import Optional
+
+import numpy as np
+
+import cab_domain
+import cab_vtk
+from cabxml import StpreModel, _first, set_text
+
+
+IDENTITY = "1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1"
+
+
+def parse_transform(text: str | None) -> np.ndarray:
+    """Column-major 4×4 from XML ``<transform>``; identity when empty."""
+    m = np.eye(4, dtype=np.float64)
+    if not text:
+        return m
+    vals = [float(v) for v in text.replace(" ", "").split(",") if v != ""]
+    if len(vals) >= 16:
+        m = np.array(vals[:16], dtype=np.float64).reshape(4, 4, order="F")
+    return m
+
+
+def format_transform(m: np.ndarray) -> str:
+    flat = np.asarray(m, dtype=np.float64).reshape(4, 4, order="F").ravel(order="F")
+    return ",".join(f"{v:.17g}" for v in flat)
+
+
+def part_world_bounds(model: StpreModel, name: str, cad_meshes
+                      ) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """World AABB (mm) of one part after its transform; ``None`` if empty."""
+    meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
+    tess = meshes.get(name)
+    if tess is None:
+        return None
+    pts = np.asarray(tess.points, dtype=np.float64)
+    if pts.size == 0:
+        return None
+    info = next((p for p in model.parts() if p.name == name), None)
+    pts = cab_vtk._apply_transform(pts, info.transform if info else "")
+    return pts.min(0), pts.max(0)
+
+
+def unique_part_name(model: StpreModel, base: str) -> str:
+    names = {p.name for p in model.parts()}
+    if base not in names:
+        return base
+    i = 2
+    while f"{base}_{i}" in names:
+        i += 1
+    return f"{base}_{i}"
+
+
+def clone_part_element(model: StpreModel, src_name: str,
+                       new_name: str,
+                       transform: Optional[str] = None) -> Optional[ET.Element]:
+    """Deep-copy a ``<parts>`` node under the same parent with a new name."""
+    src = model.find_part(src_name)
+    if src is None or model.find_part(new_name) is not None:
+        return None
+    parent = model.root
+    for grp in model.groups():
+        if src in list(grp):
+            parent = grp
+            break
+    clone = copy.deepcopy(src)
+    for tag in ("name", "name2"):
+        el = _first(clone, tag)
+        if el is not None:
+            set_text(el, new_name)
+    if transform is not None:
+        tel = _first(clone, "transform")
+        if tel is None:
+            tel = ET.SubElement(clone, "transform")
+            tel.tail = "\n         "
+        set_text(tel, transform)
+    clone.tail = src.tail
+    parent.append(clone)
+    return clone
+
+
+def translate_part(model: StpreModel, name: str, delta_mm: np.ndarray) -> bool:
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    m = parse_transform(info.transform)
+    m[0:3, 3] += np.asarray(delta_mm, dtype=np.float64)
+    return model.set_part_transform(name, format_transform(m))
+
+
+def mirror_transform(transform: str, axis: str, plane: float) -> str:
+    """Mirror a part transform across ``axis`` = plane (mm), axis in XYZ."""
+    m = parse_transform(transform)
+    # Reflect world points: P' = S (P - o) + o with S = diag(±1)
+    s = np.eye(4)
+    idx = {"X": 0, "Y": 1, "Z": 2}[axis.upper()]
+    s[idx, idx] = -1.0
+    # T_mirror @ M : first apply M, then reflect about plane
+    # Reflect about x=plane: x' = 2*plane - x
+    t_to = np.eye(4)
+    t_to[idx, 3] = -plane
+    t_back = np.eye(4)
+    t_back[idx, 3] = plane
+    mirrored = t_back @ s @ t_to @ m
+    return format_transform(mirrored)
+
+
+def mirror_copy_parts(model: StpreModel, names: list[str], axis: str,
+                      plane: float) -> list[str]:
+    created: list[str] = []
+    for name in names:
+        info = next((p for p in model.parts() if p.name == name), None)
+        if info is None:
+            continue
+        new_name = unique_part_name(model, f"{name}_m")
+        tf = mirror_transform(info.transform, axis, plane)
+        if clone_part_element(model, name, new_name, transform=tf) is not None:
+            created.append(new_name)
+    return created
+
+
+def align_parts(model: StpreModel, part_a: str, part_b: str, axis: str,
+                location: str, cad_meshes) -> bool:
+    """Align Part B bounding box to Part A on one axis (STpre Align Parts)."""
+    ba = part_world_bounds(model, part_a, cad_meshes)
+    bb = part_world_bounds(model, part_b, cad_meshes)
+    if ba is None or bb is None:
+        return False
+    a_lo, a_hi = ba
+    b_lo, b_hi = bb
+    idx = {"X": 0, "Y": 1, "Z": 2}[axis.upper()]
+    loc = location.lower()
+    if loc in ("min", "minimum"):
+        delta = a_lo[idx] - b_lo[idx]
+    elif loc in ("max", "maximum"):
+        delta = a_hi[idx] - b_hi[idx]
+    else:  # center
+        delta = 0.5 * ((a_lo[idx] + a_hi[idx]) - (b_lo[idx] + b_hi[idx]))
+    d = np.zeros(3)
+    d[idx] = delta
+    return translate_part(model, part_b, d)
+
+
+def convert_part_to_type(model: StpreModel, name: str, kind: str,
+                         cad_meshes, *, keep: str = "minmax") -> bool:
+    """Convert part metadata to cuboid/cylinder using world AABB."""
+    bounds = part_world_bounds(model, name, cad_meshes)
+    el = model.find_part(name)
+    if el is None or bounds is None:
+        return False
+    lo, hi = bounds
+    size = hi - lo
+    if keep == "volume" and kind in ("cube", "cuboid"):
+        vol = float(np.prod(np.maximum(size, 1e-9)))
+        side = vol ** (1.0 / 3.0)
+        center = 0.5 * (lo + hi)
+        lo = center - 0.5 * side
+        hi = center + 0.5 * side
+        size = hi - lo
+    el.attrib["type"] = "cube" if kind in ("cube", "cuboid", "hexahedron") \
+        else ("cylinder" if kind == "cylinder" else kind)
+    for tag, val in (("base", ",".join(f"{v:.17g}" for v in lo)),
+                     ("size", ",".join(f"{v:.17g}" for v in size))):
+        c = _first(el, tag)
+        if c is None:
+            c = ET.SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, val)
+    # Reset transform — geometry baked into base/size
+    model.set_part_transform(name, IDENTITY)
+    if kind == "cylinder":
+        center = 0.5 * (lo + hi)
+        radius = 0.5 * max(size[0], size[1])
+        height = size[2]
+        for tag, val in (
+                ("center", ",".join(f"{v:.17g}" for v in center)),
+                ("radius", f"{radius:.17g}"),
+                ("height", f"{height:.17g}"),
+                ("direction", "0,0,1"),
+        ):
+            c = _first(el, tag)
+            if c is None:
+                c = ET.SubElement(el, tag)
+                c.tail = "\n         "
+            set_text(c, val)
+    return True
+
+
+def part_metric(model: StpreModel, name: str, cad_meshes,
+                measure: str) -> Optional[float]:
+    bounds = part_world_bounds(model, name, cad_meshes)
+    if bounds is None:
+        return None
+    lo, hi = bounds
+    size = hi - lo
+    if measure == "length":
+        return float(size.max())
+    if measure == "size":
+        return float(np.linalg.norm(size))
+    # volume/area
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info and info.kind == "panel":
+        return float(size[0] * size[1] if size[2] < 1e-9
+                     else max(size[0] * size[1], size[1] * size[2],
+                              size[0] * size[2]))
+    return float(np.prod(np.maximum(size, 0.0)))
+
+
+def parts_matching_deletion(model: StpreModel, cad_meshes, *,
+                            group: str = "",
+                            target_solid: bool = True,
+                            target_panel: bool = True,
+                            measure: str = "volume",
+                            criteria: float = 0.0,
+                            keep_heat: bool = True) -> list[str]:
+    """Names smaller than ``criteria`` under the given filters."""
+    out: list[str] = []
+    for p in model.parts():
+        if group and p.group != group:
+            continue
+        is_panel = p.kind == "panel" or p.attribute.lower() == "panel"
+        if is_panel and not target_panel:
+            continue
+        if (not is_panel) and not target_solid:
+            continue
+        if keep_heat and _has_heat_source(model, p.name):
+            continue
+        metric = part_metric(model, p.name, cad_meshes, measure)
+        if metric is None:
+            continue
+        if metric < criteria:
+            out.append(p.name)
+    return out
+
+
+def _has_heat_source(model: StpreModel, name: str) -> bool:
+    for c in model.conditions():
+        t = _first(c, "parts")
+        if t is None or (t.text or "").strip() != name:
+            continue
+        v = _first(c, "value")
+        if v is not None and "heat" in (v.text or "").lower():
+            return True
+        if "heat" in (c.attrib.get("type", "") or "").lower():
+            return True
+    return False
+
+
+def ungroup(model: StpreModel, group_name: str) -> list[str]:
+    """Move all parts in ``group_name`` to root and remove the empty group."""
+    target = None
+    for grp in model.groups():
+        n = _first(grp, "name")
+        if n is not None and (n.text or "").strip() == group_name:
+            target = grp
+            break
+    if target is None:
+        return []
+    names = []
+    for el in list(target):
+        if el.tag != "parts":
+            continue
+        n = _first(el, "name")
+        if n is not None and n.text:
+            names.append(n.text.strip())
+    moved = model.move_parts_to_group(names, "")
+    parent = model.root
+    for grp in model.groups():
+        if target in list(grp):
+            parent = grp
+            break
+    if target in list(parent):
+        # only remove when empty of parts
+        if not any(c.tag == "parts" for c in target):
+            parent.remove(target)
+    return moved
+
+
+def group_names(model: StpreModel) -> list[str]:
+    out = []
+    for grp in model.groups():
+        n = _first(grp, "name")
+        if n is not None and (n.text or "").strip():
+            out.append(n.text.strip())
+    return out
+
+
+def apply_reset_domain(model: StpreModel, *,
+                       update_domain: bool,
+                       coordinate: str,
+                       periodic_y: bool,
+                       update_gravity: bool,
+                       gravity_acc: float,
+                       gravity_vec: tuple[float, float, float],
+                       update_temp: bool,
+                       default_temp: float,
+                       update_all_temps: bool,
+                       update_emissivity: bool,
+                       default_emissivity: float) -> None:
+    """Apply [Reset Computational Domain] fields to the model."""
+    if update_domain:
+        spec = cab_domain.domain_from_xml(model) or cab_domain.DomainSpec()
+        coord_map = {
+            "cartesian": "cartesian",
+            "cylindrical": "cylindrical",
+            "axial": "axial",
+            "Cartesian System": "cartesian",
+            "Cylindrical System": "cylindrical",
+            "Axis Symmetry": "axial",
+        }
+        spec.coordinate = coord_map.get(coordinate, "cartesian")
+        cab_domain.apply_domain(model, spec)
+        model.set_project_value(
+            "periodic_y", "T" if periodic_y else "F")
+    if update_gravity:
+        model.set_gravity(gravity_acc, gravity_vec)
+    if update_temp:
+        model.set_ambient_temperature(default_temp)
+        model.set_project_value("solid_init_temperature",
+                                f"{default_temp:g}")
+        if update_all_temps:
+            _update_all_part_temperatures(model, default_temp)
+    if update_emissivity:
+        model.set_project_value("default_emissivity",
+                                f"{default_emissivity:g}")
+
+
+def _update_all_part_temperatures(model: StpreModel, temp: float) -> None:
+    for p in model.parts():
+        el = p.elem
+        t = _first(el, "temperature")
+        if t is None:
+            t = ET.SubElement(el, "temperature")
+            t.tail = "\n         "
+        set_text(t, f"{temp:g}")
+
+
+def flip_part_faces(cad_meshes, name: str) -> bool:
+    """Reverse triangle winding of a tessellation (flip normals)."""
+    for tess in cad_meshes or []:
+        if getattr(tess, "name", None) != name:
+            continue
+        tris = getattr(tess, "triangles", None)
+        if tris is None:
+            tris = getattr(tess, "faces", None)
+        if tris is None:
+            return False
+        arr = np.asarray(tris)
+        if arr.ndim != 2 or arr.shape[1] < 3:
+            return False
+        arr = arr.copy()
+        arr[:, [1, 2]] = arr[:, [2, 1]]
+        if hasattr(tess, "triangles"):
+            tess.triangles = arr
+        else:
+            tess.faces = arr
+        return True
+    return False
+
+
+def place_part_by_centers(model: StpreModel, move_name: str, ref_name: str,
+                          cad_meshes,
+                          offset: tuple[float, float, float] = (0, 0, 0)
+                          ) -> bool:
+    """Translate ``move_name`` so its center matches ``ref_name`` + offset."""
+    ba = part_world_bounds(model, ref_name, cad_meshes)
+    bb = part_world_bounds(model, move_name, cad_meshes)
+    if ba is None or bb is None:
+        return False
+    a_c = 0.5 * (ba[0] + ba[1])
+    b_c = 0.5 * (bb[0] + bb[1])
+    delta = a_c - b_c + np.asarray(offset, dtype=np.float64)
+    return translate_part(model, move_name, delta)

@@ -155,10 +155,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._build_ui()
         self._apply_style()
         self._apply_stored_options()
+        # STpre shows Initial Wizard on cold start / File→New (not when a
+        # .cab path is passed on the command line).
+        self._offer_initial_wizard = False
+        self._selected_kind: str | None = None
+        self._selected_name = None
         if path:
             self.load(path)
         else:
             self._new_project(silent=True)
+            self._offer_initial_wizard = True
 
     # ------------------------------------------------------------------ UI
 
@@ -293,12 +299,33 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Exit", self.close, "Alt+F4")
 
         m = mb.addMenu("Edit(&E)")
+        # Order / labels aligned with STpre Pre_eng toc (Edit menu).
         add(m, "Undo", self._undo, "Ctrl+Z")
         add(m, "Redo", self._redo, "Ctrl+Y")
         m.addSeparator()
-        add(m, "Deletion of Parts", self._delete_parts_dialog)
         add(m, "Group", self._group_dialog)
-        add(m, "Reset Computational Domain", self._domain_dialog)
+        add(m, "Deletion of Parts", self._delete_parts_dialog)
+        add(m, "Parts Conversion", self._parts_conversion_dialog)
+        add(m, "Reconstruct of Part Facet", self._facet_accuracy_dialog)
+        add(m, "Flipping Part Face", self._flipping_part_face)
+        add(m, "Part Face Paneling", self._part_face_paneling)
+        add(m, "Sweep Part Face", self._sweep_part_face_dialog)
+        add(m, "Alignment", self._alignment_dialog)
+        add(m, "Place Part", self._place_part_dialog)
+        add(m, "Mirror Copy Parts", self._mirror_copy_dialog)
+        add(m, "Connected Region", self._connected_region_dialog)
+        add(m, "Boolean Operation", self._boolean_operation_dialog)
+        add(m, "Shape change by Boolean operation",
+            self._shape_change_boolean_dialog)
+        add(m, "Cutting", self._cutting_dialog)
+        add(m, "Edit Solid", self._edit_solid_dialog)
+        add(m, "Part Simplification", self._part_simplification_dialog)
+        add(m, "Shape Simplification", self._shape_simplification_dialog)
+        add(m, "FEM Conversion", self._fem_conversion_dialog)
+        add(m, "Wrapping", self._wrapping_dialog)
+        add(m, "Reset Computational Domain", self._reset_domain_dialog)
+        add(m, "Edit Wiring on Board", self._edit_wiring_dialog)
+        add(m, "Placement of Image", self._placement_of_image_dialog)
 
         m = mb.addMenu("View(&V)")
         # Ctrl+F: window-wide. Bare F is Draw-Window-only (see
@@ -653,8 +680,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._update_title()
         if not silent:
             self.log(
-                "New project created: import an .x_t (File -> Import), "
-                "then set the domain, gridding and meshing.")
+                "New project created — opening Initial Setting wizard.")
+            # File → New: same as STpre, offer Initial Wizard.
+            QTimer.singleShot(0, self._wizard_initial)
         else:
             self.log(
                 "Ready. Default Domain / RootBlock / Sketch plane shown.",
@@ -866,119 +894,294 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._restore_snapshot(self._redo_stack.pop())
         self.log("Redo")
 
-    # ------------------------------------------------- Edit: delete/group
+    # ----------------------------------------------------------- Edit menu
+
+    def _edit_require_model(self) -> bool:
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return False
+        return True
+
+    def _edit_finish(self, snap, message: str, *,
+                     purge_meshes: list[str] | None = None) -> None:
+        """Common post-Edit refresh after a successful dialog apply."""
+        if purge_meshes:
+            keep = set(purge_meshes)
+            self._cad_meshes = [
+                m for m in (self._cad_meshes or [])
+                if getattr(m, "name", None) not in keep]
+        self._push_undo(snap)
+        self._mark_dirty()
+        self._update_title()
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self._rebuild_scene()
+        self.log(message)
 
     def _delete_parts_dialog(self) -> None:
-        """Edit -> Deletion of Parts: multi-select removal dialog."""
-        if self.model is None:
-            self.log("No project open.", "WARN")
+        """Edit -> Deletion of Parts (STpre criteria dialog)."""
+        if not self._edit_require_model():
             return
-        from PyQt5.QtWidgets import (
-            QListWidget, QListWidgetItem, QPushButton, QVBoxLayout,
-        )
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Deletion of Parts")
-        lay = QVBoxLayout(dlg)
-        lst = QListWidget(dlg)
-        lst.setSelectionMode(QListWidget.MultiSelection)
-        for p in self.model.parts():
-            QListWidgetItem(p.name, lst)
-        lay.addWidget(lst)
-        row = QtWidgets.QHBoxLayout()
-        row.addStretch(1)
-        btn_del = QPushButton("Delete", dlg)
-        btn_close = QPushButton("Close", dlg)
-        row.addWidget(btn_del)
-        row.addWidget(btn_close)
-        lay.addLayout(row)
-        deleted: list[str] = []
-
-        def _do_delete() -> None:
-            names = [lst.item(i).text() for i in range(lst.count())
-                     if lst.item(i).isSelected()]
-            if not names:
-                self.log("Deletion of Parts: select at least one part.",
-                         "WARN")
-                return
-            if QMessageBox.question(
-                    dlg, "Deletion of Parts",
-                    f"Delete {len(names)} part(s)?") != QMessageBox.Yes:
-                return
-            snap = self._snapshot()
-            for n in names:
-                self.model.delete_part(n)
-                self._cad_meshes = [
-                    m for m in (self._cad_meshes or [])
-                    if getattr(m, "name", None) != n]
-            deleted.extend(names)
-            self._push_undo(snap)
-            self._mark_dirty()
-            self._update_title()
-            self.tree_view.populate(
-                self.model, self.archive.members if self.archive else [])
-            self._rebuild_scene()
-            self.log(f"Deletion of Parts: removed {', '.join(names)}")
-
-        btn_del.clicked.connect(_do_delete)
-        btn_close.clicked.connect(dlg.accept)
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.DeletionOfPartsDialog(
+            self.model, self._cad_meshes, self)
         dlg.exec_()
+        if dlg.applied and dlg.deleted:
+            self._edit_finish(
+                snap, f"Deletion of Parts: removed {', '.join(dlg.deleted)}",
+                purge_meshes=dlg.deleted)
 
     def _group_dialog(self) -> None:
-        """Edit -> Group: create a group and move parts into it."""
-        if self.model is None:
-            self.log("No project open.", "WARN")
+        """Edit -> Group (Create new / Add / Remove / Ungroup)."""
+        if not self._edit_require_model():
             return
-        from PyQt5.QtWidgets import (
-            QLineEdit, QListWidget, QListWidgetItem, QPushButton,
-            QVBoxLayout,
-        )
-        dlg = QtWidgets.QDialog(self)
-        dlg.setWindowTitle("Group")
-        lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("Group name (empty = ungroup)", dlg))
-        edit = QLineEdit(dlg)
-        edit.setPlaceholderText("e.g. my_group")
-        lay.addWidget(edit)
-        lst = QListWidget(dlg)
-        lst.setSelectionMode(QListWidget.MultiSelection)
-        for p in self.model.parts():
-            QListWidgetItem(p.name, lst)
-        lay.addWidget(lst)
-        row = QtWidgets.QHBoxLayout()
-        row.addStretch(1)
-        btn_ok = QPushButton("Apply", dlg)
-        btn_close = QPushButton("Close", dlg)
-        row.addWidget(btn_ok)
-        row.addWidget(btn_close)
-        lay.addLayout(row)
-
-        def _apply() -> None:
-            names = [lst.item(i).text() for i in range(lst.count())
-                     if lst.item(i).isSelected()]
-            if not names:
-                self.log("Group: select at least one part.", "WARN")
-                return
-            snap = self._snapshot()
-            moved = self.model.move_parts_to_group(
-                names, edit.text().strip())
-            if not moved:
-                return
-            self._push_undo(snap)
-            self._mark_dirty()
-            self._update_title()
-            self.tree_view.populate(
-                self.model, self.archive.members if self.archive else [])
-            self._rebuild_scene()
-            self.log(f"Group: moved {len(moved)} part(s) into "
-                     f"'{edit.text().strip() or '(root)'}'")
-
-        btn_ok.clicked.connect(_apply)
-        btn_close.clicked.connect(dlg.accept)
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.GroupDialog(self.model, self)
         dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Group: layout updated.")
+
+    def _parts_conversion_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.PartsConversionDialog(
+            self.model, self._cad_meshes, self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(snap, "Parts Conversion finished.")
+
+    def _facet_accuracy_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.FacetAccuracyDialog(self.model, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Facet Accuracy: parameters stored.")
+
+    def _flipping_part_face(self) -> None:
+        """Edit -> Flipping Part Face (click part / flip selection)."""
+        if not self._edit_require_model():
+            return
+        import cab_edit_ops
+        name = None
+        if getattr(self, "_selected_kind", None) == "part":
+            name = self._selected_name
+        if not name:
+            parts = self.model.parts()
+            if len(parts) == 1:
+                name = parts[0].name
+        if not name:
+            QMessageBox.information(
+                self, "Flipping Part Face",
+                "Select a part in the Layout tree, then run this command.\n"
+                "STpre: click a part to flip all faces; hold 1 and click "
+                "to flip a single face.")
+            return
+        snap = self._snapshot()
+        if not cab_edit_ops.flip_part_faces(self._cad_meshes, name):
+            self.log(f"Flipping Part Face: no tessellation for '{name}'.",
+                     "WARN")
+            return
+        self._edit_finish(snap, f"Flipping Part Face: flipped '{name}'.")
+
+    def _part_face_paneling(self) -> None:
+        """Edit -> Part Face Paneling (Esc commits in STpre)."""
+        if not self._edit_require_model():
+            return
+        QMessageBox.information(
+            self, "Part Face Paneling",
+            "Select a Parasolid part face in the Draw Window "
+            "(selected faces turn red). Press Esc to panelize.\n\n"
+            "Use Part → Panel to create a panel from parameters when "
+            "interactive face pick is unavailable.")
+
+    def _sweep_part_face_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.FaceExtrusionDialog(
+            self.model, self._cad_meshes, self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(
+                snap,
+                f"Sweep Part Face: created '{dlg.created_name}'.")
+
+    def _alignment_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.AlignPartsDialog(
+            self.model, self._cad_meshes, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Alignment finished.")
+
+    def _place_part_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.PlacePartDialog(
+            self.model, self._cad_meshes, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Place Part finished.")
+
+    def _mirror_copy_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.MirrorCopyDialog(self.model, [], self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(
+                snap,
+                f"Mirror Copy Parts: created {', '.join(dlg.created)}.")
+
+    def _connected_region_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.ConnectedRegionDialog(self.model, self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(snap, "Connected Region registered.")
+
+    def _boolean_operation_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.BooleanOperationDialog(
+            self.model, self._cad_meshes, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(
+                snap,
+                f"Boolean Operation: '{dlg.result_name}'.")
+
+    def _shape_change_boolean_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.ShapeChangeBooleanDialog(self.model, self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(
+                snap, "Shape change by Boolean operation applied.")
+
+    def _cutting_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.CuttingPlaneDialog(
+            self.model, self._cad_meshes, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(
+                snap,
+                f"Cutting: created {', '.join(dlg.created)}.")
+
+    def _edit_solid_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.EditSolidDialog(self.model, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Edit Solid finished.")
+
+    def _part_simplification_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.PartSimplificationDialog(self.model, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Part Simplification finished.")
+
+    def _shape_simplification_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.ShapeSimplificationDialog(self.model, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Shape Simplification finished.")
+
+    def _fem_conversion_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.FEMConversionDialog(self.model, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "FEM Conversion finished.")
+
+    def _wrapping_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.WrappingDialog(
+            self.model, self._cad_meshes, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(
+                snap, f"Wrapping: created '{dlg.created_name}'.")
+
+    def _reset_domain_dialog(self) -> None:
+        """Edit -> Reset Computational Domain (coord / gravity / defaults).
+
+        Distinct from tree double-click [Edit Computational Domain].
+        """
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.ResetComputationalDomainDialog(
+            self.model, self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(
+                snap, "Reset Computational Domain applied.")
+            self.control.load_sketch(self.model)
+
+    def _edit_wiring_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.EditWiringOnBoardDialog(self.model, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, "Edit Wiring on Board: registered.")
+
+    def _placement_of_image_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.PlaceImageDialog(self.model, self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(snap, "Placement of Image applied.")
 
     # ------------------------------------------------------------- events
 
     def _on_item_selected(self, kind: str, name) -> None:
+        self._selected_kind = kind
+        self._selected_name = name
         self.control.show_property(kind, name, self.model, self.props)
         self.prop_fields = self.control.prop_fields
         self._mode_label.setText("Part" if kind == "part" else kind)
@@ -2166,7 +2369,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             QMessageBox.warning(self, "Execute Post", "未找到 scPOST 后处理。")
 
     def _wizard_initial(self) -> None:
-        """Wizard -> Initial Setting: the STpre Initial Wizard (M6)."""
+        """Wizard → Initial Setting (also auto-shown on startup / File→New).
+
+        User may Finish the 6-step setup, Open Existing Project (.cab), or
+        Cancel to keep the current empty/default workspace.
+        """
         if self.model is None or self.props is None:
             self.log("No project open.", "WARN")
             return
@@ -2175,7 +2382,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg = cab_wizards.InitialWizard(
             self.model, self.props, self._cad_meshes,
             archive=self.archive, parent=self)
-        if dlg.exec_():
+        result = dlg.exec_()
+        if result == cab_wizards.InitialWizard.RESULT_OPEN_EXISTING:
+            path = getattr(dlg, "opened_existing_path", None)
+            if path:
+                if self.load(path):
+                    self.log(f"Initial Setting: opened existing project "
+                             f"{path}")
+            return
+        if result:
+            # Sync CAD tessellations imported in the wizard (may have been
+            # None on the viewer before Import CAD).
+            meshes = getattr(dlg, "_cad_meshes", None)
+            if meshes is not None:
+                self._cad_meshes = list(meshes)
+            self._hidden_parts.clear()
             self._push_undo(snap)
             self._mark_dirty()
             self._update_title()
@@ -2192,11 +2413,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 if idx >= 0:
                     self.tb_display.setCurrentIndex(idx)
                 self.tb_display.blockSignals(False)
+            self._ensure_sketch_plane(force_fit=True)
+            self.control.load_sketch(self.model)
             self._rebuild_scene(fit=True)
             self.log("Initial Setting finished; save the cab to persist.")
+        else:
+            self.log("Initial Setting cancelled — default workspace kept.",
+                     "INFO")
 
     def _domain_dialog(self) -> None:
-        """Edit -> Reset Computational Domain (M2)."""
+        """[Edit Computational Domain] — tree Reference / double-click Domain.
+
+        Menu [Edit]→[Reset Computational Domain] uses
+        :meth:`_reset_domain_dialog` (different STpre dialog).
+        """
         if self.model is None:
             self.log("No project open.", "WARN")
             return
@@ -2843,6 +3073,10 @@ def main(argv: list[str] | None = None) -> int:
     # (early Initialize here still races the native window on Windows).
     if win._enable_3d and win.model is not None:
         QTimer.singleShot(0, win._finish_startup_view)
+    # STpre: Initial Wizard appears automatically when creating a new
+    # session (not when opening a .cab from the command line).
+    if getattr(win, "_offer_initial_wizard", False):
+        QTimer.singleShot(100, win._wizard_initial)
     return app.exec_()
 
 
