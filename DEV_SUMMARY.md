@@ -1738,3 +1738,14 @@ M31 启动矩阵文档）+ M24 真 B-rep Boolean + M29 13/13 环境页仍为缺�
 M1–M11、M23 按当时验收“已完成”；M12–M22 为延伸摘要；M24–M31 均为
 MVP/子集/代理/stub，**不是完整实现**。当前 HEAD 全仓测试非全绿，
 建议先修回归，再按 §34.2 顺序补齐缺口。
+
+## 35. Drawing Mode 默认 Shading（2026-08-09）
+
+- 代码默认值本就为 `Shading`（`CabViewer._drawing_mode`、Display 工具栏
+  `setCurrentText("Shading")`、`OptionsDialog` 组合框、`_apply_stored_options`
+  的 `get_setting("drawing_mode", "Shading")`）；
+- 用户观察到 `mode=Line` 来自 QSettings 持久化的旧值；
+- 本次加固：`_apply_options` 对无效/缺失/损坏的存储值统一回退
+  `Shading`，并把本机持久化值重置为 `Shading`；
+- 验证：`tests/test_gui.py` / `test_menus_other.py` 不受影响（Line 仍为
+  合法用户选项，仅默认/回退为 Shading）。

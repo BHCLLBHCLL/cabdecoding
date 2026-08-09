@@ -787,8 +787,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.message_win.set_max_blocks(
             int(values.get("message_max_blocks", 2000)))
         mode = values.get("drawing_mode")
-        if mode and mode in ("Line", "Shading", "Translucent"):
-            self._set_drawing_mode(mode)
+        if mode not in ("Line", "Shading", "Translucent"):
+            # Default drawing mode is Shading; any missing/legacy/corrupt
+            # stored value falls back to it instead of keeping an old Line
+            # preference from a previous session.
+            mode = "Shading"
+        self._set_drawing_mode(mode)
         self._toggle_status_bar(bool(values.get("show_status_bar", True)))
         bg = values.get("background", "Gradation")
         if self.renderer is not None:
