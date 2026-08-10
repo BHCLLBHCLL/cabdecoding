@@ -1271,7 +1271,11 @@ class StpreModel:
     def set_mesh_control_value(self, tag: str, text: str) -> bool:
         mc = _first(self.root, "mesh_control")
         if mc is None:
-            return False
+            # Lightweight stub so flags (e.g. domain_coordinate) can be
+            # persisted before a full Gridding run creates the block tree.
+            mc = ET.Element("mesh_control")
+            mc.tail = "\n"
+            self.root.append(mc)
         el = _first(mc, tag)
         if el is None:
             el = ET.SubElement(mc, tag)

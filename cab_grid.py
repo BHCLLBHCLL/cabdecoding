@@ -6,7 +6,11 @@ Implements the STpre gridding semantics documented in the Pre manual:
   Not considered / Uniform;
 * gridding method: rough grids only / rough + detailed mesh (standard length
   + geometric ratio, internal/external) / by number of elements;
-* threshold length acts as the lower limit of element width.
+* threshold length acts as the lower limit of element width;
+* domain coordinate type (cartesian / cylindrical / axial) is stored on the
+  model (``analysis_region@type`` + ``mesh_control/domain_coordinate``) but
+  **native axis generation remains cartesian AABB** — cylindrical/axial are
+  type flags for downstream / STpre API, not a polar mesher yet.
 
 The generated axes are written back to ``<mesh_control>`` (RootBlock
 parameters) and ``<mesh_block>`` (x/y/z coordinate tables), the same XML
@@ -41,6 +45,8 @@ class GridSpec:
     unit: str = "mm"
     domain_min: tuple[float, float, float] = (-100.0, -100.0, -100.0)
     domain_max: tuple[float, float, float] = (150.0, 300.0, 315.0)
+    # Stored on the model; native build_axes still uses cartesian AABB.
+    domain_coordinate: str = "cartesian"  # cartesian | cylindrical | axial
     vertex_detection: str = "representative"
     # all | representative | axis_plane | minmax | not_considered | uniform
     method: str = "rough_and_detail"

@@ -51,10 +51,10 @@ try:
     from PyQt5.QtCore import QPoint, QPointF
     from PyQt5.QtWidgets import (
         QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFrame,
-        QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget,
-        QListWidgetItem, QMessageBox, QPushButton, QRadioButton, QSlider,
-        QSpinBox, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-        QWidget,
+        QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
+        QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
+        QSlider, QSpinBox, QTabWidget, QTreeWidget, QTreeWidgetItem,
+        QVBoxLayout, QWidget,
     )
     _HAS_GUI_DEPS = True
 except Exception:  # pragma: no cover - headless environments
@@ -1643,6 +1643,11 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         ("Rough grids and detailed mesh by specifying the number of "
          "elements", "num_elements"),
     ]
+    _DOMAIN_TYPES = [
+        ("Cartesian", "cartesian"),
+        ("Cylindrical", "cylindrical"),
+        ("Axial", "axial"),
+    ]
     _GRID_TYPES = [("General", "N"), ("Fixed", "F"), ("Rough", "S")]
     _MARK_LABEL = {"B": "block", "N": "", "F": "fixed", "S": "rough",
                    "C": "child_block"}
@@ -1752,6 +1757,18 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         vl = QVBoxLayout(vd)
         self._radio_group(vl, self._DETECTIONS, "detection_radios")
         lay.addWidget(vd)
+
+        dt = QGroupBox("Domain type", page)
+        dl_dt = QVBoxLayout(dt)
+        self._radio_group(dl_dt, self._DOMAIN_TYPES, "domain_type_radios",
+                          cols=3)
+        note = QLabel(
+            "Note: cylindrical/axial are stored on the model; native "
+            "gridding still generates cartesian AABB axes.", dt)
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #666; font-size: 10px;")
+        dl_dt.addWidget(note)
+        lay.addWidget(dt)
 
         mg = QGroupBox("Method of Gridding", page)
         ml = QVBoxLayout(mg)
@@ -2265,12 +2282,25 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self.edit_coord.setRange(-1.0e9, 1.0e9)
         self.edit_coord.setDecimals(6)
         row.addWidget(self.edit_coord)
-        for label in ("Select", "Preview", "Delete", "Edit", "Add"):
+        # List-based pick (not STpre mouse vertex pick) — labeled clearly.
+        self.btn_select = QPushButton("Select from list…", page)
+        self.btn_select.setToolTip(
+            "Pick a grid / part reference coordinate from a list "
+            "(mouse vertex pick is not available in the cab viewer).")
+        self.btn_select.clicked.connect(self._edit_select)
+        row.addWidget(self.btn_select)
+        for label in ("Preview", "Delete", "Edit", "Add"):
             btn = QPushButton(label, page)
             btn.clicked.connect(getattr(self, f"_edit_{label.lower()}"))
             row.addWidget(btn)
             setattr(self, f"btn_{label.lower()}", btn)
         lay.addLayout(row)
+        pick_hint = QLabel(
+            "Select from list… = choose a coordinate from the grid-line "
+            "list or part min/max (not mouse pick).", page)
+        pick_hint.setStyleSheet("color: #666; font-size: 10px;")
+        pick_hint.setWordWrap(True)
+        lay.addWidget(pick_hint)
         self.edit_thr_chk = QCheckBox(
             "Consider a threshold element size (unit mm)", page)
         lay.addWidget(self.edit_thr_chk)
@@ -2327,8 +2357,41 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
                       for i in self.edit_list.selectedItems())
 
     def _edit_select(self) -> None:
-        self._log("[Select] mouse vertex picking not available in cab "
-                  "viewer; select a row in the list instead.", "WARN")
+        """List-based coordinate pick (replaces STpre mouse vertex pick)."""
+        ax = self._current_axis(self.edit_axis)
+        entries = self.model.mesh_axis_entries(ax)
+        refs = self._part_reference_coords(ax)
+        labels: list[str] = []
+        values: list[float] = []
+        for i, (val, mark) in enumerate(entries, start=1):
+            labels.append(
+                f"grid #{i}: {val:.10g} mm  [{self._MARK_LABEL.get(mark, mark)}]")
+            values.append(val)
+        for c, name in refs:
+            labels.append(f"part {name}: {c:.10g} mm")
+            values.append(c)
+        if not labels:
+            self._log("Select from list: no grid lines or part refs.",
+                      "WARN")
+            return
+        # Prefer current list selection when present
+        rows = self._selected_rows()
+        if len(rows) == 1 and 0 <= rows[0] < len(entries):
+            self.edit_coord.setValue(entries[rows[0]][0])
+            self._log(
+                f"Select from list: grid row → {ax} = "
+                f"{entries[rows[0]][0]:g} mm")
+            return
+        choice, ok = QInputDialog.getItem(
+            self, "Select grid coordinate (list)",
+            f"Axis {ax.upper()} — pick a coordinate "
+            f"(list-based; not mouse pick):",
+            labels, 0, False)
+        if not ok:
+            return
+        idx = labels.index(choice)
+        self.edit_coord.setValue(values[idx])
+        self._log(f"Select from list: {ax} = {values[idx]:g} mm")
 
     def _edit_preview(self) -> None:
         self._log(f"Preview grid line: {self._current_axis(self.edit_axis)}"
@@ -2657,8 +2720,11 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             return
         import cab_mesh
         transforms = {p.name: p.transform for p in self.model.parts()}
+        part_kinds = {p.name: p.kind for p in self.model.parts()}
+        part_attrs = {p.name: p.attribute for p in self.model.parts()}
         _abox, boxes = cab_mesh.classify_cells(
-            axes, [meshes[name]], transforms=transforms)
+            axes, [meshes[name]], transforms=transforms,
+            part_kinds=part_kinds, part_attrs=part_attrs)
         cab_mesh.update_part_elements(
             self.model, name, boxes.get(name, []))
         msg = f"Meshing of specified part: {name} -> " \
@@ -2704,6 +2770,10 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             else [150.0, 300.0, 315.0]
         if spec is not None:
             self.basic_unit_label.setText(f"Unit : {spec.unit}")
+        coord = (spec.coordinate if spec is not None else "cartesian")
+        if coord not in self.domain_type_radios:
+            coord = "cartesian"
+        self.domain_type_radios[coord].setChecked(True)
 
         def _int(tag, default):
             try:
@@ -2813,10 +2883,20 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
 
         detection = self._detection_key()
         method = self._method_key()
+        domain_coord = self._current_axis(self.domain_type_radios)
+        # Persist domain type flags (generation remains cartesian AABB).
+        dom = cab_domain.domain_from_xml(self.model)
+        if dom is None:
+            dom = cab_domain.DomainSpec(
+                xyz_min=tuple(self._dom_min),
+                xyz_max=tuple(self._dom_max))
+        dom.coordinate = domain_coord
+        cab_domain.apply_domain(self.model, dom)
         spec = cab_grid.GridSpec(
             unit="mm",
             domain_min=tuple(self._dom_min),
             domain_max=tuple(self._dom_max),
+            domain_coordinate=domain_coord,
             vertex_detection=detection,
             method=method,
             standard_length=tuple(sb.value() for sb in self.std.values()),
@@ -2911,7 +2991,10 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             f"Gridding: {detection}/{method} -> "
             f"{cells[0]}x{cells[1]}x{cells[2]} elements "
             f"({counts[0]}x{counts[1]}x{counts[2]} points)"
-            + (" (internal region)" if internal else ""))
+            + (" (internal region)" if internal else "")
+            + (f"; domain_type={domain_coord}"
+               + (" (axes still cartesian AABB)"
+                  if domain_coord != "cartesian" else "")))
 
     def _apply(self) -> None:
         """Backward-compatible alias for the [Gridding] button."""

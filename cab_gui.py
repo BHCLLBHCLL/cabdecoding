@@ -1868,9 +1868,6 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 actor.SetVisibility(1 if on else 0)
         if self.renderer and self._enable_3d:
             self.renderer.GetRenderWindow().Render()
-        if key in ("condition", "aspect_ratio") and on:
-            self._nyi(f"Drawing layer — {key}")
-
     def _on_control_tab(self, index: int) -> None:
         """Show/Select ↔ Sketch: turn Sketch plane Drawing On when needed."""
         try:
@@ -1982,17 +1979,22 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             f"u={plane.u_range}, v={plane.v_range}")
 
     def _on_sel_target(self, target: str) -> None:
+        if target == "Detail":
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self, "Drawing On/Off — Detail",
+                "STpre opens a per-layer detail sheet here.\n"
+                "cabdecoding keeps Drawing On/Off on Show/Select; "
+                "Condition / Aspect ratio layers are listed but not drawn.")
+            return
         self._target_label.setText(target)
         self._sel_target = target
-        if target == "Detail":
-            self._nyi("Drawing On/Off — Detail…")
-            return
-        # M24/M25: Face / Vertices enable VTK cell pick (see _on_left_click)
+        # Face / Vertices / Domain boundary → VTK pick (_on_left_click)
         if target in ("Part", "Parts", "Face", "Faces", "Faces + Vertices",
-                      "Vertices", "Vertex"):
+                      "Vertices", "Vertex", "DomainBoundary"):
             self.log(f"Selection target: {target}")
             return
-        self._nyi(f"Target of selection — {target}")
+        self.log(f"Selection target: {target}", "INFO")
 
     def _on_layer_apply(self) -> None:
         """Control → Layer → Apply: filter part visibility by Display Layer."""
@@ -2168,6 +2170,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         iren.AddObserver("MouseMoveEvent", self._on_mouse_move, 1.0)
         iren.AddObserver("KeyPressEvent", self._on_vtk_key_press, 1.0)
         iren.AddObserver("LeftButtonPressEvent", self._on_left_click, 1.0)
+        iren.AddObserver("RightButtonPressEvent", self._on_draw_right_click, 1.0)
         self._cell_picker = vtk.vtkCellPicker()
         self._cell_picker.SetTolerance(0.005)
         self._sel_target = getattr(self, "_sel_target", "Part")
@@ -2333,6 +2336,52 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._mode_label.setText(f"{target}")
         except Exception as exc:
             self.log(f"Pick failed: {exc}", "WARN")
+
+    def _on_draw_right_click(self, obj, _event) -> None:
+        """M35: Draw Window RMB — Layout-style part popup subset."""
+        if self.renderer is None or not hasattr(self, "_cell_picker"):
+            return
+        # In trackball mode RMB is zoom; only show menu with Ctrl held
+        try:
+            if (getattr(self, "_mouse_mode", "trackball") == "trackball"
+                    and not obj.GetControlKey()):
+                return
+            x, y = obj.GetEventPosition()
+            self._cell_picker.Pick(float(x), float(y), 0.0, self.renderer)
+            actor = self._cell_picker.GetActor()
+            name = None
+            for act, pname in getattr(self, "actors", []) or []:
+                if act is actor:
+                    name = pname
+                    break
+            if name is None:
+                if getattr(self, "_selected_kind", None) == "part":
+                    name = self._selected_name
+            if not name:
+                return
+            from PyQt5.QtWidgets import QMenu
+            from PyQt5.QtGui import QCursor
+            self._on_item_selected("part", name)
+            menu = QMenu(self)
+            menu.addAction(
+                "Refer to Part",
+                lambda n=name: self._on_context_action("refer", "part", n))
+            menu.addAction(
+                "Display Part",
+                lambda n=name: self._set_part_visible(n, True))
+            menu.addAction(
+                "Hide Part",
+                lambda n=name: self._set_part_visible(n, False))
+            menu.addAction(
+                "Delete Part",
+                lambda n=name: self._on_context_action("delete", "part", [n]))
+            menu.exec_(QCursor.pos())
+            try:
+                obj.SetAbortFlag(1)
+            except Exception:
+                pass
+        except Exception as exc:
+            self.log(f"Draw context menu failed: {exc}", "WARN")
 
     def _view_display_all(self) -> None:
         self._hidden_parts.clear()
@@ -4184,8 +4233,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.statusBar().showMessage(
                     f"Meshing: classifying part {done}/{total} …")
 
+            part_kinds = {p.name: p.kind for p in self.model.parts()}
+            part_attrs = {p.name: p.attribute for p in self.model.parts()}
             analysis_box, part_boxes = cab_mesh.classify_cells(
-                axes, meshes, transforms=transforms, progress=tick)
+                axes, meshes, transforms=transforms, progress=tick,
+                part_kinds=part_kinds, part_attrs=part_attrs)
             analysis_name = (self.model.analysis_names() or
                              ["Domain(cuboid)"])[0]
             cab_mesh.apply_elements(

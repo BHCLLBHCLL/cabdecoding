@@ -39,6 +39,21 @@ class DomainSpec:
     initial_temperature: Optional[float] = None  # degC; None = keep as-is
 
 
+def _coordinate_from_model(model: StpreModel, ar) -> str:
+    """Map XML domain type → DomainSpec.coordinate.
+
+    Prefer explicit ``mesh_control/domain_coordinate`` (stores axial);
+    else ``analysis_region@type``: cylinder→cylindrical, cube→cartesian.
+    """
+    stored = (model.mesh_control_value("domain_coordinate") or "").strip().lower()
+    if stored in ("cartesian", "cylindrical", "axial"):
+        return stored
+    xml_type = (ar.attrib.get("type") or "cube").strip().lower()
+    if xml_type == "cylinder":
+        return "cylindrical"
+    return "cartesian"
+
+
 def domain_from_xml(model: StpreModel) -> Optional[DomainSpec]:
     """Read the current domain; ``None`` when no ``<analysis_region>``."""
     ar = model.analysis_region()
@@ -47,8 +62,7 @@ def domain_from_xml(model: StpreModel) -> Optional[DomainSpec]:
     base = model.domain_base() or (0.0, 0.0, 0.0)
     size = model.domain_size() or (1.0, 1.0, 1.0)
     return DomainSpec(
-        coordinate=ar.attrib.get("type", "cube") if ar.attrib.get("type")
-        in ("cube", "cylinder") else "cartesian",
+        coordinate=_coordinate_from_model(model, ar),
         unit=model.domain_unit(),
         xyz_min=base,
         xyz_max=(base[0] + size[0], base[1] + size[1], base[2] + size[2]),
@@ -70,11 +84,21 @@ def apply_domain(model: StpreModel, spec: DomainSpec,
     model.ensure_domain(
         name=name or spec.name or "Domain(cuboid)", base=base, size=size,
         unit=spec.unit, material=spec.material)
-    if spec.coordinate != "cartesian":
-        ar = model.analysis_region()
-        if ar is not None:
-            ar.attrib["type"] = "cylinder" if spec.coordinate == "cylindrical" \
-                else "cube"
+    ar = model.analysis_region()
+    if ar is not None:
+        # Honesty: cylindrical/axial flags are stored; native grid generation
+        # still uses cartesian AABB axes (see cab_grid / GriddingDialog).
+        if spec.coordinate == "cylindrical":
+            ar.attrib["type"] = "cylinder"
+        else:
+            ar.attrib["type"] = "cube"  # cartesian and axial
+    try:
+        model.set_mesh_control_value(
+            "domain_coordinate",
+            spec.coordinate if spec.coordinate in (
+                "cartesian", "cylindrical", "axial") else "cartesian")
+    except Exception:
+        pass
     if name is None and spec.name:
         model.set_domain_name(spec.name)
     model.set_domain_color(spec.color)
