@@ -167,6 +167,14 @@ DEFAULT_REFINE_TOL = 1e-5       # local surface_plane_tol for selected faces
 DEFAULT_SMOOTH_ANGLE_DEG = 8.0  # refine faces whose intra-face dihedral > this
 DEFAULT_MIN_REL_AREA = 1e-4     # face area must be >= this * body bbox area
 DEFAULT_MIN_FACE_FACETS = 8     # skip trivial faces with fewer facets
+# Skip adaptive per-face probing when a body has too many faces (slow /
+# crash-prone on large CAD).  Plain facet_2 is used instead.
+ADAPTIVE_MAX_FACES = 200
+
+# Parasolid entity class codes observed on Cradle pskernel 2025.2
+PK_CLASS_body = 5006
+PK_CLASS_instance = 5007
+PK_CLASS_assembly = 5008
 
 # GO segment types used by the render_facet fallback.
 _SGTPFT = 2016  # facet segment
@@ -568,6 +576,60 @@ class _PsSession:
             raise RuntimeError(f"PK_PART_receive failed: {rc}")
         return list(cast(parts, POINTER(c_int * n.value)).contents)
 
+    def entity_class(self, tag: int) -> Optional[int]:
+        """``PK_ENTITY_ask_class`` — body=5006, instance=5007, assembly=5008."""
+        pk = self.pk
+        try:
+            pk.PK_ENTITY_ask_class.restype = c_int
+            pk.PK_ENTITY_ask_class.argtypes = [c_int, POINTER(c_int)]
+            klass = c_int(0)
+            if pk.PK_ENTITY_ask_class(int(tag), byref(klass)) != 0:
+                return None
+            return int(klass.value)
+        except OSError:
+            return None
+
+    def assembly_parts(self, tag: int) -> Optional[list[int]]:
+        """Top-level part tags of an assembly (``PK_ASSEMBLY_ask_parts``)."""
+        pk = self.pk
+        try:
+            pk.PK_ASSEMBLY_ask_parts.restype = c_int
+            pk.PK_ASSEMBLY_ask_parts.argtypes = [
+                c_int, POINTER(c_int), POINTER(c_void_p)]
+            n = c_int(0)
+            arr = c_void_p()
+            rc = pk.PK_ASSEMBLY_ask_parts(int(tag), byref(n), byref(arr))
+            if rc != 0 or n.value <= 0 or not arr:
+                return None
+            return list(cast(arr, POINTER(c_int * n.value)).contents)
+        except OSError:
+            return None
+
+    def expand_to_bodies(self, tags: list[int], *,
+                         _seen: Optional[set[int]] = None) -> list[int]:
+        """Expand assemblies recursively to solid/sheet body tags.
+
+        ``cellular_phone.x_t`` and similar CAD files arrive as a single
+        assembly (class 5008). Calling ``PK_BODY_ask_faces`` on the assembly
+        tag raises a native access violation — expand first.
+        """
+        seen = _seen if _seen is not None else set()
+        out: list[int] = []
+        for tag in tags:
+            t = int(tag)
+            if t in seen:
+                continue
+            seen.add(t)
+            klass = self.entity_class(t)
+            if klass == PK_CLASS_assembly:
+                kids = self.assembly_parts(t) or []
+                out.extend(self.expand_to_bodies(kids, _seen=seen))
+            elif klass == PK_CLASS_body or klass is None:
+                # Unknown class: keep and let facet path decide
+                out.append(t)
+            # skip instances (5007) and other non-body classes
+        return out
+
     def body_name(self, tag: int) -> str:
         pk = self.pk
         pk.PK_PART_ask_all_attribs.restype = c_int
@@ -752,17 +814,27 @@ class _PsSession:
         return self._decode_result(result, tag, self.body_name(tag))
 
     def body_faces(self, tag: int) -> Optional[list[int]]:
-        """Return the PK_FACE tags owned by a body (per-face probing)."""
-        pk = self.pk
-        pk.PK_BODY_ask_faces.restype = c_int
-        pk.PK_BODY_ask_faces.argtypes = [
-            c_int, POINTER(c_int), POINTER(c_void_p)]
-        n = c_int(0)
-        faces = c_void_p()
-        rc = pk.PK_BODY_ask_faces(tag, byref(n), byref(faces))
-        if rc != 0 or n.value <= 0 or not faces:
+        """Return the PK_FACE tags owned by a body (per-face probing).
+
+        Must only be called on body entities (class 5006).  Calling this on
+        an assembly (5008) can raise a native access violation in pskernel.
+        """
+        klass = self.entity_class(tag)
+        if klass is not None and klass != PK_CLASS_body:
             return None
-        return list(cast(faces, POINTER(c_int * n.value)).contents)
+        pk = self.pk
+        try:
+            pk.PK_BODY_ask_faces.restype = c_int
+            pk.PK_BODY_ask_faces.argtypes = [
+                c_int, POINTER(c_int), POINTER(c_void_p)]
+            n = c_int(0)
+            faces = c_void_p()
+            rc = pk.PK_BODY_ask_faces(int(tag), byref(n), byref(faces))
+            if rc != 0 or n.value <= 0 or not faces:
+                return None
+            return list(cast(faces, POINTER(c_int * n.value)).contents)
+        except OSError:
+            return None
 
     def body_vertices(self, tag: int) -> Optional[np.ndarray]:
         """Real B-rep vertex coordinates of a body (PK_FACE_ask_vertices).
@@ -865,16 +937,26 @@ class _PsSession:
 
         Falls back to a plain body facet_2 when probing is not possible.
         """
-        faces = self.body_faces(tag)
+        try:
+            faces = self.body_faces(tag)
+        except OSError:
+            faces = None
         if not faces:
+            return self.facet2(
+                tag, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+        if len(faces) > ADAPTIVE_MAX_FACES:
+            # Large CAD bodies: skip expensive per-face probe
             return self.facet2(
                 tag, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
         rows: list[tuple[int, int, float, float]] = []
         lo = np.full(3, np.inf)
         hi = np.full(3, -np.inf)
         for ft in faces:
-            m = self._face_metrics(
-                ft, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+            try:
+                m = self._face_metrics(
+                    ft, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+            except OSError:
+                m = None
             if m is None:
                 return self.facet2(
                     tag, facet_tol=facet_tol,
@@ -909,13 +991,16 @@ class _PsSession:
 
     def facet_body_adaptive(self, tag: int, **kw) -> Optional[TessPart]:
         """Adaptive facet_2, with the GO path as final fallback."""
-        part = self._adaptive_facet2(tag, **kw)
+        try:
+            part = self._adaptive_facet2(tag, **kw)
+        except OSError:
+            part = None
         if part is not None:
             return part
-        return self.facet_go(
-            tag, facet_tol=kw.get("facet_tol", DEFAULT_FACET_TOL),
-            facet_angle_deg=kw.get("facet_angle_deg",
-                                   DEFAULT_FACET_ANGLE_DEG))
+        try:
+            return self.facet_body(tag, **kw)
+        except OSError:
+            return None
 
     # -- PK_TOPOL_render_facet GO fallback ---------------------------------
     def facet_go(self, tag: int, *,
@@ -1064,18 +1149,22 @@ def tessellate_xt(xt_bytes: bytes, *, adaptive: bool = False,
 
     Uses the reverse-engineered ``PK_TOPOL_facet_2`` table path (the same
     one STpre uses), with a ``PK_TOPOL_render_facet`` GO fallback per body.
+    Assemblies are expanded to constituent bodies first.
     Pass ``adaptive=True`` to enable per-face local-tolerance refinement of
     large, angularly-coarse curved faces (see ``facet_body_adaptive``); the
     default stays on the plain STpre-style tolerances.
     """
     sess = _get_session()
-    tags = sess.receive_xt(xt_bytes)
+    tags = sess.expand_to_bodies(sess.receive_xt(xt_bytes))
     out: list[TessPart] = []
     for tag in tags:
-        if adaptive:
-            part = sess.facet_body_adaptive(tag, **kw)
-        else:
-            part = sess.facet_body(tag, **kw)
+        try:
+            if adaptive:
+                part = sess.facet_body_adaptive(tag, **kw)
+            else:
+                part = sess.facet_body(tag, **kw)
+        except OSError:
+            part = None
         if part is not None and part.triangles.size:
             out.append(part)
     return out

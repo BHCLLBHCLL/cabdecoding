@@ -2803,7 +2803,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     self, "Import",
                     "Cradle pskernel.dll not found; cannot import XT/CAD.")
                 return
-            bodies, raw, fmt = cab_import.import_file_with_payload(path)
+
+            def _prog(done, total, name):
+                if total and (done == 0 or done == total
+                              or done % max(1, total // 10) == 0):
+                    self.log(f"Import: {done}/{total} {name}")
+                QApplication.processEvents()
+
+            bodies, raw, fmt = cab_import.import_file_with_payload(
+                path, progress=_prog)
             if not bodies:
                 QMessageBox.warning(
                     self, "Import",
@@ -2846,6 +2854,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"Imported {path}: {len(bodies)} bodies -> {member.name}, "
                 f"parts added: {', '.join(added) or '-'}"
                 + (f", {skipped} duplicate name(s) skipped" if skipped else ""))
+        except OSError as exc:
+            QMessageBox.critical(
+                self, "Import",
+                f"Parasolid kernel fault while importing:\n{exc}")
+            self.log(f"Import failed: {exc}", "ERROR")
         except Exception as exc:
             QMessageBox.critical(self, "Import", str(exc))
             self.log(f"Import failed: {exc}", "ERROR")

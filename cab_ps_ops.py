@@ -75,18 +75,24 @@ def reconstruct_facet(xt_bytes: bytes, *, names: Optional[set[str]] = None,
     if not available():
         raise RuntimeError("pskernel not available")
     sess = _ps._get_session()
-    tags = sess.receive_xt(xt_bytes)
+    tags = sess.expand_to_bodies(sess.receive_xt(xt_bytes))
     out = []
     for tag in tags:
-        name = sess.body_name(tag)
+        try:
+            name = sess.body_name(tag)
+        except Exception:
+            name = f"body_{tag}"
         if names is not None and name not in names:
             continue
-        if adaptive:
-            part = sess.facet_body_adaptive(
-                tag, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
-        else:
-            part = sess.facet_body(
-                tag, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+        try:
+            if adaptive:
+                part = sess.facet_body_adaptive(
+                    tag, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+            else:
+                part = sess.facet_body(
+                    tag, facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+        except OSError:
+            part = None
         if part is not None and part.triangles.size:
             out.append(part)
     return out

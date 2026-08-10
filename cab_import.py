@@ -275,18 +275,42 @@ def available() -> bool:
 
 
 def import_xt_bytes(raw: bytes, *, adaptive: bool = True,
-                    **kw) -> list[ImportedBody]:
-    """Receive a text ``.x_t`` stream and tessellate every body."""
+                    progress=None, **kw) -> list[ImportedBody]:
+    """Receive a text ``.x_t`` stream and tessellate every body.
+
+    Assemblies (e.g. ``cellular_phone.x_t``) are expanded to solid/sheet
+    bodies before faceting.  Per-body failures are skipped so one bad tag
+    cannot abort the whole import.  ``progress`` is an optional callable
+    ``(done, total, name)`` for GUI status updates.
+    """
     if not available():
         raise RuntimeError("Cradle pskernel.dll not found; set CRADLE_PROGRAMS")
     sess = _ps_facet2._get_session()
-    tags = sess.receive_xt(raw)
+    root_tags = sess.receive_xt(raw)
+    tags = sess.expand_to_bodies(root_tags)
     out: list[ImportedBody] = []
-    for tag in tags:
-        if adaptive:
-            part = sess.facet_body_adaptive(tag, **kw)
-        else:
-            part = sess.facet_body(tag, **kw)
+    total = len(tags)
+    for i, tag in enumerate(tags):
+        name = ""
+        try:
+            name = sess.body_name(tag)
+        except Exception:
+            name = f"body_{tag}"
+        if progress is not None:
+            try:
+                progress(i, total, name)
+            except Exception:
+                pass
+        part = None
+        try:
+            if adaptive:
+                part = sess.facet_body_adaptive(tag, **kw)
+            else:
+                part = sess.facet_body(tag, **kw)
+        except OSError:
+            part = None
+        except Exception:
+            part = None
         if part is None or not part.triangles.size:
             continue
         try:
@@ -294,6 +318,11 @@ def import_xt_bytes(raw: bytes, *, adaptive: bool = True,
         except Exception:
             part.vertices = None
         out.append(ImportedBody(name=part.name, tag=tag, tess=part))
+    if progress is not None:
+        try:
+            progress(total, total, "done")
+        except Exception:
+            pass
     return out
 
 

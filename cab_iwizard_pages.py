@@ -402,11 +402,34 @@ class _IwProjectPage(QWidget if _HAS_GUI else object):
                 self, "Import CAD Data",
                 "Cradle pskernel.dll not found — cannot read the x_t file.")
             return
-        bodies = cab_import.import_xt_file(path)
+        self._log(f"Import CAD: reading {os.path.basename(path)}…")
+        try:
+            from PyQt5.QtWidgets import QApplication
+
+            def _prog(done, total, name):
+                if total and done % max(1, total // 20) == 0:
+                    self._log(f"Import CAD: {done}/{total} {name}")
+                QApplication.processEvents()
+
+            bodies = cab_import.import_xt_file(path, progress=_prog)
+        except OSError as exc:
+            QMessageBox.critical(
+                self, "Import CAD Data",
+                f"Parasolid kernel fault while importing:\n{exc}\n\n"
+                "Assemblies are expanded automatically; if this persists, "
+                "try File → Import with adaptive off.")
+            self._log(f"Import CAD failed: {exc}", "ERROR")
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Import CAD Data", str(exc))
+            self._log(f"Import CAD failed: {exc}", "ERROR")
+            return
         if not bodies:
             QMessageBox.warning(self, "Import CAD Data",
                                 "No drawable body in the file.")
             return
+        self._log(f"Import CAD: {len(bodies)} body(ies) from "
+                  f"{os.path.basename(path)}")
         with open(path, "rb") as fh:
             raw = fh.read()
         self._entries.append((path, raw, bodies))
