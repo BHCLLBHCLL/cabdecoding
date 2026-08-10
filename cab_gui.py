@@ -211,6 +211,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.control.active_part_apply.connect(self._on_active_part_apply)
         self.control.lib_tree.itemSelectionChanged.connect(
             self._on_lib_selected)
+        self.control.lib_tree.itemDoubleClicked.connect(
+            self._on_lib_activated)
         # Opening Control→Sketch should show the sketch plane (STpre-like)
         self.control.tabs.currentChanged.connect(self._on_control_tab)
 
@@ -1567,8 +1569,79 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not items:
             return
         data = items[0].data(0, Qt.UserRole)
-        if data:
-            self._on_item_selected(data[0], data[1])
+        if not data:
+            return
+        if data[0] == "part_lib":
+            # Property pane summary; Place via double-click.
+            entry = data[2] if len(data) > 2 else {}
+            self.control.show_library_part(str(data[1] or ""), entry or {})
+            return
+        if data[0] in ("file", "folder", "material", "material_group",
+                       "part_lib_group"):
+            return
+        self._on_item_selected(data[0], data[1])
+
+    def _on_lib_activated(self, item, _column: int = 0) -> None:
+        """Double-click Library → Place registered project part (MVP)."""
+        data = item.data(0, Qt.UserRole) if item is not None else None
+        if not data or data[0] != "part_lib":
+            return
+        entry = data[2] if len(data) > 2 else None
+        if isinstance(entry, dict):
+            self._place_library_part(entry)
+
+    def _place_library_part(self, entry: dict) -> None:
+        """Instantiate a registered library stub as a new model part."""
+        if self.model is None or not entry:
+            return
+        try:
+            import cab_parts
+        except Exception:
+            self.log("cab_parts unavailable.", "ERROR")
+            return
+        kind = (entry.get("kind") or "cube").strip() or "cube"
+        if kind not in cab_parts.PRIMITIVE_KINDS:
+            kind = "cube"
+        base_name = (entry.get("name") or "LibPart").strip() or "LibPart"
+        name = base_name
+        n = 1
+        while self.model.find_part(name) is not None:
+            n += 1
+            name = f"{base_name}_{n}"
+        params = entry.get("params") or {}
+        if "base" not in params or "size" not in params:
+            params = {
+                "base": tuple(params.get("base", (0.0, 0.0, 0.0))),
+                "size": tuple(params.get("size", (10.0, 10.0, 10.0))),
+            }
+        else:
+            params = {
+                "base": tuple(params["base"]),
+                "size": tuple(params["size"]),
+            }
+        if entry.get("heat_source") is not None:
+            params["heat_source"] = entry["heat_source"]
+        if entry.get("temperature") is not None:
+            params["temperature"] = entry["temperature"]
+        attr = entry.get("attribute") or "Solid"
+        mat = entry.get("material") or ""
+        snap = self._snapshot()
+        if not cab_parts.register_primitive(
+                self.model, name=name, kind=kind, params=params,
+                material=mat, attribute=attr,
+                color="100,160,220,255"):
+            self.log("Place library part: registration failed.", "ERROR")
+            return
+        tess = cab_parts.tess_for_spec(kind, params)
+        tess.name = name
+        self._cad_meshes = list(self._cad_meshes or []) + [tess]
+        self._push_undo(snap)
+        self._mark_dirty()
+        self._update_title()
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self._rebuild_scene()
+        self.log(f"Place library part: '{name}' ({kind}) from '{base_name}'")
 
     def _on_context_action(self, action: str, kind: str, name) -> None:
         """Layout of Parts tree popup (STpre labels / multi-select)."""
@@ -2553,6 +2626,23 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                         temp = float(te.text.strip())
                     except ValueError:
                         pass
+            params = {}
+            if el is not None:
+                from cabxml import _first as _f
+                b = _f(el, "base")
+                s = _f(el, "size")
+                if b is not None and b.text:
+                    try:
+                        params["base"] = tuple(
+                            float(x) for x in b.text.replace(",", " ").split())
+                    except ValueError:
+                        pass
+                if s is not None and s.text:
+                    try:
+                        params["size"] = tuple(
+                            float(x) for x in s.text.replace(",", " ").split())
+                    except ValueError:
+                        pass
             summary = (
                 f"kind={p.kind}; attr={p.attribute}; "
                 f"mat={p.property or ''}; "
@@ -2564,6 +2654,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "material": p.property or "",
                 "heat_source": heat,
                 "temperature": temp,
+                "params": params,
                 "summary": summary,
             })
         n = self.control.register_parts_to_library(entries)

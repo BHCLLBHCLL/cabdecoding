@@ -11,10 +11,11 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
 ## 功能（2026-08-08）
 
 - 打开/保存/另存 `.cab`，导出 `.s` + `.xemt`；
-- `File → Import…` 导入几何：`.x_t`（原生 Parasolid）、`.stl`（原生
-  polygon 解析）、`.step/.stp` 与 `.sat/.sab`（经 OpenCascade/OCC
-  三角化，需 `pip install OCP`；无 GUI 转换器），导入后自动三角化并
-  刷新 3D；
+- `File → Import…` 导入几何：`.x_t`（原生 Parasolid）、`.stl` / `.obj`
+  （polygon）、`.step/.stp` 与 `.sat/.sab`（经 OpenCascade/OCC
+  三角化，需 `pip install OCP`）、以及有限的 `.dxf` / `.mdl`。
+  **IGES / IDF 不支持**——请改用 STEP（OCC）或 Parasolid XT，或在上游
+  CAD 转出 STL/OBJ（决策见 `DEV_PLAN.md` §15.6）；
 - `Edit → Reset Computational Domain` 设置计算域（坐标类型/单位/
   min-max/材料/CAD Data Size/Extend/Preview）；
 - `Mesh` 菜单 6 项齐全：`Gridding`（六标签 `Mesh:Set division`）、
@@ -31,11 +32,10 @@ MSZIP 压缩 + XML 设置 + Parasolid 几何）。完整格式说明见
   Wizard 子集（导航树 + Analysis Types/Basic/Fluid/Flow/Heat/Initial/
   BC/Analysis Control/File/Condition List/Confirm）；
 - `File`：Print（Draw 截图/系统打印）、Execute Solver/Post（启动
-  stsol/scPOST）；`Edit`：Undo/Redo（Ctrl+Z/Y 快照栈）、Deletion of
-  Parts、Group；`Part`：14 种部件全部可创建（含 3D 预览，重开按 XML
-  参数重建）——标准件 Cuboid/Cylinder/Sphere/Panel/Hexahedron/Conical/
-  Quadrilateral Panel/Revolved Rectangle/Point/Fan/Axial-Flow Fan/Blower
-  Fan/Pipe Part，以及 Sketch Part（Panel/Extrusion，点序列/矩形/圆）；
+  `stsol` / `scPOST`——需本机 Cradle；详见 `DEV_PLAN.md` §15.6）、
+  Export（`.s`/`.xemt`/STL/XT/Property）；`Edit`：Undo/Redo
+  （Ctrl+Z/Y 快照栈）、Deletion of Parts、Group；`Part`：含 AC Unit /
+  Diffuser 代理在内的多种部件（3D 预览，重开按 XML 参数重建）；
   `Option`：Environment/Detailed Program Settings（QSettings 持久化）；
   `Help`：Version（含 pskernel 内核版本）；
 - Sketch plane：Control Window [Sketch] 页设置原点/网格（Reset Zmin /
@@ -61,4 +61,15 @@ File→Open 打开 cab（或新建后导入）
 ```
 
 依赖：Cradle CFD 2025.2 `Programs_x64`（pskernel.dll）提供 Parasolid
-接收/三角化；无 Cradle 时回退 GO 路径或仅显示网格盒。
+接收/三角化；无 Cradle 时回退 GO 路径或仅显示网格盒。STEP/SAT 另需
+`OCP`。Solver/Post 仅启动外部 Cradle 可执行文件，不内嵌求解/后处理。
+
+## 格式支持摘要
+
+| | 支持 | 不支持 |
+|---|---|---|
+| Import | XT, STL, OBJ, STEP, SAT, DXF, MDL | **IGES, IDF**（用 STEP/XT） |
+| Export | S, XEMT, STL, XT, Property XML | Neutral 全矩阵 |
+
+回归：`tests/test_m38_format_matrix.py`（OBJ/STL roundtrip；XT 有
+pskernel 时；IGES/IDF 显式拒绝）。

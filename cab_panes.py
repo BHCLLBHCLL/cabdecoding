@@ -1334,6 +1334,26 @@ class ControlWindow(QWidget):
         self._project_part_library = lib
         return n
 
+    def show_library_part(self, name: str, entry: dict) -> None:
+        """Property pane for a [Project Parts] library stub (read-only)."""
+        self.clear_property()
+        self._prop_target = ("part_lib", name)
+        self.tabs.setCurrentWidget(self.prop_page)
+        self.prop_title.setText(f"Library Part: {name}")
+        for label, value in (
+            ("名称", name),
+            ("类型", (entry or {}).get("kind") or ""),
+            ("属性", (entry or {}).get("attribute") or ""),
+            ("材料", (entry or {}).get("material") or ""),
+            ("摘要", (entry or {}).get("summary") or ""),
+            ("Place", "Double-click Library entry to place"),
+        ):
+            w = QLineEdit("" if value is None else str(value))
+            w.setReadOnly(True)
+            self.prop_layout.addRow(label, w)
+            self.prop_fields[label] = w
+        self.apply_btn.setEnabled(False)
+
     def _filter_library(self, text: str) -> None:
         needle = text.strip().lower()
 

@@ -9,7 +9,7 @@
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
 > 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
 >
-> **当前主线：** §15 M38（格式矩阵 / IGES·IDF 决策 / Solver·Post 文档）。  
+> **当前主线：** §15 M33–M38 已交付；后续按需抛光（金标 / Place library / i18n）。  
 > **冻结：** Gridding/Meshing via STpre API（§14.2）。
 
 ---
@@ -882,11 +882,11 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 #### File
 | 功能 | 深度 | 缺口 |
 |---|---|---|
-| Import 格式矩阵 | partial | XT/STL/STEP/SAT/OBJ/DXF/MDL；缺 IGES/IDF/主流 CAD；CADthru 已弃 |
+| Import 格式矩阵 | partial | **支持：** XT/STL/STEP/SAT/OBJ/DXF/MDL；**不支持 IGES/IDF**（见 §15.6）；主流 CAD 插件放弃 |
 | Assembly XT | partial | 已展开 bodies + 调色；命名/分组/库导入仍薄 |
-| Export | partial | 缺 Neutral、选择性 Export Parts 全矩阵 |
-| Execute Solver / Post | partial | Kicker/产品环境矩阵不完整 |
-| 3DfindIT | missing | 建议放弃或禁用占位 |
+| Export | partial | S/XEMT/STL/XT/Property；缺 Neutral 全矩阵 |
+| Execute Solver / Post | partial | 能启 stsol/scPOST；Kicker 环境矩阵仍薄（见 §15.6） |
+| 3DfindIT | missing | 放弃 / 禁用占位 |
 
 #### Edit
 | 功能 | 深度 | 缺口 |
@@ -900,12 +900,12 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 #### View / Part / Wizard
 | 功能 | 深度 | 缺口 |
 |---|---|---|
-| Thermal condition distribution | chrome | 色图叠加 pending |
+| Thermal condition distribution | partial | M37 tint MVP（heat/temp 属性着色） |
 | Editing Part Face / Contact TR | partial | 非独立全功能编辑器 |
 | Enclosure / Fin / Peltier / 2R / Fan / Sketch | partial | 代理 + 属性写回；非完整热模型 |
-| AC / Diffuser / 其余专用件 | missing | ~10+ 种未进菜单 |
+| AC / Diffuser | partial | M37 代理几何（cuboid / conical） |
 | By Dialog / By Mouse 创建模式 | missing | — |
-| Condition Setting 深度 | partial | ~29/150 页；Source 等仍浅 |
+| Condition Setting 深度 | partial | Source 已加深；其余物理页子集 |
 
 #### Mesh / Option / Tree / Control / Draw / Domain
 | 功能 | 深度 | 缺口 |
@@ -914,12 +914,12 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | Meshing 原生 | partial | panel/开面；金标占用未收敛 |
 | **Gridding/Meshing via STpre API** | **frozen** | **禁止改** |
 | Environment 字段深度 | partial | 页齐；字段未全驱动运行时 |
-| Register to library | missing | 右键禁用 |
-| Condition / Aspect ratio 层 | chrome | ON → `_nyi` |
-| Detail… / Domain boundary | chrome | NYI / 未接线 |
-| Library | partial | 无 Place library part |
-| Draw RMB | partial | 未对齐 Layout 全量右键 |
-| Cylindrical / Axial Domain | partial | 类型标志，网格偏笛卡尔 |
+| Register to library | partial | M37：[Project Parts] stub + project_value |
+| Condition / Aspect ratio 层 | chrome | M35：禁用 + tooltip（不静默 `_nyi`） |
+| Detail… / Domain boundary | partial | M35：Detail 信息框；DomainBoundary 接线 |
+| Library | partial | Project Parts Register + 双击 Place MVP |
+| Draw RMB | partial | M35：Refer/Hide/Display/Delete 子集 |
+| Cylindrical / Axial Domain | partial | M34：类型标志；网格仍笛卡尔 AABB |
 
 ### 15.3 跨切面优先级
 
@@ -940,14 +940,44 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | **M34** Mesh 原生保真 | panel/开面 face-thin；圆柱·轴向类型标志；Edit 列表选点 | ✅ panel 占用 smoke；类型写回；列表 Select |
 | **M35** Control/拾取清理 | Domain boundary 接线；Condition/Aspect 禁用；Detail；Draw RMB | ✅ |
 | **M36** CW 产品子集 | Source 深度写回；未实现物理显式禁用 | ✅ Source XML 可重载 |
-| **M37** Library + 专用件 + 热显示 | Register；AC/Diffuser 代理；热 tint MVP | ✅ |
-| **M38** 格式与抛光 | Import/Export 矩阵测试；IGES/IDF 决策；Solver/Post 文档 | CI 绿 |
+| **M37** Library + 专用件 + 热显示 | Register/Place；AC/Diffuser 代理；热 tint MVP | ✅ |
+| **M38** 格式与抛光 | Import/Export 矩阵测试；IGES/IDF 决策；Solver/Post 文档 | ✅ `test_m38_format_matrix`；§15.6 |
 
-**建议下一迭代：** M38 格式抛光。
+**建议下一迭代：** 抛光 / 金标 / Place library（按需）。
 
 ### 15.5 已完成底座（保持）
 
 M24–M31 MVP、M32 D1–D7、Layout 多选右键、Assembly XT 展开分色、CAB 读写、facet 显示、Domain/Gridding 规则逼近、Initial Wizard、快照 Undo。
+
+### 15.6 格式决策与 Solver/Post 启动说明（M38）
+
+#### IGES / IDF — **不支持**
+
+- **IGES（`.igs`/`.iges`）** 与 **IDF（`.emn`/`.emp` 等板级）**：**不支持**，不会加入 Import 过滤器。
+- **决策：** 放弃原生 IGES/IDF 路径；几何请先用 **STEP（OCC）** 或 **Parasolid XT** 转入，或在上游 CAD 转出 STL/OBJ。
+- 理由：无 Cradle CADthru / 专用 IDF 解析器；维护成本高于收益；STEP/OCC 已覆盖中性交换主路径。
+
+#### 已支持 Import / Export（回归见 `tests/test_m38_format_matrix.py`）
+
+| 方向 | 格式 | 备注 |
+|---|---|---|
+| Import | XT / STL / OBJ / STEP / SAT / DXF / MDL | STEP/SAT 需 OCP；XT 需 pskernel |
+| Export | S / XEMT / STL / XT / Property XML | OBJ 无独立 Export 菜单项（可 STL） |
+
+#### Execute Solver / Post（简要）
+
+1. **Solver（`File → Execute Solver`）**  
+   - 先导出临时 `.s`（及配套 `.xemt`）到所选工作目录；  
+   - 在 Cradle `Programs_x64` 中查找 `stsol_Dx64net.exe` / `stsol_Sx64net.exe` / `stsol.exe`；  
+   - 找到则 `cwd=工作目录` 启动；找不到则 WARN 并保留已导出 S 文件路径。  
+   - 对话框字段：Working directory / Restart / Environment（子集；非完整 STpre Kicker）。
+
+2. **Post（`File → Execute Post`）**  
+   - 查找 `scPOST_Dx64net.exe` / `scPOST_Sx64net.exe` / `scPOST.exe`；  
+   - 可选场数据路径传入；缺失可执行文件时信息框提示。  
+   - **不**内嵌后处理；仅启动外部 Cradle Post。
+
+3. **环境：** 依赖本机 Cradle CFD 安装与 `CRADLE_PROGRAMS`（或默认安装路径）；无 Cradle 时仅能导出 S/XEMT，不能本地求解。
 
 ---
 
@@ -1158,10 +1188,10 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | **M35** | Control/拾取清理（DomainBoundary / Detail / Draw RMB） | M34 | ✅ |
 | **M36** | CW Source 写回 + 未实现物理禁用 | M35 | ✅ |
 | **M37** | Library Register + AC/Diffuser + 热 tint MVP | M36 | ✅ |
-| **M38** | 格式矩阵 / IGES·IDF / Solver·Post 文档 | M37 | 📋 进行中 |
-| M32+ 抛光 | i18n / Wiring 几何等 | 并入 §15 | 后备 |
+| **M38** | 格式矩阵 / IGES·IDF 决策 / Solver·Post 文档 | M37 | ✅ |
+| M32+ 抛光 | i18n / Wiring 几何等 | 后备 | 📋 |
 
-依赖主线：**M38**（§15）；**冻结** Gridding/Meshing via STpre API。
+依赖主线：按需抛光；**冻结** Gridding/Meshing via STpre API。
 
 ---
 
