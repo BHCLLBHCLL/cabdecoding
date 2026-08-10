@@ -824,17 +824,28 @@ class ControlWindow(QWidget):
             ["origin", "point", "aspect_ratio"],
         ]
         by_key = {k: (lab, k, d) for lab, k, d in self.LAYER_KEYS}
+        # Layers without Draw actors yet — keep visible but inert (M35).
+        _LAYER_DISABLED = {
+            "condition": "Condition arrows/glyphs not drawn yet (STpre subset).",
+            "aspect_ratio": "Element aspect-ratio display not drawn yet.",
+        }
         for c, keys in enumerate(col_keys):
             for r, key in enumerate(keys):
                 lab, key, default = by_key[key]
                 cb = QCheckBox(lab, draw_box)
                 cb.setChecked(default)
-                cb.toggled.connect(
-                    lambda on, k=key: self.layer_toggled.emit(k, on))
+                if key in _LAYER_DISABLED:
+                    cb.setEnabled(False)
+                    cb.setToolTip(_LAYER_DISABLED[key])
+                else:
+                    cb.toggled.connect(
+                        lambda on, k=key: self.layer_toggled.emit(k, on))
                 self.layer_checks[key] = cb
                 grid.addWidget(cb, r, c)
         detail = QPushButton("Detail...", draw_box)
         detail.setFixedWidth(72)
+        detail.setToolTip(
+            "STpre Drawing On/Off detail sheet — subset note only.")
         detail.clicked.connect(
             lambda: self.selection_target_changed.emit("Detail"))
         grid.addWidget(detail, 3, 2, Qt.AlignLeft)
@@ -865,6 +876,8 @@ class ControlWindow(QWidget):
             rb.toggled.connect(self._on_sel_target)
         self.sel_vertices = QCheckBox("Vertices", sel_box)
         self.sel_domain_bnd = QCheckBox("Domain boundary", sel_box)
+        self.sel_vertices.toggled.connect(self._on_sel_extra)
+        self.sel_domain_bnd.toggled.connect(self._on_sel_extra)
         sl.addWidget(self.sel_vertices)
         sl.addWidget(self.sel_domain_bnd)
         sl.addStretch(1)
@@ -888,6 +901,24 @@ class ControlWindow(QWidget):
             # normalize to singular used elsewhere
             text = "Part" if btn.text() == "Parts" else "Face"
             self.selection_target_changed.emit(text)
+
+    def _on_sel_extra(self, checked: bool) -> None:
+        """M35: Vertices / Domain boundary modifiers for pick target."""
+        if self.sel_domain_bnd.isChecked():
+            self.selection_target_changed.emit("DomainBoundary")
+            return
+        if self.sel_vertices.isChecked():
+            # Face+Vertices when Faces radio on; else Vertices alone
+            btn = self.sel_group.checkedButton()
+            if btn and btn.text() == "Faces":
+                self.selection_target_changed.emit("Faces + Vertices")
+            else:
+                self.selection_target_changed.emit("Vertices")
+            return
+        if checked:
+            return
+        # unchecked → restore radio target
+        self._on_sel_target(True)
 
     def set_drawing_mode(self, mode: str) -> None:
         for btn in self.mode_group.buttons():
