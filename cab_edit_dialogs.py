@@ -1660,3 +1660,168 @@ class PlaceImageDialog(_EditDlg):
             f"{self.ox.value():g},{self.oy.value():g},{self.oz.value():g}")
         self.applied = True
         self.accept()
+
+
+# ------------------------------------------- Layout tree context dialogs
+
+
+class TranslationCopyPartDialog(_EditDlg):
+    """Tree context: Translation/Copy Part (distance + optional copies)."""
+
+    def __init__(self, model: StpreModel, names: list[str], parent=None):
+        super().__init__("Translation/Copy Part", "Translation/Copy Part",
+                         parent)
+        self.model = model
+        self.names = list(names)
+        self.created: list[str] = []
+        self.created_pairs: list[tuple[str, str]] = []
+        self.body.addWidget(QLabel(
+            f"Parts: {', '.join(self.names) or '(none)'}", self))
+        form = QFormLayout()
+        self.dx = QDoubleSpinBox(self)
+        self.dy = QDoubleSpinBox(self)
+        self.dz = QDoubleSpinBox(self)
+        for w in (self.dx, self.dy, self.dz):
+            w.setRange(-1e7, 1e7)
+            w.setDecimals(3)
+            w.setValue(0.0)
+        drow = QHBoxLayout()
+        drow.addWidget(self.dx)
+        drow.addWidget(self.dy)
+        drow.addWidget(self.dz)
+        form.addRow("Distance (mm)", drow)
+        self.trans_only = QCheckBox("Translation only", self)
+        self.trans_only.setChecked(True)
+        form.addRow(self.trans_only)
+        self.n_copies = QSpinBox(self)
+        self.n_copies.setRange(1, 999)
+        self.n_copies.setValue(1)
+        self.n_copies.setEnabled(False)
+        form.addRow("The number of copies", self.n_copies)
+        self.trans_only.toggled.connect(
+            lambda on: self.n_copies.setEnabled(not on))
+        self.body.addLayout(form)
+        self._root.addLayout(_bottom_buttons(self, (
+            ("OK", self._ok),
+            ("Cancel", self.reject),
+        )))
+
+    def _ok(self) -> None:
+        if not self.names:
+            QMessageBox.warning(self, "Translation/Copy Part",
+                                "No parts selected.")
+            return
+        delta = (self.dx.value(), self.dy.value(), self.dz.value())
+        n = 0 if self.trans_only.isChecked() else int(self.n_copies.value())
+        self.created_pairs = ops.translate_copy_parts(
+            self.model, self.names, delta, n)
+        self.created = [dst for _src, dst in self.created_pairs]
+        self.applied = True
+        self.accept()
+
+
+class ChangePartSettingTogetherDialog(_EditDlg):
+    """Tree context: Change part setting together (batch attribute edits)."""
+
+    def __init__(self, model: StpreModel, names: list[str],
+                 props: Optional[object] = None, parent=None):
+        super().__init__("Change Settings", "Change part setting together",
+                         parent)
+        self.model = model
+        self.names = list(names)
+        self.props = props
+        self.body.addWidget(QLabel(
+            f"Selected parts ({len(self.names)}): "
+            f"{', '.join(self.names[:8])}"
+            + ("…" if len(self.names) > 8 else ""), self))
+
+        form = QFormLayout()
+        self.apply_mat = QCheckBox("Apply", self)
+        self.material = QLineEdit(self)
+        mrow = QHBoxLayout()
+        mrow.addWidget(self.material, 1)
+        mrow.addWidget(self.apply_mat)
+        pick = QPushButton("Material…", self)
+        pick.clicked.connect(self._pick_material)
+        mrow.addWidget(pick)
+        form.addRow("Material", mrow)
+
+        self.apply_attr = QCheckBox("Apply", self)
+        self.attribute = QComboBox(self)
+        self.attribute.addItems(
+            ["solid", "fluid", "panel", "Solid", "Fluid", "Panel"])
+        arow = QHBoxLayout()
+        arow.addWidget(self.attribute, 1)
+        arow.addWidget(self.apply_attr)
+        form.addRow("Attribute", arow)
+
+        self.apply_color = QCheckBox("Apply", self)
+        self.color = QLineEdit(self)
+        self.color.setText("25,117,255,255")
+        crow = QHBoxLayout()
+        crow.addWidget(self.color, 1)
+        crow.addWidget(self.apply_color)
+        form.addRow("Color RGBA", crow)
+
+        self.apply_virt = QCheckBox("Apply", self)
+        self.virtual = QCheckBox("Virtual part", self)
+        vrow = QHBoxLayout()
+        vrow.addWidget(self.virtual, 1)
+        vrow.addWidget(self.apply_virt)
+        form.addRow("Other settings", vrow)
+
+        self.apply_mon = QCheckBox("Apply", self)
+        self.monitor = QCheckBox("Output to Monitor", self)
+        orow = QHBoxLayout()
+        orow.addWidget(self.monitor, 1)
+        orow.addWidget(self.apply_mon)
+        form.addRow("", orow)
+        self.body.addLayout(form)
+        self._root.addLayout(_bottom_buttons(self, (
+            ("Set", self._ok),
+            ("Close", self.reject),
+        )))
+
+    def _pick_material(self) -> None:
+        try:
+            from cab_dialogs import MaterialListDialog
+        except Exception:
+            return
+        dlg = MaterialListDialog(self.props, parent=self,
+                                 current=self.material.text().strip())
+        if dlg.exec_() and dlg.selected_material():
+            self.material.setText(dlg.selected_material())
+            self.apply_mat.setChecked(True)
+
+    def _ok(self) -> None:
+        if not self.names:
+            QMessageBox.warning(self, "Change Settings",
+                                "No parts selected.")
+            return
+        if not any((self.apply_mat.isChecked(), self.apply_attr.isChecked(),
+                    self.apply_color.isChecked(), self.apply_virt.isChecked(),
+                    self.apply_mon.isChecked())):
+            QMessageBox.warning(
+                self, "Change Settings",
+                "Check Apply on at least one setting.")
+            return
+        for name in self.names:
+            if self.apply_mat.isChecked():
+                mat = self.material.text().strip()
+                if mat:
+                    self.model.set_part_property(name, mat)
+            if self.apply_attr.isChecked():
+                self.model.set_part_attribute(
+                    name, self.attribute.currentText())
+            if self.apply_color.isChecked():
+                parts = self.color.text().split(",")[:4]
+                if len(parts) == 4 and all(
+                        x.strip().lstrip("-").isdigit() for x in parts):
+                    self.model.set_part_color(
+                        name, tuple(int(x) for x in parts))
+            if self.apply_virt.isChecked():
+                self.model.set_part_virtual(name, self.virtual.isChecked())
+            if self.apply_mon.isChecked():
+                self.model.set_part_monitor(name, self.monitor.isChecked())
+        self.applied = True
+        self.accept()

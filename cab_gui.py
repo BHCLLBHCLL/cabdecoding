@@ -165,6 +165,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._offer_initial_wizard = False
         self._selected_kind: str | None = None
         self._selected_name = None
+        self._selected_items: list[tuple] = []  # [(kind, name), ...]
         if path:
             self.load(path)
         else:
@@ -194,6 +195,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.tree_view = TreeListView(self)
         self.tree_view.visibility_changed.connect(self._on_visibility)
         self.tree_view.item_selected.connect(self._on_item_selected)
+        self.tree_view.items_selected.connect(self._on_items_selected)
         self.tree_view.item_activated.connect(self._on_item_activated)
         self.tree_view.context_action.connect(self._on_context_action)
         # compat alias for older tests
@@ -1529,6 +1531,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.prop_fields = self.control.prop_fields
         self._mode_label.setText("Part" if kind == "part" else kind)
 
+    def _on_items_selected(self, pairs: list) -> None:
+        """Track Ctrl/Shift multi-selection from Layout of Parts tree."""
+        self._selected_items = list(pairs or [])
+        n_parts = sum(1 for k, _ in self._selected_items if k == "part")
+        if n_parts > 1:
+            self._mode_label.setText(f"Parts ({n_parts})")
+
     def _on_item_activated(self, kind: str, name) -> None:
         """Double-click behaviour (STpre tree): Domain -> edit dialog;
         RootBlock -> Mesh:block dialog; part -> part edit dialog."""
@@ -1548,15 +1557,233 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._on_item_selected(data[0], data[1])
 
     def _on_context_action(self, action: str, kind: str, name) -> None:
+        """Layout of Parts tree popup (STpre labels / multi-select)."""
         if action == "refer":
             if kind == "domain":
                 self._domain_dialog()
             elif kind == "mesh_block":
                 self._mesh_block_dialog()
             elif kind == "part" and name:
-                self._part_dialog(name)
+                # ``name`` may be a single part or a list from older callers
+                target = name[0] if isinstance(name, list) else name
+                if target:
+                    self._part_dialog(target)
             else:
                 self._on_item_selected(kind, name)
+            return
+
+        names = self._context_part_names(name)
+        if action == "translate_copy":
+            self._ctx_translate_copy(names)
+        elif action == "delete":
+            self._ctx_delete_parts(names)
+        elif action == "change_settings":
+            self._ctx_change_settings(names)
+        elif action == "parts_list":
+            self._view_list_of_part()
+        elif action == "create_group":
+            self._ctx_create_group(names)
+        elif action == "cancel_group":
+            if kind == "group" and not isinstance(name, list):
+                self._ctx_cancel_group_named(str(name))
+            else:
+                self._ctx_cancel_group(names)
+        elif action == "order_copy":
+            self.tree_view._order_clipboard = list(names)
+            self.log(f"Change order: Copy ({len(names)} part(s))")
+        elif action == "order_append_prev":
+            self._ctx_order_append(names_or_anchor=name, before=True)
+        elif action == "order_append_next":
+            self._ctx_order_append(names_or_anchor=name, before=False)
+        elif action == "order_append_group":
+            self._ctx_order_append_group(name)
+        elif action == "rearrange_group":
+            self._ctx_rearrange_group(str(name) if name else "")
+        else:
+            self._nyi(f"Layout context: {action}")
+
+    def _context_part_names(self, name) -> list[str]:
+        if isinstance(name, list):
+            return [n for n in name if n]
+        selected = [
+            n for k, n in getattr(self, "_selected_items", [])
+            if k == "part" and n]
+        if selected:
+            return selected
+        if name:
+            return [str(name)]
+        return []
+
+    def _clone_cad_mesh(self, src: str, dst: str) -> None:
+        import copy
+        meshes = list(self._cad_meshes or [])
+        src_m = next((m for m in meshes if getattr(m, "name", None) == src),
+                     None)
+        if src_m is None:
+            return
+        clone = copy.deepcopy(src_m)
+        clone.name = dst
+        meshes.append(clone)
+        self._cad_meshes = meshes
+
+    def _ctx_translate_copy(self, names: list[str]) -> None:
+        if not self._edit_require_model() or not names:
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.TranslationCopyPartDialog(
+            self.model, names, self)
+        if dlg.exec_() and dlg.applied:
+            for src, new_name in getattr(dlg, "created_pairs", []) or []:
+                self._clone_cad_mesh(src, new_name)
+            msg = "Translation/Copy Part applied."
+            if dlg.created:
+                msg = (f"Translation/Copy Part: created "
+                       f"{', '.join(dlg.created)}.")
+            self._edit_finish(snap, msg)
+
+    def _ctx_delete_parts(self, names: list[str]) -> None:
+        if not self._edit_require_model() or not names:
+            return
+        from PyQt5.QtWidgets import QMessageBox
+        reply = QMessageBox.question(
+            self, "Delete Part",
+            f"Delete {len(names)} part(s)?\n"
+            + ", ".join(names[:12])
+            + ("…" if len(names) > 12 else ""),
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply != QMessageBox.Yes:
+            return
+        snap = self._snapshot()
+        deleted = []
+        for n in names:
+            if self.model.delete_part(n):
+                deleted.append(n)
+                self._hidden_parts.discard(n)
+        if deleted:
+            self._edit_finish(
+                snap, f"Delete Part: removed {', '.join(deleted)}",
+                purge_meshes=deleted)
+        else:
+            self.log("Delete Part: nothing removed.", "WARN")
+
+    def _ctx_change_settings(self, names: list[str]) -> None:
+        if not self._edit_require_model() or not names:
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.ChangePartSettingTogetherDialog(
+            self.model, names, props=self.props, parent=self)
+        if dlg.exec_() and dlg.applied:
+            self._edit_finish(
+                snap,
+                f"Change part setting together: {len(names)} part(s).")
+
+    def _ctx_create_group(self, names: list[str]) -> None:
+        if not self._edit_require_model():
+            return
+        from PyQt5.QtWidgets import QInputDialog
+        gname, ok = QInputDialog.getText(
+            self, "Create Group", "Group name:")
+        gname = (gname or "").strip()
+        if not ok or not gname:
+            return
+        snap = self._snapshot()
+        moved = self.model.move_parts_to_group(names or [], gname)
+        self._edit_finish(
+            snap,
+            f"Create Group '{gname}'"
+            + (f" ({len(moved)} part(s))" if moved else "."))
+
+    def _ctx_cancel_group(self, names: list[str]) -> None:
+        if not self._edit_require_model() or not names:
+            return
+        snap = self._snapshot()
+        moved = self.model.move_parts_to_group(names, "")
+        self._edit_finish(
+            snap, f"Cancel Group: {len(moved)} part(s) to root.")
+
+    def _ctx_cancel_group_named(self, group_name: str) -> None:
+        if not self._edit_require_model() or not group_name:
+            return
+        import cab_edit_ops
+        snap = self._snapshot()
+        moved = cab_edit_ops.ungroup(self.model, group_name)
+        self._edit_finish(
+            snap,
+            f"Cancel Group '{group_name}' ({len(moved)} part(s)).")
+
+    def _ctx_order_append(self, names_or_anchor, *, before: bool) -> None:
+        if not self._edit_require_model():
+            return
+        clip = list(getattr(self.tree_view, "_order_clipboard", []) or [])
+        anchor = names_or_anchor
+        if isinstance(anchor, list):
+            anchor = anchor[0] if anchor else None
+        if not clip or not anchor:
+            self.log("Change order: Copy parts first, then Append.", "WARN")
+            return
+        snap = self._snapshot()
+        moved = self.model.reorder_parts(clip, str(anchor), before=before)
+        where = "previous" if before else "next"
+        self._edit_finish(
+            snap,
+            f"Change order: Append({where}) — {len(moved)} part(s).")
+
+    def _ctx_order_append_group(self, target) -> None:
+        if not self._edit_require_model():
+            return
+        clip = list(getattr(self.tree_view, "_order_clipboard", []) or [])
+        if not clip:
+            self.log("Change order: Copy parts first.", "WARN")
+            return
+        from PyQt5.QtWidgets import QInputDialog
+        gname = ""
+        if isinstance(target, str) and target:
+            # If target is a part, use its group; if group name, use it
+            import cab_edit_ops
+            part = next((p for p in self.model.parts() if p.name == target),
+                        None)
+            if part is not None and part.group:
+                gname = part.group
+            else:
+                groups = cab_edit_ops.group_names(self.model)
+                if target in groups:
+                    gname = target
+        if not gname:
+            gname, ok = QInputDialog.getText(
+                self, "Append to group", "Group name:")
+            gname = (gname or "").strip()
+            if not ok or not gname:
+                return
+        snap = self._snapshot()
+        moved = self.model.move_parts_to_group(clip, gname)
+        self._edit_finish(
+            snap,
+            f"Change order; Append to group '{gname}' "
+            f"({len(moved)} part(s)).")
+
+    def _ctx_rearrange_group(self, group_name: str) -> None:
+        if not self._edit_require_model() or not group_name:
+            return
+        from PyQt5.QtWidgets import QInputDialog
+        from cabxml import _first, set_text
+        new_name, ok = QInputDialog.getText(
+            self, "Rearrange Group Name", "New group name:",
+            text=group_name)
+        new_name = (new_name or "").strip()
+        if not ok or not new_name or new_name == group_name:
+            return
+        snap = self._snapshot()
+        for grp in self.model.groups():
+            n = _first(grp, "name")
+            if n is not None and (n.text or "").strip() == group_name:
+                set_text(n, new_name)
+                self._edit_finish(
+                    snap,
+                    f"Rearrange Group Name: '{group_name}' → '{new_name}'.")
+                return
+        self.log(f"Group '{group_name}' not found.", "WARN")
 
     def _on_visibility(self, kind: str, name: str, visible: bool) -> None:
         if kind == "domain":
@@ -2104,11 +2331,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.log("View: Display All Parts")
 
     def _view_hide_selected(self) -> None:
-        if getattr(self, "_selected_kind", None) == "part" and \
-                self._selected_name:
-            self._hidden_parts.add(self._selected_name)
+        names = [
+            n for k, n in getattr(self, "_selected_items", [])
+            if k == "part" and n
+        ]
+        if not names and getattr(self, "_selected_kind", None) == "part" \
+                and self._selected_name:
+            names = [self._selected_name]
+        if names:
+            self._hidden_parts.update(names)
             self._rebuild_scene()
-            self.log(f"View: Hide '{self._selected_name}'")
+            if len(names) == 1:
+                self.log(f"View: Hide '{names[0]}'")
+            else:
+                self.log(f"View: Hide {len(names)} parts")
         else:
             self.log("View: select a part to hide.", "WARN")
 

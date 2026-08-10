@@ -1,6 +1,6 @@
 # cab_gui 功能补齐开发计划（逆向驱动）
 
-> 日期：2026-08-09（§14 菜单对话框逐项核对计划已写入；实施中）
+> 日期：2026-08-10（§15 全量对照刷新；§14 M32 D1–D7 已完成）
 > 仓库：`cabdecoding`
 > 关联文档：[CAB_GUI_DESIGN.md](CAB_GUI_DESIGN.md)（UI 布局）、
 > [DEV_SUMMARY.md](DEV_SUMMARY.md)（逆向档案）、
@@ -9,7 +9,8 @@
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
 > 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
 >
-> **当前主线：** §14 对话框 UI/逻辑对齐 STpre（**不含** Gridding/Meshing via STpre API）。
+> **当前主线：** §15 M33+（Edit B-rep / Mesh 金标 / Control 死角）。  
+> **冻结：** Gridding/Meshing via STpre API（§14.2）。
 
 ---
 
@@ -860,6 +861,96 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 
 ---
 
+## 15. 全量对照刷新：不完整项与 M33+ 计划（2026-08-10）
+
+> 自交互画布 `cab-gui-stpre-gap.canvas.tsx` 同步（Cursor canvases）。  
+> **总判：** 菜单 UI ≈**88%**、可用深度 ≈**66%**。主债是 **Edit B-rep 内核**、**Meshing 金标**、**Condition Wizard 深度**、**Control 死角** —— 不是缺顶层菜单。  
+> **冻结：** Gridding/Meshing via STpre API（§14.2）。
+
+### 15.1 图例
+
+| 深度 | 含义 |
+|---|---|
+| `impl` | 端到端可用，可存回 cab |
+| `partial` | 有实现但为 AABB / CSG / 子集 / 代理 |
+| `chrome` | 对话框或意图写回，无真实几何/物理 |
+| `missing` | 未挂菜单或永久禁用 |
+| `frozen` | 明确禁止改语义 |
+
+### 15.2 不完整功能项清单
+
+#### File
+| 功能 | 深度 | 缺口 |
+|---|---|---|
+| Import 格式矩阵 | partial | XT/STL/STEP/SAT/OBJ/DXF/MDL；缺 IGES/IDF/主流 CAD；CADthru 已弃 |
+| Assembly XT | partial | 已展开 bodies + 调色；命名/分组/库导入仍薄 |
+| Export | partial | 缺 Neutral、选择性 Export Parts 全矩阵 |
+| Execute Solver / Post | partial | Kicker/产品环境矩阵不完整 |
+| 3DfindIT | missing | 建议放弃或禁用占位 |
+
+#### Edit
+| 功能 | 深度 | 缺口 |
+|---|---|---|
+| Undo / Redo | partial | XML 快照 ≠ Parasolid 会话 |
+| Conversion / Sweep / Cutting / Align / Place / Mirror | partial | 变换或 AABB，非完整 B-rep |
+| Boolean Operation | partial | tess CSG；非 `PK_BODY_boolean_2` |
+| Shape-change Boolean / Edit Solid / Simplify / FEM / Wiring / Image | chrome | 诚实标注；多为 intent |
+| Connected Region / Wrapping / Paneling | partial | marker / hull·AABB / AABB Panel |
+
+#### View / Part / Wizard
+| 功能 | 深度 | 缺口 |
+|---|---|---|
+| Thermal condition distribution | chrome | 色图叠加 pending |
+| Editing Part Face / Contact TR | partial | 非独立全功能编辑器 |
+| Enclosure / Fin / Peltier / 2R / Fan / Sketch | partial | 代理 + 属性写回；非完整热模型 |
+| AC / Diffuser / 其余专用件 | missing | ~10+ 种未进菜单 |
+| By Dialog / By Mouse 创建模式 | missing | — |
+| Condition Setting 深度 | partial | ~29/150 页；Source 等仍浅 |
+
+#### Mesh / Option / Tree / Control / Draw / Domain
+| 功能 | 深度 | 缺口 |
+|---|---|---|
+| Gridding 原生 | partial | 圆柱/轴向弱；ChildBlock stub；顶点鼠标拾取 NYI |
+| Meshing 原生 | partial | panel/开面；金标占用未收敛 |
+| **Gridding/Meshing via STpre API** | **frozen** | **禁止改** |
+| Environment 字段深度 | partial | 页齐；字段未全驱动运行时 |
+| Register to library | missing | 右键禁用 |
+| Condition / Aspect ratio 层 | chrome | ON → `_nyi` |
+| Detail… / Domain boundary | chrome | NYI / 未接线 |
+| Library | partial | 无 Place library part |
+| Draw RMB | partial | 未对齐 Layout 全量右键 |
+| Cylindrical / Axial Domain | partial | 类型标志，网格偏笛卡尔 |
+
+### 15.3 跨切面优先级
+
+| 优先级 | 缺口 |
+|---|---|
+| **Blocker** | Parasolid B-rep Edit（Boolean / Solid / Simplify） |
+| **High** | Meshing 金标 + panel；CW 产品子集；拾取死角清理 |
+| **Medium** | 格式回归；Library/专用件；热色图；Undo↔PS |
+| **Low** | i18n；3DfindIT |
+
+### 15.4 开发计划 M33+
+
+原则：**内核与网格保真 → Control 死角 → Wizard 子集 → Library/专用件 → 格式抛光**；不触碰 API 网格路径。
+
+| 里程碑 | 内容 | 验收要点 |
+|---|---|---|
+| **M33** Edit 内核跃迁 | `PK_BODY_boolean_2`；Edit Solid/Simplify 可删面子集会；Paneling/Sweep 拾取面 | Boolean 与 STpre 同类件体积差可量化；Undo 后几何一致 |
+| **M34** Mesh 原生保真 | ex4_e/tr03 占用收敛；panel/开面；圆柱·轴向 + Edit 顶点拾取 | 金标 diff 阈值；API 路径回归守卫 |
+| **M35** Control/拾取清理 | Domain boundary 接线或删；Condition/Aspect 实现或禁用；Detail；Draw RMB 对齐 | 无死复选框 / 静默 `_nyi` |
+| **M36** CW 产品子集 | Source 深度；未实现物理显式禁用；Basic Exercise E2E | 写回 XML 可重载 |
+| **M37** Library + 专用件 + 热显示 | Register/Place；AC/Diffuser；热色图 | 右键 Register 可用 |
+| **M38** 格式与抛光 | Import/Export 矩阵测试；IGES/IDF 决策；Solver/Post 文档 | CI 绿 |
+
+**建议下一迭代：** M33 或 M34 二选一（CAD 准备 vs 网格可信）；M35 可并行小步。
+
+### 15.5 已完成底座（保持）
+
+M24–M31 MVP、M32 D1–D7、Layout 多选右键、Assembly XT 展开分色、CAB 读写、facet 显示、Domain/Gridding 规则逼近、Initial Wizard、快照 Undo。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
@@ -1061,10 +1152,11 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | M29 | Option / Environment 补全 | M7-5 | ✅ 子集 |
 | M30 | Part 专用件包 | M7-4/M8 | ✅ 代理 |
 | M31 | Solver/Post 产品化 | M7-1 | ✅ MVP |
-| **M32** | 菜单对话框 vs STpre 逐项核对（§14 D1–D7） | M24–M31 | ✅ D1–D7 首轮 |
-| M32+ | i18n / 热显示 / Wiring 几何等 | M32 | 后备 |
+| **M32** | 菜单对话框 vs STpre 逐项核对（§14 D1–D7） | M24–M31 | ✅ D1–D7 |
+| **M33+** | Edit B-rep / Mesh 金标 / Control / CW / Library（§15） | M32 | 📋 计划 |
+| M32+ 抛光 | i18n / 热显示 / Wiring 几何等 | 并入 §15 M37–M38 | 后备 |
 
-依赖主线：**M32** 按 §14 批次 D1→D7；**冻结** Gridding/Meshing via STpre API。
+依赖主线：**M33 或 M34**（§15）；**冻结** Gridding/Meshing via STpre API。
 
 ---
 
@@ -1072,8 +1164,8 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 
 | 文档 | 更新内容 | 时点 |
 |---|---|---|
-| `DEV_PLAN.md` | 本计划随实施进度标记完成状态；§13 与画布同步 | 持续 |
-| `cab-gui-stpre-gap.canvas.tsx` | 交互差距看板（覆盖率/深度/M24+） | 2026-08-09 |
+| `DEV_PLAN.md` | 本计划随实施进度标记；§13–§15 与画布同步 | 持续 |
+| `cab-gui-stpre-gap.canvas.tsx` | 不完整项看板 + M33+ | 2026-08-10 |
 | `DEV_SUMMARY.md` | 导入/域/网格逆向档案；Edit/Wizard 实施记录 | M3/M5/M23+ |
 | `CAB_FORMAT_SPEC.md` | 补 `mesh_control`/`element` 生成规范、x_t 成员合并规则 | M3/M4 |
 | `CAB_GUI_DESIGN.md` | 更新菜单/对话框功能说明（含 Edit 24 项深度） | M1/M23/M24 |

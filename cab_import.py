@@ -373,24 +373,64 @@ def add_xt_member(archive: CabArchive, xt_bytes: bytes,
     return member
 
 
+# STpre / ex4_e.cab cycling part colors (RGBA). Assemblies get one hue per
+# body so imported multi-body XT parts are visually distinct in Draw Window.
+STPRE_PART_COLORS: tuple[str, ...] = (
+    "25,25,255,255",
+    "117,25,255,255",
+    "255,117,25,255",
+    "255,209,25,255",
+    "209,255,25,255",
+    "117,255,25,255",
+    "25,255,25,255",
+    "25,255,117,255",
+    "25,255,209,255",
+    "25,209,255,255",
+    "25,117,255,255",
+)
+
+
+def part_color_for_index(index: int) -> str:
+    """Return the ex4_e-style RGBA string for part ``index`` (0-based)."""
+    return STPRE_PART_COLORS[int(index) % len(STPRE_PART_COLORS)]
+
+
 def register_parts(model: StpreModel, bodies: list[ImportedBody], *,
                    group: Optional[str] = None,
                    material: Optional[str] = None,
                    color: Optional[str] = None,
                    transform: Optional[tuple[float, ...]] = None,
-                   kind: str = "body") -> list[str]:
-    """Append ``<parts type="body">`` entries; returns added part names."""
+                   kind: str = "body",
+                   distinct_colors: Optional[bool] = None) -> list[str]:
+    """Append ``<parts type="body">`` entries; returns added part names.
+
+    When registering an assembly (multiple bodies) and ``color`` is not
+    given, assign cycling STpre/ex4_e palette colors so parts differ in
+    the Draw Window.  Pass ``distinct_colors=False`` to force a single
+    shared color (default blue).  A single explicit ``color`` still
+    paints every added part the same.
+    """
     added: list[str] = []
-    for body in bodies:
+    if distinct_colors is None:
+        distinct_colors = color is None and len(bodies) > 1
+    # Continue palette from existing parts so re-imports stay distinct
+    color_base = len(list(model.parts())) if distinct_colors else 0
+    for i, body in enumerate(bodies):
         if model.find_part(body.name) is not None:
             continue
         tf = None
         if transform is not None and len(transform) == 16:
             tf = ",".join(f"{v:.17g}" for v in transform)
+        if color is not None:
+            col = color
+        elif distinct_colors:
+            col = part_color_for_index(color_base + len(added))
+        else:
+            col = part_color_for_index(0)
         el = model.add_part(
             name=body.name, kind=kind,
             property_=material,
-            color=color,
+            color=col,
             transform=tf,
             group=group,
         )

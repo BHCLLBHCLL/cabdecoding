@@ -99,6 +99,37 @@ def translate_part(model: StpreModel, name: str, delta_mm: np.ndarray) -> bool:
     return model.set_part_transform(name, format_transform(m))
 
 
+def translate_copy_parts(model: StpreModel, names: list[str],
+                         delta_mm, n_copies: int = 0) -> list[tuple[str, str]]:
+    """STpre Translation/Copy Part.
+
+    ``n_copies <= 0``: translate selected parts by ``delta_mm``.
+    ``n_copies >= 1``: leave originals; create N copies offset by i*delta.
+
+    Returns list of ``(source_name, new_name)`` for created copies.
+    """
+    delta = np.asarray(delta_mm, dtype=np.float64).reshape(3)
+    created: list[tuple[str, str]] = []
+    if n_copies <= 0:
+        for name in names:
+            translate_part(model, name, delta)
+        return created
+    for name in names:
+        info = next((p for p in model.parts() if p.name == name), None)
+        if info is None:
+            continue
+        base = parse_transform(info.transform)
+        for i in range(1, int(n_copies) + 1):
+            new_name = unique_part_name(model, name)
+            m = base.copy()
+            m[0:3, 3] = base[0:3, 3] + delta * float(i)
+            if clone_part_element(
+                    model, name, new_name,
+                    transform=format_transform(m)) is not None:
+                created.append((name, new_name))
+    return created
+
+
 def mirror_transform(transform: str, axis: str, plane: float) -> str:
     """Mirror a part transform across ``axis`` = plane (mm), axis in XYZ."""
     m = parse_transform(transform)

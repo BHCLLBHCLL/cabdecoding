@@ -10,11 +10,11 @@ import time
 
 from PyQt5.QtCore import QEvent, QSize, Qt, pyqtSignal
 from PyQt5.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QFormLayout, QFrame, QGridLayout,
-    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
-    QPushButton, QRadioButton, QStyle, QStyleOptionViewItem, QTableWidget,
-    QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
-    QWidget, QPlainTextEdit,
+    QAbstractItemView, QButtonGroup, QCheckBox, QComboBox, QFormLayout,
+    QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+    QLineEdit, QMenu, QPushButton, QRadioButton, QStyle, QStyleOptionViewItem,
+    QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem,
+    QVBoxLayout, QWidget, QPlainTextEdit,
 )
 
 from cab_icons import AppIcons
@@ -100,7 +100,8 @@ class TreeListView(QWidget):
     """
 
     visibility_changed = pyqtSignal(str, str, bool)  # kind, name, visible
-    item_selected = pyqtSignal(str, object)          # kind, name
+    item_selected = pyqtSignal(str, object)          # kind, name (current)
+    items_selected = pyqtSignal(list)                # [(kind, name), ...]
     item_activated = pyqtSignal(str, object)         # kind, name (double-click)
     status_requested = pyqtSignal(str)               # message
     context_action = pyqtSignal(str, str, object)    # action, kind, name
@@ -126,6 +127,9 @@ class TreeListView(QWidget):
         self.layout_tree = QTreeWidget(self)
         self.layout_tree.setHeaderLabels(["Layout of Parts"])
         self.layout_tree.setIconSize(QSize(16, 16))
+        # Ctrl / Shift multi-select (STpre Layout of Parts behaviour)
+        self.layout_tree.setSelectionMode(
+            QAbstractItemView.ExtendedSelection)
         self.layout_tree.itemChanged.connect(self._on_item_changed)
         self.layout_tree.itemSelectionChanged.connect(self._on_selection)
         self.layout_tree.itemDoubleClicked.connect(self._on_double_click)
@@ -188,6 +192,7 @@ class TreeListView(QWidget):
         v.addWidget(self.tabs)
         self._block = False
         self._cond_rows: list[tuple] = []  # (item, region_type, has_cond)
+        self._order_clipboard: list[str] = []  # Change order: Copy
 
     # -- populate ----------------------------------------------------------
 
@@ -559,16 +564,32 @@ class TreeListView(QWidget):
         if data:
             self.item_selected.emit(data[0], data[1])
 
+    @staticmethod
+    def _selection_pairs(items) -> list:
+        pairs = []
+        for it in items:
+            data = it.data(0, Qt.UserRole)
+            if data:
+                pairs.append((data[0], data[1]))
+        return pairs
+
     def _on_selection(self) -> None:
         items = self.layout_tree.selectedItems()
-        self._emit_selection(items[0] if items else None)
+        pairs = self._selection_pairs(items)
+        cur = self.layout_tree.currentItem()
+        if cur is None or cur not in items:
+            cur = items[0] if items else None
+        self._emit_selection(cur)
+        self.items_selected.emit(pairs)
 
     def _on_cond_selection(self) -> None:
         items = self.cond_tree.selectedItems()
+        self.items_selected.emit(self._selection_pairs(items))
         self._emit_selection(items[0] if items else None)
 
     def _on_archive_selection(self) -> None:
         items = self.archive_tree.selectedItems()
+        self.items_selected.emit(self._selection_pairs(items))
         self._emit_selection(items[0] if items else None)
 
     def _layout_context(self, pos) -> None:
@@ -578,16 +599,37 @@ class TreeListView(QWidget):
         data = item.data(0, Qt.UserRole)
         if not data:
             return
+        # Keep multi-selection when right-clicking an already-selected row
+        # (STpre Layout of Parts). Otherwise select the clicked item alone.
+        if not item.isSelected():
+            self.layout_tree.clearSelection()
+            item.setSelected(True)
+            self.layout_tree.setCurrentItem(item)
+
         kind, name = data
+        selected = self._selection_pairs(self.layout_tree.selectedItems())
+        part_names = [n for k, n in selected if k == "part" and n]
         menu = QMenu(self)
-        if kind == "part":
-            menu.addAction("Reference (Edit Part)",
+
+        if kind == "part" or (kind == "group" and part_names):
+            # Prefer part menu when parts are selected (multi-select case)
+            self._fill_part_context_menu(menu, part_names or [name], name)
+        elif kind == "group":
+            act = menu.addAction("Rearrange Group Name")
+            act.triggered.connect(
+                lambda: self.context_action.emit("rearrange_group", kind, name))
+            menu.addAction("Create Group",
                            lambda: self.context_action.emit(
-                               "refer", kind, name))
-            menu.addAction("Display Part",
-                           lambda: self._set_checked(item, True))
-            menu.addAction("Hide Part",
-                           lambda: self._set_checked(item, False))
+                               "create_group", "part", part_names))
+            menu.addAction("Cancel Group",
+                           lambda: self.context_action.emit(
+                               "cancel_group", kind, name))
+            clip = getattr(self, "_order_clipboard", None) or []
+            a_app = menu.addAction(
+                "Change order; Append to group",
+                lambda: self.context_action.emit(
+                    "order_append_group", kind, name))
+            a_app.setEnabled(bool(clip))
         elif kind == "domain":
             menu.addAction("Reference (Edit Computational Domain)",
                            lambda: self.context_action.emit(
@@ -602,6 +644,73 @@ class TreeListView(QWidget):
                            lambda: self._set_checked(item, False))
         if not menu.isEmpty():
             menu.exec_(self.layout_tree.viewport().mapToGlobal(pos))
+
+    def _fill_part_context_menu(self, menu: QMenu, part_names: list,
+                                anchor_name) -> None:
+        """STpre Layout of Parts part popup (single / multi selection)."""
+        names = list(part_names)
+        primary = anchor_name if anchor_name in names else (
+            names[0] if names else None)
+        clip = list(getattr(self, "_order_clipboard", []) or [])
+
+        def emit(action: str, payload=None):
+            self.context_action.emit(
+                action, "part", payload if payload is not None else names)
+
+        menu.addAction("Refer to Part",
+                       lambda: emit("refer", primary))
+        menu.addAction("Translation/Copy Part",
+                       lambda: emit("translate_copy"))
+        menu.addAction("Delete Part",
+                       lambda: emit("delete"))
+        menu.addAction("Change part setting together",
+                       lambda: emit("change_settings"))
+        menu.addAction("Show Parts List Dialog",
+                       lambda: emit("parts_list"))
+        menu.addSeparator()
+        menu.addAction("Display Part",
+                       lambda: self._set_checked_parts(names, True))
+        menu.addAction("Hide Part",
+                       lambda: self._set_checked_parts(names, False))
+        menu.addSeparator()
+        menu.addAction("Create Group",
+                       lambda: emit("create_group"))
+        menu.addAction("Cancel Group",
+                       lambda: emit("cancel_group"))
+        menu.addSeparator()
+        menu.addAction("Change order: Copy",
+                       lambda: emit("order_copy"))
+        act_re = menu.addAction("Rearrange Group Name")
+        act_re.setEnabled(False)
+        act_prev = menu.addAction(
+            "Change order: Append(previous)",
+            lambda: emit("order_append_prev", primary))
+        act_prev.setEnabled(bool(clip) and primary is not None)
+        act_next = menu.addAction(
+            "Change order: Append(next)",
+            lambda: emit("order_append_next", primary))
+        act_next.setEnabled(bool(clip) and primary is not None)
+        act_grp = menu.addAction(
+            "Change order; Append to group",
+            lambda: emit("order_append_group", primary))
+        act_grp.setEnabled(bool(clip))
+        act_lib = menu.addAction("Register to library")
+        act_lib.setEnabled(False)
+
+    def _set_checked_parts(self, names: list, on: bool) -> None:
+        want = set(names or [])
+        state = Qt.Checked if on else Qt.Unchecked
+
+        def walk(item):
+            data = item.data(0, Qt.UserRole)
+            if (data and data[0] == "part" and data[1] in want
+                    and (item.flags() & Qt.ItemIsUserCheckable)):
+                item.setCheckState(0, state)
+            for i in range(item.childCount()):
+                walk(item.child(i))
+
+        for i in range(self.layout_tree.topLevelItemCount()):
+            walk(self.layout_tree.topLevelItem(i))
 
     def _on_double_click(self, item, _col) -> None:
         """Open edit dialogs only for double-clicks on the label/text.

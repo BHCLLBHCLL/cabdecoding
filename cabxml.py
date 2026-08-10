@@ -338,8 +338,10 @@ class StpreModel:
         if el is None:
             return False
         c = _first(el, "color")
-        if c is not None:
-            set_text(c, ",".join(str(v) for v in rgba))
+        if c is None:
+            c = ET.SubElement(el, "color")
+            c.tail = "\n      "
+        set_text(c, ",".join(str(v) for v in rgba))
         return True
 
     def set_part_transform(self, name: str, matrix16: str) -> bool:
@@ -353,6 +355,73 @@ class StpreModel:
             c.tail = "\n         "
         set_text(c, matrix16)
         return True
+
+    def set_part_attribute(self, name: str, attribute: str) -> bool:
+        """Update ``<parts>/<attribute>`` (solid / fluid / panel …)."""
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "attribute")
+        if c is None:
+            c = ET.SubElement(el, "attribute")
+            c.tail = "\n      "
+        set_text(c, attribute)
+        return True
+
+    def set_part_virtual(self, name: str, on: bool) -> bool:
+        """Create/update ``<parts>/<virtual>`` (T/F)."""
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "virtual")
+        if c is None:
+            c = ET.SubElement(el, "virtual")
+            c.tail = "\n      "
+        set_text(c, "T" if on else "F")
+        return True
+
+    def reorder_parts(self, names: list[str], anchor: str, *,
+                      before: bool = True) -> list[str]:
+        """Move ``names`` immediately before/after ``anchor`` (same parent)."""
+        anchor_el = self.find_part(anchor)
+        if anchor_el is None:
+            return []
+        parent = self.root
+        for grp in self.groups():
+            if anchor_el in list(grp):
+                parent = grp
+                break
+        els: list[ET.Element] = []
+        for n in names:
+            if n == anchor:
+                continue
+            el = self.find_part(n)
+            if el is None:
+                continue
+            els.append(el)
+        if not els:
+            return []
+        for el in els:
+            for grp in self.groups():
+                if el in list(grp):
+                    grp.remove(el)
+                    break
+            else:
+                if el in list(self.root):
+                    self.root.remove(el)
+        kids = list(parent)
+        try:
+            idx = kids.index(anchor_el)
+        except ValueError:
+            return []
+        insert_at = idx if before else idx + 1
+        moved: list[str] = []
+        for j, el in enumerate(els):
+            parent.insert(insert_at + j, el)
+            n = _first(el, "name")
+            if n is not None and n.text:
+                moved.append(n.text.strip())
+        return moved
 
     # -- regions / values / conditions ------------------------------------
 
