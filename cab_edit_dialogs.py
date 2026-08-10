@@ -519,15 +519,21 @@ class FaceExtrusionDialog(_EditDlg):
         self.cad_meshes = cad_meshes
         self.created_name: Optional[str] = None
 
+        self.picked_cell: Optional[int] = None
         sel = QHBoxLayout()
         sel.addWidget(QLabel("Selected face / part", self))
         self.part_combo = QComboBox(self)
         self.part_combo.addItems(_part_names(model))
         sel.addWidget(self.part_combo, 1)
         btn = QPushButton("Select", self)
-        btn.clicked.connect(lambda: None)
+        btn.clicked.connect(self._use_picked_face)
         sel.addWidget(btn)
         self.body.addLayout(sel)
+        self.pick_hint = QLabel(
+            "Select uses the current Draw Window face pick when available.",
+            self)
+        self.pick_hint.setWordWrap(True)
+        self.body.addWidget(self.pick_hint)
 
         form = QFormLayout()
         self.height = QDoubleSpinBox(self)
@@ -550,54 +556,52 @@ class FaceExtrusionDialog(_EditDlg):
             ("OK", self._ok),
             ("Cancel", self.reject),
         )))
+        self._use_picked_face(silent=True)
+
+    def _use_picked_face(self, silent: bool = False) -> None:
+        parent = self.parent()
+        picked = getattr(parent, "_picked_face", None) if parent else None
+        if not picked:
+            if not silent:
+                QMessageBox.information(
+                    self, "Face Extrusion",
+                    "Pick a Face in the Draw Window first "
+                    "(Target of selection = Faces).")
+            return
+        pname, cell = picked
+        idx = self.part_combo.findText(str(pname))
+        if idx >= 0:
+            self.part_combo.setCurrentIndex(idx)
+        self.picked_cell = None if cell is None else int(cell)
+        plane = ops.face_plane_from_cell(
+            next((t for t in (self.cad_meshes or [])
+                  if getattr(t, "name", None) == pname), None),
+            self.picked_cell if self.picked_cell is not None else -1,
+            "")
+        if plane is not None:
+            self.orient.setCurrentText(plane["direction"])
+            self.pick_hint.setText(
+                f"Using face pick on '{pname}' "
+                f"(cell {self.picked_cell}, {plane['direction']}).")
+        else:
+            self.pick_hint.setText(f"Using part '{pname}' (AABB fallback).")
 
     def _ok(self) -> None:
         src = self.part_combo.currentText()
         if not src:
             QMessageBox.warning(self, "Face Extrusion", "Select a part.")
             return
-        bounds = ops.part_world_bounds(self.model, src, self.cad_meshes)
-        if bounds is None:
+        name = ops.extrude_part_face(
+            self.model, self.cad_meshes, src, self.height.value(),
+            cell_id=self.picked_cell,
+            orientation=self.orient.currentText(),
+            displacement=self.disp.isChecked(),
+            result_name=self.name_edit.text().strip() or "extrusion_1")
+        if not name:
             QMessageBox.warning(
                 self, "Face Extrusion",
                 "No geometry for selected part.")
             return
-        lo, hi = bounds
-        axis = self.orient.currentText()
-        sign = -1.0 if axis.startswith("-") else 1.0
-        ax = axis[-1]
-        idx = {"X": 0, "Y": 1, "Z": 2}[ax]
-        h = self.height.value() * sign
-        # Build a cuboid extrusion from the face of the AABB
-        base = lo.copy()
-        size = (hi - lo).copy()
-        if sign > 0:
-            base[idx] = hi[idx]
-        else:
-            base[idx] = lo[idx] + h  # h negative
-            h = abs(h)
-        size[idx] = abs(self.height.value())
-        name = ops.unique_part_name(
-            self.model, self.name_edit.text().strip() or "extrusion_1")
-        el = self.model.add_part(
-            name=name, kind="cube", attribute="solid")
-        if el is None:
-            return
-        from cabxml import set_text
-        from xml.etree.ElementTree import SubElement
-        for tag, val in (
-                ("base", ",".join(f"{v:.17g}" for v in base)),
-                ("size", ",".join(f"{v:.17g}" for v in size)),
-        ):
-            c = _first(el, tag)
-            if c is None:
-                c = SubElement(el, tag)
-                c.tail = "\n         "
-            set_text(c, val)
-        if self.disp.isChecked():
-            d = [0.0, 0.0, 0.0]
-            d[idx] = self.height.value() * sign
-            ops.translate_part(self.model, name, d)
         self.created_name = name
         self.applied = True
         self.accept()
@@ -902,11 +906,16 @@ class BooleanOperationDialog(_EditDlg):
         self.chk_seamless = QCheckBox("Seamless", op)
         self.chk_seamless.setEnabled(False)
         self.chk_seamless.setToolTip(
-            "Seamless B-rep merge not available (tessellation CSG only).")
+            "Seamless merge option reserved; M33 uses PK_BODY_boolean_2 "
+            "with CSG fallback.")
         ol.addWidget(self.chk_keep_a)
         ol.addWidget(self.chk_keep_b)
         ol.addWidget(self.chk_seamless)
         self.body.addWidget(op)
+        self.body.addWidget(_capability_note(
+            "M33: prefers PK_BODY_boolean_2 (solid blocks from world AABB); "
+            "falls back to tessellation CSG when pskernel is unavailable.",
+            self))
 
         nrow = QHBoxLayout()
         nrow.addWidget(QLabel("Part name after operation", self))
@@ -919,6 +928,7 @@ class BooleanOperationDialog(_EditDlg):
             ("Execute", self._exec),
             ("Close", self.accept),
         )))
+        self.backend = ""
 
     def _swap(self) -> None:
         ia, ib = self.part_a.currentIndex(), self.part_b.currentIndex()
@@ -937,24 +947,27 @@ class BooleanOperationDialog(_EditDlg):
             op = "subtract"
         else:
             op = "intersect"
-        name = ops.boolean_mesh_parts(
+        archive = getattr(self.parent(), "archive", None)
+        out = ops.boolean_mesh_parts(
             self.model, self.cad_meshes, a, b, op,
             self.name_edit.text().strip() or "boolean_1",
             keep_a=self.chk_keep_a.isChecked(),
-            keep_b=self.chk_keep_b.isChecked())
-        if not name:
+            keep_b=self.chk_keep_b.isChecked(),
+            archive=archive)
+        if not out:
             QMessageBox.warning(
                 self, "Boolean Operation",
                 "Boolean failed (need tessellation for both parts).")
             return
-        if self.rb_div.isChecked() and self.chk_keep_a.isChecked():
-            # Divide ≈ subtract + intersect leftovers already handled by op
-            pass
+        name, backend = out
         self.result_name = name
+        self.backend = backend
         self.applied = True
+        eng = ("PK_BODY_boolean_2" if backend == "pk"
+               else "tessellation CSG fallback")
         QMessageBox.information(
             self, "Boolean Operation",
-            f"Created '{name}' (tessellation CSG; B-rep kernel pending).")
+            f"Created '{name}' via {eng}.")
 
 
 class ShapeChangeBooleanDialog(_EditDlg):
@@ -1150,12 +1163,14 @@ class EditSolidDialog(_EditDlg):
         "Remove redundant edges",
     )
 
-    def __init__(self, model: StpreModel, parent=None):
+    def __init__(self, model: StpreModel, cad_meshes=None, parent=None):
         super().__init__("Edit Solid", "Edit Solid", parent)
         self.model = model
+        self.cad_meshes = cad_meshes
         self.body.addWidget(_capability_note(
-            "Layout matches STpre Edit Solid types. Parasolid solid edits "
-            "are recorded as project intent; B-rep execution pending.", self))
+            "M33: Delete faces removes the coplanar triangle cluster from "
+            "the current Draw face pick (tessellation). Other edit types "
+            "remain project intent until full B-rep heal paths land.", self))
         form = QFormLayout()
         self.edit_type = QComboBox(self)
         self.edit_type.addItems(self.TYPES)
@@ -1181,19 +1196,37 @@ class EditSolidDialog(_EditDlg):
             ("Execute", self._exec),
             ("Close", self.accept),
         )))
+        self.deleted = 0
 
     def _exec(self) -> None:
-        # Solid topology edits need Parasolid; record request + confirm.
+        etype = self.edit_type.currentText()
+        target = self.target.currentText()
         self.model.set_project_value(
             "edit_solid_last",
-            f"{self.edit_type.currentText()}|{self.target.currentText()}|"
-            f"{self.tolerance.value():g}")
+            f"{etype}|{target}|{self.tolerance.value():g}")
+        if etype == "Delete faces":
+            parent = self.parent()
+            picked = getattr(parent, "_picked_face", None) if parent else None
+            cell = None
+            if picked and picked[0] == target:
+                cell = picked[1]
+            self.deleted = ops.delete_selected_faces_tess(
+                self.cad_meshes, target, cell)
+            if self.deleted <= 0:
+                QMessageBox.warning(
+                    self, "Edit Solid",
+                    "Delete faces needs a Face pick on the target part.")
+                return
+            self.applied = True
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"Deleted {self.deleted} triangle(s) on '{target}'.")
+            return
         self.applied = True
         QMessageBox.information(
             self, "Edit Solid",
-            f"'{self.edit_type.currentText()}' queued for "
-            f"'{self.target.currentText()}'.\n"
-            "Full solid topology edit requires the CAD kernel.")
+            f"'{etype}' queued for '{target}'.\n"
+            "This edit type is still project-intent only.")
 
 
 # -------------------------------------------------------- Simplification
@@ -1202,20 +1235,23 @@ class EditSolidDialog(_EditDlg):
 class PartSimplificationDialog(_EditDlg):
     """[Part Simplification]."""
 
-    def __init__(self, model: StpreModel, parent=None):
+    def __init__(self, model: StpreModel, cad_meshes=None, parent=None):
         super().__init__("Part Simplification", "Part Simplification",
                          parent)
         self.model = model
+        self.cad_meshes = cad_meshes
+        self.deleted = 0
         self.body.addWidget(_capability_note(
-            "STpre face-selection simplification chrome. Face pick + "
-            "delete applies when a CAD face registry exists; otherwise "
-            "intent is logged only.", self))
+            "M33: Delete selected face removes the coplanar triangle cluster "
+            "from the current Draw face pick.", self))
         row = QHBoxLayout()
         row.addWidget(QLabel("Target", self))
         self.part = QComboBox(self)
         self.part.addItems(_part_names(model))
         row.addWidget(self.part, 1)
-        row.addWidget(QPushButton("Select", self))
+        btn = QPushButton("Select", self)
+        btn.clicked.connect(self._use_pick)
+        row.addWidget(btn)
         self.body.addLayout(row)
         method = QGroupBox("Method", self)
         ml = QVBoxLayout(method)
@@ -1238,12 +1274,30 @@ class PartSimplificationDialog(_EditDlg):
             ("Close", self.accept),
         )))
 
+    def _use_pick(self) -> None:
+        parent = self.parent()
+        picked = getattr(parent, "_picked_face", None) if parent else None
+        if picked:
+            idx = self.part.findText(str(picked[0]))
+            if idx >= 0:
+                self.part.setCurrentIndex(idx)
+
     def _exec(self) -> None:
+        target = self.part.currentText()
+        parent = self.parent()
+        picked = getattr(parent, "_picked_face", None) if parent else None
+        cell = picked[1] if picked and picked[0] == target else None
+        self.deleted = ops.delete_selected_faces_tess(
+            self.cad_meshes, target, cell)
+        if self.deleted <= 0:
+            QMessageBox.warning(
+                self, "Part Simplification",
+                "Pick a Face on the target part in the Draw Window.")
+            return
         self.applied = True
         QMessageBox.information(
             self, "Part Simplification",
-            f"Simplification requested for '{self.part.currentText()}'.\n"
-            "Face deletion uses Parasolid reconstruct.")
+            f"Deleted {self.deleted} triangle(s) on '{target}'.")
 
 
 class ShapeSimplificationDialog(_EditDlg):

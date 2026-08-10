@@ -447,13 +447,104 @@ def reconstruct_part_facets(model: StpreModel, archive, cad_meshes,
     return updated
 
 
+def _boolean_via_pk(model: StpreModel, cad_meshes, archive,
+                    part_a: str, part_b: str, op: str,
+                    result_name: str, *,
+                    keep_a: bool, keep_b: bool) -> Optional[str]:
+    """M33: ``PK_BODY_boolean_2`` using solid blocks from world AABB."""
+    import cab_ps_ops
+    if not cab_ps_ops.available():
+        return None
+    ba = part_world_bounds(model, part_a, cad_meshes)
+    bb = part_world_bounds(model, part_b, cad_meshes)
+    if ba is None or bb is None:
+        return None
+    # part_world_bounds follows tess units (metres for CAD/primitives)
+    a_lo, a_hi = np.asarray(ba[0], dtype=np.float64), np.asarray(
+        ba[1], dtype=np.float64)
+    b_lo, b_hi = np.asarray(bb[0], dtype=np.float64), np.asarray(
+        bb[1], dtype=np.float64)
+    a_size = np.maximum(a_hi - a_lo, 1e-9)
+    b_size = np.maximum(b_hi - b_lo, 1e-9)
+    try:
+        tag_a = cab_ps_ops.create_solid_block(
+            tuple(a_size), tuple(a_lo))
+        tag_b = cab_ps_ops.create_solid_block(
+            tuple(b_size), tuple(b_lo))
+        tag_a = cab_ps_ops.entity_copy(tag_a)
+        tag_b = cab_ps_ops.entity_copy(tag_b)
+        results = cab_ps_ops.body_boolean(tag_a, [tag_b], op)
+    except Exception:
+        return None
+    if not results:
+        return None
+    # Facet result body directly (PK_PART_transmit can fail on some
+    # boolean products; tessellation still reflects true B-rep).
+    try:
+        import ps_facet2_nodes as _ps
+        sess = _ps._get_session()
+        tess = sess.facet_body_adaptive(results[0])
+    except Exception:
+        tess = None
+    if tess is None or not getattr(tess, "triangles", None).size:
+        return None
+    xt = None
+    try:
+        xt = cab_ps_ops.transmit_parts(results)
+    except Exception:
+        xt = None
+    name = unique_part_name(model, result_name)
+    from cab_parts import PrimitivePart
+    from xml.etree.ElementTree import SubElement
+    el = model.add_part(name=name, kind="body", attribute="solid")
+    if el is None:
+        return None
+    tess.name = name
+    pts = np.asarray(tess.points, dtype=np.float64)
+    lo, hi = pts.min(0) * 1000.0, pts.max(0) * 1000.0
+    for tag, val in (
+            ("base", ",".join(f"{v:.17g}" for v in lo)),
+            ("size", ",".join(f"{v:.17g}" for v in (hi - lo))),
+    ):
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, val)
+    if archive is not None and xt:
+        try:
+            import cab_import
+            cab_import.add_xt_member(archive, xt, name=f"{name}.x_t")
+        except Exception:
+            pass
+    if cad_meshes is not None:
+        cad_meshes.append(tess)
+    if not keep_a:
+        model.delete_part(part_a)
+    if not keep_b:
+        model.delete_part(part_b)
+    return name
+
+
 def boolean_mesh_parts(model: StpreModel, cad_meshes, part_a: str, part_b: str,
                        op: str, result_name: str, *,
-                       keep_a: bool = False, keep_b: bool = False
-                       ) -> Optional[str]:
-    """M24: tessellation CSG → new polygon part (AABB tool for B)."""
+                       keep_a: bool = False, keep_b: bool = False,
+                       archive=None, prefer_pk: bool = True
+                       ) -> Optional[tuple[str, str]]:
+    """Boolean → ``(name, backend)`` where backend is ``pk`` or ``csg``.
+
+    M33: try ``PK_BODY_boolean_2`` (solid blocks from world AABB); fall back
+    to tessellation CSG against B's AABB.
+    """
     import cab_ps_ops
     from cab_parts import PrimitivePart
+
+    if prefer_pk:
+        pk_name = _boolean_via_pk(
+            model, cad_meshes, archive, part_a, part_b, op, result_name,
+            keep_a=keep_a, keep_b=keep_b)
+        if pk_name:
+            return pk_name, "pk"
 
     meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
     ta, tb = meshes.get(part_a), meshes.get(part_b)
@@ -468,11 +559,9 @@ def boolean_mesh_parts(model: StpreModel, cad_meshes, part_a: str, part_b: str,
     lo_b, hi_b = bb
     pts = np.asarray(ta.points, dtype=np.float64)
     tris = np.asarray(ta.triangles, dtype=np.int64)
-    import cab_vtk
     pts = cab_vtk._apply_transform(
         pts, info_a.transform if info_a else "")
     if op == "unite":
-        # Concatenate A + B triangles
         pts_b = cab_vtk._apply_transform(
             np.asarray(tb.points, dtype=np.float64),
             info_b.transform if info_b else "")
@@ -488,7 +577,6 @@ def boolean_mesh_parts(model: StpreModel, cad_meshes, part_a: str, part_b: str,
     el = model.add_part(name=name, kind="polygon", attribute="solid")
     if el is None:
         return None
-    # store as mm base/size for AABB fallback + attach tess
     lo, hi = new_pts.min(0) * 1000.0, new_pts.max(0) * 1000.0
     from xml.etree.ElementTree import SubElement
     for tag, val in (
@@ -506,7 +594,7 @@ def boolean_mesh_parts(model: StpreModel, cad_meshes, part_a: str, part_b: str,
         model.delete_part(part_a)
     if not keep_b:
         model.delete_part(part_b)
-    return name
+    return name, "csg"
 
 
 def flip_selected_triangles(cad_meshes, name: str,
@@ -563,11 +651,76 @@ def panel_params_from_aabb(lo_mm: np.ndarray, hi_mm: np.ndarray,
     return base, size
 
 
+def face_plane_from_cell(tess, cell_id: int, transform: str = ""
+                         ) -> Optional[dict]:
+    """M33: plane + coplanar triangle cluster from a picked cell.
+
+    Returns dict with ``normal``, ``origin_m``, ``lo_mm``, ``hi_mm``,
+    ``direction``, ``tri_ids`` (metres / mm as named).
+    """
+    if tess is None or cell_id is None:
+        return None
+    pts = np.asarray(tess.points, dtype=np.float64)
+    tris = np.asarray(tess.triangles, dtype=np.int64)
+    cid = int(cell_id)
+    if pts.size == 0 or cid < 0 or cid >= len(tris):
+        return None
+    pts_w = cab_vtk._apply_transform(pts, transform or "")
+    i0, i1, i2 = (int(x) for x in tris[cid][:3])
+    n = np.cross(pts_w[i1] - pts_w[i0], pts_w[i2] - pts_w[i0])
+    nn = float(np.linalg.norm(n))
+    if nn < 1e-15:
+        return None
+    n = n / nn
+    origin = pts_w[i0]
+    # Grow coplanar connected set (same normal + plane)
+    tri_ids = {cid}
+    changed = True
+    while changed:
+        changed = False
+        for ti, tri in enumerate(tris):
+            if ti in tri_ids:
+                continue
+            j0, j1, j2 = (int(x) for x in tri[:3])
+            tn = np.cross(pts_w[j1] - pts_w[j0], pts_w[j2] - pts_w[j0])
+            tn_n = float(np.linalg.norm(tn))
+            if tn_n < 1e-15:
+                continue
+            tn = tn / tn_n
+            if abs(float(np.dot(tn, n))) < 0.98:
+                continue
+            if abs(float(np.dot(pts_w[j0] - origin, n))) > 1e-4:
+                continue
+            # adjacency by shared vertex with current set
+            verts = {j0, j1, j2}
+            border = set()
+            for k in tri_ids:
+                border.update(int(x) for x in tris[k][:3])
+            if verts & border:
+                tri_ids.add(ti)
+                changed = True
+    face_pts = []
+    for ti in tri_ids:
+        for vi in tris[ti][:3]:
+            face_pts.append(pts_w[int(vi)])
+    face_pts = np.asarray(face_pts, dtype=np.float64)
+    lo_m, hi_m = face_pts.min(0), face_pts.max(0)
+    direction = panel_direction_from_normal(n)
+    return {
+        "normal": n,
+        "origin_m": origin,
+        "lo_mm": lo_m * 1000.0,
+        "hi_mm": hi_m * 1000.0,
+        "direction": direction,
+        "tri_ids": sorted(tri_ids),
+    }
+
+
 def panelize_part_face(model: StpreModel, cad_meshes, name: str,
                        cell_id: Optional[int] = None,
                        *, result_name: Optional[str] = None
                        ) -> Optional[str]:
-    """Create a Panel part on a selected face (MVP: AABB face from normal).
+    """Create a Panel on the picked face plane (M33) or largest AABB face.
 
     STpre: Esc after face pick panelizes Parasolid faces; sketch/pipe excluded.
     """
@@ -584,18 +737,14 @@ def panelize_part_face(model: StpreModel, cad_meshes, name: str,
     direction = "+Z"
     if cell_id is not None:
         meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
-        tess = meshes.get(name)
-        if tess is not None:
-            pts = np.asarray(tess.points, dtype=np.float64)
-            tris = np.asarray(tess.triangles, dtype=np.int64)
-            if 0 <= int(cell_id) < len(tris) and pts.size:
-                pts_w = cab_vtk._apply_transform(
-                    pts, info.transform if info else "")
-                i0, i1, i2 = (int(x) for x in tris[int(cell_id)][:3])
-                n = np.cross(pts_w[i1] - pts_w[i0], pts_w[i2] - pts_w[i0])
-                direction = panel_direction_from_normal(n)
+        plane = face_plane_from_cell(
+            meshes.get(name), int(cell_id),
+            info.transform if info else "")
+        if plane is not None:
+            direction = plane["direction"]
+            # Use picked-face extent (not whole-part AABB)
+            lo, hi = plane["lo_mm"], plane["hi_mm"]
     else:
-        # Largest AABB face → panel normal along the thinnest axis opposite
         size = hi - lo
         areas = (size[1] * size[2], size[0] * size[2], size[0] * size[1])
         ax = int(np.argmax(areas))
@@ -617,3 +766,99 @@ def panelize_part_face(model: StpreModel, cad_meshes, name: str,
     if cad_meshes is not None:
         cad_meshes.append(tess)
     return pname
+
+
+def extrude_part_face(model: StpreModel, cad_meshes, name: str,
+                      height_mm: float, *,
+                      cell_id: Optional[int] = None,
+                      orientation: Optional[str] = None,
+                      displacement: bool = False,
+                      result_name: str = "extrusion_1"
+                      ) -> Optional[str]:
+    """M33 Sweep/Face Extrusion from picked face plane (else part AABB)."""
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return None
+    bounds = part_world_bounds(model, name, cad_meshes)
+    if bounds is None:
+        return None
+    lo, hi = bounds
+    direction = orientation or "+Z"
+    if cell_id is not None:
+        meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
+        plane = face_plane_from_cell(
+            meshes.get(name), int(cell_id),
+            info.transform if info else "")
+        if plane is not None:
+            lo, hi = plane["lo_mm"], plane["hi_mm"]
+            if not orientation:
+                direction = plane["direction"]
+    ax = {"X": 0, "Y": 1, "Z": 2}[direction[-1]]
+    sign = 1.0 if direction.startswith("+") else -1.0
+    h = abs(float(height_mm))
+    base = lo.copy()
+    size = (hi - lo).copy()
+    if sign > 0:
+        base[ax] = hi[ax]
+    else:
+        base[ax] = lo[ax] - h
+    size[ax] = h
+    out = unique_part_name(model, result_name or "extrusion_1")
+    el = model.add_part(name=out, kind="cube", attribute="solid")
+    if el is None:
+        return None
+    from xml.etree.ElementTree import SubElement
+    for tag, val in (
+            ("base", ",".join(f"{v:.17g}" for v in base)),
+            ("size", ",".join(f"{v:.17g}" for v in size)),
+    ):
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, val)
+    if displacement:
+        d = np.zeros(3)
+        d[ax] = h * sign
+        translate_part(model, out, d)
+    try:
+        import cab_parts
+        tess = cab_parts.cube_tess(base, size)
+        tess.name = out
+        if cad_meshes is not None:
+            cad_meshes.append(tess)
+    except Exception:
+        pass
+    return out
+
+
+def delete_selected_faces_tess(cad_meshes, name: str,
+                               cell_id: Optional[int] = None
+                               ) -> int:
+    """M33: remove coplanar triangle cluster (tessellation face delete).
+
+    Returns number of triangles removed.
+    """
+    meshes = {getattr(t, "name", None): t for t in (cad_meshes or [])}
+    tess = meshes.get(name)
+    if tess is None or cell_id is None:
+        return 0
+    info_tf = ""
+    plane = face_plane_from_cell(tess, int(cell_id), info_tf)
+    if plane is None:
+        return 0
+    drop = set(plane["tri_ids"])
+    tris = np.asarray(tess.triangles, dtype=np.int64)
+    keep = [t for i, t in enumerate(tris) if i not in drop]
+    if len(keep) == len(tris):
+        return 0
+    if not keep:
+        return 0
+    kept = np.asarray(keep, dtype=np.int64)
+    used = np.unique(kept.ravel())
+    remap = {old: i for i, old in enumerate(used)}
+    pts = np.asarray(tess.points, dtype=np.float64)[used]
+    tess.points = pts
+    tess.triangles = np.asarray(
+        [[remap[int(i)] for i in t] for t in kept], dtype=np.int64)
+    return len(drop)

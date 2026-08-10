@@ -1408,9 +1408,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.model, self._cad_meshes, self)
         dlg.exec_()
         if dlg.applied:
+            eng = getattr(dlg, "backend", "") or "?"
             self._edit_finish(
                 snap,
-                f"Boolean Operation: '{dlg.result_name}'.")
+                f"Boolean Operation: '{dlg.result_name}' ({eng}).")
 
     def _shape_change_boolean_dialog(self) -> None:
         if not self._edit_require_model():
@@ -1440,20 +1441,29 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         import cab_edit_dialogs
         snap = self._snapshot()
-        dlg = cab_edit_dialogs.EditSolidDialog(self.model, self)
+        dlg = cab_edit_dialogs.EditSolidDialog(
+            self.model, self._cad_meshes, self)
         dlg.exec_()
         if dlg.applied:
-            self._edit_finish(snap, "Edit Solid finished.")
+            n = getattr(dlg, "deleted", 0) or 0
+            msg = ("Edit Solid finished."
+                   if not n else f"Edit Solid: deleted {n} triangle(s).")
+            self._edit_finish(snap, msg)
 
     def _part_simplification_dialog(self) -> None:
         if not self._edit_require_model():
             return
         import cab_edit_dialogs
         snap = self._snapshot()
-        dlg = cab_edit_dialogs.PartSimplificationDialog(self.model, self)
+        dlg = cab_edit_dialogs.PartSimplificationDialog(
+            self.model, self._cad_meshes, self)
         dlg.exec_()
         if dlg.applied:
-            self._edit_finish(snap, "Part Simplification finished.")
+            n = getattr(dlg, "deleted", 0) or 0
+            msg = ("Part Simplification finished."
+                   if not n else
+                   f"Part Simplification: deleted {n} triangle(s).")
+            self._edit_finish(snap, msg)
 
     def _shape_simplification_dialog(self) -> None:
         if not self._edit_require_model():

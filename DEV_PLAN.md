@@ -1153,7 +1153,8 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | M30 | Part 专用件包 | M7-4/M8 | ✅ 代理 |
 | M31 | Solver/Post 产品化 | M7-1 | ✅ MVP |
 | **M32** | 菜单对话框 vs STpre 逐项核对（§14 D1–D7） | M24–M31 | ✅ D1–D7 |
-| **M33+** | Edit B-rep / Mesh 金标 / Control / CW / Library（§15） | M32 | 📋 计划 |
+| **M33** | Edit 内核跃迁（PK Boolean / 面删 / 拾取面 Panel·Sweep） | M32 | ✅ |
+| **M34–M38** | Mesh / Control / CW / Library / 格式（§15） | M33 | 📋 进行中 |
 | M32+ 抛光 | i18n / 热显示 / Wiring 几何等 | 并入 §15 M37–M38 | 后备 |
 
 依赖主线：**M33 或 M34**（§15）；**冻结** Gridding/Meshing via STpre API。
