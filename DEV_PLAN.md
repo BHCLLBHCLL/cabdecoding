@@ -9,7 +9,7 @@
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
 > 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
 >
-> **当前主线：** §15 M37+（Library / 专用件 / 热显示 / 格式）。  
+> **当前主线：** §15 M38（格式矩阵 / IGES·IDF 决策 / Solver·Post 文档）。  
 > **冻结：** Gridding/Meshing via STpre API（§14.2）。
 
 ---
@@ -940,10 +940,10 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | **M34** Mesh 原生保真 | panel/开面 face-thin；圆柱·轴向类型标志；Edit 列表选点 | ✅ panel 占用 smoke；类型写回；列表 Select |
 | **M35** Control/拾取清理 | Domain boundary 接线；Condition/Aspect 禁用；Detail；Draw RMB | ✅ |
 | **M36** CW 产品子集 | Source 深度写回；未实现物理显式禁用 | ✅ Source XML 可重载 |
-| **M37** Library + 专用件 + 热显示 | Register/Place；AC/Diffuser；热色图 | 右键 Register 可用 |
+| **M37** Library + 专用件 + 热显示 | Register；AC/Diffuser 代理；热 tint MVP | ✅ |
 | **M38** 格式与抛光 | Import/Export 矩阵测试；IGES/IDF 决策；Solver/Post 文档 | CI 绿 |
 
-**建议下一迭代：** M37 Library/热 → M38 格式。
+**建议下一迭代：** M38 格式抛光。
 
 ### 15.5 已完成底座（保持）
 
@@ -1157,10 +1157,11 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | **M34** | Mesh 原生保真（panel face-thin / 圆柱·轴向标志 / Edit 列表选点） | M33 | ✅ |
 | **M35** | Control/拾取清理（DomainBoundary / Detail / Draw RMB） | M34 | ✅ |
 | **M36** | CW Source 写回 + 未实现物理禁用 | M35 | ✅ |
-| **M37–M38** | Library / 热显示 / 格式（§15） | M36 | 📋 进行中 |
-| M32+ 抛光 | i18n / 热显示 / Wiring 几何等 | 并入 §15 M37–M38 | 后备 |
+| **M37** | Library Register + AC/Diffuser + 热 tint MVP | M36 | ✅ |
+| **M38** | 格式矩阵 / IGES·IDF / Solver·Post 文档 | M37 | 📋 进行中 |
+| M32+ 抛光 | i18n / Wiring 几何等 | 并入 §15 | 后备 |
 
-依赖主线：**M37**（§15）；**冻结** Gridding/Meshing via STpre API。
+依赖主线：**M38**（§15）；**冻结** Gridding/Meshing via STpre API。
 
 ---
 

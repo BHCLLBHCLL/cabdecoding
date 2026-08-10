@@ -694,8 +694,10 @@ class TreeListView(QWidget):
             "Change order; Append to group",
             lambda: emit("order_append_group", primary))
         act_grp.setEnabled(bool(clip))
-        act_lib = menu.addAction("Register to library")
-        act_lib.setEnabled(False)
+        act_lib = menu.addAction(
+            "Register to library",
+            lambda: emit("register_library"))
+        act_lib.setEnabled(bool(names))
 
     def _set_checked_parts(self, names: list, on: bool) -> None:
         want = set(names or [])
@@ -1268,6 +1270,21 @@ class ControlWindow(QWidget):
                 root_item.addChild(child)
         root_item.setExpanded(True)
 
+        # Project part library stub (Register to library)
+        proj = QTreeWidgetItem(["[Project Parts]"])
+        proj.setIcon(0, AppIcons.get("library", 16))
+        proj.setData(0, Qt.UserRole, ("part_lib_group", "[Project Parts]"))
+        for entry in getattr(self, "_project_part_library", []) or []:
+            label = entry.get("name") or "(unnamed)"
+            kind = entry.get("kind") or "body"
+            c = QTreeWidgetItem([f"{label} ({kind})"])
+            c.setIcon(0, AppIcons.get("cube", 16))
+            c.setData(0, Qt.UserRole, ("part_lib", entry.get("name"), entry))
+            c.setToolTip(0, entry.get("summary") or label)
+            proj.addChild(c)
+        self.lib_tree.addTopLevelItem(proj)
+        proj.setExpanded(True)
+
         # Materials group (from project / standard library)
         if props is not None:
             mats = QTreeWidgetItem(["[Materials]"])
@@ -1296,6 +1313,26 @@ class ControlWindow(QWidget):
             self.lib_file.setText(data[1])
         elif data and data[0] == "material":
             self.lib_file.setText(data[1])
+        elif data and data[0] == "part_lib":
+            self.lib_file.setText(str(data[1] or ""))
+
+    def register_parts_to_library(self, entries: list) -> int:
+        """Append part property stubs into the project Library tree."""
+        lib = list(getattr(self, "_project_part_library", []) or [])
+        by_name = {e.get("name"): i for i, e in enumerate(lib)}
+        n = 0
+        for entry in entries or []:
+            name = (entry.get("name") or "").strip()
+            if not name:
+                continue
+            if name in by_name:
+                lib[by_name[name]] = entry
+            else:
+                by_name[name] = len(lib)
+                lib.append(entry)
+            n += 1
+        self._project_part_library = lib
+        return n
 
     def _filter_library(self, text: str) -> None:
         needle = text.strip().lower()

@@ -529,6 +529,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 ("Pin Fin", "pin_fin", "panel"),
                 ("Peltier", "peltier", "part"),
                 ("Two-Resistor", "two_resistor", "part"),
+                ("AC Unit", "ac_unit", "part"),
+                ("Diffuser", "diffuser", "part"),
                 ("Fan", "fan", "part"),
                 ("Axial Fan", "axial_fan", "part"),
                 ("Blower", "blower_fan", "part"),
@@ -928,6 +930,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # shows STpre-like UV grid / UVW / blue wireframe on startup.
         self._ensure_default_workspace()
         self.tree_view.populate(self.model, archive.members)
+        self._load_project_part_library()
         self.control.populate_library(self.props)
         self.control.load_sketch(self.model)
         self.control.clear_property()
@@ -987,6 +990,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._append_primitive_tess()
         self._clear_undo()
         self.tree_view.populate(self.model, archive.members)
+        self._load_project_part_library()
         self.control.populate_library(self.props)
         self._ensure_sketch_plane()
         self.control.load_sketch(self.model)
@@ -1609,6 +1613,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._ctx_order_append_group(name)
         elif action == "rearrange_group":
             self._ctx_rearrange_group(str(name) if name else "")
+        elif action == "register_library":
+            self._ctx_register_library(names)
         else:
             self._nyi(f"Layout context: {action}")
 
@@ -2503,8 +2509,78 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             "View: Display Virtual Part "
             + ("ON" if on else "OFF"))
 
+    def _load_project_part_library(self) -> None:
+        """Restore [Project Parts] stubs from project_value JSON."""
+        import json
+        self.control._project_part_library = []
+        if self.model is None:
+            return
+        raw = self.model.project_value("part_library", "") or ""
+        if not raw.strip():
+            return
+        try:
+            data = json.loads(raw)
+            if isinstance(data, list):
+                self.control._project_part_library = data
+        except Exception:
+            pass
+
+    def _ctx_register_library(self, names: list[str]) -> None:
+        """Copy selected part props into Control → Library [Project Parts]."""
+        if self.model is None or not names:
+            self.log("Register to library: select part(s).", "WARN")
+            return
+        from cabxml import _first
+        import json
+        entries = []
+        for name in names:
+            p = next((x for x in self.model.parts() if x.name == name), None)
+            if p is None:
+                continue
+            el = self.model.find_part(name)
+            heat = None
+            temp = None
+            if el is not None:
+                hs = _first(el, "heat_source")
+                if hs is not None and hs.text:
+                    try:
+                        heat = float(hs.text.strip())
+                    except ValueError:
+                        pass
+                te = _first(el, "temperature")
+                if te is not None and te.text:
+                    try:
+                        temp = float(te.text.strip())
+                    except ValueError:
+                        pass
+            summary = (
+                f"kind={p.kind}; attr={p.attribute}; "
+                f"mat={p.property or ''}; "
+                f"heat={heat}; T={temp}")
+            entries.append({
+                "name": name,
+                "kind": p.kind,
+                "attribute": p.attribute,
+                "material": p.property or "",
+                "heat_source": heat,
+                "temperature": temp,
+                "summary": summary,
+            })
+        n = self.control.register_parts_to_library(entries)
+        # Persist stub as project JSON (reload-friendly)
+        try:
+            lib = getattr(self.control, "_project_part_library", []) or []
+            self.model.set_project_value(
+                "part_library", json.dumps(lib, ensure_ascii=False))
+        except Exception:
+            pass
+        self.control.populate_library(self.props)
+        self.control.tabs.setCurrentWidget(self.control.lib_page)
+        self._mark_dirty()
+        self.log(f"Register to library: {n} part(s) → [Project Parts]")
+
     def _view_thermal_condition_display(self) -> None:
-        """View → (Setting) → Thermal Condition Display (MVP chrome)."""
+        """View → (Setting) → Thermal Condition Display (MVP color tint)."""
         from PyQt5.QtWidgets import (
             QDialog, QVBoxLayout, QCheckBox, QPushButton, QHBoxLayout, QLabel,
         )
@@ -2512,11 +2588,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg.setWindowTitle("Thermal Condition Display")
         lay = QVBoxLayout(dlg)
         lay.addWidget(QLabel(
-            "Set the distribution display of heat source and thermal "
-            "conductivity per part (STpre subset).", dlg))
+            "MVP: tint part actors by heat_source / initial temperature "
+            "when present (not a full STpre scalar field).", dlg))
         chk_hs = QCheckBox("Heat source distribution", dlg)
-        chk_tc = QCheckBox("Thermal conductivity distribution", dlg)
-        chk_hs.setChecked(True)
+        chk_tc = QCheckBox("Temperature / conductivity tint", dlg)
+        mode = getattr(self, "_thermal_display", {}) or {}
+        chk_hs.setChecked(bool(mode.get("heat_source", True)))
+        chk_tc.setChecked(bool(mode.get("temperature", False)))
         lay.addWidget(chk_hs)
         lay.addWidget(chk_tc)
         row = QHBoxLayout()
@@ -2528,15 +2606,64 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         lay.addLayout(row)
 
         def _ok() -> None:
+            self._thermal_display = {
+                "heat_source": chk_hs.isChecked(),
+                "temperature": chk_tc.isChecked(),
+            }
+            on = chk_hs.isChecked() or chk_tc.isChecked()
             self.log(
                 f"Thermal Condition Display: heat_source={chk_hs.isChecked()}, "
-                f"conductivity={chk_tc.isChecked()} "
-                "(color overlay pending)")
+                f"temperature={chk_tc.isChecked()} "
+                + ("(tint ON)" if on else "(tint OFF)"))
             dlg.accept()
+            if self.model is not None:
+                self._rebuild_scene(fit=False)
 
         ok.clicked.connect(_ok)
         cancel.clicked.connect(dlg.reject)
         dlg.exec_()
+
+    def _thermal_tint_for_part(self, name: str,
+                               base_color: tuple) -> tuple:
+        """MVP colormap from part heat_source / temperature attributes."""
+        mode = getattr(self, "_thermal_display", None) or {}
+        if not mode or self.model is None:
+            return base_color
+        use_hs = bool(mode.get("heat_source"))
+        use_t = bool(mode.get("temperature"))
+        if not use_hs and not use_t:
+            return base_color
+        from cabxml import _first
+        el = self.model.find_part(name)
+        if el is None:
+            return base_color
+        heat = None
+        temp = None
+        if use_hs:
+            hs = _first(el, "heat_source")
+            if hs is not None and hs.text:
+                try:
+                    heat = abs(float(hs.text.strip()))
+                except ValueError:
+                    pass
+        if use_t:
+            te = _first(el, "temperature")
+            if te is not None and te.text:
+                try:
+                    temp = float(te.text.strip())
+                except ValueError:
+                    pass
+        if heat is None and temp is None:
+            return base_color
+        # Heat → red-yellow; temperature → cyan-magenta band
+        if heat is not None and heat > 0:
+            t = min(1.0, heat / 100.0)  # 100 W → full
+            return (0.55 + 0.45 * t, 0.15 + 0.35 * (1.0 - t), 0.08)
+        if temp is not None:
+            # Map ~0–80 °C into cool→warm
+            t = max(0.0, min(1.0, (temp - 0.0) / 80.0))
+            return (0.15 + 0.75 * t, 0.35, 0.85 - 0.55 * t)
+        return base_color
 
     def _view_parts_by_material(self) -> None:
         """View → (Setting) → Display parts by materials."""
@@ -2749,8 +2876,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     pd_line = pd_elem_lines
                 else:
                     pd_line = pd_part
+                tint = self._thermal_tint_for_part(box.name, box.color)
                 edge = cab_vtk.edges_actor(
-                    pd_line, color=box.color, line_width=1.35)
+                    pd_line, color=tint, line_width=1.35)
                 edge.SetVisibility(1 if (part_on and tree_vis) else 0)
                 self.renderer.AddActor(edge)
                 self.actors.append((edge, box.name))
@@ -2760,7 +2888,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 actor = vtk.vtkActor()
                 actor.SetMapper(mapper)
                 prop = actor.GetProperty()
-                prop.SetColor(*box.color)
+                prop.SetColor(*self._thermal_tint_for_part(
+                    box.name, box.color))
                 prop.SetOpacity(0.35 if translucent else 1.0)
                 prop.SetInterpolationToGouraud()
                 prop.SetAmbient(0.25)

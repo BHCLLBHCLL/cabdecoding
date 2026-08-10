@@ -57,6 +57,8 @@ PART_MENU_ITEMS: list[tuple[str, str] | None] = [
     ("Pin Fin…", "pin_fin"),
     ("Peltier Device Model…", "peltier"),
     ("Thermal Circuit Model (Two-Resistor)…", "two_resistor"),
+    ("AC Unit…", "ac_unit"),
+    ("Diffuser…", "diffuser"),
     None,
     ("Fan…", "fan"),
     ("Axial-Flow Fan…", "axial_fan"),
@@ -71,6 +73,7 @@ PRIMITIVE_KINDS = (
     "quad_panel", "revolved", "point", "fan", "axial_fan", "blower_fan",
     "sketch", "pipe",
     "enclosure", "plate_fin", "pin_fin", "peltier", "two_resistor",
+    "ac_unit", "diffuser",
 )
 
 KIND_TITLES = {
@@ -93,6 +96,8 @@ KIND_TITLES = {
     "pin_fin": "Pin Fin",
     "peltier": "Peltier Device Model",
     "two_resistor": "Thermal Circuit Model (Two-Resistor)",
+    "ac_unit": "AC Unit",
+    "diffuser": "Diffuser",
 }
 
 
@@ -507,9 +512,16 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
         # Parametric UV profile — tessellated by cab_sketch.tess_for_sketch_part
         return None
     if kind in ("cube", "blower_fan", "enclosure", "peltier",
-                "two_resistor"):
+                "two_resistor", "ac_unit"):
         p = cube_tess(_el_vec(el, "base"),
                       _el_vec(el, "size", (10.0, 10.0, 10.0)))
+    elif kind == "diffuser":
+        b = _el_vec(el, "base")
+        s = _el_vec(el, "size", (20.0, 20.0, 40.0))
+        c1 = (b[0] + s[0] / 2, b[1] + s[1] / 2, b[2])
+        c2 = (c1[0], c1[1], b[2] + s[2])
+        p = conical_tess(
+            c1, c2, max(s[0], s[1]) / 2, max(s[0], s[1]) / 6)
     elif kind == "plate_fin":
         p = _plate_fin_tess({
             "base": _el_vec(el, "base"),
@@ -686,8 +698,16 @@ def primitives_from_model(model: StpreModel) -> list[PrimitivePart]:
 def tess_for_spec(kind: str, params: dict) -> PrimitivePart:
     # M30 specialty thermal parts → cuboid / fin array proxies
     if kind in ("cube", "blower_fan", "enclosure", "peltier",
-                "two_resistor"):
+                "two_resistor", "ac_unit"):
         return cube_tess(params["base"], params["size"])
+    if kind == "diffuser":
+        # Cone proxy (wide → narrow)
+        b = params.get("base", (0, 0, 0))
+        s = params.get("size", (20, 20, 40))
+        c1 = (b[0] + s[0] / 2, b[1] + s[1] / 2, b[2])
+        c2 = (c1[0], c1[1], b[2] + s[2])
+        return conical_tess(
+            c1, c2, max(s[0], s[1]) / 2, max(s[0], s[1]) / 6)
     if kind == "sketch":
         # Creation path uses cab_sketch.sketch_tess; keep a cuboid proxy here
         return cube_tess(params["base"], params["size"])
@@ -852,7 +872,7 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
 
     if kind in ("cube", "panel", "sketch", "blower_fan",
                 "enclosure", "plate_fin", "pin_fin", "peltier",
-                "two_resistor"):
+                "two_resistor", "ac_unit", "diffuser"):
         add("base", mm(params["base"]), "mm")
         add("size", mm(params["size"]), "mm")
     if kind == "plate_fin":
@@ -991,6 +1011,7 @@ _DEFAULT_NAME = {
     "sketch": "SketchPart1", "pipe": "Pipe1",
     "enclosure": "Enclosure1", "plate_fin": "PlateFin1", "pin_fin": "PinFin1",
     "peltier": "Peltier1", "two_resistor": "TwoResistor1",
+    "ac_unit": "ACUnit1", "diffuser": "Diffuser1",
 }
 _DEFAULT_COLOR = {
     "cube": (180, 180, 180, 255), "hexahedron": (180, 200, 160, 255),
@@ -1003,6 +1024,7 @@ _DEFAULT_COLOR = {
     "enclosure": (160, 160, 200, 255), "plate_fin": (200, 160, 120, 255),
     "pin_fin": (200, 180, 100, 255), "peltier": (120, 200, 160, 255),
     "two_resistor": (180, 140, 200, 255),
+    "ac_unit": (100, 160, 220, 255), "diffuser": (220, 180, 100, 255),
 }
 _ATTRIBUTES = {
     "cube": ["Obstacle", "Solid", "Condition region", "Fluid"],
@@ -1028,6 +1050,8 @@ _ATTRIBUTES = {
     "pin_fin": ["Solid", "Obstacle"],
     "peltier": ["Solid"],
     "two_resistor": ["Solid"],
+    "ac_unit": ["Solid", "Obstacle", "Condition region"],
+    "diffuser": ["Solid", "Obstacle", "Condition region"],
 }
 _EXTRA_TABS = {
     "cube": ["Particle Generation"],
@@ -1378,7 +1402,7 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         kind = self._kind
         if kind in ("cube", "hexahedron", "blower_fan", "sketch",
                     "enclosure", "plate_fin", "pin_fin", "peltier",
-                    "two_resistor"):
+                    "two_resistor", "ac_unit", "diffuser"):
             lay.addWidget(CuboidSchematic(self, face="#cfe8a9"), 0,
                           Qt.AlignHCenter)
         elif kind in ("panel", "quad_panel"):
@@ -1408,7 +1432,7 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
         self._ref_coord_row(lay)
 
         if kind in ("cube", "enclosure", "plate_fin", "pin_fin", "peltier",
-                    "two_resistor"):
+                    "two_resistor", "ac_unit", "diffuser"):
             grid, self._spins = self._xyz_grid([
                 ("Location", (0, 0, 0)), ("Size", (10, 10, 10))])
             lay.addLayout(grid)
@@ -1460,6 +1484,14 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                 tip.setWordWrap(True)
                 tip.setStyleSheet("color:#555; font-size:11px;")
                 lay.addLayout(er)
+                lay.addWidget(tip)
+            if kind in ("ac_unit", "diffuser"):
+                tip = QLabel(
+                    "Proxy geometry only (AC = cuboid; Diffuser = conical "
+                    "frustum). Not a full STpre HVAC model — use Attribute/"
+                    "Condition for heat / flow markers.", self)
+                tip.setWordWrap(True)
+                tip.setStyleSheet("color:#555; font-size:11px;")
                 lay.addWidget(tip)
             if kind == "peltier":
                 self.peltier_current = QDoubleSpinBox(self)
@@ -1925,7 +1957,7 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             return tuple(spins[f"{prefix}_{a}"].value() for a in "xyz")
 
         if kind in ("cube", "enclosure", "plate_fin", "pin_fin", "peltier",
-                    "two_resistor"):
+                    "two_resistor", "ac_unit", "diffuser"):
             params["base"] = xyz(self.cube_base, "base")
             params["size"] = xyz(self.cube_size, "size")
             if kind == "plate_fin":
