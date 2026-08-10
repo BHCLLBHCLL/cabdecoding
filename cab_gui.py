@@ -2296,6 +2296,23 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         target = getattr(self, "_sel_target", "Part")
         if target in ("Part", "Parts", None):
             return
+        if target == "DomainBoundary":
+            # Cheap wire: select first DomainBoundary face in Layout Region
+            if self.model is None:
+                return
+            faces = self.model.domain_faces() or []
+            if not faces:
+                self.log("Domain boundary: no DomainBoundary faces.", "WARN")
+                return
+            fname = faces[0][0]
+            self._on_item_selected("domain_face", fname)
+            self._mode_label.setText("DomainBoundary")
+            self.log(f"Picked DomainBoundary: {fname}")
+            try:
+                obj.SetAbortFlag(1)
+            except Exception:
+                pass
+            return
         try:
             self._cell_picker.Pick(float(x), float(y), 0.0, self.renderer)
             actor = self._cell_picker.GetActor()
