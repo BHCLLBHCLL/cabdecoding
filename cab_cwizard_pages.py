@@ -200,11 +200,17 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         brow = QHBoxLayout()
         if face_buttons:
             for text in ("Create Face...", "Edit Face..."):
-                brow.addWidget(QPushButton(text, page))
+                b = QPushButton(text, page)
+                b.setEnabled(False)
+                b.setToolTip(
+                    "Face create/edit is not implemented in cabdecoding "
+                    "(use DomainBoundary faces from Layout / Domain).")
+                brow.addWidget(b)
         btn_edit = QPushButton("Edit...", page)
         btn_cancel = QPushButton("Cancel", page)
         btn_select = QPushButton("Select", page)
         btn_select.setEnabled(False)
+        btn_select.setToolTip("Region multi-select not wired in cabdecoding.")
         btn_edit.clicked.connect(
             lambda: self._edit_selected(table, star))
         btn_cancel.clicked.connect(
@@ -332,11 +338,12 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
     # -- New dialogs ------------------------------------------------------
 
     def _dlg_name_value(self, title: str, default_name: str,
-                        fields: list[tuple[str, str, float, str]]):
+                        fields: list[tuple[str, str, float, str]],
+                        *, unit_choices: Optional[list[str]] = None):
         """Simple name + numeric fields dialog.
 
         ``fields`` = list of (label, unit, default, attr_key unused).
-        Returns (name, [values]) or None.
+        Returns (name, [values], unit_or_None) or None.
         """
         dlg = QDialog(self)
         dlg.setWindowTitle(title)
@@ -351,6 +358,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             sp.setValue(default)
             _pair(lay, label, sp, unit)
             spins.append(sp)
+        unit_combo = None
+        if unit_choices:
+            unit_combo = QComboBox(dlg)
+            unit_combo.addItems(list(unit_choices))
+            _pair(lay, "Unit", unit_combo)
         row = QHBoxLayout()
         ok = QPushButton("OK", dlg)
         cancel = QPushButton("Cancel", dlg)
@@ -363,7 +375,8 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         if not dlg.exec_():
             return None
         cname = name_ed.text().strip() or default_name
-        return cname, [sp.value() for sp in spins]
+        unit = unit_combo.currentText() if unit_combo is not None else None
+        return cname, [sp.value() for sp in spins], unit
 
     def _new_vol_force(self) -> None:
         res = self._dlg_name_value(
@@ -373,9 +386,12 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
              ("Z-component", "N/m3", -1.0, "z")])
         if res is None:
             return
-        name, vals = res
+        name, vals, _unit = res
         self.model.upsert_value("volumetric_force", name, [
-            ("force", ",".join(f"{v:g}" for v in vals), None),
+            ("force", ",".join(f"{v:g}" for v in vals), "N/m3"),
+            ("fx", f"{vals[0]:g}", "N/m3"),
+            ("fy", f"{vals[1]:g}", "N/m3"),
+            ("fz", f"{vals[2]:g}", "N/m3"),
         ])
         region, rtype, _ = self._selected(self.vol_table, False)
         self._bind_target(region or self._domain_name(),
@@ -390,7 +406,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             [("Loss coefficient", "", 0.0, "c")])
         if res is None:
             return
-        name, vals = res
+        name, vals, _unit = res
         self.model.upsert_value("volumetric_pressure_loss", name, [
             ("coeff", f"{vals[0]:g}", None),
         ])
@@ -404,17 +420,22 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
     def _new_vol_heat(self) -> None:
         res = self._dlg_name_value(
             "Condition (Volumetric Heat Source)", "HeatSource1",
-            [("Heat source", "W", 0.0, "q")])
+            [("Heat source", "W", 0.0, "q")],
+            unit_choices=["W", "W/m3"])
         if res is None:
             return
-        name, vals = res
+        name, vals, unit = res
+        unit = unit or "W"
         self.model.upsert_value("heat_source", name, [
-            ("source", f"{vals[0]:g}", "W"),
+            ("source", f"{vals[0]:g}", unit),
+            ("heat", f"{vals[0]:g}", unit),
+            ("kind", "volumetric", None),
         ])
         region, rtype, _ = self._selected(self.vol_table, False)
         self._bind_target(region or self._domain_name(),
                           rtype or "Domain", name)
-        self._log(f"Source: volumetric heat source '{name}'")
+        self._log(f"Source: volumetric heat source '{name}' "
+                  f"({vals[0]:g} {unit})")
         self.refresh()
 
     def _new_vol_term(self) -> None:
@@ -423,7 +444,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             [("Source term", "", 0.0, "s")])
         if res is None:
             return
-        name, vals = res
+        name, vals, _unit = res
         self.model.upsert_value("source_term", name, [
             ("param", f"{vals[0]:g}", None),
         ])
@@ -439,7 +460,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             [("Loss coefficient", "", 0.0, "c")])
         if res is None:
             return
-        name, vals = res
+        name, vals, _unit = res
         self.model.upsert_value("area_pressure_loss", name, [
             ("coeff", f"{vals[0]:g}", None),
         ])
@@ -454,18 +475,23 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
     def _new_area_heat(self) -> None:
         res = self._dlg_name_value(
             "Condition (Area Heat Source)", "AreaHeat1",
-            [("Heat source", "W", 0.0, "q")])
+            [("Heat source", "W", 0.0, "q")],
+            unit_choices=["W", "W/m2"])
         if res is None:
             return
-        name, vals = res
+        name, vals, unit = res
+        unit = unit or "W"
         self.model.upsert_value("area_heat_source", name, [
-            ("source", f"{vals[0]:g}", "W"),
+            ("source", f"{vals[0]:g}", unit),
+            ("heat", f"{vals[0]:g}", unit),
+            ("kind", "area", None),
         ])
         region, rtype, _ = self._selected(self.area_table, True)
         if not region:
             region, rtype = "Xmin", "DomainBoundary"
         self._bind_target(region, rtype or "DomainBoundary", name)
-        self._log(f"Source: area heat source '{name}' on {region}")
+        self._log(f"Source: area heat source '{name}' on {region} "
+                  f"({vals[0]:g} {unit})")
         self.refresh()
 
     def _new_perforated(self) -> None:
@@ -474,7 +500,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             [("Pressure loss coefficient", "", 0.0, "c")])
         if res is None:
             return
-        name, vals = res
+        name, vals, _unit = res
         self.model.upsert_value("perforated_plate", name, [
             ("coeff", f"{vals[0]:g}", None),
         ])
@@ -570,15 +596,34 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.refresh()
 
     def apply(self) -> None:
+        # M36: Option flags + auto-mark volumetric/pressure when values exist
+        types_present = {
+            (v.attrib.get("type") or "").strip()
+            for v in self.model.values()}
+        has_vf = ("volumetric_force" in types_present
+                  or self.vf_on.isChecked())
+        has_pl = bool(types_present & {
+            "volumetric_pressure_loss", "area_pressure_loss",
+            "perforated_plate"}) or self.pl_on.isChecked()
+        has_heat = bool(types_present & {
+            "heat_source", "area_heat_source"})
+        has_term = "source_term" in types_present
+        self.vf_on.setChecked(has_vf)
+        self.pl_on.setChecked(has_pl)
         self.model.set_analysis_set_value(
-            "source_volumetric",
-            "T" if self.vf_on.isChecked() else "F")
+            "source_volumetric", "T" if has_vf else "F")
         self.model.set_analysis_set_value(
-            "source_pressure_loss",
-            "T" if self.pl_on.isChecked() else "F")
+            "source_pressure_loss", "T" if has_pl else "F")
+        self.model.set_analysis_set_value(
+            "source_heat", "T" if has_heat else "F")
+        self.model.set_analysis_set_value(
+            "source_term", "T" if has_term else "F")
         self.model.set_analysis_set_value(
             "heat_source_auto",
             "T" if self.hs_auto.isChecked() else "F")
+        # Heat analysis must be on when heat sources exist.
+        if has_heat:
+            self.model.set_analysis_set_value("heat", "1")
 
     def _log(self, msg: str) -> None:
         parent = self.parent()
@@ -746,11 +791,17 @@ class _CwFixedPage(QWidget if _HAS_GUI else object):
         brow = QHBoxLayout()
         if face_buttons:
             for text in ("Create Face...", "Edit Face..."):
-                brow.addWidget(QPushButton(text, page))
+                b = QPushButton(text, page)
+                b.setEnabled(False)
+                b.setToolTip(
+                    "Face create/edit is not implemented in cabdecoding "
+                    "(use DomainBoundary faces from Layout / Domain).")
+                brow.addWidget(b)
         btn_edit = QPushButton("Edit...", page)
         btn_cancel = QPushButton("Cancel", page)
         btn_select = QPushButton("Select", page)
         btn_select.setEnabled(False)
+        btn_select.setToolTip("Region multi-select not wired in cabdecoding.")
         btn_edit.clicked.connect(
             lambda: self._edit_selected(table, new_label))
         btn_cancel.clicked.connect(

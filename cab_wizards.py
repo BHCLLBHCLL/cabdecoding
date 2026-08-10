@@ -606,7 +606,19 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
     )
     # Grayed in typical incompressible sessions until a parent option exists.
     _DISABLED_UNTIL_FS = frozenset({"evaporation", "boil"})
-    _ALWAYS_DISABLED = frozenset({"jos_model"})
+    # No dedicated Condition Wizard product page in cabdecoding — disabled
+    # with honesty tooltip (analysis_set flag-only would be silent chrome).
+    _ALWAYS_DISABLED = frozenset({
+        "jos_model", "plant_canopy", "moving_body", "sun_light",
+        "artificial_light", "reaction", "ventilation", "fusion",
+        "marangoni", "topology_opti", "particle", "aircon_model",
+        "current", "electrostatic", "pcm", "msc_cosim", "bci_rom",
+        "diffusion",
+    })
+    _DISABLED_TIP = (
+        "Not supported in cabdecoding Condition Wizard "
+        "(no product page; left disabled rather than fake success)."
+    )
 
     def __init__(self, model: StpreModel):
         super().__init__()
@@ -685,6 +697,8 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         for key in self._ALWAYS_DISABLED:
             if key in self.types:
                 self.types[key].setEnabled(False)
+                self.types[key].setChecked(False)
+                self.types[key].setToolTip(self._DISABLED_TIP)
 
         # --- Steady / Transient ---
         stg = QGroupBox("Steady-state analysis/Transient analysis", page)
