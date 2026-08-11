@@ -70,10 +70,10 @@ PART_MENU_ITEMS: list[tuple[str, str] | None] = [
 
 PRIMITIVE_KINDS = (
     "cube", "hexahedron", "cylinder", "conical", "sphere", "panel",
-    "quad_panel", "revolved", "point", "fan", "axial_fan", "blower_fan",
-    "sketch", "pipe",
+    "quad_panel", "revolved", "point",
     "enclosure", "plate_fin", "pin_fin", "peltier", "two_resistor",
     "ac_unit", "diffuser",
+    "fan", "axial_fan", "blower_fan", "sketch", "pipe",
 )
 
 KIND_TITLES = {

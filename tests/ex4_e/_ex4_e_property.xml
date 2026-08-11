@@ -1,0 +1,1964 @@
+﻿<?xml version="1.0" encoding="UTF-8" ?>
+<!-- property table -->
+<!-- date/time :  Tue Oct 31 20:25:25 2023 -->
+<property>
+   <group>
+      <type> fluid </type>
+      <name> gas(incompressible) </name>
+      <entry>
+         <name> air(incompressible/20C) </name>
+         <density> 1.206 </density>
+         <ref_density> 1.206 </ref_density>
+         <ref_temperature unit="C"> 20 </ref_temperature>
+         <viscosity> 1.83e-05 </viscosity>
+         <capacity> 1007 </capacity>
+         <conductivity> 0.0256 </conductivity>
+         <expansion> 0.003495 </expansion>
+         <radiation field="T">
+            <absorption> 0 </absorption>
+            <scattering> 0 </scattering>
+         </radiation>
+         <surf_tension> 0 </surf_tension>
+      </entry>
+      <entry>
+         <name> helium-4(incompressible/25C) </name>
+         <density> 0.163 </density>
+         <ref_density> 0.163 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.98e-05 </viscosity>
+         <capacity> 5197 </capacity>
+         <conductivity> 0.1493 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> neon(incompressible/25C) </name>
+         <density> 0.824 </density>
+         <ref_density> 0.824 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 3.158e-05 </viscosity>
+         <capacity> 1031 </capacity>
+         <conductivity> 0.0491 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> argon(incompressible/25C) </name>
+         <density> 1.634 </density>
+         <ref_density> 1.634 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 2.261e-05 </viscosity>
+         <capacity> 522 </capacity>
+         <conductivity> 0.01763 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> krypton(incompressible/25C) </name>
+         <density> 3.429 </density>
+         <ref_density> 3.429 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 2.539e-05 </viscosity>
+         <capacity> 248 </capacity>
+         <conductivity> 0.00937 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> xenon(incompressible/25C) </name>
+         <density> 5.397 </density>
+         <ref_density> 5.397 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 2.318e-05 </viscosity>
+         <capacity> 158.4 </capacity>
+         <conductivity> 0.00559 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> hydrogen(incompressible/25C) </name>
+         <density> 0.0824 </density>
+         <ref_density> 0.0824 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 8.9e-06 </viscosity>
+         <capacity> 14317 </capacity>
+         <conductivity> 0.1806 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> deuterium(incompressible/25C) </name>
+         <density> 0.165 </density>
+         <ref_density> 0.165 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.269e-05 </viscosity>
+         <capacity> 7248 </capacity>
+         <conductivity> 0.1399 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> fluorine(incompressible/25C) </name>
+         <density> 1.553 </density>
+         <ref_density> 1.553 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 2.35e-05 </viscosity>
+         <capacity> 825.6 </capacity>
+         <conductivity> 0.0277 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> chlorine(incompressible/25C) </name>
+         <density> 2.944 </density>
+         <ref_density> 2.944 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.363e-05 </viscosity>
+         <capacity> 478.1 </capacity>
+         <conductivity> 0.00883 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> nitrogen(incompressible/25C) </name>
+         <density> 1.146 </density>
+         <ref_density> 1.146 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.777e-05 </viscosity>
+         <capacity> 1040.4 </capacity>
+         <conductivity> 0.02584 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> oxygen(incompressible/25C) </name>
+         <density> 1.31 </density>
+         <ref_density> 1.31 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 2.057e-05 </viscosity>
+         <capacity> 919.4 </capacity>
+         <conductivity> 0.02659 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> carbon_monoxide(incompressible/25C) </name>
+         <density> 1.145 </density>
+         <ref_density> 1.145 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.77e-05 </viscosity>
+         <capacity> 1043 </capacity>
+         <conductivity> 0.025 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> carbon_dioxide(incompressible/25C) </name>
+         <density> 1.811 </density>
+         <ref_density> 1.811 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.49e-05 </viscosity>
+         <capacity> 850 </capacity>
+         <conductivity> 0.0165 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> nitrogen_oxide(incompressible/25C) </name>
+         <density> 1.228 </density>
+         <ref_density> 1.228 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.92e-05 </viscosity>
+         <capacity> 995 </capacity>
+         <conductivity> 0.0257 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> sulfur_dioxide(incompressible/25C) </name>
+         <density> 2.679 </density>
+         <ref_density> 2.679 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.3e-05 </viscosity>
+         <capacity> 622 </capacity>
+         <conductivity> 0.0095 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> hydrogen_chloride(incompressible/25C) </name>
+         <density> 1.502 </density>
+         <ref_density> 1.502 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.46e-05 </viscosity>
+         <capacity> 798 </capacity>
+         <conductivity> 0.0144 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> hydrogen_sulfide(incompressible/25C) </name>
+         <density> 1.409 </density>
+         <ref_density> 1.409 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.26e-05 </viscosity>
+         <capacity> 1004 </capacity>
+         <conductivity> 0.0144 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> ammonia(incompressible/25C) </name>
+         <density> 0.6 </density>
+         <ref_density> 0.6 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.02e-05 </viscosity>
+         <capacity> 2156 </capacity>
+         <conductivity> 0.0244 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> methane(incompressible/25C) </name>
+         <density> 0.657 </density>
+         <ref_density> 0.657 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.11e-05 </viscosity>
+         <capacity> 2232 </capacity>
+         <conductivity> 0.0337 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> ethyne(incompressible/25C) </name>
+         <density> 1.077 </density>
+         <ref_density> 1.077 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.03e-05 </viscosity>
+         <capacity> 1704 </capacity>
+         <conductivity> 0.0215 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> ethene(incompressible/25C) </name>
+         <density> 1.155 </density>
+         <ref_density> 1.155 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.03e-05 </viscosity>
+         <capacity> 1566 </capacity>
+         <conductivity> 0.0208 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> ethane(incompressible/25C) </name>
+         <density> 1.243 </density>
+         <ref_density> 1.243 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 9.4e-06 </viscosity>
+         <capacity> 1767 </capacity>
+         <conductivity> 0.0212 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> propene(incompressible/25C) </name>
+         <density> 0.514 </density>
+         <ref_density> 0.514 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 8.73e-06 </viscosity>
+         <capacity> 1549 </capacity>
+         <conductivity> 0.017 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> propane(incompressible/25C) </name>
+         <density> 1.854 </density>
+         <ref_density> 1.854 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 8.21e-06 </viscosity>
+         <capacity> 1675 </capacity>
+         <conductivity> 0.018 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> trichlorofluoromethane(incompressible/25C) </name>
+         <density> 5.84 </density>
+         <ref_density> 5.84 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.09e-05 </viscosity>
+         <capacity> 569 </capacity>
+         <conductivity> 0.0078 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> dichlorodifluoromethane(incompressible/25C) </name>
+         <density> 5.043 </density>
+         <ref_density> 5.043 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.25e-05 </viscosity>
+         <capacity> 611 </capacity>
+         <conductivity> 0.0096 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> chlorotrifluoromethane(incompressible/25C) </name>
+         <density> 4.388 </density>
+         <ref_density> 4.388 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.44e-05 </viscosity>
+         <capacity> 641 </capacity>
+         <conductivity> 0.0121 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> dichlorofluoromethane(incompressible/25C) </name>
+         <density> 4.284 </density>
+         <ref_density> 4.284 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.16e-05 </viscosity>
+         <capacity> 590 </capacity>
+         <conductivity> 0.0085 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> chlorodifluoromethane(incompressible/25C) </name>
+         <density> 3.588 </density>
+         <ref_density> 3.588 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.29e-05 </viscosity>
+         <capacity> 632 </capacity>
+         <conductivity> 0.0105 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+      <entry>
+         <name> 1_2-dichloro-1_1_2_2-tetrafluoroethane(incompressible/25C) </name>
+         <density> 7.012 </density>
+         <ref_density> 7.012 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 1.15e-05 </viscosity>
+         <capacity> 677 </capacity>
+         <conductivity> 0.0109 </conductivity>
+         <expansion> 0.003354 </expansion>
+      </entry>
+   </group>
+   <group>
+      <type> fluid </type>
+      <name> gas(low-Mach-number) </name>
+      <entry>
+         <name> air(low-Mach-number/20C) </name>
+         <density type="low_mach"> 1.206 </density>
+         <ref_density> 1.206 </ref_density>
+         <ref_temperature unit="C"> 20 </ref_temperature>
+         <viscosity> 1.83e-05 </viscosity>
+         <capacity> 1007 </capacity>
+         <conductivity> 0.0256 </conductivity>
+         <expansion> 0.003495 </expansion>
+         <radiation field="T">
+            <absorption> 0 </absorption>
+            <scattering> 0 </scattering>
+         </radiation>
+         <surf_tension> 0 </surf_tension>
+      </entry>
+   </group>
+   <group>
+      <type> compressive_fluid </type>
+      <name> gas(compressible) </name>
+      <entry>
+         <name> air(compressible/20C) </name>
+         <viscosity> 1.83e-05 </viscosity>
+         <capacity> 1007 </capacity>
+         <conductivity> 0.0256 </conductivity>
+         <gas> 287.06 </gas>
+      </entry>
+      <entry>
+         <name> hydrogen(compressible/25C) </name>
+         <viscosity> 8.9e-06 </viscosity>
+         <capacity> 14317 </capacity>
+         <conductivity> 0.1806 </conductivity>
+         <gas> 4124.01 </gas>
+      </entry>
+      <entry>
+         <name> nitrogen(compressible/25C) </name>
+         <viscosity> 1.777e-05 </viscosity>
+         <capacity> 1040.4 </capacity>
+         <conductivity> 0.02584 </conductivity>
+         <gas> 296.79 </gas>
+      </entry>
+      <entry>
+         <name> oxygen(compressible/25C) </name>
+         <viscosity> 2.057e-05 </viscosity>
+         <capacity> 919.4 </capacity>
+         <conductivity> 0.02659 </conductivity>
+         <gas> 259.82 </gas>
+      </entry>
+   </group>
+   <group>
+      <type> fluid </type>
+      <name> liquid(incompressible) </name>
+      <entry>
+         <name> water(incompressible/20C) </name>
+         <density> 998.2 </density>
+         <ref_density> 998.2 </ref_density>
+         <ref_temperature unit="C"> 20 </ref_temperature>
+         <viscosity> 0.001016 </viscosity>
+         <capacity> 4183 </capacity>
+         <conductivity> 0.5991 </conductivity>
+         <expansion> 0.00022544 </expansion>
+         <surf_tension> 0.0727 </surf_tension>
+      </entry>
+      <entry>
+         <name> non_newton(incompressible) </name>
+         <density> 1300 </density>
+         <viscosity type="non_newton">
+            <param> 70000000,-0.6,70000000,0 </param>
+         </viscosity>
+         <capacity> 0 </capacity>
+         <conductivity> 0 </conductivity>
+         <expansion> 0 </expansion>
+      </entry>
+      <entry>
+         <name> zinc(incompressible/600C) </name>
+         <density> 6810 </density>
+         <ref_density> 6810 </ref_density>
+         <ref_temperature unit="C"> 600 </ref_temperature>
+         <viscosity> 0.00224 </viscosity>
+         <capacity> 491 </capacity>
+         <conductivity> 57 </conductivity>
+         <expansion> 0.0001775 </expansion>
+         <surf_tension> 0.785 </surf_tension>
+      </entry>
+      <entry>
+         <name> cadmium(incompressible/400C) </name>
+         <density> 7930 </density>
+         <ref_density> 7930 </ref_density>
+         <ref_temperature unit="C"> 400 </ref_temperature>
+         <viscosity> 0.00216 </viscosity>
+         <capacity> 265 </capacity>
+         <conductivity> 46.1 </conductivity>
+         <expansion> 0.00017 </expansion>
+         <surf_tension> 0.57 </surf_tension>
+      </entry>
+      <entry>
+         <name> tin(incompressible/240C) </name>
+         <density> 6980 </density>
+         <ref_density> 6980 </ref_density>
+         <ref_temperature unit="C"> 240 </ref_temperature>
+         <viscosity> 0.00191 </viscosity>
+         <capacity> 242 </capacity>
+         <conductivity> 33.5 </conductivity>
+         <expansion> 0.000105 </expansion>
+         <surf_tension> 0.544 </surf_tension>
+      </entry>
+      <entry>
+         <name> antimony(incompressible/700C) </name>
+         <density> 6450 </density>
+         <ref_density> 6450 </ref_density>
+         <ref_temperature unit="C"> 700 </ref_temperature>
+         <viscosity> 0.0013 </viscosity>
+         <capacity> 275 </capacity>
+         <conductivity> 21.3 </conductivity>
+         <expansion> 9.56e-05 </expansion>
+         <surf_tension> 0.368 </surf_tension>
+      </entry>
+      <entry>
+         <name> bismuth(incompressible/400C) </name>
+         <density> 9910 </density>
+         <ref_density> 9910 </ref_density>
+         <ref_temperature unit="C"> 400 </ref_temperature>
+         <viscosity> 0.00141 </viscosity>
+         <capacity> 148 </capacity>
+         <conductivity> 15.5 </conductivity>
+         <expansion> 0.000132 </expansion>
+         <surf_tension> 0.328 </surf_tension>
+      </entry>
+      <entry>
+         <name> potassium_nitrate(incompressible/336C) </name>
+         <density> 1872 </density>
+         <ref_density> 1872 </ref_density>
+         <ref_temperature unit="C"> 336 </ref_temperature>
+         <viscosity> 0.00293 </viscosity>
+         <capacity> 1220 </capacity>
+         <conductivity> 0.503 </conductivity>
+         <expansion> 0.0004 </expansion>
+         <surf_tension> 0.1104 </surf_tension>
+      </entry>
+      <entry>
+         <name> sodium_nitrate(incompressible/318C) </name>
+         <density> 1902 </density>
+         <ref_density> 1902 </ref_density>
+         <ref_temperature unit="C"> 318 </ref_temperature>
+         <viscosity> 0.002787 </viscosity>
+         <capacity> 1830 </capacity>
+         <conductivity> 0.553 </conductivity>
+         <expansion> 0.00038 </expansion>
+         <surf_tension> 0.1197 </surf_tension>
+      </entry>
+      <entry>
+         <name> n-pentane(incompressible/25C) </name>
+         <density> 621 </density>
+         <ref_density> 621 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000225 </viscosity>
+         <capacity> 2319 </capacity>
+         <conductivity> 0.119 </conductivity>
+         <expansion> 0.001589 </expansion>
+         <surf_tension> 0.01548 </surf_tension>
+      </entry>
+      <entry>
+         <name> benzene(incompressible/25C) </name>
+         <density> 874 </density>
+         <ref_density> 874 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000603 </viscosity>
+         <capacity> 1743 </capacity>
+         <conductivity> 0.143 </conductivity>
+         <expansion> 0.001229 </expansion>
+         <surf_tension> 0.0282 </surf_tension>
+      </entry>
+      <entry>
+         <name> cyclohexane(incompressible/25C) </name>
+         <density> 774 </density>
+         <ref_density> 774 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000898 </viscosity>
+         <capacity> 1850 </capacity>
+         <conductivity> 0.12 </conductivity>
+         <expansion> 0.00122 </expansion>
+         <surf_tension> 0.0253 </surf_tension>
+      </entry>
+      <entry>
+         <name> n-hexane(incompressible/25C) </name>
+         <density> 655 </density>
+         <ref_density> 655 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000299 </viscosity>
+         <capacity> 2269 </capacity>
+         <conductivity> 0.123 </conductivity>
+         <expansion> 0.00135 </expansion>
+         <surf_tension> 0.0184 </surf_tension>
+      </entry>
+      <entry>
+         <name> toluene(incompressible/25C) </name>
+         <density> 862 </density>
+         <ref_density> 862 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000552 </viscosity>
+         <capacity> 1717 </capacity>
+         <conductivity> 0.133 </conductivity>
+         <expansion> 0.00106 </expansion>
+         <surf_tension> 0.0273 </surf_tension>
+      </entry>
+      <entry>
+         <name> ethyl_benzene(incompressible/25C) </name>
+         <density> 863 </density>
+         <ref_density> 863 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000637 </viscosity>
+         <capacity> 1712 </capacity>
+         <conductivity> 0.133 </conductivity>
+         <expansion> 0.000955 </expansion>
+         <surf_tension> 0.0285 </surf_tension>
+      </entry>
+      <entry>
+         <name> m-xylene(incompressible/25C) </name>
+         <density> 860 </density>
+         <ref_density> 860 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000581 </viscosity>
+         <capacity> 1679 </capacity>
+         <conductivity> 0.131 </conductivity>
+         <expansion> 0.00099 </expansion>
+         <surf_tension> 0.0281 </surf_tension>
+      </entry>
+      <entry>
+         <name> p-xylene(incompressible/25C) </name>
+         <density> 857 </density>
+         <ref_density> 857 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000605 </viscosity>
+         <capacity> 1663 </capacity>
+         <conductivity> 0.133 </conductivity>
+         <expansion> 0.00102 </expansion>
+         <surf_tension> 0.0278 </surf_tension>
+      </entry>
+      <entry>
+         <name> n-octane(incompressible/25C) </name>
+         <density> 699 </density>
+         <ref_density> 699 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000515 </viscosity>
+         <capacity> 2226 </capacity>
+         <conductivity> 0.13 </conductivity>
+         <expansion> 0.001124 </expansion>
+         <surf_tension> 0.0218 </surf_tension>
+      </entry>
+      <entry>
+         <name> methanol(incompressible/25C) </name>
+         <density> 787 </density>
+         <ref_density> 787 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000555 </viscosity>
+         <capacity> 2520 </capacity>
+         <conductivity> 0.203 </conductivity>
+         <expansion> 0.00119 </expansion>
+         <surf_tension> 0.02255 </surf_tension>
+      </entry>
+      <entry>
+         <name> ethanol(incompressible/25C) </name>
+         <density> 785 </density>
+         <ref_density> 785 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.001078 </viscosity>
+         <capacity> 2422 </capacity>
+         <conductivity> 0.167 </conductivity>
+         <expansion> 0.0011 </expansion>
+         <surf_tension> 0.02227 </surf_tension>
+      </entry>
+      <entry>
+         <name> 1-propanol(incompressible/25C) </name>
+         <density> 800 </density>
+         <ref_density> 800 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.001995 </viscosity>
+         <capacity> 2394 </capacity>
+         <conductivity> 0.152 </conductivity>
+         <expansion> 0.00099 </expansion>
+         <surf_tension> 0.0237 </surf_tension>
+      </entry>
+      <entry>
+         <name> 2-propanol(incompressible/25C) </name>
+         <density> 781 </density>
+         <ref_density> 781 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.001765 </viscosity>
+         <capacity> 2574 </capacity>
+         <conductivity> 0.138 </conductivity>
+         <expansion> 0.00106 </expansion>
+         <surf_tension> 0.02135 </surf_tension>
+      </entry>
+      <entry>
+         <name> 1-butanol(incompressible/25C) </name>
+         <density> 806 </density>
+         <ref_density> 806 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.0026 </viscosity>
+         <capacity> 2390 </capacity>
+         <conductivity> 0.152 </conductivity>
+         <expansion> 0.00093 </expansion>
+         <surf_tension> 0.02457 </surf_tension>
+      </entry>
+      <entry>
+         <name> 1-pentanol(incompressible/25C) </name>
+         <density> 812 </density>
+         <ref_density> 812 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.003347 </viscosity>
+         <capacity> 2364 </capacity>
+         <conductivity> 0.134 </conductivity>
+         <expansion> 0.00088 </expansion>
+         <surf_tension> 0.0256 </surf_tension>
+      </entry>
+      <entry>
+         <name> glycerol(incompressible/25C) </name>
+         <density> 1263 </density>
+         <ref_density> 1263 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.945 </viscosity>
+         <capacity> 2460 </capacity>
+         <conductivity> 0.287 </conductivity>
+         <expansion> 0.00049 </expansion>
+         <surf_tension> 0.0634 </surf_tension>
+      </entry>
+      <entry>
+         <name> 2-propanone(incompressible/25C) </name>
+         <density> 785 </density>
+         <ref_density> 785 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000304 </viscosity>
+         <capacity> 2209 </capacity>
+         <conductivity> 0.16 </conductivity>
+         <expansion> 0.00143 </expansion>
+         <surf_tension> 0.02332 </surf_tension>
+      </entry>
+      <entry>
+         <name> diethyl_ether(incompressible/25C) </name>
+         <density> 708 </density>
+         <ref_density> 708 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000225 </viscosity>
+         <capacity> 2340 </capacity>
+         <conductivity> 0.129 </conductivity>
+         <expansion> 0.001617 </expansion>
+         <surf_tension> 0.01706 </surf_tension>
+      </entry>
+      <entry>
+         <name> aniline(incompressible/25C) </name>
+         <density> 1018 </density>
+         <ref_density> 1018 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.00377 </viscosity>
+         <capacity> 2064 </capacity>
+         <conductivity> 0.172 </conductivity>
+         <expansion> 0.00084 </expansion>
+         <surf_tension> 0.04251 </surf_tension>
+      </entry>
+      <entry>
+         <name> pyridine(incompressible/25C) </name>
+         <density> 978 </density>
+         <ref_density> 978 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000891 </viscosity>
+         <capacity> 1715 </capacity>
+         <conductivity> 0.162 </conductivity>
+         <expansion> 0.001122 </expansion>
+         <surf_tension> 0.038 </surf_tension>
+      </entry>
+      <entry>
+         <name> nitromethane(incompressible/25C) </name>
+         <density> 1131 </density>
+         <ref_density> 1131 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000632 </viscosity>
+         <capacity> 1734 </capacity>
+         <conductivity> 0.204 </conductivity>
+         <expansion> 0.00119 </expansion>
+         <surf_tension> 0.03697 </surf_tension>
+      </entry>
+      <entry>
+         <name> nitrobenzene(incompressible/25C) </name>
+         <density> 1198 </density>
+         <ref_density> 1198 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.00183 </viscosity>
+         <capacity> 1441 </capacity>
+         <conductivity> 0.151 </conductivity>
+         <expansion> 0.00083 </expansion>
+         <surf_tension> 0.04335 </surf_tension>
+      </entry>
+      <entry>
+         <name> carbon_tetrachloride(incompressible/25C) </name>
+         <density> 1589 </density>
+         <ref_density> 1589 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000923 </viscosity>
+         <capacity> 855 </capacity>
+         <conductivity> 0.104 </conductivity>
+         <expansion> 0.00122 </expansion>
+         <surf_tension> 0.0269 </surf_tension>
+      </entry>
+      <entry>
+         <name> trichloromethane(incompressible/25C) </name>
+         <density> 1469 </density>
+         <ref_density> 1469 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.00053 </viscosity>
+         <capacity> 952 </capacity>
+         <conductivity> 0.117 </conductivity>
+         <expansion> 0.00128 </expansion>
+         <surf_tension> 0.02728 </surf_tension>
+      </entry>
+      <entry>
+         <name> chloroethane(incompressible/25C) </name>
+         <density> 903 </density>
+         <ref_density> 903 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000279 </viscosity>
+         <capacity> 1602 </capacity>
+         <conductivity> 0.127 </conductivity>
+         <expansion> 0.001567 </expansion>
+         <surf_tension> 0.02058 </surf_tension>
+      </entry>
+      <entry>
+         <name> chlorobenzene(incompressible/25C) </name>
+         <density> 1101 </density>
+         <ref_density> 1101 </ref_density>
+         <ref_temperature unit="C"> 25 </ref_temperature>
+         <viscosity> 0.000755 </viscosity>
+         <capacity> 1335 </capacity>
+         <conductivity> 0.127 </conductivity>
+         <expansion> 0.000985 </expansion>
+         <surf_tension> 0.03328 </surf_tension>
+      </entry>
+      <entry>
+         <name> fluorobenzene(incompressible/20C) </name>
+         <density> 1024 </density>
+         <ref_density> 1024 </ref_density>
+         <ref_temperature unit="C"> 20 </ref_temperature>
+         <viscosity> 0.000564 </viscosity>
+         <capacity> 1524 </capacity>
+         <conductivity> 0.126 </conductivity>
+         <expansion> 0.00116 </expansion>
+         <surf_tension> 0.02771 </surf_tension>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> pure_metal </name>
+      <entry>
+         <name> iron(Fe)(300K) </name>
+         <density> 7870 </density>
+         <capacity> 442 </capacity>
+         <conductivity> 80.3 </conductivity>
+      </entry>
+      <entry>
+         <name> copper(Cu)(300K) </name>
+         <density> 8880 </density>
+         <capacity> 386 </capacity>
+         <conductivity> 398 </conductivity>
+      </entry>
+      <entry>
+         <name> aluminum(Al)(300K) </name>
+         <density> 2688 </density>
+         <capacity> 905 </capacity>
+         <conductivity> 237 </conductivity>
+      </entry>
+      <entry>
+         <name> gold(Au)(300K) </name>
+         <density> 19300 </density>
+         <capacity> 129 </capacity>
+         <conductivity> 315 </conductivity>
+      </entry>
+      <entry>
+         <name> cobalt(Co)(300K) </name>
+         <density> 8900 </density>
+         <capacity> 420 </capacity>
+         <conductivity> 99.2 </conductivity>
+      </entry>
+      <entry>
+         <name> chrome(Cr)(300K) </name>
+         <density> 7190 </density>
+         <capacity> 446 </capacity>
+         <conductivity> 90.3 </conductivity>
+      </entry>
+      <entry>
+         <name> magnesium(Mg)(300K) </name>
+         <density> 1737 </density>
+         <capacity> 1020 </capacity>
+         <conductivity> 156 </conductivity>
+      </entry>
+      <entry>
+         <name> nickel(Ni)(300K) </name>
+         <density> 8899 </density>
+         <capacity> 447 </capacity>
+         <conductivity> 90.5 </conductivity>
+      </entry>
+      <entry>
+         <name> tungsten(W)(300K) </name>
+         <density> 19250 </density>
+         <capacity> 133 </capacity>
+         <conductivity> 178 </conductivity>
+      </entry>
+      <entry>
+         <name> lead(Pb)(300K) </name>
+         <density> 11330 </density>
+         <capacity> 130 </capacity>
+         <conductivity> 35.2 </conductivity>
+      </entry>
+      <entry>
+         <name> zinc(Zn)(300K) </name>
+         <density> 7131 </density>
+         <capacity> 389 </capacity>
+         <conductivity> 121 </conductivity>
+      </entry>
+      <entry>
+         <name> platinum(Pt)(300K) </name>
+         <density> 21460 </density>
+         <capacity> 133 </capacity>
+         <conductivity> 71.4 </conductivity>
+      </entry>
+      <entry>
+         <name> tin(Sn)(300K) </name>
+         <density> 7170 </density>
+         <capacity> 228 </capacity>
+         <conductivity> 66.6 </conductivity>
+      </entry>
+      <entry>
+         <name> uranium(U)(300K) </name>
+         <density> 19050 </density>
+         <capacity> 117 </capacity>
+         <conductivity> 27.6 </conductivity>
+      </entry>
+      <entry>
+         <name> cadmium(Cd)(300K) </name>
+         <density> 8640 </density>
+         <capacity> 232 </capacity>
+         <conductivity> 96.8 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> insulator </name>
+      <entry>
+         <name> glass_wool_1(293K) </name>
+         <density> 32 </density>
+         <capacity> 810 </capacity>
+         <conductivity> 0.034 </conductivity>
+      </entry>
+      <entry>
+         <name> glass_wool_2(330K) </name>
+         <density> 16 </density>
+         <capacity> 870 </capacity>
+         <conductivity> 0.051 </conductivity>
+      </entry>
+      <entry>
+         <name> foam_polystyrene_1(300K) </name>
+         <density> 28.6 </density>
+         <capacity> 1900 </capacity>
+         <conductivity> 0.038 </conductivity>
+      </entry>
+      <entry>
+         <name> foam_polystyrene_2(300K) </name>
+         <density> 36 </density>
+         <capacity> 1800 </capacity>
+         <conductivity> 0.033 </conductivity>
+      </entry>
+      <entry>
+         <name> foam_vinyl_chloride(300K) </name>
+         <density> 55 </density>
+         <capacity> 1000 </capacity>
+         <conductivity> 0.031 </conductivity>
+      </entry>
+      <entry>
+         <name> insulation_board(330K) </name>
+         <density> 258 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.052 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> semiconductor </name>
+      <entry>
+         <name> GaAs(300K) </name>
+         <density> 5310 </density>
+         <capacity> 325 </capacity>
+         <conductivity> 54 </conductivity>
+      </entry>
+      <entry>
+         <name> ZnSe(300K) </name>
+         <density> 5420 </density>
+         <capacity> 360 </capacity>
+         <conductivity> 19 </conductivity>
+      </entry>
+      <entry>
+         <name> ZnTe(300K) </name>
+         <density> 6340 </density>
+         <capacity> 258 </capacity>
+         <conductivity> 18 </conductivity>
+      </entry>
+      <entry>
+         <name> CdS(300K) </name>
+         <density> 4820 </density>
+         <capacity> 337 </capacity>
+         <conductivity> 20 </conductivity>
+      </entry>
+      <entry>
+         <name> CdTe(300K) </name>
+         <density> 6200 </density>
+         <capacity> 208 </capacity>
+         <conductivity> 7.5 </conductivity>
+      </entry>
+      <entry>
+         <name> InSb(300K) </name>
+         <density> 5780 </density>
+         <capacity> 212 </capacity>
+         <conductivity> 17 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> glass </name>
+      <entry>
+         <name> quartz_glass(300K) </name>
+         <density> 2190 </density>
+         <capacity> 740 </capacity>
+         <conductivity> 1.38 </conductivity>
+      </entry>
+      <entry>
+         <name> soda_glass(300K) </name>
+         <density> 2520 </density>
+         <capacity> 800 </capacity>
+         <conductivity> 1.03 </conductivity>
+      </entry>
+      <entry>
+         <name> pyrex7740(300K) </name>
+         <density> 2230 </density>
+         <capacity> 730 </capacity>
+         <conductivity> 1.1 </conductivity>
+      </entry>
+      <entry>
+         <name> glass_ceramics_corning9606(300K) </name>
+         <density> 2601 </density>
+         <capacity> 770 </capacity>
+         <conductivity> 3.99 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> rubber_plastic </name>
+      <entry>
+         <name> soft_natural_rubber(293K) </name>
+         <density> 911 </density>
+         <capacity> 1900 </capacity>
+         <conductivity> 0.13 </conductivity>
+      </entry>
+      <entry>
+         <name> hard_natural_rubber(293K) </name>
+         <density> 1140 </density>
+         <capacity> 1400 </capacity>
+         <conductivity> 0.16 </conductivity>
+      </entry>
+      <entry>
+         <name> ethylene_propylene_rubber(300K) </name>
+         <density> 860 </density>
+         <capacity> 2200 </capacity>
+         <conductivity> 0.36 </conductivity>
+      </entry>
+      <entry>
+         <name> silicon_rubber(293K) </name>
+         <density> 970 </density>
+         <capacity> 1600 </capacity>
+         <conductivity> 0.2 </conductivity>
+      </entry>
+      <entry>
+         <name> polyurethane_rubber(300K) </name>
+         <density> 1050 </density>
+         <capacity> 1900 </capacity>
+         <conductivity> 0.12 </conductivity>
+      </entry>
+      <entry>
+         <name> acrylic_resin(293K) </name>
+         <density> 1190 </density>
+         <capacity> 1400 </capacity>
+         <conductivity> 0.21 </conductivity>
+      </entry>
+      <entry>
+         <name> epoxy_resin(300K) </name>
+         <density> 1850 </density>
+         <capacity> 1100 </capacity>
+         <conductivity> 0.3 </conductivity>
+      </entry>
+      <entry>
+         <name> hard_vinyl_chloride_resin(293K) </name>
+         <density> 1400 </density>
+         <capacity> 950 </capacity>
+         <conductivity> 0.16 </conductivity>
+      </entry>
+      <entry>
+         <name> silicon_resin(300K) </name>
+         <density> 2200 </density>
+         <capacity> 1200 </capacity>
+         <conductivity> 0.15 </conductivity>
+      </entry>
+      <entry>
+         <name> teflon(293K) </name>
+         <density> 2170 </density>
+         <capacity> 960 </capacity>
+         <conductivity> 0.24 </conductivity>
+      </entry>
+      <entry>
+         <name> polyethylene_resin(300K) </name>
+         <density> 950 </density>
+         <capacity> 2100 </capacity>
+         <conductivity> 0.41 </conductivity>
+      </entry>
+      <entry>
+         <name> polycarbonate_resin(273K) </name>
+         <density> 1200 </density>
+         <capacity> 1050 </capacity>
+         <conductivity> 0.23 </conductivity>
+      </entry>
+      <entry>
+         <name> polystyrene_resin(293K) </name>
+         <density> 1050 </density>
+         <capacity> 1160 </capacity>
+         <conductivity> 0.15 </conductivity>
+      </entry>
+      <entry>
+         <name> polypropylene_resin(273K) </name>
+         <density> 910 </density>
+         <capacity> 1700 </capacity>
+         <conductivity> 0.2 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> ceramics </name>
+      <entry>
+         <name> alumina(Al2O3)(300K) </name>
+         <density> 3890 </density>
+         <capacity> 779 </capacity>
+         <conductivity> 36 </conductivity>
+      </entry>
+      <entry>
+         <name> beryllia(BeO)(300K) </name>
+         <density> 2950 </density>
+         <capacity> 1027 </capacity>
+         <conductivity> 272 </conductivity>
+      </entry>
+      <entry>
+         <name> magnesia(MgO)(300K) </name>
+         <density> 3510 </density>
+         <capacity> 924 </capacity>
+         <conductivity> 48.4 </conductivity>
+      </entry>
+      <entry>
+         <name> earthenware(300K) </name>
+         <density> 2200 </density>
+         <capacity> 1000 </capacity>
+         <conductivity> 1 </conductivity>
+      </entry>
+      <entry>
+         <name> porcelain(300K) </name>
+         <density> 2400 </density>
+         <capacity> 800 </capacity>
+         <conductivity> 1.1 </conductivity>
+      </entry>
+      <entry>
+         <name> quartz_Caxis_parallel(300K) </name>
+         <density> 2660 </density>
+         <capacity> 745 </capacity>
+         <conductivity> 10.4 </conductivity>
+      </entry>
+      <entry>
+         <name> quartz_Caxis_perpendicular(300K) </name>
+         <density> 2660 </density>
+         <capacity> 745 </capacity>
+         <conductivity> 6.21 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> alloy </name>
+      <entry>
+         <name> A1100_wrought_aluminum(300K) </name>
+         <density> 2710 </density>
+         <capacity> 904 </capacity>
+         <conductivity> 222 </conductivity>
+      </entry>
+      <entry>
+         <name> A2024-T4_duralumin(300K) </name>
+         <density> 2770 </density>
+         <capacity> 880 </capacity>
+         <conductivity> 120 </conductivity>
+      </entry>
+      <entry>
+         <name> A3003_wrought_aluminum(300K) </name>
+         <density> 2730 </density>
+         <capacity> 893 </capacity>
+         <conductivity> 193 </conductivity>
+      </entry>
+      <entry>
+         <name> A5154_wrought_aluminum(300K) </name>
+         <density> 2660 </density>
+         <capacity> 900 </capacity>
+         <conductivity> 127 </conductivity>
+      </entry>
+      <entry>
+         <name> A6061_wrought_aluminum(300K) </name>
+         <density> 2700 </density>
+         <capacity> 896 </capacity>
+         <conductivity> 180 </conductivity>
+      </entry>
+      <entry>
+         <name> A7075_duralumin(300K) </name>
+         <density> 2800 </density>
+         <capacity> 847 </capacity>
+         <conductivity> 130 </conductivity>
+      </entry>
+      <entry>
+         <name> AC4C_cast_aluminum(300K) </name>
+         <density> 2680 </density>
+         <capacity> 880 </capacity>
+         <conductivity> 151 </conductivity>
+      </entry>
+      <entry>
+         <name> A390_high_silicon_cast(300K) </name>
+         <density> 2730 </density>
+         <capacity> 853 </capacity>
+         <conductivity> 134 </conductivity>
+      </entry>
+      <entry>
+         <name> ADC10_diecast_aluminum(300K) </name>
+         <density> 2740 </density>
+         <capacity> 963 </capacity>
+         <conductivity> 96.2 </conductivity>
+      </entry>
+      <entry>
+         <name> ADC12_diecast_aluminum(300K) </name>
+         <density> 2700 </density>
+         <capacity> 960 </capacity>
+         <conductivity> 96.3 </conductivity>
+      </entry>
+      <entry>
+         <name> C16200_wire_material(300K) </name>
+         <density> 8890 </density>
+         <capacity> 380 </capacity>
+         <conductivity> 360 </conductivity>
+      </entry>
+      <entry>
+         <name> 6/4_brass(300K) </name>
+         <density> 8390 </density>
+         <capacity> 375 </capacity>
+         <conductivity> 123 </conductivity>
+      </entry>
+      <entry>
+         <name> AZ31B_wrought_magnesium(300K) </name>
+         <density> 1770 </density>
+         <capacity> 994 </capacity>
+         <conductivity> 96 </conductivity>
+      </entry>
+      <entry>
+         <name> AZ80A_wrought_magnesium(300K) </name>
+         <density> 1800 </density>
+         <capacity> 1050 </capacity>
+         <conductivity> 78 </conductivity>
+      </entry>
+      <entry>
+         <name> ZE63A_cast_magnesium(300K) </name>
+         <density> 1870 </density>
+         <capacity> 960 </capacity>
+         <conductivity> 109 </conductivity>
+      </entry>
+      <entry>
+         <name> QH21A_cast_magnesium(300K) </name>
+         <density> 1820 </density>
+         <capacity> 1000 </capacity>
+         <conductivity> 113 </conductivity>
+      </entry>
+      <entry>
+         <name> diecast_magnesium(300K) </name>
+         <density> 1810 </density>
+         <capacity> 1050 </capacity>
+         <conductivity> 72 </conductivity>
+      </entry>
+      <entry>
+         <name> nichrome(300K) </name>
+         <density> 8670 </density>
+         <capacity> 444 </capacity>
+         <conductivity> 17.4 </conductivity>
+      </entry>
+      <entry>
+         <name> chromel(300K) </name>
+         <density> 8310 </density>
+         <capacity> 444 </capacity>
+         <conductivity> 12.6 </conductivity>
+      </entry>
+      <entry>
+         <name> ZDC2diecast_zinc_type2(300K) </name>
+         <density> 6600 </density>
+         <capacity> 420 </capacity>
+         <conductivity> 113 </conductivity>
+      </entry>
+      <entry>
+         <name> cast_zinc(300K) </name>
+         <density> 6700 </density>
+         <capacity> 420 </capacity>
+         <conductivity> 105 </conductivity>
+      </entry>
+      <entry>
+         <name> industrial_titanium(300K) </name>
+         <density> 4520 </density>
+         <capacity> 528 </capacity>
+         <conductivity> 16 </conductivity>
+      </entry>
+      <entry>
+         <name> 6Al-4V(300K) </name>
+         <density> 4420 </density>
+         <capacity> 537 </capacity>
+         <conductivity> 7.6 </conductivity>
+      </entry>
+      <entry>
+         <name> lead_based_babbitt_metal(300K) </name>
+         <density> 9700 </density>
+         <capacity> 160 </capacity>
+         <conductivity> 24 </conductivity>
+      </entry>
+      <entry>
+         <name> soldering_iron(Sn-50Pb)(300K) </name>
+         <density> 8890 </density>
+         <capacity> 210 </capacity>
+         <conductivity> 46.5 </conductivity>
+      </entry>
+      <entry>
+         <name> grey_cast_iron(300K) </name>
+         <density> 7320 </density>
+         <capacity> 503 </capacity>
+         <conductivity> 42.8 </conductivity>
+      </entry>
+      <entry>
+         <name> steel_carbonate_S35C(300K) </name>
+         <density> 7850 </density>
+         <capacity> 465 </capacity>
+         <conductivity> 43 </conductivity>
+      </entry>
+      <entry>
+         <name> stainless_steel(300K) </name>
+         <density> 7920 </density>
+         <capacity> 499 </capacity>
+         <conductivity> 16 </conductivity>
+      </entry>
+      <entry>
+         <name> stainless_steel_SUS405(300K) </name>
+         <density> 7800 </density>
+         <capacity> 460 </capacity>
+         <conductivity> 27 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> concrete </name>
+      <entry>
+         <name> limestone_concrete(293K) </name>
+         <density> 2400 </density>
+         <capacity> 900 </capacity>
+         <conductivity> 1.2 </conductivity>
+      </entry>
+      <entry>
+         <name> quartzite_concrete(293K) </name>
+         <density> 2400 </density>
+         <capacity> 950 </capacity>
+         <conductivity> 1.5 </conductivity>
+      </entry>
+      <entry>
+         <name> asphalt(293K) </name>
+         <density> 2120 </density>
+         <capacity> 920 </capacity>
+         <conductivity> 0.74 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> brick_sand </name>
+      <entry>
+         <name> granite(400K) </name>
+         <density> 2650 </density>
+         <capacity> 1100 </capacity>
+         <conductivity> 4.3 </conductivity>
+      </entry>
+      <entry>
+         <name> limestone(293K) </name>
+         <density> 1650 </density>
+         <capacity> 920 </capacity>
+         <conductivity> 0.93 </conductivity>
+      </entry>
+      <entry>
+         <name> marble(293K) </name>
+         <density> 2600 </density>
+         <capacity> 810 </capacity>
+         <conductivity> 2.8 </conductivity>
+      </entry>
+      <entry>
+         <name> mica(323K) </name>
+         <density> 1900 </density>
+         <capacity> 880 </capacity>
+         <conductivity> 0.5 </conductivity>
+      </entry>
+      <entry>
+         <name> soil(293K) </name>
+         <density> 1340 </density>
+         <capacity> 1700 </capacity>
+         <conductivity> 0.7 </conductivity>
+      </entry>
+      <entry>
+         <name> clay(293K) </name>
+         <density> 1700 </density>
+         <capacity> 1800 </capacity>
+         <conductivity> 1.2 </conductivity>
+      </entry>
+      <entry>
+         <name> sand(293K) </name>
+         <density> 1510 </density>
+         <capacity> 1100 </capacity>
+         <conductivity> 1.1 </conductivity>
+      </entry>
+      <entry>
+         <name> high_alumina_brick(293K) </name>
+         <density> 3470 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 25 </conductivity>
+      </entry>
+      <entry>
+         <name> shamot_brick(293K) </name>
+         <density> 1820 </density>
+         <capacity> 1100 </capacity>
+         <conductivity> 0.52 </conductivity>
+      </entry>
+      <entry>
+         <name> magnesia_brick(293K) </name>
+         <density> 3370 </density>
+         <capacity> 1000 </capacity>
+         <conductivity> 31 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> wood </name>
+      <entry>
+         <name> cedar(300K) </name>
+         <density> 300 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.069 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> fiber_paper_ice </name>
+      <entry>
+         <name> cotton(300K) </name>
+         <density> 81 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.059 </conductivity>
+      </entry>
+      <entry>
+         <name> silk(300K) </name>
+         <density> 300 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.042 </conductivity>
+      </entry>
+      <entry>
+         <name> wool(300K) </name>
+         <density> 380 </density>
+         <capacity> 1400 </capacity>
+         <conductivity> 0.04 </conductivity>
+      </entry>
+      <entry>
+         <name> paper(293K) </name>
+         <density> 900 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.06 </conductivity>
+      </entry>
+      <entry>
+         <name> ice(273K) </name>
+         <density> 917 </density>
+         <capacity> 2000 </capacity>
+         <conductivity> 2.2 </conductivity>
+      </entry>
+      <entry>
+         <name> ice(200K) </name>
+         <density> 920 </density>
+         <capacity> 1600 </capacity>
+         <conductivity> 3.1 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)cement_stone </name>
+      <entry>
+         <name> ALC[JIS-A-5416](293K) </name>
+         <density> 600 </density>
+         <capacity> 1100 </capacity>
+         <conductivity> 0.15 </conductivity>
+      </entry>
+      <entry>
+         <name> artificial-lightweight-aggregate-reinforced-concrete(293K) </name>
+         <density> 1600 </density>
+         <capacity> 1000 </capacity>
+         <conductivity> 0.65 </conductivity>
+      </entry>
+      <entry>
+         <name> coarse-aggregate-concrete(293K) </name>
+         <density> 2200 </density>
+         <capacity> 890 </capacity>
+         <conductivity> 1.1 </conductivity>
+      </entry>
+      <entry>
+         <name> PC-concrete(293K) </name>
+         <density> 2400 </density>
+         <capacity> 790 </capacity>
+         <conductivity> 1.3 </conductivity>
+      </entry>
+      <entry>
+         <name> mortar(293K) </name>
+         <density> 2000 </density>
+         <capacity> 800 </capacity>
+         <conductivity> 1.3 </conductivity>
+      </entry>
+      <entry>
+         <name> plaster(293K) </name>
+         <density> 1650 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.62 </conductivity>
+      </entry>
+      <entry>
+         <name> kawara_slates(293K) </name>
+         <density> 2000 </density>
+         <capacity> 760 </capacity>
+         <conductivity> 0.96 </conductivity>
+      </entry>
+      <entry>
+         <name> tiles[JIS-A-5209](293K) </name>
+         <density> 2400 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 1.3 </conductivity>
+      </entry>
+      <entry>
+         <name> asphalt-tile(293K) </name>
+         <density> 1600 </density>
+         <capacity> 1100 </capacity>
+         <conductivity> 0.33 </conductivity>
+      </entry>
+      <entry>
+         <name> redbrick(293K) </name>
+         <density> 1650 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.62 </conductivity>
+      </entry>
+      <entry>
+         <name> rock(293K) </name>
+         <density> 2800 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 3.5 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)soil_asphalt_plastic-sheet </name>
+      <entry>
+         <name> textured-mud-wall(293K) </name>
+         <density> 1300 </density>
+         <capacity> 880 </capacity>
+         <conductivity> 0.68 </conductivity>
+      </entry>
+      <entry>
+         <name> tatami-mat[JIS_A_5902_5901](293K) </name>
+         <density> 230 </density>
+         <capacity> 2300 </capacity>
+         <conductivity> 0.11 </conductivity>
+      </entry>
+      <entry>
+         <name> synthetic-tatami-mat[JIS_A_5911](293K) </name>
+         <density> 200 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.065 </conductivity>
+      </entry>
+      <entry>
+         <name> carpet(293K) </name>
+         <density> 400 </density>
+         <capacity> 820 </capacity>
+         <conductivity> 0.073 </conductivity>
+      </entry>
+      <entry>
+         <name> solid-plastic_linoleum(293K) </name>
+         <density> 1250 </density>
+         <capacity> 1200 </capacity>
+         <conductivity> 0.19 </conductivity>
+      </entry>
+      <entry>
+         <name> FRP-asphalt-roofing[JIS-A-6006_6005](293K) </name>
+         <density> 1000 </density>
+         <capacity> 920 </capacity>
+         <conductivity> 0.11 </conductivity>
+      </entry>
+      <entry>
+         <name> asphalt-roofing[asphalt_single](293K) </name>
+         <density> 1150 </density>
+         <capacity> 920 </capacity>
+         <conductivity> 0.11 </conductivity>
+      </entry>
+      <entry>
+         <name> finishing-cloth-for-wall-and-ceiling(293K) </name>
+         <density> 550 </density>
+         <capacity> 1390 </capacity>
+         <conductivity> 0.13 </conductivity>
+      </entry>
+      <entry>
+         <name> moisture-proof-paper(293K) </name>
+         <density> 700 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.21 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)fibrous-material </name>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-10K](293K) </name>
+         <density> 10 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.051 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-12K](293K) </name>
+         <density> 12 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.048 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-16K](293K) </name>
+         <density> 16 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.044 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-20K](293K) </name>
+         <density> 20 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.041 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-24K](293K) </name>
+         <density> 24 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.039 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-32K](293K) </name>
+         <density> 32 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.036 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No2-96K](293K) </name>
+         <density> 96 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.035 </conductivity>
+      </entry>
+      <entry>
+         <name> glass-wool-temperature-retaining-material[JIS-A-9505_No3-96K](293K) </name>
+         <density> 96 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.041 </conductivity>
+      </entry>
+      <entry>
+         <name> asbestos-temperature-retaining-material[JIS-A-9504](293K) </name>
+         <density> 100 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.038 </conductivity>
+      </entry>
+      <entry>
+         <name> airborne-asbestos(293K) </name>
+         <density> 1200 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.046 </conductivity>
+      </entry>
+      <entry>
+         <name> asbestos-acoustical-board[JIS-A-6307](293K) </name>
+         <density> 300 </density>
+         <capacity> 840 </capacity>
+         <conductivity> 0.058 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)wooden-fiber </name>
+      <entry>
+         <name> soft-fiberboard[JIS-A-5905_grade-A](293K) </name>
+         <density> 250 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.046 </conductivity>
+      </entry>
+      <entry>
+         <name> soft-fiberboard[JIS-A-5905_grade-B](293K) </name>
+         <density> 300 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.081 </conductivity>
+      </entry>
+      <entry>
+         <name> soft-fiberboard[JIS-A-5905_sheathing](293K) </name>
+         <density> 300 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.058 </conductivity>
+      </entry>
+      <entry>
+         <name> semi-hardboard[JIS-A-5906](293K) </name>
+         <density> 600 </density>
+         <capacity> 1670 </capacity>
+         <conductivity> 0.11 </conductivity>
+      </entry>
+      <entry>
+         <name> hardboard[JIS-A_5907_5910](293K) </name>
+         <density> 1050 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.18 </conductivity>
+      </entry>
+      <entry>
+         <name> particleboard[JIS-A-5908_5909](293K) </name>
+         <density> 550 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.15 </conductivity>
+      </entry>
+      <entry>
+         <name> wood-wool-cement-board[JIS-A-5904_normal](293K) </name>
+         <density> 565 </density>
+         <capacity> 1680 </capacity>
+         <conductivity> 0.15 </conductivity>
+      </entry>
+      <entry>
+         <name> wood-wool-cement-board[JIS-A-5904_flame-retardant](293K) </name>
+         <density> 735 </density>
+         <capacity> 1680 </capacity>
+         <conductivity> 0.22 </conductivity>
+      </entry>
+      <entry>
+         <name> normal-wood-chip-cement-board[JIS-A-5917_0_6C](293K) </name>
+         <density> 630 </density>
+         <capacity> 1680 </capacity>
+         <conductivity> 0.16 </conductivity>
+      </entry>
+      <entry>
+         <name> hard-wood-chip-cement-board[JIS-A-5917_0_9C](293K) </name>
+         <density> 855 </density>
+         <capacity> 1680 </capacity>
+         <conductivity> 0.18 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)wooden-material </name>
+      <entry>
+         <name> plywood(293K) </name>
+         <density> 550 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.15 </conductivity>
+      </entry>
+      <entry>
+         <name> wood[lightweight-material](293K) </name>
+         <density> 400 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.12 </conductivity>
+      </entry>
+      <entry>
+         <name> wood[medium-weight-material](293K) </name>
+         <density> 500 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.14 </conductivity>
+      </entry>
+      <entry>
+         <name> wood[heavyweight-material(I)](293K) </name>
+         <density> 600 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.16 </conductivity>
+      </entry>
+      <entry>
+         <name> wood[heavyweight-material(II)](293K) </name>
+         <density> 700 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.18 </conductivity>
+      </entry>
+      <entry>
+         <name> sawdust(293K) </name>
+         <density> 200 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.07 </conductivity>
+      </entry>
+      <entry>
+         <name> shaving(293K) </name>
+         <density> 130 </density>
+         <capacity> 2400 </capacity>
+         <conductivity> 0.065 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)barite_gypsum </name>
+      <entry>
+         <name> gypsum-plate_lath-board[JIS-A-6901-etc](293K) </name>
+         <density> 910 </density>
+         <capacity> 1130 </capacity>
+         <conductivity> 0.14 </conductivity>
+      </entry>
+      <entry>
+         <name> asbestos-cement-calcium-silicate-board[JIS-A-5418-0_8-K](293K) </name>
+         <density> 750 </density>
+         <capacity> 760 </capacity>
+         <conductivity> 0.12 </conductivity>
+      </entry>
+      <entry>
+         <name> asbestos-cement-calcium-silicate-board[JIS-A-5418-1_0-KC](293K) </name>
+         <density> 1050 </density>
+         <capacity> 760 </capacity>
+         <conductivity> 0.12 </conductivity>
+      </entry>
+      <entry>
+         <name> asbestos-slate[JIS-A-5403-etc](293K) </name>
+         <density> 1500 </density>
+         <capacity> 1200 </capacity>
+         <conductivity> 0.96 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> (Archi)plastic-foam </name>
+      <entry>
+         <name> foam-polystyrene-thermal-insulation-board[JIS-A-9511-No3](293K) </name>
+         <density> 20 </density>
+         <capacity> 1250 </capacity>
+         <conductivity> 0.041 </conductivity>
+      </entry>
+      <entry>
+         <name> rigid-urethane-foam-thermal-insulation-board[JIS-A-9514-No3_4](293K) </name>
+         <density> 35 </density>
+         <capacity> 1250 </capacity>
+         <conductivity> 0.024 </conductivity>
+      </entry>
+      <entry>
+         <name> polyethylene-foam(293K) </name>
+         <density> 50 </density>
+         <capacity> 1300 </capacity>
+         <conductivity> 0.044 </conductivity>
+      </entry>
+      <entry>
+         <name> extruded-polystyrene-foam-board[general_construction](293K) </name>
+         <density> 28.5 </density>
+         <capacity> 1130 </capacity>
+         <conductivity> 0.0337 </conductivity>
+      </entry>
+      <entry>
+         <name> extruded-polystyrene-foam-board[roof_waterproof_or_laminated_panel](293K) </name>
+         <density> 33 </density>
+         <capacity> 1130 </capacity>
+         <conductivity> 0.0267 </conductivity>
+      </entry>
+      <entry>
+         <name> extruded-polystyrene-foam-board[low-temperature_storage](293K) </name>
+         <density> 35 </density>
+         <capacity> 1130 </capacity>
+         <conductivity> 0.0267 </conductivity>
+      </entry>
+   </group>
+   <group>
+      <type> solid </type>
+      <name> others </name>
+   </group>
+   <group>
+      <type> radiation </type>
+      <name> radiation_property </name>
+      <entry>
+         <name> mirror_face </name>
+         <emissivity> 0 </emissivity>
+         <reflection> 0 </reflection>
+         <specular> 1 </specular>
+         <transmission> 0 </transmission>
+         <diffusion> 0 </diffusion>
+         <refraction> 1 </refraction>
+      </entry>
+      <entry>
+         <name> diffuse_reflection </name>
+         <emissivity> 0 </emissivity>
+         <reflection> 1 </reflection>
+         <specular> 0 </specular>
+         <transmission> 0 </transmission>
+         <diffusion> 0 </diffusion>
+         <refraction> 1 </refraction>
+      </entry>
+      <entry>
+         <name> emissivity_0_9 </name>
+         <emissivity> 0.9 </emissivity>
+         <reflection> 0.1 </reflection>
+         <specular> 0 </specular>
+         <transmission> 0 </transmission>
+         <diffusion> 0 </diffusion>
+         <refraction> 1 </refraction>
+      </entry>
+   </group>
+   <group>
+      <type> solar </type>
+      <name> absorptance </name>
+      <entry>
+         <name> transparent_body </name>
+         <transmission> 1 </transmission>
+         <absorption> 0 </absorption>
+         <diffusion> -1 </diffusion>
+         <reflection> -1 </reflection>
+         <specular> -1 </specular>
+      </entry>
+      <entry>
+         <name> opaque_body </name>
+         <transmission> 0 </transmission>
+         <absorption> 1 </absorption>
+         <diffusion> -1 </diffusion>
+         <reflection> -1 </reflection>
+         <specular> -1 </specular>
+      </entry>
+      <entry>
+         <name> glass </name>
+         <transmission> 0.7 </transmission>
+         <absorption> 0 </absorption>
+         <diffusion> -1 </diffusion>
+         <reflection> -1 </reflection>
+         <specular> -1 </specular>
+      </entry>
+      <entry>
+         <name> architectural_material </name>
+         <transmission> 0 </transmission>
+         <absorption> 0.5 </absorption>
+         <diffusion> -1 </diffusion>
+         <reflection> -1 </reflection>
+         <specular> -1 </specular>
+      </entry>
+   </group>
+   <group>
+      <type> particle </type>
+      <name> particle_material </name>
+      <entry>
+         <name> A </name>
+         <density> 10 </density>
+         <diameter> 1e-05 </diameter>
+         <resistance> 5 </resistance>
+         <resistitution> 1 </resistitution>
+      </entry>
+   </group>
+   <group>
+      <type> solar_angle </type>
+      <name> absorption_property(incident_angle_dependent) </name>
+      <entry>
+         <name> float_glass(angle) </name>
+         <num> 10 </num>
+         <params no="1">
+            <angle> 0 </angle>
+            <transmission> 0.7 </transmission>
+            <absorption> 0.23 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.07 </specular>
+         </params>
+         <params no="2">
+            <angle> 10 </angle>
+            <transmission> 0.7 </transmission>
+            <absorption> 0.23 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.07 </specular>
+         </params>
+         <params no="3">
+            <angle> 20 </angle>
+            <transmission> 0.69 </transmission>
+            <absorption> 0.23 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.08 </specular>
+         </params>
+         <params no="4">
+            <angle> 30 </angle>
+            <transmission> 0.68 </transmission>
+            <absorption> 0.24 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.08 </specular>
+         </params>
+         <params no="5">
+            <angle> 40 </angle>
+            <transmission> 0.67 </transmission>
+            <absorption> 0.25 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.08 </specular>
+         </params>
+         <params no="6">
+            <angle> 50 </angle>
+            <transmission> 0.65 </transmission>
+            <absorption> 0.26 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.09 </specular>
+         </params>
+         <params no="7">
+            <angle> 60 </angle>
+            <transmission> 0.6 </transmission>
+            <absorption> 0.27 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.13 </specular>
+         </params>
+         <params no="8">
+            <angle> 70 </angle>
+            <transmission> 0.52 </transmission>
+            <absorption> 0.27 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.21 </specular>
+         </params>
+         <params no="9">
+            <angle> 80 </angle>
+            <transmission> 0.3 </transmission>
+            <absorption> 0.28 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 0.42 </specular>
+         </params>
+         <params no="10">
+            <angle> 90 </angle>
+            <transmission> 0 </transmission>
+            <absorption> 0 </absorption>
+            <reflection> 0 </reflection>
+            <specular> 1 </specular>
+         </params>
+      </entry>
+   </group>
+   <group>
+      <type> dem </type>
+      <name> dem </name>
+   </group>
+</property>

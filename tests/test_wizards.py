@@ -112,7 +112,7 @@ def test_condition_wizard_tree_and_apply(pieces):
     assert w.windowTitle() == "Condition Wizard"
     # nav groups: Boundary / Analysis Control / Output
     bc = w._items.get("bc")
-    assert bc is not None and bc.childCount() == 4
+    assert bc is not None and bc.childCount() == 5
     ctrl = w._items.get("control")
     assert ctrl is not None and ctrl.childCount() == 4
     out = w._items.get("output")
