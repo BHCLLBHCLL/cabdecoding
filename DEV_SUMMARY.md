@@ -1749,3 +1749,90 @@ MVP/子集/代理/stub，**不是完整实现**。当前 HEAD 全仓测试非全
   `Shading`，并把本机持久化值重置为 `Shading`；
 - 验证：`tests/test_gui.py` / `test_menus_other.py` 不受影响（Line 仍为
   合法用户选项，仅默认/回退为 Shading）。
+
+## 36. M33–M38 完整性分析与改进计划（2026-08-11）
+
+### 36.1 结论总览
+
+M33–M38 在 HEAD `8113945` 已全部提交并带有专属测试（`test_m33_edit_kernel`
+、`test_m34_mesh`、`test_m36_cw_source`、`test_m37_library_parts`、
+`test_m38_format_matrix`，均通过），但**均为 MVP/子集**，且**全仓非全绿**
+（20 失败 / 266 通过 / 5 跳过）。多数回归的根因是**样例数据损坏**：
+
+- `tests/box.cab` 被覆盖为 tr03 内容（parts=Case/Impeller/Rotate），
+  导致 test_ps_tessellate / test_tree_layout / test_mesh_* 等期望
+  box 部件的断言失败；
+- `tests/ex4_e/ex4_e.xml` 与 `tests/ex4_e/_ex4_e_all.x_t` 缺失，
+  导致 test_domain / test_grid 的 `FileNotFoundError`。
+
+### 36.2 逐项完整性
+
+#### M33 Edit 内核跃迁 —— ⚠️ 部分（B-rep 语义不足）
+
+- ✅ `PK_BODY_boolean_2` 已 ctypes 绑定（`cab_ps_ops.body_boolean`，
+  o_t_version=2），`boolean_mesh_parts` 优先走 pk 后端、失败回退 CSG；
+- ⚠️ 布尔输入是**世界 AABB 的实体块**（`create_solid_block`），不是
+  部件真实 B-rep；“与 STpre 同类件体积差可量化”未达成；
+- ⚠️ Edit Solid/Simplify 为**三角面级共面簇删除**
+  （`delete_selected_faces_tess`），非拓扑面删；
+- ✅ Paneling/Sweep 走拾取 cell → 面平面 → 面板/挤出，Esc 提交；
+- ❌ Undo 仍是 XML 快照，与 Parasolid 会话不一致（计划已列）。
+
+#### M34 Mesh 原生保真 —— ✅ 计划内子集
+
+- ✅ panel/开面 face-thin 占用（`cab_mesh.classify_panel_cells` +
+  `is_panel_part`，test_m34 覆盖）；
+- ✅ cylindrical/axial 类型标志写回（`domain_coordinate` /
+  `analysis_region@type`）；
+- ⚠️ 原生网格仍为**笛卡尔 AABB**（cab_grid 文档明示）；
+- ✅ Edit 列表选点已可用。
+
+#### M35 Control/拾取清理 —— ✅ 子集
+
+- ✅ DomainBoundary 目标拾取（廉价线框）、Detail 信息框、Draw RMB
+  （Ctrl+RMB Refer/Hide/Display/Delete 子集）；
+- ⚠️ Condition/Aspect 层“列出但不绘制”（诚实标注，计划接受）。
+
+#### M36 CW Source 深度 —— ✅ 明显加深（仍子集）
+
+- ✅ Source 页：Volumetric / Area / Option(Heat Source) 三 tab，
+  DomainBoundary 过滤，Force/HeatSource/SourceTerm/PressureLoss/
+  AreaHeat/Perforated 写回（test_m36 覆盖）；
+- ✅ 大量未实现物理控件 `setEnabled(False)` 显式禁用；
+- ❌ 全物理覆盖仍为子集（~150 页中的部分）。
+
+#### M37 Library + 专用件 + 热显示 —— ✅ MVP
+
+- ✅ Register to library（右键 → Control [Project Parts]，`project_value`
+  JSON 持久化）+ 双击 Place MVP；
+- ✅ AC Unit / Diffuser 菜单 + 代理几何（cuboid/conical 代理）；
+- ✅ Thermal Condition Display MVP（heat_source/temperature tint，
+  `_thermal_display` 已接入渲染）；
+- ⚠️ Place 无完整参数对话框；热 tint 非标量场。
+
+#### M38 格式与抛光 —— ⚠️ 决策+文档完成，矩阵为 smoke
+
+- ✅ IGES/IDF 决策与 Solver/Post 说明（DEV_PLAN §15.6）；
+- ✅ `test_m38_format_matrix.py`（OBJ↔STL、STL 解析、XT 导入 smoke）；
+- ❌ 非全矩阵：DXF/MDL/STEP/SAT 导入、S/XEMT/XT/Property 导出往返、
+  GUI 过滤器联动均无自动化回归。
+
+### 36.3 新改进计划（M39+，按优先级）
+
+| 优先级 | 项目 | 内容 | 验收 |
+|---|---|---|---|
+| P0 | 测试基建修复 | 恢复 `tests/ex4_e/ex4_e.xml` + `_ex4_e_all.x_t`（从 ex4_e.cab 提取）；重建 `tests/box.cab`（box.xml+property+box_all.x_t）；清理 20 项回归 | 全仓 pytest 全绿 |
+| P1 | M33 B-rep 保真 | `PK_BODY_boolean_2` 直接接收 x_t body tag（弃 AABB 块）；PK 层 face 删除/简化；布尔体积差 vs STpre 金标测试 | 体积差 <1% 且可复现；Undo 后一致 |
+| P2 | M34 圆柱/轴向网格 | R/θ 与轴向规则生成（参考 STpre 手册）；panel face-thin 与 STpre panel scheme 对拍 | 圆柱域 CXYZ 可导出 |
+| P3 | M35 拾取清理 | Aspect/Condition 层实际绘制或正式冻结声明；Draw RMB 补齐 STpre 项 | 无静默 NYI |
+| P4 | M36 CW 深度 | 未实现物理禁用清单审计；Source 写回 → `.s` 导出一致性测试 | 每个 Source 类型可往返 |
+| P5 | M37 Library/专用件 | Place 参数对话框（位置/缩放/材料）；AC/Diffuser 按手册几何；热 tint 加图例 | 双击 Place 可调参 |
+| P6 | M38 全格式矩阵 | DXF/MDL/STEP/SAT 导入 + S/XEMT/XT/Property 导出往返测试；纳入 CI | 矩阵 100% 通过 |
+| P7 | 低优先 | i18n、3DfindIT 冻结、Wiring Gerber 几何 | 明确冻结/放弃声明 |
+
+### 36.4 结论
+
+M33–M38 是“可演示的 MVP/子集”，核心缺口集中在 **B-rep 保真（M33）**、
+**圆柱/轴向网格（M34）**、**全格式矩阵（M38）**，以及**测试基建（P0）**。
+建议先做 P0 让仓库恢复全绿，再按 P1→P6 顺序推进；STpre API 网格路径保持
+冻结。
