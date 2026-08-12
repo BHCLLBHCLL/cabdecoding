@@ -1836,3 +1836,19 @@ M33–M38 是“可演示的 MVP/子集”，核心缺口集中在 **B-rep 保�
 **圆柱/轴向网格（M34）**、**全格式矩阵（M38）**，以及**测试基建（P0）**。
 建议先做 P0 让仓库恢复全绿，再按 P1→P6 顺序推进；STpre API 网格路径保持
 冻结。
+
+### 36.5 执行进度（M39+，2026-08-11）
+
+| 项 | 状态 | 说明 |
+|---|---|---|
+| P0 测试基建 | ✅ 完成 | 恢复 `tests/ex4_e/*` 与重建 `tests/box.cab`；修复 Part 顺序与过期测试；全仓 **294 通过 / 5 跳过**（提交 `66fd6d3`） |
+| P1 B-rep 布尔 | 🔶 核心完成 | `cab_ps_ops.boolean_xt_bodies`：直接接收 x_t body tag → `PK_BODY_boolean_2` → facet 结果 + 体积；测试：10mm³ 减 5mm³ = 8.75e-7 m³、同体 intersect = 1e-6 m³；**持久化（PK_BODY_export 未导出）与 GUI 接线仍缺** |
+| P2 圆柱/轴向网格 | ⏳ 未开始 | 需 R/θ 生成与 STpre 手册对齐 |
+| P3 Control/拾取 | ✅ 计划接受 | M35 已诚实标注 Aspect/Condition 层不绘制并给 Detail 信息框，Draw RMB 子集；按计划“禁用+tooltip”即视为达成 |
+| P4 CW Source→S | ⏳ 未开始 | Source 写回已有（test_m36），.s 导出一致性测试未加 |
+| P5 Library Place | ⏳ 未开始 | 现为 JSON stub + 双击 Place MVP；参数对话框未做 |
+| P6 全格式矩阵 | ✅ 完成 | `test_m38_format_matrix.py` 扩展：DXF(3DFACE)/MDL(OBJ) 导入、S/XEMT/Property/XT 导出往返；OCC 相关保留 skip |
+| P7 低优先冻结 | 🔶 文档化 | i18n / 3DfindIT / Wiring Gerber 已在 DEV_PLAN 明确冻结/放弃；未新做代码 |
+
+下一步：P1 持久化（寻找 `PK_BODY_export` 等价路径或落盘为 facet+STL）、
+P2 圆柱/轴向、P4 Source→S 一致性、P5 Place 参数对话框。

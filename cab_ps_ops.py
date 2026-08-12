@@ -308,6 +308,49 @@ def entity_copy(tag: int) -> int:
     return int(out.value)
 
 
+def mesh_volume_m3(points, triangles) -> float:
+    """Closed-mesh volume via signed tetrahedra (origin-based)."""
+    pts = np.asarray(points, dtype=np.float64)
+    tris = np.asarray(triangles, dtype=np.int64)
+    a = pts[tris[:, 0]]
+    b = pts[tris[:, 1]]
+    c = pts[tris[:, 2]]
+    return float(abs(float(np.einsum("ij,ij->i", a, np.cross(b, c)).sum())
+                     / 6.0))
+
+
+def boolean_xt_bodies(xt_a: bytes, xt_b: bytes, op: str) -> dict:
+    """M39-P1 core: ``PK_BODY_boolean_2`` on real x_t body tags.
+
+    Receives both streams into one session, booleans the first body with
+    the second as tool, facets the result and returns
+    ``{body_tag, tess, volume_m3}``.
+
+    Note: ``PK_BODY_export`` is not exported by this pskernel build, so the
+    result geometry is only available in-session (persistence via XT export
+    is a remaining P1 item).
+    """
+    if not available():
+        raise RuntimeError("pskernel not available")
+    sess = _ps._get_session()
+    ta = sess.receive_xt(xt_a)
+    tb = sess.receive_xt(xt_b)
+    if not ta or not tb:
+        raise RuntimeError("PK_PART_receive produced no bodies")
+    out = body_boolean(ta[0], [tb[0]], op)
+    tag = int(out[0])
+    part = (sess.facet_body_adaptive(tag)
+            or sess.facet2(tag)
+            or sess.facet_go(tag))
+    if part is None or part.triangles.size == 0:
+        raise RuntimeError("failed to facet boolean result")
+    return {
+        "body_tag": tag,
+        "tess": part,
+        "volume_m3": mesh_volume_m3(part.points, part.triangles),
+    }
+
+
 def find_body_tag_by_name(xt_bytes: bytes, name: str) -> Optional[int]:
     """Receive XT and return the body tag matching ``name``."""
     if not available() or not name:

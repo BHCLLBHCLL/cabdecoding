@@ -1,10 +1,15 @@
 """M33: PK_BODY_boolean_2 + face-plane panelize/sweep + face delete."""
 from __future__ import annotations
 
+from pathlib import Path
+
 import cab_edit_ops
 import cab_ps_ops
 from cab_parts import cube_tess
 from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+
+ROOT = Path(__file__).resolve().parents[1]
+BOX_XT = ROOT / "tests" / "box" / "box_all.x_t"
 
 
 def _two_cubes():
@@ -27,6 +32,32 @@ def test_pk_body_boolean_available_ops():
     b = cab_ps_ops.entity_copy(b)
     out = cab_ps_ops.body_boolean(a, [b], "subtract")
     assert out and out[0] > 0
+
+
+def test_boolean_on_received_xt_body():
+    """M39-P1: PK_BODY_boolean_2 on a real x_t body tag (not AABB block)."""
+    if not cab_ps_ops.available():
+        return
+    sess = cab_ps_ops._ps._get_session()
+    tag_a = sess.receive_xt(BOX_XT.read_bytes())[0]
+    tag_b = cab_ps_ops.create_solid_block(
+        (0.005, 0.005, 0.005), (0.0025, 0.0025, 0.0025))
+    out = cab_ps_ops.body_boolean(tag_a, [tag_b], "subtract")
+    part = (sess.facet_body_adaptive(out[0])
+            or sess.facet2(out[0]) or sess.facet_go(out[0]))
+    assert part is not None
+    vol = cab_ps_ops.mesh_volume_m3(part.points, part.triangles)
+    # 10 mm cube minus 5 mm inner cube = 1e-6 - 1.25e-7 m^3
+    assert abs(vol - 8.75e-7) < 1e-10
+
+
+def test_boolean_xt_bodies_intersect():
+    """M39-P1: boolean_xt_bodies on two real x_t streams."""
+    if not cab_ps_ops.available():
+        return
+    raw = BOX_XT.read_bytes()
+    res = cab_ps_ops.boolean_xt_bodies(raw, raw, "intersect")
+    assert abs(res["volume_m3"] - 1e-6) < 1e-10
 
 
 def test_boolean_mesh_parts_prefers_pk():

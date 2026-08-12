@@ -58,23 +58,118 @@ def test_obj_roundtrip_smoke():
 def test_stl_roundtrip_smoke():
     pts, tris = _unit_cube_mm()
     raw = cab_import._tris_to_stl_bytes(pts, tris, "cube")
+    pts2, tris2 = cab_import.parse_stl_bytes(raw)
+    assert len(tris2) == 12
+    lo, hi = pts2.min(0), pts2.max(0)
+    np.testing.assert_allclose(lo, [0, 0, 0], atol=1e-5)
+    np.testing.assert_allclose(hi, [0.01, 0.01, 0.01], atol=1e-5)
+
+
+_DXF_3DFACE = """0
+3DFACE
+10
+0
+20
+0
+30
+0
+11
+1000
+21
+0
+31
+0
+12
+1000
+22
+1000
+32
+0
+13
+0
+23
+1000
+33
+0
+0
+ENDSEC
+"""
+
+
+def test_dxf_import_3dface():
     out_dir = ROOT / "tests" / "_m38_tmp"
     out_dir.mkdir(exist_ok=True)
-    out = out_dir / "cube.stl"
-    out.write_bytes(raw)
+    p = out_dir / "face.dxf"
+    p.write_text(_DXF_3DFACE, encoding="ascii")
     try:
-        again = out.read_bytes()
-        pts2, tris2 = cab_import.parse_stl_bytes(again)
-        assert len(tris2) == 12
-        # bbox roughly preserved (metres)
-        lo, hi = pts2.min(0), pts2.max(0)
-        np.testing.assert_allclose(lo, [0, 0, 0], atol=1e-5)
-        np.testing.assert_allclose(hi, [0.01, 0.01, 0.01], atol=1e-5)
+        bodies, _raw, fmt = cab_import.import_file_with_payload(p)
+        assert fmt == "stl"
+        assert bodies and len(bodies[0].tess.triangles) >= 1
     finally:
         try:
-            out.unlink()
+            p.unlink()
         except OSError:
             pass
+
+
+def test_mdl_import_obj_compat():
+    out_dir = ROOT / "tests" / "_m38_tmp"
+    out_dir.mkdir(exist_ok=True)
+    p = out_dir / "shape.mdl"
+    p.write_text("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", encoding="utf-8")
+    try:
+        bodies, _raw, fmt = cab_import.import_file_with_payload(p)
+        assert fmt == "stl"
+        assert bodies and bodies[0].tess.triangles.shape[0] == 1
+    finally:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def _box_model_props():
+    from cab_container import CabArchive
+    from cabxml import PropertyModel, StpreModel, parse_property, parse_stpre
+    arch = CabArchive.parse((ROOT / "tests" / "box.cab").read_bytes())
+    arch.fill_member_data()
+    mm = {m.name: m.data for m in arch.members}
+    xml = next(n for n in mm if n.endswith(".xml") and not n.startswith("_"))
+    prop = next(n for n in mm if n.endswith("_property.xml"))
+    return (StpreModel(parse_stpre(mm[xml])),
+            PropertyModel(parse_property(mm[prop])), mm)
+
+
+def test_s_export_roundtrip_names():
+    import s_export
+    model, props, _ = _box_model_props()
+    text = s_export.build_sdat(model, props)
+    assert text.startswith("SDAT")
+    names = s_export.parse_s_parts(text)
+    assert any("box" in n for n in names)
+
+
+def test_xemt_export_smoke():
+    from xemt_export import build_emt
+    model, props, _ = _box_model_props()
+    text = build_emt(model, props)
+    assert "<EMT>" in text and "Domain" in text
+
+
+def test_property_xml_roundtrip():
+    from cabxml import PropertyModel, parse_property
+    _model, _props, mm = _box_model_props()
+    prop = next(n for n in mm if n.endswith("_property.xml"))
+    pm = PropertyModel(parse_property(mm[prop]))
+    pm2 = PropertyModel(parse_property(pm.doc.serialize()))
+    assert pm2.find_entry("air(incompressible/20C)") is not None
+
+
+def test_xt_member_roundtrip():
+    _model, _props, mm = _box_model_props()
+    raw = next(v for k, v in mm.items() if k.endswith(".x_t"))
+    bodies = cab_import.import_xt_bytes(raw, adaptive=False)
+    assert bodies and bodies[0].name == "box"
 
 
 @pytest.mark.skipif(not cab_import.available(),
