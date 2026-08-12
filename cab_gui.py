@@ -2289,11 +2289,22 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 vtk.vtkInteractorStyleTrackballCamera)
         iren = self.vtk_widget.GetRenderWindow().GetInteractor()
         self._trackball_style = vtkInteractorStyleTrackballCamera()
+        # Manual clipping refresh after zoom/pan — auto-adjust often clips
+        # large RootBlock / Domain wireframe edges after wheel zoom.
+        try:
+            self._trackball_style.AutoAdjustCameraClippingRangeOff()
+        except Exception:
+            pass
         iren.SetInteractorStyle(self._trackball_style)
         iren.AddObserver("MouseMoveEvent", self._on_mouse_move, 1.0)
         iren.AddObserver("KeyPressEvent", self._on_vtk_key_press, 1.0)
         iren.AddObserver("LeftButtonPressEvent", self._on_left_click, 1.0)
         iren.AddObserver("RightButtonPressEvent", self._on_draw_right_click, 1.0)
+        iren.AddObserver("EndInteractionEvent", self._on_end_interaction, 1.0)
+        iren.AddObserver(
+            "MouseWheelForwardEvent", self._on_camera_interact, 1.0)
+        iren.AddObserver(
+            "MouseWheelBackwardEvent", self._on_camera_interact, 1.0)
         self._cell_picker = vtk.vtkCellPicker()
         self._cell_picker.SetTolerance(0.005)
         self._sel_target = getattr(self, "_sel_target", "Part")
@@ -2306,6 +2317,39 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             iren.Initialize()
         self._iren_ready = True
         self._set_orientation_marker(self.control.layer_on("axis_global"))
+
+    def _on_end_interaction(self, _obj=None, _evt=None) -> None:
+        self._refresh_camera_clipping()
+
+    def _on_camera_interact(self, _obj=None, _evt=None) -> None:
+        # Wheel zoom may not always emit EndInteraction on all VTK builds.
+        self._refresh_camera_clipping()
+
+    def _refresh_camera_clipping(self) -> None:
+        """Widen near/far after zoom so Domain/RootBlock wireframes stay intact."""
+        if self.renderer is None:
+            return
+        try:
+            self.renderer.ResetCameraClippingRange()
+            cam = self.renderer.GetActiveCamera()
+            near, far = cam.GetClippingRange()
+            span = max(far - near, abs(far), abs(near), 1e-3)
+            pad = span * 2.0
+            cam.SetClippingRange(near - pad, far + pad)
+        except Exception:
+            pass
+
+    def _clip_exempt_actors(self) -> set:
+        """Overlays that must stay whole under View→Clipping (STpre-like)."""
+        keys = (
+            "root_block", "domain_frame", "condition", "aspect_ratio",
+            "sketch_plane", "axis_sketch", "origin", "mesh", "mesh_block",
+        )
+        out = set()
+        for k in keys:
+            for a in self._layer_actors.get(k, []) or []:
+                out.add(a)
+        return out
 
     def _set_mouse_mode(self, mode: str) -> None:
         if not self._enable_3d or self.vtk_widget is None:
@@ -2324,6 +2368,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if mode == "rubber":
             style = vtkInteractorStyleRubberBandZoom()
             style.SetRenderOnMouseMove(1)
+            try:
+                style.AutoAdjustCameraClippingRangeOff()
+            except Exception:
+                pass
             self._rubber_style = style
             iren.SetInteractorStyle(style)
             self._mouse_mode = "rubber"
@@ -2333,12 +2381,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log("Mouse: Rubber Band Zoom — drag a box to zoom")
         else:
             self._trackball_style = vtkInteractorStyleTrackballCamera()
+            try:
+                self._trackball_style.AutoAdjustCameraClippingRangeOff()
+            except Exception:
+                pass
             iren.SetInteractorStyle(self._trackball_style)
             self._mouse_mode = "trackball"
             self._op_label.setText("Trackball")
             self._act_trackball.setChecked(True)
             self._act_rubber.setChecked(False)
             self.log("Mouse: Trackball — L-rotate / M-pan / R-zoom / wheel")
+        self._refresh_camera_clipping()
 
     def _set_orientation_marker(self, on: bool) -> None:
         if not self._enable_3d or self.vtk_widget is None:
@@ -2574,7 +2627,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         pos.setDecimals(3)
         pos.setValue(0.0)
         en = QCheckBox("Enable clipping", dlg)
-        en.setChecked(True)
+        en.setChecked(bool(self._clip_planes))
+        if self._clip_planes:
+            try:
+                o = self._clip_planes[0].GetOrigin()
+                n = self._clip_planes[0].GetNormal()
+                ax_i = max(range(3), key=lambda i: abs(n[i]))
+                axis.setCurrentIndex(ax_i)
+                pos.setValue(float(o[ax_i]) * 1000.0)
+            except Exception:
+                pass
         form.addRow("Axis", axis)
         form.addRow("Position (mm)", pos)
         form.addRow(en)
@@ -2591,7 +2653,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if not en.isChecked():
                 self._clip_planes = []
                 self._apply_clip_planes()
-                self._rebuild_scene()
+                if self.vtk_widget is not None:
+                    self.vtk_widget.GetRenderWindow().Render()
+                self.log("Clipping: off")
                 dlg.accept()
                 return
             plane = vtk.vtkPlane()
@@ -2606,7 +2670,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._apply_clip_planes()
             if self.vtk_widget is not None:
                 self.vtk_widget.GetRenderWindow().Render()
-            self.log(f"Clipping: {axis.currentText()}={pos.value():g} mm")
+            self.log(
+                f"Clipping: {axis.currentText()}={pos.value():g} mm "
+                "(parts only; Domain/RootBlock frame kept)")
             dlg.accept()
 
         ok.clicked.connect(_apply)
@@ -2614,22 +2680,27 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg.exec_()
 
     def _apply_clip_planes(self) -> None:
-        """Push the active clip planes onto every actor mapper.
+        """Push the active clip planes onto part mappers.
 
         vtkOpenGLRenderer has no RemoveAllClipPlanes/AddClipPlane in this
-        VTK build; per-mapper clipping is the portable way.
+        VTK build; per-mapper clipping is the portable way. Domain /
+        RootBlock / axis overlays stay unclipped so the outer frame remains
+        a closed cuboid (STpre-like).
         """
         if self.renderer is None:
             return
         props = self.renderer.GetViewProps()
         if props is None:
             return
+        exempt = self._clip_exempt_actors()
         for i in range(props.GetNumberOfItems()):
             actor = props.GetItemAsObject(i)
             mapper = getattr(actor, "GetMapper", lambda: None)()
             if mapper is None or not hasattr(mapper, "RemoveAllClippingPlanes"):
                 continue
             mapper.RemoveAllClippingPlanes()
+            if actor in exempt:
+                continue
             for plane in self._clip_planes:
                 mapper.AddClippingPlane(plane)
 
@@ -3314,6 +3385,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.renderer is None:
             return
         self.renderer.GetActiveCamera().ParallelProjectionOn()
+        self._refresh_camera_clipping()
 
     def _ensure_depth_peeling(self) -> None:
         """Enable depth peeling so translucent Mesh shells occlude rear grids."""
@@ -3481,10 +3553,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.model.add_body_file(member.name)
                 added = cab_import.register_parts(self.model, bodies)
             self._cad_meshes = list(self._cad_meshes or []) + \
-                [b.tess for b in bodies]
+                [b.tess for b in bodies if b.tess is not None]
             # Tree checkboxes reset to ON — clear stale hide flags so the
             # new CAD is actually drawn (was easy to confuse with Origin).
             self._hidden_parts.clear()
+            # STpre: Domain(cuboid) + RootBlock follow CAD bounding box
+            try:
+                import cab_domain
+                fitted = cab_domain.fit_domain_to_parts(
+                    self.model, self._cad_meshes)
+            except Exception as exc:
+                fitted = None
+                self.log(f"Domain auto-fit skipped: {exc}", "WARN")
             self._push_undo(snap)
             self.tree_view.populate(self.model, self.archive.members)
             self._ensure_sketch_plane(force_fit=True)
@@ -3507,6 +3587,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"Imported {path}: {len(bodies)} bodies -> {member.name}, "
                 f"parts added: {', '.join(added) or '-'}"
                 + (f", {skipped} duplicate name(s) skipped" if skipped else ""))
+            if fitted is not None:
+                mn, mx = fitted
+                self.log(
+                    f"Domain(cuboid) fitted to CAD bbox: "
+                    f"min=({mn[0]:.6g},{mn[1]:.6g},{mn[2]:.6g}) "
+                    f"max=({mx[0]:.6g},{mx[1]:.6g},{mx[2]:.6g}) "
+                    f"[{self.model.domain_unit()}]")
         except OSError as exc:
             QMessageBox.critical(
                 self, "Import",

@@ -295,6 +295,11 @@ def root_block_actor(model: StpreModel, line_width: float = 1.15):
     prop.SetAmbient(1.0)
     prop.SetDiffuse(0.0)
     prop.LightingOff()
+    try:
+        prop.BackfaceCullingOff()
+        prop.FrontfaceCullingOff()
+    except Exception:
+        pass
     return actor
 
 

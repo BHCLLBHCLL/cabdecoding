@@ -132,6 +132,8 @@ def part_bounds(model: StpreModel, tess) -> tuple[np.ndarray, np.ndarray]:
     if not tess:
         return lo, hi
     for part in tess:
+        if part is None:
+            continue
         pts = np.asarray(part.points, dtype=np.float64)
         if len(pts) == 0:
             continue
@@ -140,3 +142,57 @@ def part_bounds(model: StpreModel, tess) -> tuple[np.ndarray, np.ndarray]:
         lo = np.minimum(lo, pts.min(0))
         hi = np.maximum(hi, pts.max(0))
     return lo, hi
+
+
+_UNIT_TO_MM = {"mm": 1.0, "m": 1000.0, "cm": 10.0}
+
+
+def fit_domain_to_parts(
+    model: StpreModel,
+    tess,
+    *,
+    margin_frac: float = 0.0,
+    margin_abs: float = 0.0,
+) -> Optional[tuple[tuple[float, float, float],
+                    tuple[float, float, float]]]:
+    """Resize Domain(cuboid) + RootBlock to the world AABB of ``tess``.
+
+    Matches STpre **CAD Data Size** / post-Import behaviour: domain min/max
+    follow the imported geometry bounding box.  ``part_bounds`` is metres;
+    values are written in the current domain unit (default mm).
+
+    Returns ``(xyz_min, xyz_max)`` in domain unit, or ``None`` if empty.
+    """
+    lo_m, hi_m = part_bounds(model, tess)
+    if not np.isfinite(lo_m).all() or not np.isfinite(hi_m).all():
+        return None
+    unit = "mm"
+    if model.analysis_region() is not None:
+        unit = model.domain_unit() or "mm"
+    if unit not in _UNIT_TO_MM:
+        unit = "mm"
+    # metres → domain unit
+    scale = 1000.0 / _UNIT_TO_MM[unit]
+    lo = np.asarray(lo_m, dtype=np.float64) * scale
+    hi = np.asarray(hi_m, dtype=np.float64) * scale
+    span = hi - lo
+    # Degenerate axes (flat sheet / single plane): give a minimal thickness
+    min_span = 1.0 if unit == "mm" else (0.1 if unit == "cm" else 0.001)
+    for i in range(3):
+        if span[i] < min_span * 1e-6:
+            mid = 0.5 * (lo[i] + hi[i])
+            lo[i] = mid - 0.5 * min_span
+            hi[i] = mid + 0.5 * min_span
+            span[i] = hi[i] - lo[i]
+    if margin_frac > 0.0 or margin_abs > 0.0:
+        pad = np.maximum(span * float(margin_frac), float(margin_abs))
+        lo = lo - pad
+        hi = hi + pad
+    spec = domain_from_xml(model) or DomainSpec(unit=unit)
+    spec.unit = unit
+    spec.xyz_min = (float(lo[0]), float(lo[1]), float(lo[2]))
+    spec.xyz_max = (float(hi[0]), float(hi[1]), float(hi[2]))
+    if not (spec.material or "").strip():
+        spec.material = "air(incompressible/20C)"
+    apply_domain(model, spec)
+    return spec.xyz_min, spec.xyz_max

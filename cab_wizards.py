@@ -512,6 +512,20 @@ class InitialWizard(WizardBase):
     def _on_finish(self) -> None:
         self.p_project.apply_project_fields()
         self.p_project.apply_to_model()
+        # Keep wizard / domain page mesh lists in sync after Import CAD
+        meshes = list(getattr(self.p_project, "cad_meshes", None)
+                      or self._cad_meshes or [])
+        self._cad_meshes = meshes
+        self.p_domain.cad_meshes = meshes
+        # STpre: after wizard CAD import, Domain follows geometry AABB
+        if (self.p_project.import_cad.isChecked()
+                and meshes
+                and any(getattr(m, "points", None) is not None
+                        for m in meshes)):
+            try:
+                self.p_domain._cad_size()
+            except Exception:
+                pass
         cab_domain.apply_domain(self.model, self.p_domain._current_spec())
         self.p_analysis.apply()
         self.p_initgrav.apply()
