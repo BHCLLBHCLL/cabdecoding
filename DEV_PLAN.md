@@ -989,6 +989,165 @@ M24–M31 MVP、M32 D1–D7、Layout 多选右键、Assembly XT 展开分色、C
 
 ---
 
+## 16. 可用深度开发路线图（2026-08-13，按难度从易到难）
+
+> 依据 DEV_SUMMARY §39 专项审计整理。每个“大项”可拆成细项，
+> 细项即最小可提交单元：实现 → 快速 review → 刷新 DEV_PLAN/DEV_SUMMARY
+> → pytest → commit/push。
+
+### 16.1 总览（难度阶梯）
+
+| 层级 | 主题 | 预计工作量 | 前置 |
+|---|---|---|---|
+| L1 | 文案与死开关清理 | 0.5–1 天 | 无 |
+| L2 | 金标回归钉住 | 1–2 天 | 无 |
+| L3 | Others 参数进入原生算法 | 1–2 天 | L2（有金标可测） |
+| L4 | Control 交互补深 | 1–3 天 | L1 |
+| L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 |
+| L6 | Edit B-rep 真实算子 | 1–2 周 | L3（测试习惯） |
+| L7 | Meshing 金标收敛 | 2–4 周 | L2/L3 |
+| L8 | STpre API 深度（若解冻） | 1–2 周 | L3 参数中继先行 |
+| L9 | CW 产品级扩展（长尾） | 按需滚动 | L5 |
+| L10 | B-rep 全面接管（架构级） | 长期 | L6 |
+
+### 16.2 L1 文案与死开关清理（易）
+
+- 1.1 修正 Boolean 对话框顶部过期 note（仍写 “MVP: tessellation CSG”，
+  实际 M33 起 PK 优先 + CSG 回退）；
+- 1.2 修正 Control Detail… 过期文案（仍称 Condition/Aspect ratio
+  “not drawn”，P3 已绘制）；
+- 1.3 Point 层接线（显示 `kind=point` 的 marker actor）或移除勾选框
+  （二选一，不能留死开关）；
+- 1.4 Detail… 打开真实 per-layer 明细（只读：当前场景各层 actor 数量/
+  部件列表）；
+- 1.5 顺带清理 `cab-gui-stpre-gap.canvas.tsx` 中已过时的
+  “View Setting/Dialog 缺失、Part 专用件未进菜单”等行。
+
+验收：无死开关；文案与实现一致；pytest 全绿。
+
+### 16.3 L2 金标回归钉住（易）
+
+- 2.1 新增自动测试：`tests/box/box_new.s` vs `box_bm.s` 的 CXYZ 逐点
+  与 PARTS box 占用比对（现在只有人工对比）；
+- 2.2 用 `data/stpre_probe_*` JSON 对 `stpre_rules.auto1_*` /
+  `auto3` 坐标做常驻回归；
+- 2.3 tr03/ex4_e 曲面件网格线数回归（all/rep/plane/minmax 层级）；
+- 2.4 Others 参数（edge_eps/face_search/element_threshold/panel_block_face
+  等）XML round-trip 测试。
+
+验收：金标成为 pytest 常驻项；STpre 升级后可重跑 probe 刷新 JSON。
+
+### 16.4 L3 Others 参数进入原生算法（易→中）
+
+- 3.1 `edge_eps`：`classify_part_cells` 表面容差（候选单元外扩 eps、
+  边界包含判定放宽）；
+- 3.2 `element_threshold`：按 STpre 语义过滤过小间隔/单元（先黑盒对照
+  再实现）；
+- 3.3 `face_search`：panel 带宽度由固定“半单元”改为 face_search 参数；
+- 3.4 角点投票（`samples="corners"`）从 GUI 接线，或按 STpre 默认策略
+  固化；
+- 3.5 `panel_block_face` / `flux_face_check` / `solid_scheme` /
+  `panel_scheme` 至少先影响 S/XEMT 输出字段（先语义后算法）。
+
+验收：box/panel 占用不回归，曲面件与金标偏差缩小，参数有可测效果。
+
+### 16.5 L4 Control 交互补深（中）
+
+- 4.1 Vertex 拾取：cell picker 命中后吸附最近顶点，状态栏输出坐标；
+- 4.2 DomainBoundary 空间拾取：按点击射线与 domain frame 求交选面
+  （替换“总是选第一个 face”）；
+- 4.3 Condition 层：按条件类型给域边界着色（flux/wall/heat 分色）；
+- 4.4 Aspect ratio 层：逐 cell 计算 dx/dy/dz 最大比并着色/线宽；
+- 4.5 Face division 层：真实面划分线（与 element 层区分）。
+
+验收：每个 selection target 与 layer 都有可见/可测效果。
+
+### 16.6 L5 Condition Wizard 低垂果实（中）
+
+- 5.1 BC face create/edit：在 DomainBoundary 上按区域创建轴对齐矩形面，
+  支持编辑（解锁 Source/Area 的 Create/Edit Face…）；
+- 5.2 region Select：Source/Area 页启用多选并写回多个 region 绑定；
+- 5.3 Power-law 风廓线写回（Initial Purpose external_buildings）；
+- 5.4 Enclosure AENT 系数写回（external_enclosure）；
+- 5.5 Source 值类型扩展（time series 等常用项）。
+
+验收：原禁用的 Create/Edit/Select 可用；写回 XML 可重载。
+
+### 16.7 L6 Edit B-rep 真实算子（难，按子项递进）
+
+- 6.1 Cutting 真平面裁剪：tessellation 三角形平面裁剪 + 缝合（先 tess 级）；
+- 6.2 Cutting PK 级：用 pskernel 平面/曲面分割 → x_t 持久化；
+- 6.3 ShapeChangeBoolean 真布尔：复用 `boolean_mesh_parts` 应用到
+  Part A（替代 intent 注解）；
+- 6.4 Wrapping 真凸包：tess 点云凸包（scipy/quickhull）+ 可选偏移 →
+  STL/XT 持久化；
+- 6.5 Shape Simplification QEM：边坍缩简化（容差滑块）→ 预览/Apply；
+- 6.6 Edit Solid 面级编辑：face pick → 移动/删除/补孔；
+- 6.7 持久化回写：修改后 tess 优先 `PK_PART_transmit` 成 x_t，失败退
+  STL member + 重载路径；
+- 6.8 拓扑拾取：face/edge/vertex（PK_TOPOL 或 tess 拓扑），为后续算子
+  铺路。
+
+验收：每个算子有金标几何用例（体积/形状断言）且保存重开不丢几何。
+
+### 16.8 L7 Meshing 金标收敛（难）
+
+- 7.1 panel scheme 黑盒补充（speaker/开放面）→ 规则 → native 实现；
+- 7.2 run-length 精确编码：对齐 STpre box list 结构（box/tr03 金标）；
+- 7.3 V8 scheme：solid_scheme/panel_scheme 改变占用合并规则；
+- 7.4 边界 element face：domain boundary 面生成 + flux face 重复检查；
+- 7.5 圆柱坐标元素分类（R/θ/Z cell 索引，替代“类型标志+笛卡尔分类”）；
+- 7.6 multiblock native：ChildBlock 参与 gridding（Basic Setting 中
+  “Consider only child-blocks” / “lower level block” 两项启用）；
+- 7.7 性能：并行分类（进程池/numba）、大模型内存优化、进度可中断。
+
+验收：简单件与 STpre 完全一致；曲面件逐 cell 占用比对；大模型可跑。
+
+### 16.9 L8 STpre API 深度（若解冻；保持冻结则跳过）
+
+- 8.1 P0 参数中继：`domain_type`（inner/outer）、`division_scale`、
+  Others 页参数写入 relay（先行项，不依赖解冻大方向）；
+- 8.2 `ExecutePartsElement` + `GetNumElements` 回读（Element # 与
+  STpre 一致）；
+- 8.3 `GetNumEdgeContact` / `RemoveEdgeContact`；
+- 8.4 `SetSelectGrid` / `SetDivideArray` / `SetDetailGrid` / `DeleteGrid`
+  （与六页 tab 对应）；
+- 8.5 multiblock：`CreateBlock` / `SetRange` / `SetActiveBlock` / `Update`；
+- 8.6 COM 超时与错误对话框处理；保留“已有 STpre 实例拒绝 attach”。
+
+验收：开关开启时六页 tab 与 API 行为一致；参数回读校验通过。
+
+### 16.10 L9 CW 产品级扩展（长尾，按需）
+
+- 9.1 常用条件：porous anisotropic、radiation grouping 细节、humidity
+  深度、time series；
+- 9.2 初始场/湍流初始场、总压/静压组合边界；
+- 9.3 高级物理页（particle / moving object / electric / electrostatic…）
+  按产品需求排序；
+- 9.4 对 122 个手册对话框建立“支持/子集/禁用”矩阵并逐步解锁。
+
+验收：每页有写回 + 重载 + 测试；禁用项保持诚实标注。
+
+### 16.11 L10 B-rep 全面接管（架构级）
+
+- 10.1 x_t 双向持久化：所有编辑算子输出真实 body；
+- 10.2 Undo/Redo 基于 PK 会话历史或快照 diff；
+- 10.3 全格式矩阵扩展（MDL/DXF/OBJ/IDF…）；
+- 10.4 拾取/测量/参考/距离全线打通。
+
+验收：工业用例可从导入 → 编辑 → 网格 → 求解全程不丢几何。
+
+### 16.12 推进建议
+
+- L1–L3 收益/成本比最高，建议先做；L4–L5 可与 L3 并行；
+- L6–L7 依赖金标与测试习惯（L2/L3），串行推进；
+- L8 视“Gridding/Meshing via STpre API”是否解冻决定，P0 参数中继
+  可先行；
+- L9–L10 为长尾/架构项，滚动排期；
+- 每完成一个细项，更新本路线图状态列并自动 commit/push。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
