@@ -1844,10 +1844,10 @@ M33–M38 是“可演示的 MVP/子集”，核心缺口集中在 **B-rep 保�
 | P0 测试基建 | ✅ 完成 | 恢复 `tests/ex4_e/*` 与重建 `tests/box.cab`；修复 Part 顺序与过期测试；全仓 **294 通过 / 5 跳过**（提交 `66fd6d3`） |
 | P1 B-rep 布尔 | ✅ 完成（STL 持久化） | `boolean_xt_bodies`（真实 tag 布尔+体积）；`_boolean_via_pk` 优先用 archive x_t 真实体（`_find_body_tags` 按 SDL 名匹配+单剩余兜底），`PK_PART_transmit` 失败时结果以 **STL 成员 + polygon 部件**持久化；测试：10mm³−5mm³=8.75e-7 m³、同体 intersect=1e-6 m³、ex4_e button−battery 接线 |
 | P2 圆柱/轴向网格 | ✅ 近似实现 | `cab_grid._build_cylindrical_axes`：x=R（复用 refine）、y=θ（0..360 均匀，nθ=2πR/2/std）、z=Z；axial 保持笛卡尔+标志；元素分类仍笛卡尔（诚实标注） |
-| P3 Control/拾取 | ✅ 计划接受 | M35 已诚实标注 Aspect/Condition 层不绘制并给 Detail 信息框，Draw RMB 子集；按计划“禁用+tooltip”即视为达成 |
+| P3 Control/拾取 | ✅ 完成 | condition/aspect_ratio 图层解除禁用并实际绘制（域线框/占用线框 MVP）；Draw RMB 增加 Property… 与 Register to library… |
 | P4 CW Source→S | ✅ 完成 | `s_export._bound_analysis_values`：analysis/domain 绑定的 heat_source 也写入 VENT_REGION；`test_source_writeback_s_export_consistency` |
 | P5 Library Place | ✅ 完成 | `_prompt_library_params`：双击 Place 前弹 Base/Size 对话框，再注册部件 |
 | P6 全格式矩阵 | ✅ 完成 | `test_m38_format_matrix.py` 扩展：DXF(3DFACE)/MDL(OBJ) 导入、S/XEMT/Property/XT 导出往返；OCC 相关保留 skip |
-| P7 低优先冻结 | ✅ 文档化 | i18n / 3DfindIT / Wiring Gerber 已在 DEV_PLAN 明确冻结/放弃；不再投入代码 |
+| P7 低优先解冻 | ✅ MVP | 新增 `cab_i18n`（标题/就绪文案，Option→UI Language 持久化）；View→3DfindIT… 打开外部搜索；Wiring 对话框记录 Gerber 元数据（大小/行数）；DEV_PLAN 已取消冻结 |
 
 当前全仓 **297 通过 / 5 跳过**（提交 `1a496b7` 之后的新改动待提交）。

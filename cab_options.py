@@ -253,8 +253,14 @@ class OptionsDialog(QDialog):
         self.press_unit = QComboBox(w)
         self.press_unit.addItems(["Pa", "atm", "bar"])
         self.press_unit.setCurrentText(str(get_setting("press_unit", "Pa")))
+        self.ui_language = QComboBox(w)
+        self.ui_language.addItems(["English", "中文"])
+        self.ui_language.setCurrentText(
+            "中文" if str(get_setting("ui_language", "en")) == "zh"
+            else "English")
         f.addRow("Temperature unit", self.temp_unit)
         f.addRow("Pressure unit", self.press_unit)
+        f.addRow("UI language", self.ui_language)
         return w
 
     def _message_tab(self):
@@ -398,6 +404,8 @@ class OptionsDialog(QDialog):
             "default_domain_color": self.domain_color.text(),
             "temp_unit": self.temp_unit.currentText(),
             "press_unit": self.press_unit.currentText(),
+            "ui_language": ("zh" if self.ui_language.currentText() == "中文"
+                            else "en"),
             "message_font": self.font_name.text(),
             "log_level": self.log_level.currentText(),
             "message_max_blocks": self.max_blocks.value(),

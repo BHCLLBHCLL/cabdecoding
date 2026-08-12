@@ -700,6 +700,7 @@ Parasolid 会话对齐。详见 **§14**（菜单对话框逐项核对与实施�
 |---|---|---|
 | Gridding/Meshing via STpre API | `cab_gui` 菜单勾选、`cab_stpre_api.py`、Option→Mesh 勾选 | **禁止改**开关语义、COM 调用与结果合并 |
 | 原生网格算法金标收敛 | `cab_grid` / `cab_mesh` 内核 | 不在本对话框对齐批次（属 M27） |
+| P3/P7 冻结 | — | **已解冻（2026-08-12，M39-P3/P7）**：Aspect/Condition 层绘制、Draw RMB 补全、i18n、3DfindIT、Wiring Gerber 恢复为可改进项 |
 
 原生 Mesh **对话框 chrome**（Interference / Edit Mesh / Section / S-File）仍可做 UI 抛光。
 
@@ -886,7 +887,7 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | Assembly XT | partial | 已展开 bodies + 调色；命名/分组/库导入仍薄 |
 | Export | partial | S/XEMT/STL/XT/Property；缺 Neutral 全矩阵 |
 | Execute Solver / Post | partial | 能启 stsol/scPOST；Kicker 环境矩阵仍薄（见 §15.6） |
-| 3DfindIT | missing | 放弃 / 禁用占位 |
+| 3DfindIT | partial | M39-P7：View 菜单打开外部 3DfindIT 搜索（web）；无本地 CAD 插件 |
 
 #### Edit
 | 功能 | 深度 | 缺口 |
@@ -928,7 +929,7 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | **Blocker** | Parasolid B-rep Edit（Boolean / Solid / Simplify） |
 | **High** | Meshing 金标 + panel；CW 产品子集；拾取死角清理 |
 | **Medium** | 格式回归；Library/专用件；热色图；Undo↔PS |
-| **Low** | i18n；3DfindIT |
+| **Low** | i18n / 3DfindIT / Wiring Gerber（M39-P7 已解冻并做 MVP） |
 
 ### 15.4 开发计划 M33+
 
@@ -938,7 +939,7 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 |---|---|---|
 | **M33** Edit 内核跃迁 | `PK_BODY_boolean_2`；Edit Solid/Simplify 可删面子集会；Paneling/Sweep 拾取面 | Boolean 与 STpre 同类件体积差可量化；Undo 后几何一致 |
 | **M34** Mesh 原生保真 | panel/开面 face-thin；圆柱·轴向类型标志；Edit 列表选点 | ✅ panel 占用 smoke；类型写回；列表 Select |
-| **M35** Control/拾取清理 | Domain boundary 接线；Condition/Aspect 禁用；Detail；Draw RMB | ✅ |
+| **M35** Control/拾取清理 | Domain boundary 接线；Condition/Aspect **绘制（MVP）**；Detail；Draw RMB（含 Property/Register to library） | ✅ M39-P3 |
 | **M36** CW 产品子集 | Source 深度写回；未实现物理显式禁用 | ✅ Source XML 可重载 |
 | **M37** Library + 专用件 + 热显示 | Register/Place；AC/Diffuser 代理；热 tint MVP | ✅ |
 | **M38** 格式与抛光 | Import/Export 矩阵测试；IGES/IDF 决策；Solver/Post 文档 | ✅ `test_m38_format_matrix`；§15.6 |

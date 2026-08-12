@@ -362,6 +362,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m_dlg, "Editing Contact Thermal Resistance…",
             self._view_editing_contact_tr)
         m.addSeparator()
+        add(m, "3DfindIT…", self._open_3dfindit)
+        m.addSeparator()
         # Shortcuts X/Y/Z (and Shift+*) installed on the Draw Window widget
         self._act_xy = add(m, "XY Plane", lambda: self._set_plane("xy"))
         self._act_xz = add(m, "XZ Plane", lambda: self._set_plane("xz"))
@@ -825,6 +827,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             # preference from a previous session.
             mode = "Shading"
         self._set_drawing_mode(mode)
+        lang = str(values.get("ui_language", "en"))
+        import cab_i18n
+        self.setWindowTitle(cab_i18n.tr("app_title", lang))
         self._toggle_status_bar(bool(values.get("show_status_bar", True)))
         bg = values.get("background", "Gradation")
         if self.renderer is not None:
@@ -853,6 +858,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "message_max_blocks": int(
                     get_setting("message_max_blocks", 2000)),
                 "drawing_mode": str(get_setting("drawing_mode", "Shading")),
+                "ui_language": str(get_setting("ui_language", "en")),
                 "show_status_bar":
                     str(get_setting("show_status_bar", "True")) == "True",
                 "background": str(get_setting("background", "Gradation")),
@@ -1589,6 +1595,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         entry = data[2] if len(data) > 2 else None
         if isinstance(entry, dict):
             self._place_library_part(entry)
+
+    def _open_3dfindit(self) -> None:
+        """P7: open the external 3DfindIT part search in the browser."""
+        import webbrowser
+        webbrowser.open("https://www.3dfindit.com")
+        self.log("3DfindIT: opened external part search (web).")
 
     def _place_library_part(self, entry: dict) -> None:
         """Instantiate a registered library stub as a new model part."""
@@ -2500,6 +2512,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 "Hide Part",
                 lambda n=name: self._set_part_visible(n, False))
             menu.addAction(
+                "Property...",
+                lambda n=name: self._on_item_activated("part", n))
+            menu.addAction(
+                "Register to library...",
+                lambda n=name: self._on_context_action(
+                    "register_library", "part", [n]))
+            menu.addAction(
                 "Delete Part",
                 lambda n=name: self._on_context_action("delete", "part", [n]))
             menu.exec_(QCursor.pos())
@@ -3104,6 +3123,54 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 actor.GetProperty().SetLineWidth(2.4)
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
+
+        # P3: Condition layer - domain-boundary wireframe overlay (MVP).
+        if self.control.layer_on("condition"):
+            frame = cab_vtk.domain_frame(self.model)
+            if frame:
+                pd = cab_vtk._make_box_polydata(frame, wireframe=True)
+                mapper = vtk.vtkPolyDataMapper()
+                mapper.SetInputData(pd)
+                actor = vtk.vtkActor()
+                actor.SetMapper(mapper)
+                actor.GetProperty().SetColor(0.95, 0.62, 0.10)
+                actor.GetProperty().SetRepresentationToWireframe()
+                actor.GetProperty().SetLineWidth(1.4)
+                actor.GetProperty().LightingOff()
+                self.renderer.AddActor(actor)
+                self._layer_actors.setdefault("condition", []).append(actor)
+
+        # P3: Aspect ratio layer - element occupancy wireframe (MVP).
+        axes = self.model.mesh_axes() if self.model is not None else {}
+        if self.control.layer_on("aspect_ratio") and axes:
+            for p in self.model.parts():
+                for b6 in self.model.part_boxes(p.name):
+                    if len(b6) < 6:
+                        continue
+                    try:
+                        lo = (axes["x"][b6[0] - 1] / 1000.0,
+                              axes["y"][b6[2] - 1] / 1000.0,
+                              axes["z"][b6[4] - 1] / 1000.0)
+                        hi = (axes["x"][b6[1]] / 1000.0,
+                              axes["y"][b6[3]] / 1000.0,
+                              axes["z"][b6[5]] / 1000.0)
+                    except IndexError:
+                        continue
+                    bb = (lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])
+                    part_box = cab_vtk.PartBox(
+                        p.name, bb, (0.75, 0.25, 0.75), 1.0, cells=[bb])
+                    pd = cab_vtk._make_box_polydata(part_box, wireframe=True)
+                    mapper = vtk.vtkPolyDataMapper()
+                    mapper.SetInputData(pd)
+                    actor = vtk.vtkActor()
+                    actor.SetMapper(mapper)
+                    actor.GetProperty().SetColor(*part_box.color)
+                    actor.GetProperty().SetRepresentationToWireframe()
+                    actor.GetProperty().SetLineWidth(1.1)
+                    actor.GetProperty().LightingOff()
+                    self.renderer.AddActor(actor)
+                    self._layer_actors.setdefault(
+                        "aspect_ratio", []).append(actor)
 
         # Layout of Parts → RootBlock: STpre thin blue AABB wireframe
         # (independent of Mesh→Gridding / Drawing→Mesh block dense grid)

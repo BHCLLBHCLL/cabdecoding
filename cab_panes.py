@@ -826,22 +826,17 @@ class ControlWindow(QWidget):
             ["origin", "point", "aspect_ratio"],
         ]
         by_key = {k: (lab, k, d) for lab, k, d in self.LAYER_KEYS}
-        # Layers without Draw actors yet — keep visible but inert (M35).
-        _LAYER_DISABLED = {
-            "condition": "Condition arrows/glyphs not drawn yet (STpre subset).",
-            "aspect_ratio": "Element aspect-ratio display not drawn yet.",
-        }
         for c, keys in enumerate(col_keys):
             for r, key in enumerate(keys):
                 lab, key, default = by_key[key]
                 cb = QCheckBox(lab, draw_box)
                 cb.setChecked(default)
-                if key in _LAYER_DISABLED:
-                    cb.setEnabled(False)
-                    cb.setToolTip(_LAYER_DISABLED[key])
-                else:
-                    cb.toggled.connect(
-                        lambda on, k=key: self.layer_toggled.emit(k, on))
+                cb.toggled.connect(
+                    lambda on, k=key: self.layer_toggled.emit(k, on))
+                if key == "condition":
+                    cb.setToolTip("Domain-boundary wireframe overlay (MVP).")
+                elif key == "aspect_ratio":
+                    cb.setToolTip("Element occupancy wireframe (MVP).")
                 self.layer_checks[key] = cb
                 grid.addWidget(cb, r, c)
         detail = QPushButton("Detail...", draw_box)

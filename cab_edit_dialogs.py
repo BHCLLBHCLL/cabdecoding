@@ -1635,10 +1635,19 @@ class EditWiringOnBoardDialog(_EditDlg):
             self.gerber_path.setText(path)
 
     def _reg(self) -> None:
+        meta = "-|-"
+        path = self.gerber_path.text().strip()
+        if path:
+            try:
+                with open(path, "rb") as fh:
+                    raw = fh.read()
+                meta = f"{len(raw)}|{raw.count(b'\n') + 1}"
+            except OSError:
+                meta = "err|-"
         self.model.set_project_value(
             "board_wiring",
             f"{self.board.currentText()}|{self.coord.currentText()}|"
-            f"{self.gerber_path.text()}|{self.via_dia.value():g}")
+            f"{self.gerber_path.text()}|{self.via_dia.value():g}|{meta}")
         self.applied = True
         QMessageBox.information(
             self, "Edit wiring of board",
