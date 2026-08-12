@@ -2621,8 +2621,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         """
         if self.renderer is None:
             return
-        for i in range(self.renderer.GetNumberOfViewProps()):
-            actor = self.renderer.GetViewProps().GetItemAsObject(i)
+        props = self.renderer.GetViewProps()
+        if props is None:
+            return
+        for i in range(props.GetNumberOfItems()):
+            actor = props.GetItemAsObject(i)
             mapper = getattr(actor, "GetMapper", lambda: None)()
             if mapper is None or not hasattr(mapper, "RemoveAllClippingPlanes"):
                 continue

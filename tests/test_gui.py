@@ -155,15 +155,15 @@ def test_clipping_plane_apply(viewer):
         def __init__(self, items):
             self._items = items
 
+        def GetNumberOfItems(self):
+            return len(self._items)
+
         def GetItemAsObject(self, i):
             return self._items[i]
 
     class FakeRenderer:
         def __init__(self):
             self._props = []
-
-        def GetNumberOfViewProps(self):
-            return len(self._props)
 
         def GetViewProps(self):
             return Props(self._props)

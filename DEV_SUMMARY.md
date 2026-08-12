@@ -1864,4 +1864,11 @@ M33–M38 是“可演示的 MVP/子集”，核心缺口集中在 **B-rep 保�
   使 EUDC 字体等早期 Qt 平台警告也被过滤；
 - 说明：若控制台仍出现 `PaneFrameWindow` 的 geometry 警告，该窗口不属于
   当前 cab_gui（仓库无此类窗口），来自外部 Qt 进程；
-- 全仓 `pytest`：**298 通过 / 5 跳过**。
+- 全仓 `pytest`：**298 通过 / 5 跳过**（提交 `7f2a3ff`）。
+- 二次修复（2026-08-12）：`vtkOpenGLRenderer` 同样没有
+  `GetNumberOfViewProps()`，cab_gui 启动 `_new_project(silent=True)` →
+  `_rebuild_scene` → `_apply_clip_planes` 即崩溃；改为读取
+  `GetViewProps()` 返回的 `vtkPropCollection`，用 `GetNumberOfItems()` +
+  `GetItemAsObject(i)` 遍历；测试 fake renderer 同步改为该真实 API，
+  并在本机 VTK 构建上冒烟验证（`vtkPropCollection count: 0`）；
+  全仓回归仍为 **298 通过 / 5 跳过**。
