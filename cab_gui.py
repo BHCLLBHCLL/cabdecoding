@@ -155,6 +155,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._paneling_faces: list = []
         self._act_paneling_esc = None
         self._clip_planes: list = []
+        self._point_part_names: set[str] = set()
         self._hide_virtual_parts = False
         self._material_filter: Optional[str] = None
 
@@ -1950,10 +1951,13 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not self._enable_3d:
             return
         part_on = self.control.layer_on("part")
+        point_on = self.control.layer_on("point")
         elem_on = self.control.layer_on("element")
         for actor, pname in self.actors:
             if pname == name:
-                actor.SetVisibility(1 if (visible and part_on) else 0)
+                layer_on = (point_on if name in self._point_part_names
+                            else part_on)
+                actor.SetVisibility(1 if (visible and layer_on) else 0)
         for actor, pname in getattr(self, "_edge_actors", []):
             if pname == name:
                 # Element division independent of Part shading (STpre)
@@ -1969,6 +1973,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         if key == "part":
             for actor, pname in self.actors:
+                if pname in getattr(self, "_point_part_names", set()):
+                    continue  # Point layer owns point-kind markers
                 show = on and pname not in self._hidden_parts
                 actor.SetVisibility(1 if show else 0)
             # keep element edges if Element division is on
@@ -2103,12 +2109,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
     def _on_sel_target(self, target: str) -> None:
         if target == "Detail":
-            from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.information(
-                self, "Drawing On/Off — Detail",
-                "STpre opens a per-layer detail sheet here.\n"
-                "cabdecoding keeps Drawing On/Off on Show/Select; "
-                "Condition / Aspect ratio layers are listed but not drawn.")
+            self._view_layer_detail_dialog()
             return
         self._target_label.setText(target)
         self._sel_target = target
@@ -2118,6 +2119,73 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.log(f"Selection target: {target}")
             return
         self.log(f"Selection target: {target}", "INFO")
+
+    def _layer_detail_rows(self) -> list[tuple[str, str, int, str]]:
+        """Read-only per-layer summary for Control → Drawing On/Off → Detail.
+
+        Returns ``(label, On/Off, actor_count, note)`` rows so the dialog is
+        a thin view over the current scene state.
+        """
+        names = {
+            "part": "Part",
+            "mesh_block": "Mesh block",
+            "element": "Element division",
+            "condition": "Condition (flow, etc)",
+            "sketch_plane": "Sketch plane",
+            "domain_frame": "Domain frame",
+            "mesh": "Mesh",
+            "face": "Face division",
+            "axis_global": "Axis (Global)",
+            "axis_sketch": "Axis (Sketch)",
+            "origin": "Origin",
+            "point": "Point",
+            "aspect_ratio": "Aspect ratio",
+            "root_block": "RootBlock",
+        }
+        notes = {
+            "condition": "Domain-boundary wireframe overlay (MVP).",
+            "aspect_ratio": "Element occupancy wireframe (MVP).",
+            "point": "Point-kind part markers (octahedron).",
+        }
+        rows: list[tuple[str, str, int, str]] = []
+        for key, label in names.items():
+            cb = self.control.layer_checks.get(key)
+            state = "On" if (cb is not None and cb.isChecked()) else "Off"
+            count = len(self._layer_actors.get(key, []) or [])
+            rows.append((label, state, count, notes.get(key, "")))
+        return rows
+
+    def _view_layer_detail_dialog(self) -> None:
+        """Control → Drawing On/Off → Detail: real per-layer sheet."""
+        from PyQt5.QtWidgets import (
+            QDialog, QHBoxLayout, QHeaderView, QPushButton, QTableWidget,
+            QTableWidgetItem, QVBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Drawing On/Off — Detail")
+        dlg.resize(560, 420)
+        lay = QVBoxLayout(dlg)
+        table = QTableWidget(0, 4, dlg)
+        table.setHorizontalHeaderLabels(
+            ["Layer", "State", "Actors", "Note"])
+        table.horizontalHeader().setSectionResizeMode(
+            2, QHeaderView.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(
+            3, QHeaderView.Stretch)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        for label, state, count, note in self._layer_detail_rows():
+            r = table.rowCount()
+            table.insertRow(r)
+            for c, text in enumerate((label, state, str(count), note)):
+                table.setItem(r, c, QTableWidgetItem(text))
+        lay.addWidget(table, 1)
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        ok = QPushButton("OK", dlg)
+        ok.clicked.connect(dlg.accept)
+        brow.addWidget(ok)
+        lay.addLayout(brow)
+        dlg.exec_()
 
     def _on_layer_apply(self) -> None:
         """Control → Layer → Apply: filter part visibility by Display Layer."""
@@ -3091,7 +3159,45 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         boxes = cab_vtk.part_boxes(
             self.model, getattr(self, "_cad_meshes", None))
+        point_names = {p.name for p in self.model.parts()
+                       if (p.kind or "").strip().lower() == "point"}
+        self._point_part_names = point_names
+        point_on = self.control.layer_on("point")
         for box in boxes:
+            if box.name in point_names:
+                # Point parts live on the Point layer (STpre Drawing On/Off),
+                # independent of the Part layer.
+                tree_vis = box.name not in self._hidden_parts
+                pd_part = cab_vtk.part_polydata(box, for_part=True)
+                if wire:
+                    edge = cab_vtk.edges_actor(
+                        pd_part,
+                        color=self._thermal_tint_for_part(
+                            box.name, box.color),
+                        line_width=1.35)
+                    edge.SetVisibility(1 if (point_on and tree_vis) else 0)
+                    self.renderer.AddActor(edge)
+                    self.actors.append((edge, box.name))
+                    self._layer_actors.setdefault("point", []).append(edge)
+                else:
+                    mapper = vtk.vtkPolyDataMapper()
+                    mapper.SetInputData(pd_part)
+                    actor = vtk.vtkActor()
+                    actor.SetMapper(mapper)
+                    prop = actor.GetProperty()
+                    prop.SetColor(*self._thermal_tint_for_part(
+                        box.name, box.color))
+                    prop.SetOpacity(0.35 if translucent else 1.0)
+                    prop.SetInterpolationToGouraud()
+                    prop.SetAmbient(0.25)
+                    prop.SetDiffuse(0.85)
+                    prop.SetSpecular(0.2)
+                    prop.SetSpecularPower(18)
+                    actor.SetVisibility(1 if (point_on and tree_vis) else 0)
+                    self.renderer.AddActor(actor)
+                    self.actors.append((actor, box.name))
+                    self._layer_actors.setdefault("point", []).append(actor)
+                continue
             # Part shading: CAD mesh when available; Element: mesh boxes
             pd_part = cab_vtk.part_polydata(box, for_part=True)
             pd_elem = cab_vtk.part_polydata(box, for_part=False)

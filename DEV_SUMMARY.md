@@ -2046,3 +2046,23 @@ SaveCabFile → merge_mesh_result`。
    - Control：Point 层接线或移除、Detail… 打开真实明细、修正过期文案、
      Vertex 拾取吸附；
    - STpre API：维持冻结，但按 P0–P4 顺序把缺失能力文档化备选。
+
+## 40. L1 执行：文案与死开关清理（2026-08-13）
+
+- **Boolean 对话框过期文案修正**：顶部 note 由 “MVP: tessellation CSG”
+  改为 “M33+: PK_BODY_boolean_2 on real x_t bodies when available;
+  tessellation CSG fallback; Seamless stays reserved.”（与 M33/M39-P1
+  实际行为一致）；
+- **Control → Drawing On/Off → Detail… 真实化**：不再弹信息框，改为
+  `_view_layer_detail_dialog()` 只读明细表（14 层：状态 / actor 数 /
+  说明），数据来自 `_layer_detail_rows()`；
+- **Point 层接线（死开关修复）**：`kind=point` 部件改由 Point 层独立控制
+  （STpre 语义），不再挂在 Part 层下；`_rebuild_scene` 为 point 部件生成
+  独立 marker actor 并注册到 `_layer_actors["point"]`；
+  `_on_layer_toggled("part")` 跳过 point 部件，树勾选可见性按
+  `point_on` 计算；默认 Point=Off（与 LAYER_KEYS 一致）；
+- **cab_panes**：Detail 按钮 tooltip 更新为真实明细；
+- 测试：`test_layer_detail_rows`、`test_layer_detail_dialog_builds`、
+  `test_point_layer_owns_point_markers`、`test_boolean_dialog_note_updated`；
+  全仓回归 **300 通过 / 4 跳过**；
+- 未做：`cab-gui-stpre-gap.canvas.tsx` 过期行清理（可选，留待后续）。

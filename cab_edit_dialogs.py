@@ -874,8 +874,9 @@ class BooleanOperationDialog(_EditDlg):
         self.cad_meshes = cad_meshes
         self.result_name: Optional[str] = None
         self.body.addWidget(_capability_note(
-            "MVP: tessellation CSG (not Parasolid B-rep Boolean). "
-            "Seamless / Divide use best-effort mesh ops.", self))
+            "M33+: PK_BODY_boolean_2 on real x_t bodies when available; "
+            "tessellation CSG fallback when pskernel is unavailable. "
+            "Seamless stays reserved.", self))
 
         form = QFormLayout()
         names = _part_names(model)

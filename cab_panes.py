@@ -842,7 +842,7 @@ class ControlWindow(QWidget):
         detail = QPushButton("Detail...", draw_box)
         detail.setFixedWidth(72)
         detail.setToolTip(
-            "STpre Drawing On/Off detail sheet — subset note only.")
+            "Open the per-layer detail sheet (state / actor counts).")
         detail.clicked.connect(
             lambda: self.selection_target_changed.emit("Detail"))
         grid.addWidget(detail, 3, 2, Qt.AlignLeft)

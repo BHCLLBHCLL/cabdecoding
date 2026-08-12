@@ -84,6 +84,19 @@ def test_reset_domain_dialog_applies_defaults(qapp):
         "default_emissivity", "0")) - 0.8) < 1e-6
 
 
+def test_boolean_dialog_note_updated(qapp):
+    """Boolean dialog must advertise PK-first + fallback, not stale CSG-only."""
+    import cab_edit_dialogs
+    from PyQt5.QtWidgets import QLabel
+    viewer = _viewer(qapp)
+    dlg = cab_edit_dialogs.BooleanOperationDialog(
+        viewer.model, [], parent=None)
+    texts = " ".join(w.text() for w in dlg.findChildren(QLabel))
+    assert "PK_BODY_boolean_2" in texts
+    assert "MVP: tessellation CSG" not in texts
+    dlg.close()
+
+
 def test_mirror_copy_and_align_ops(qapp):
     import cab_edit_ops as ops
     from cab_parts import PrimitivePart, cube_tess, register_primitive

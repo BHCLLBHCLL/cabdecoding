@@ -177,12 +177,66 @@ def test_clipping_plane_apply(viewer):
     class Host:
         renderer = fake
         _clip_planes = [vtk.vtkPlane()]
+        _layer_actors = {}
 
-    cab_gui.CabViewer._apply_clip_planes(Host)
+        def _clip_exempt_actors(self):
+            return set()
+
+    host = Host()
+    cab_gui.CabViewer._apply_clip_planes(host)
     assert mapper.GetNumberOfClippingPlanes() == 1
-    Host._clip_planes = []
-    cab_gui.CabViewer._apply_clip_planes(Host)
+    host._clip_planes = []
+    cab_gui.CabViewer._apply_clip_planes(host)
     assert mapper.GetNumberOfClippingPlanes() == 0
+
+
+def test_layer_detail_rows(viewer):
+    """Control Drawing On/Off Detail shows real per-layer state."""
+    win = viewer
+    rows = win._layer_detail_rows()
+    labels = {r[0] for r in rows}
+    assert len(rows) >= 14
+    assert {"Part", "Point", "RootBlock", "Aspect ratio",
+            "Condition (flow, etc)"} <= labels
+    by = {r[0]: r for r in rows}
+    assert by["Part"][1] == (
+        "On" if win.control.layer_on("part") else "Off")
+    assert by["Point"][2] == len(win._layer_actors.get("point", []))
+
+
+def test_layer_detail_dialog_builds(viewer, monkeypatch):
+    from PyQt5.QtWidgets import QDialog
+    monkeypatch.setattr(QDialog, "exec_", lambda self: 0)
+    viewer._view_layer_detail_dialog()
+
+
+def test_point_layer_owns_point_markers(viewer):
+    """Point-layer toggle controls point-kind actors; Part layer skips them."""
+    import vtk
+    win = viewer
+
+    class FakeRenderWindow:
+        def Render(self):
+            pass
+
+    class FakeRenderer:
+        def GetRenderWindow(self):
+            return FakeRenderWindow()
+
+    actor = vtk.vtkActor()
+    win._enable_3d = True
+    win.renderer = FakeRenderer()
+    win.actors = [(actor, "pt1")]
+    win._point_part_names = {"pt1"}
+    win._layer_actors["point"] = [actor]
+    win._on_layer_toggled("part", False)
+    assert actor.GetVisibility() == 1
+    win._on_layer_toggled("point", False)
+    assert actor.GetVisibility() == 0
+    win._on_layer_toggled("point", True)
+    assert actor.GetVisibility() == 1
+    win._enable_3d = False
+    win.renderer = None
 
 
 def test_edges_actor_extracts_lines():
