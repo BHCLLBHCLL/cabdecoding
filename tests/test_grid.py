@@ -227,6 +227,26 @@ def test_inner_symmetric_ratio_matches_probe():
     assert g[1] > g[0] and g[2] > g[1]
 
 
+def test_cylindrical_axes_layout():
+    """P2: cylindrical domain stores x=R / y=theta / z=Z tables."""
+    rough = {"x": [0.0, 50.0], "y": [0.0, 360.0], "z": [0.0, 100.0]}
+    spec = _spec(
+        domain_min=(0.0, 0.0, 0.0), domain_max=(50.0, 360.0, 100.0),
+        domain_coordinate="cylindrical",
+        standard_length=5.0, threshold_length=0.1,
+        geometric_ratio=1.0, geometric_ratio_external=1.0)
+    lo = np.array([5.0, 0.0, 0.0])
+    hi = np.array([15.0, 360.0, 80.0])
+    _, d = cab_grid.build_axes(
+        {"p": np.array([[5, 0, 0], [15, 0, 80]])}, spec,
+        part_bounds=(lo, hi))
+    y = np.asarray(d["y"])
+    assert y[0] == 0.0 and y[-1] == 360.0
+    np.testing.assert_allclose(np.diff(y), 360.0 / (len(y) - 1))
+    assert d["x"][0] == 0.0 and d["x"][-1] == 50.0
+    assert d["z"][0] == 0.0 and d["z"][-1] == 100.0
+
+
 def test_rough_grids_use_real_vertices():
     pts = {"p": np.array([[0., 0., 0.], [10., 10., 10.]])}
     verts = {"p": np.array([[-5., 2., 3.], [7., 8., 9.]])}

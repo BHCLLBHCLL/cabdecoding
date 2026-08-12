@@ -121,11 +121,24 @@ def available() -> bool:
 
 
 def transmit_parts(tags: list[int]) -> bytes:
-    """``PK_PART_transmit`` selected body tags → text ``.x_t`` bytes."""
+    """``PK_PART_transmit`` body/part tags → text ``.x_t`` bytes."""
     if not tags:
         raise ValueError("no body tags to transmit")
     sess = _ps._get_session()
     pk = sess.pk
+    # PK_PART_transmit expects PART tags; map body tags to their owner part.
+    pk.PK_BODY_ask_parent.restype = c_int
+    pk.PK_BODY_ask_parent.argtypes = [c_int, POINTER(c_int)]
+    parts = []
+    for tag in tags:
+        parent = c_int(0)
+        rc = -1
+        try:
+            rc = pk.PK_BODY_ask_parent(int(tag), byref(parent))
+        except Exception:
+            pass
+        parts.append(int(parent.value) if rc == 0 and parent.value
+                     else int(tag))
     tmpdir = Path(tempfile.mkdtemp(prefix="cab_tx_"))
     key = str(tmpdir / "out").encode()
     opts = _Transmit()
@@ -134,8 +147,8 @@ def transmit_parts(tags: list[int]) -> bytes:
     pk.PK_PART_transmit.restype = c_int
     pk.PK_PART_transmit.argtypes = [
         c_int, POINTER(c_int), c_char_p, POINTER(_Transmit)]
-    arr = (c_int * len(tags))(*tags)
-    rc = pk.PK_PART_transmit(len(tags), arr, key, byref(opts))
+    arr = (c_int * len(parts))(*parts)
+    rc = pk.PK_PART_transmit(len(parts), arr, key, byref(opts))
     if rc != 0:
         raise RuntimeError(f"PK_PART_transmit failed: {rc}")
     xtp = tmpdir / "out.x_t"

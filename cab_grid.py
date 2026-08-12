@@ -215,6 +215,8 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
     hi = part_bounds[1] if part_bounds is not None else None
     out = {}
     for i, ax in enumerate("xyz"):
+        if ax not in rough:
+            continue
         axis_pts = [rough[ax][0]]
         for a, b in zip(rough[ax][:-1], rough[ax][1:]):
             if lo is not None and hi is not None:
@@ -434,8 +436,36 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
     rough = rough_grids(part_points, spec, part_vertices=part_vertices)
     if spec.method == "rough_only":
         return rough, {ax: list(v) for ax, v in rough.items()}
+    if getattr(spec, "domain_coordinate", "cartesian") == "cylindrical":
+        return rough, _build_cylindrical_axes(
+            rough, spec, part_bounds=part_bounds)
     detailed = refine_grids(rough, spec, part_bounds=part_bounds)
     return rough, detailed
+
+
+def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
+                            part_bounds=None) -> dict[str, list[float]]:
+    """Approximate cylindrical layout: x=R, y=theta, z=Z.
+
+    STpre stores R / theta / Z in the mesh_block tables for a cylindrical
+    domain.  R and Z reuse the cartesian refine path (with part bounds);
+    theta is a uniform 0..360 deg axis sized from the mean radius and the
+    standard length.  Element classification remains cartesian (honest
+    limitation pending STpre golden data).
+    """
+    std = _as3(spec.standard_length)[0] or 1.0
+    dmin = np.asarray(spec.domain_min, float)
+    dmax = np.asarray(spec.domain_max, float)
+    rmax = max(dmax[0] - dmin[0], 1e-9)
+    n_theta = max(8, int(round(2.0 * np.pi * rmax / 2.0 / std)))
+    theta = list(np.linspace(0.0, 360.0, n_theta + 1))
+    x_only = {"x": rough["x"]}
+    z_only = {"z": rough["z"]}
+    r_axis = refine_grids(
+        x_only, spec, part_bounds=part_bounds)["x"]
+    z_axis = refine_grids(
+        z_only, spec, part_bounds=part_bounds)["z"]
+    return {"x": r_axis, "y": theta, "z": z_axis}
 
 
 def divide_interval(axis_vals: list[float], a: float, b: float, n: int,

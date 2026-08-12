@@ -433,8 +433,10 @@ class SExport:
 
     def _vent_region(self):
         self.lines.append("VENT_REGION")
-        for name, val, region in sorted(self._bound_parts_values("heat_source"),
-                                        key=lambda x: _name_key(x[0])):
+        entries = list(self._bound_parts_values("heat_source"))
+        entries += list(self._bound_analysis_values("heat_source"))
+        for name, val, region in sorted(
+                entries, key=lambda x: _name_key(x[0])):
             src = float(_child_text(val, "source", "0"))
             self.lines.append(f"source    0   ! {name}")
             self.lines.append(f"{_f(src, 29)}   2")
@@ -580,6 +582,23 @@ class SExport:
             if val is None or val.attrib.get("type", "") != vtype:
                 continue
             yield vname, val, parts_name
+
+    def _bound_analysis_values(self, vtype: str):
+        """Conditions bound to the analysis/domain region (volumetric
+        sources etc.)."""
+        dom = self.m.domain_name() or "Domain(cuboid)"
+        for c in self.m.conditions():
+            region = None
+            for child in c:
+                if child.tag in ("analysis", "region"):
+                    region = child.text.strip() if child.text else ""
+            if region is None or region != dom:
+                continue
+            vname = _child_text(c, "value")
+            val = self.m.find_value(vname)
+            if val is None or val.attrib.get("type", "") != vtype:
+                continue
+            yield vname, val, region
 
     def _undefined_conditions(self):
         """(undefine_region_name, value_name) for `undefineN` bindings."""

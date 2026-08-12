@@ -92,3 +92,24 @@ def test_unsupported_analysis_types_disabled(qapp):
     assert page.types["heat"].isEnabled()
     assert page.types["humidity"].isEnabled()
     assert page.types["porous_media"].isEnabled()
+
+
+def test_source_writeback_s_export_consistency(qapp):
+    """P4: wizard Source write-back is visible in the exported S file."""
+    from cab_cwizard_pages import _CwSourcePage
+    from cabxml import PropertyModel, new_property_bytes, parse_property
+    import s_export
+    m = _model()
+    page = _CwSourcePage(m)
+    m.upsert_value("heat_source", "HeatSource1", [
+        ("source", "12.5", "W"),
+        ("kind", "volumetric", None),
+    ])
+    m.bind_condition("analysis", m.domain_name() or "Domain(cuboid)",
+                     "HeatSource1")
+    page.refresh()
+    page.apply()
+    props = PropertyModel(parse_property(new_property_bytes()))
+    text = s_export.build_sdat(m, props)
+    assert "HeatSource1" in text
+    assert "source" in text.lower()

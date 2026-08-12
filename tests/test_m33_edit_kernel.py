@@ -60,6 +60,31 @@ def test_boolean_xt_bodies_intersect():
     assert abs(res["volume_m3"] - 1e-6) < 1e-10
 
 
+def test_boolean_mesh_parts_real_xt_bodies():
+    """M39-P1 wiring: boolean via real x_t body tags + XT member persist."""
+    if not cab_ps_ops.available():
+        return
+    from cab_container import CabArchive
+    from cabxml import StpreModel, parse_stpre
+    import cab_import
+    # ex4_e: two overlapping solid bodies from one real x_t stream.
+    arch = CabArchive.parse((ROOT / "tests" / "ex4_e.cab").read_bytes())
+    arch.fill_member_data()
+    mm = {m.name: m.data for m in arch.members}
+    model = StpreModel(parse_stpre(mm["ex4_e.xml"]))
+    tess = {b.name: b.tess for b in cab_import.import_xt_bytes(
+        mm["_ex4_e_all.x_t"], adaptive=False)}
+    tess_a, tess_b = tess["button"], tess["battery"]
+    out = cab_edit_ops.boolean_mesh_parts(
+        model, [tess_a, tess_b], "button", "battery", "subtract",
+        "bool_real",
+        archive=arch)
+    assert out is not None and out[1] == "pk"
+    assert any(p.name == out[0] for p in model.parts())
+    # pskernel here cannot PK_PART_transmit -> faceted result persists as STL
+    assert any(m.name == f"{out[0]}.stl" for m in arch.members)
+
+
 def test_boolean_mesh_parts_prefers_pk():
     model, meshes = _two_cubes()
     out = cab_edit_ops.boolean_mesh_parts(

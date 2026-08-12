@@ -1608,17 +1608,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         while self.model.find_part(name) is not None:
             n += 1
             name = f"{base_name}_{n}"
-        params = entry.get("params") or {}
-        if "base" not in params or "size" not in params:
-            params = {
-                "base": tuple(params.get("base", (0.0, 0.0, 0.0))),
-                "size": tuple(params.get("size", (10.0, 10.0, 10.0))),
-            }
-        else:
-            params = {
-                "base": tuple(params["base"]),
-                "size": tuple(params["size"]),
-            }
+        params = self._prompt_library_params(kind, entry)
+        if params is None:
+            return
         if entry.get("heat_source") is not None:
             params["heat_source"] = entry["heat_source"]
         if entry.get("temperature") is not None:
@@ -1642,6 +1634,45 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.model, self.archive.members if self.archive else [])
         self._rebuild_scene()
         self.log(f"Place library part: '{name}' ({kind}) from '{base_name}'")
+
+    def _prompt_library_params(self, kind: str, entry: dict) -> Optional[dict]:
+        """P5: ask Base/Size before placing a library stub (MVP dialog)."""
+        from PyQt5.QtWidgets import (
+            QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QLabel,
+        )
+        stored = entry.get("params") or {}
+        base0 = tuple(stored.get("base", (0.0, 0.0, 0.0)))
+        size0 = tuple(stored.get("size", (10.0, 10.0, 10.0)))
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Place Library Part")
+        form = QFormLayout(dlg)
+        form.addRow(QLabel(f"Kind: {kind}"))
+
+        def _spin(v: float) -> QDoubleSpinBox:
+            sb = QDoubleSpinBox(dlg)
+            sb.setRange(-1.0e9, 1.0e9)
+            sb.setDecimals(3)
+            sb.setValue(float(v))
+            return sb
+
+        spins: dict[str, QDoubleSpinBox] = {}
+        for i, ax in enumerate("xyz"):
+            spins[f"b{ax}"] = _spin(base0[i] if i < len(base0) else 0.0)
+            spins[f"s{ax}"] = _spin(size0[i] if i < len(size0) else 10.0)
+            form.addRow(f"Base {ax.upper()}", spins[f"b{ax}"])
+        for ax in "xyz":
+            form.addRow(f"Size {ax.upper()}", spins[f"s{ax}"])
+        btns = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dlg)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        form.addRow(btns)
+        if dlg.exec_() != QDialog.Accepted:
+            return None
+        return {
+            "base": tuple(spins[f"b{ax}"].value() for ax in "xyz"),
+            "size": tuple(spins[f"s{ax}"].value() for ax in "xyz"),
+        }
 
     def _on_context_action(self, action: str, kind: str, name) -> None:
         """Layout of Parts tree popup (STpre labels / multi-select)."""

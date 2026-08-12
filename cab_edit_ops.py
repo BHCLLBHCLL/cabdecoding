@@ -447,14 +447,136 @@ def reconstruct_part_facets(model: StpreModel, archive, cad_meshes,
     return updated
 
 
+def _find_body_tags(model: StpreModel, archive,
+                    part_a: str, part_b: str
+                    ) -> tuple[Optional[int], Optional[int]]:
+    """Locate live body tags for two parts across archive x_t members.
+
+    Bodies are matched by Parasolid SDL name; unmatched single-body members
+    are assigned to remaining parts in order (multi-body members keep their
+    name-matched bodies).
+    """
+    if archive is None:
+        return None, None
+    import ps_facet2_nodes as _ps
+    if _ps is None:
+        return None, None
+    members = {m.name: m.data for m in (archive.members or [])}
+    bf = model.doc.root.find("body_files")
+    refs = []
+    if bf is not None:
+        for f in bf.findall("file"):
+            txt = (f.text or "").strip()
+            if txt and txt in members:
+                refs.append(members[txt])
+    sess = _ps._get_session()
+    matched: dict[str, int] = {}
+    leftovers: list[int] = []
+    for xt in refs:
+        try:
+            tags = sess.expand_to_bodies(sess.receive_xt(xt))
+        except Exception:
+            continue
+        for tag in tags:
+            nm = ""
+            try:
+                nm = sess.body_name(tag)
+            except Exception:
+                pass
+            if nm in (part_a, part_b) and nm not in matched:
+                matched[nm] = int(tag)
+            else:
+                leftovers.append(int(tag))
+    for name in (part_a, part_b):
+        if name not in matched and leftovers:
+            matched[name] = leftovers.pop(0)
+    return matched.get(part_a), matched.get(part_b)
+
+
+def _register_boolean_result(model, cad_meshes, archive, name, tess,
+                             xt: Optional[bytes], kind: str,
+                             keep_a: bool, keep_b: bool,
+                             part_a: str, part_b: str) -> None:
+    """Register a boolean result part (+ optional XT member)."""
+    from cab_parts import PrimitivePart
+    from xml.etree.ElementTree import SubElement
+    file_ref = "x_t"
+    if archive is not None and not xt:
+        # PK_PART_transmit can fail on some boolean products; persist the
+        # faceted result as a polygon/STL member instead of an x_t body.
+        import cab_import
+        stl = cab_import._tris_to_stl_bytes(
+            np.asarray(tess.points, dtype=np.float64),
+            np.asarray(tess.triangles, dtype=np.int64), name)
+        member = cab_import.add_stl_member(
+            archive, stl, name=f"{name}.stl")
+        file_ref = member.name
+        kind = "polygon"
+    el = model.add_part(name=name, kind=kind, attribute="solid",
+                        file_ref=file_ref)
+    if el is None:
+        return
+    tess.name = name
+    pts = np.asarray(tess.points, dtype=np.float64)
+    lo, hi = pts.min(0) * 1000.0, pts.max(0) * 1000.0
+    for tag, val in (
+            ("base", ",".join(f"{v:.17g}" for v in lo)),
+            ("size", ",".join(f"{v:.17g}" for v in (hi - lo))),
+    ):
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, val)
+    if archive is not None and xt:
+        try:
+            import cab_import
+            cab_import.add_xt_member(archive, xt, name=f"{name}.x_t")
+        except Exception:
+            pass
+    if cad_meshes is not None:
+        cad_meshes.append(tess)
+    if not keep_a:
+        model.delete_part(part_a)
+    if not keep_b:
+        model.delete_part(part_b)
+
+
 def _boolean_via_pk(model: StpreModel, cad_meshes, archive,
                     part_a: str, part_b: str, op: str,
                     result_name: str, *,
                     keep_a: bool, keep_b: bool) -> Optional[str]:
-    """M33: ``PK_BODY_boolean_2`` using solid blocks from world AABB."""
+    """M33/M39-P1: ``PK_BODY_boolean_2`` on real x_t bodies when available,
+    otherwise solid blocks from world AABB."""
     import cab_ps_ops
     if not cab_ps_ops.available():
         return None
+    # Preferred: boolean the actual B-rep bodies from the archive members.
+    tag_a, tag_b = _find_body_tags(model, archive, part_a, part_b)
+    if tag_a and tag_b:
+        try:
+            import ps_facet2_nodes as _ps
+            sess = _ps._get_session()
+            res_tags = cab_ps_ops.body_boolean(tag_a, [tag_b], op)
+            res_tag = res_tags[0]
+            tess = (sess.facet_body_adaptive(res_tag)
+                    or sess.facet2(res_tag) or sess.facet_go(res_tag))
+            try:
+                xt = cab_ps_ops.transmit_parts([res_tag])
+            except Exception:
+                xt = None
+            res = {"tess": tess}
+        except Exception:
+            res = None
+            xt = None
+        if res is not None and res["tess"] is not None:
+            name = unique_part_name(model, result_name)
+            _register_boolean_result(
+                model, cad_meshes, archive, name, res["tess"], xt,
+                "body" if xt else "polygon",
+                keep_a, keep_b, part_a, part_b)
+            return name
+    # Fallback: AABB blocks (kept for parts without x_t, e.g. primitives).
     ba = part_world_bounds(model, part_a, cad_meshes)
     bb = part_world_bounds(model, part_b, cad_meshes)
     if ba is None or bb is None:
@@ -494,35 +616,9 @@ def _boolean_via_pk(model: StpreModel, cad_meshes, archive,
     except Exception:
         xt = None
     name = unique_part_name(model, result_name)
-    from cab_parts import PrimitivePart
-    from xml.etree.ElementTree import SubElement
-    el = model.add_part(name=name, kind="body", attribute="solid")
-    if el is None:
-        return None
-    tess.name = name
-    pts = np.asarray(tess.points, dtype=np.float64)
-    lo, hi = pts.min(0) * 1000.0, pts.max(0) * 1000.0
-    for tag, val in (
-            ("base", ",".join(f"{v:.17g}" for v in lo)),
-            ("size", ",".join(f"{v:.17g}" for v in (hi - lo))),
-    ):
-        c = _first(el, tag)
-        if c is None:
-            c = SubElement(el, tag)
-            c.tail = "\n         "
-        set_text(c, val)
-    if archive is not None and xt:
-        try:
-            import cab_import
-            cab_import.add_xt_member(archive, xt, name=f"{name}.x_t")
-        except Exception:
-            pass
-    if cad_meshes is not None:
-        cad_meshes.append(tess)
-    if not keep_a:
-        model.delete_part(part_a)
-    if not keep_b:
-        model.delete_part(part_b)
+    _register_boolean_result(
+        model, cad_meshes, archive, name, tess, xt,
+        "body", keep_a, keep_b, part_a, part_b)
     return name
 
 
