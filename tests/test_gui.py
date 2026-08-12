@@ -145,6 +145,46 @@ def test_drawing_mode_control(viewer):
     assert win.control.layer_on("element") is True
 
 
+def test_clipping_plane_apply(viewer):
+    """M39-P7: per-mapper clipping (no vtkRenderer RemoveAllClipPlanes)."""
+    win = viewer
+    import vtk
+    import cab_gui
+
+    class Props:
+        def __init__(self, items):
+            self._items = items
+
+        def GetItemAsObject(self, i):
+            return self._items[i]
+
+    class FakeRenderer:
+        def __init__(self):
+            self._props = []
+
+        def GetNumberOfViewProps(self):
+            return len(self._props)
+
+        def GetViewProps(self):
+            return Props(self._props)
+
+    mapper = vtk.vtkPolyDataMapper()
+    actor = vtk.vtkActor()
+    actor.SetMapper(mapper)
+    fake = FakeRenderer()
+    fake._props.append(actor)
+
+    class Host:
+        renderer = fake
+        _clip_planes = [vtk.vtkPlane()]
+
+    cab_gui.CabViewer._apply_clip_planes(Host)
+    assert mapper.GetNumberOfClippingPlanes() == 1
+    Host._clip_planes = []
+    cab_gui.CabViewer._apply_clip_planes(Host)
+    assert mapper.GetNumberOfClippingPlanes() == 0
+
+
 def test_edges_actor_extracts_lines():
     if not cab_gui._HAS_GUI_DEPS:
         pytest.skip("no gui deps")

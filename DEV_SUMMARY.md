@@ -1851,3 +1851,17 @@ M33–M38 是“可演示的 MVP/子集”，核心缺口集中在 **B-rep 保�
 | P7 低优先解冻 | ✅ MVP | 新增 `cab_i18n`（标题/就绪文案，Option→UI Language 持久化）；View→3DfindIT… 打开外部搜索；Wiring 对话框记录 Gerber 元数据（大小/行数）；DEV_PLAN 已取消冻结 |
 
 当前全仓 **297 通过 / 5 跳过**（提交 `1a496b7` 之后的新改动待提交）。
+
+## 38. Clipping 崩溃修复与启动过滤器顺序（2026-08-12）
+
+- 现象：View→Clipping Display 勾选/取消时
+  `AttributeError: vtkOpenGLRenderer has no attribute 'RemoveAllClipPlanes'`；
+- 修复：改用 per-mapper 剪裁（`mapper.AddClippingPlane` /
+  `RemoveAllClippingPlanes`），`CabViewer._clip_planes` 保存活动平面，
+  `_apply_clip_planes()` 在对话框应用与每次 `_rebuild_scene` 后推送到所有
+  actor；新增 `test_clipping_plane_apply`（1/0 平面断言）；
+- 启动：`_install_startup_message_filter()` 移到 `QApplication` 之前，
+  使 EUDC 字体等早期 Qt 平台警告也被过滤；
+- 说明：若控制台仍出现 `PaneFrameWindow` 的 geometry 警告，该窗口不属于
+  当前 cab_gui（仓库无此类窗口），来自外部 Qt 进程；
+- 全仓 `pytest`：**298 通过 / 5 跳过**。

@@ -154,6 +154,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._paneling_mode = False
         self._paneling_faces: list = []
         self._act_paneling_esc = None
+        self._clip_planes: list = []
         self._hide_virtual_parts = False
         self._material_filter: Optional[str] = None
 
@@ -2588,7 +2589,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         def _apply() -> None:
             if not en.isChecked():
-                self.renderer.RemoveAllClipPlanes()
+                self._clip_planes = []
+                self._apply_clip_planes()
                 self._rebuild_scene()
                 dlg.accept()
                 return
@@ -2600,8 +2602,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             o[{"X": 0, "Y": 1, "Z": 2}[axis.currentText()]] = \
                 pos.value() / 1000.0
             plane.SetOrigin(*o)
-            self.renderer.RemoveAllClipPlanes()
-            self.renderer.AddClipPlane(plane)
+            self._clip_planes = [plane]
+            self._apply_clip_planes()
             if self.vtk_widget is not None:
                 self.vtk_widget.GetRenderWindow().Render()
             self.log(f"Clipping: {axis.currentText()}={pos.value():g} mm")
@@ -2610,6 +2612,23 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ok.clicked.connect(_apply)
         cancel.clicked.connect(dlg.reject)
         dlg.exec_()
+
+    def _apply_clip_planes(self) -> None:
+        """Push the active clip planes onto every actor mapper.
+
+        vtkOpenGLRenderer has no RemoveAllClipPlanes/AddClipPlane in this
+        VTK build; per-mapper clipping is the portable way.
+        """
+        if self.renderer is None:
+            return
+        for i in range(self.renderer.GetNumberOfViewProps()):
+            actor = self.renderer.GetViewProps().GetItemAsObject(i)
+            mapper = getattr(actor, "GetMapper", lambda: None)()
+            if mapper is None or not hasattr(mapper, "RemoveAllClippingPlanes"):
+                continue
+            mapper.RemoveAllClippingPlanes()
+            for plane in self._clip_planes:
+                mapper.AddClippingPlane(plane)
 
     def _view_toggle_virtual(self, on: bool = True) -> None:
         """View → (Setting) → Display Virtual Part."""
@@ -3253,6 +3272,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if getattr(self, "_sketch_dlg", None) is not None:
             self._refresh_sketch_edit_overlay()
 
+        self._apply_clip_planes()
         if fit:
             self._fit_view()
         elif self.renderer.GetRenderWindow() is not None:
@@ -4770,8 +4790,10 @@ def main(argv: list[str] | None = None) -> int:
     if not _HAS_GUI_DEPS:
         print("PyQt5 / vtk 未安装：python -m pip install -r requirements-gui.txt")
         return 1
-    app = QApplication(argv or sys.argv)
+    # Install before QApplication so early Qt platform warnings (EUDC font,
+    # off-screen geometry clamping) are filtered as well.
     _install_startup_message_filter()
+    app = QApplication(argv or sys.argv)
     path = None
     args = argv if argv is not None else sys.argv
     if len(args) > 1 and os.path.isfile(args[1]):
