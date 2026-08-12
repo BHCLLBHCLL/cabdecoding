@@ -1,15 +1,15 @@
 # cab_gui 功能补齐开发计划（逆向驱动）
 
-> 日期：2026-08-10（§15 全量对照刷新；§14 M32 D1–D7 已完成）
+> 日期：2026-08-13（§15 对照刷新至 HEAD `c0b1442`；§16 L1–L10 路线图仍有效）
 > 仓库：`cabdecoding`
 > 关联文档：[CAB_GUI_DESIGN.md](CAB_GUI_DESIGN.md)（UI 布局）、
-> [DEV_SUMMARY.md](DEV_SUMMARY.md)（逆向档案）、
+> [DEV_SUMMARY.md](DEV_SUMMARY.md)（逆向档案 / §39 深度审计）、
 > [CAB_FORMAT_SPEC.md](CAB_FORMAT_SPEC.md)（cab 格式规范）
 > 交互画布：`.cursor/projects/.../canvases/cab-gui-stpre-gap.canvas.tsx`
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
 > 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
 >
-> **当前主线：** §15 M33–M38 已交付；后续按需抛光（金标 / Place library / i18n）。  
+> **当前主线：** §16 L1–L3（文案清理 / 金标钉住 / Others 入算法）；M33–M39 已交付。  
 > **冻结：** Gridding/Meshing via STpre API（§14.2）。
 
 ---
@@ -869,10 +869,12 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 
 ---
 
-## 15. 全量对照刷新：不完整项与 M33+ 计划（2026-08-10）
+## 15. 全量对照刷新：不完整项与计划（2026-08-13）
 
 > 自交互画布 `cab-gui-stpre-gap.canvas.tsx` 同步（Cursor canvases）。  
-> **总判：** 菜单 UI ≈**88%**、可用深度 ≈**66%**。主债是 **Edit B-rep 内核**、**Meshing 金标**、**Condition Wizard 深度**、**Control 死角** —— 不是缺顶层菜单。  
+> **总判（HEAD `c0b1442`）：** 菜单 UI ≈**93%**、可用深度 ≈**72%**。  
+> M33–M39 已交付 Boolean 真体路径、panel face-thin、圆柱 R/θ 近似、Control 层绘制 MVP、CW Source→S、Library Place、格式矩阵、Import Domain 自适应、缩放线框裁剪修复。  
+> **主债：** 非布尔 B-rep（§16 L6）、Meshing 金标（L2/L7）、CW 面创建（L5）、Control 死角（L1/L4）。  
 > **冻结：** Gridding/Meshing via STpre API（§14.2）。
 
 ### 15.1 图例
@@ -880,82 +882,73 @@ D7  Part 热专用属性（Enclosure/Fin/Peltier）增量
 | 深度 | 含义 |
 |---|---|
 | `impl` | 端到端可用，可存回 cab |
-| `partial` | 有实现但为 AABB / CSG / 子集 / 代理 |
+| `partial` | 有实现但为 AABB / 子集 / 代理 / PK+回退 |
 | `chrome` | 对话框或意图写回，无真实几何/物理 |
 | `missing` | 未挂菜单或永久禁用 |
 | `frozen` | 明确禁止改语义 |
 
 ### 15.2 不完整功能项清单
 
-#### File
+#### File / Domain
 | 功能 | 深度 | 缺口 |
 |---|---|---|
-| Import 格式矩阵 | partial | **支持：** XT/STL/STEP/SAT/OBJ/DXF/MDL；**不支持 IGES/IDF**（见 §15.6）；主流 CAD 插件放弃 |
-| Assembly XT | partial | 已展开 bodies + 调色；命名/分组/库导入仍薄 |
-| Export | partial | S/XEMT/STL/XT/Property；缺 Neutral 全矩阵 |
-| Execute Solver / Post | partial | 能启 stsol/scPOST；Kicker 环境矩阵仍薄（见 §15.6） |
-| 3DfindIT | partial | M39-P7：View 菜单打开外部 3DfindIT 搜索（web）；无本地 CAD 插件 |
+| Import 格式矩阵 | partial | **支持** XT/STL/STEP/SAT/OBJ/DXF/MDL；**不支持 IGES/IDF**（§15.6） |
+| Assembly XT | partial | 展开 bodies + 调色；命名/分组仍薄 |
+| Export / Solver / Post | partial | S/XEMT/STL/XT/Property；Kicker 环境矩阵薄 |
+| 3DfindIT | partial | View→web 搜索；无本地 CAD 插件 |
+| Import 后 Domain 自适应 | **impl** | `fit_domain_to_parts`（`c0b1442`）；同 CAD Data Size |
 
 #### Edit
 | 功能 | 深度 | 缺口 |
 |---|---|---|
 | Undo / Redo | partial | XML 快照 ≠ Parasolid 会话 |
-| Conversion / Sweep / Cutting / Align / Place / Mirror | partial | 变换或 AABB，非完整 B-rep |
-| Boolean Operation | partial | tess CSG；非 `PK_BODY_boolean_2` |
-| Shape-change Boolean / Edit Solid / Simplify / FEM / Wiring / Image | chrome | 诚实标注；多为 intent |
-| Connected Region / Wrapping / Paneling | partial | marker / hull·AABB / AABB Panel |
+| Boolean Operation | partial | `PK_BODY_boolean_2` 真 x_t 优先 + CSG 回退；transmit 失败→STL；对话框顶部文案可能过期（L1） |
+| Solid / Simplify / Paneling / Sweep / Cutting / Wrap | partial | 多为 tess；`PK_FACE_delete_2` 已绑定未调用 |
+| Shape-change Boolean / FEM / Wiring / Image | chrome | 意图/元数据 |
 
 #### View / Part / Wizard
 | 功能 | 深度 | 缺口 |
 |---|---|---|
-| Thermal condition distribution | partial | M37 tint MVP（heat/temp 属性着色） |
-| Editing Part Face / Contact TR | partial | 非独立全功能编辑器 |
-| Enclosure / Fin / Peltier / 2R / Fan / Sketch | partial | 代理 + 属性写回；非完整热模型 |
-| AC / Diffuser | partial | M37 代理几何（cuboid / conical） |
-| By Dialog / By Mouse 创建模式 | missing | — |
-| Condition Setting 深度 | partial | Source 已加深；其余物理页子集 |
+| Thermal condition distribution | partial | heat/temp tint MVP |
+| 专用热件 / AC / Diffuser | partial | 已进菜单；几何代理 |
+| By Dialog / By Mouse | missing | — |
+| Condition Setting | partial | Source→S 已深；Create Face / region Select / 长尾物理仍浅 |
 
-#### Mesh / Option / Tree / Control / Draw / Domain
+#### Mesh / Option / Control / Draw / Library
 | 功能 | 深度 | 缺口 |
 |---|---|---|
-| Gridding 原生 | partial | 圆柱/轴向弱；ChildBlock stub；顶点鼠标拾取 NYI |
-| Meshing 原生 | partial | panel/开面；金标占用未收敛 |
+| Gridding 原生 | partial | R/θ 轴近似；分类仍偏笛卡尔；ChildBlock stub |
+| Meshing 原生 | partial | panel face-thin 有；金标未钉；Others 未入算法 |
 | **Gridding/Meshing via STpre API** | **frozen** | **禁止改** |
-| Environment 字段深度 | partial | 页齐；字段未全驱动运行时 |
-| Register to library | partial | M37：[Project Parts] stub + project_value |
-| Condition / Aspect ratio 层 | chrome | M35：禁用 + tooltip（不静默 `_nyi`） |
-| Detail… / Domain boundary | partial | M35：Detail 信息框；DomainBoundary 接线 |
-| Library | partial | Project Parts Register + 双击 Place MVP |
-| Draw RMB | partial | M35：Refer/Hide/Display/Delete 子集 |
-| Cylindrical / Axial Domain | partial | M34：类型标志；网格仍笛卡尔 AABB |
+| Register / Place | partial | Project Parts + Place Base/Size |
+| Condition / Aspect 层 | partial | MVP 线框已绘；非真分色/AR 场 |
+| Detail / DomainBoundary / Point | partial | Detail 文案可能过期；首 face 拾取；Point 死开关 |
+| Draw RMB | partial | Property/Register 已补；未全量对齐 Layout |
+| 缩放线框裁剪 | **impl** | 相机裁剪放宽 + 外框免用户 clip |
 
 ### 15.3 跨切面优先级
 
 | 优先级 | 缺口 |
 |---|---|
-| **Blocker** | Parasolid B-rep Edit（Boolean / Solid / Simplify） |
-| **High** | Meshing 金标 + panel；CW 产品子集；拾取死角清理 |
-| **Medium** | 格式回归；Library/专用件；热色图；Undo↔PS |
-| **Low** | i18n / 3DfindIT / Wiring Gerber（M39-P7 已解冻并做 MVP） |
+| **Blocker** | 非布尔 B-rep（Solid / Simplify / Cutting / Wrap） |
+| **High** | Meshing 金标 + Others 入算法；CW Create Face；Control 死角 |
+| **Medium** | Boolean XT 持久化/文案；圆柱分类；Undo↔PS |
+| **Low** | 完整 i18n；本地 3DfindIT；Wiring 几何 |
 
-### 15.4 开发计划 M33+
+### 15.4 里程碑状态
 
-原则：**内核与网格保真 → Control 死角 → Wizard 子集 → Library/专用件 → 格式抛光**；不触碰 API 网格路径。
-
-| 里程碑 | 内容 | 验收要点 |
+| 里程碑 | 内容 | 状态 |
 |---|---|---|
-| **M33** Edit 内核跃迁 | `PK_BODY_boolean_2`；Edit Solid/Simplify 可删面子集会；Paneling/Sweep 拾取面 | Boolean 与 STpre 同类件体积差可量化；Undo 后几何一致 |
-| **M34** Mesh 原生保真 | panel/开面 face-thin；圆柱·轴向类型标志；Edit 列表选点 | ✅ panel 占用 smoke；类型写回；列表 Select |
-| **M35** Control/拾取清理 | Domain boundary 接线；Condition/Aspect **绘制（MVP）**；Detail；Draw RMB（含 Property/Register to library） | ✅ M39-P3 |
-| **M36** CW 产品子集 | Source 深度写回；未实现物理显式禁用 | ✅ Source XML 可重载 |
-| **M37** Library + 专用件 + 热显示 | Register/Place；AC/Diffuser 代理；热 tint MVP | ✅ |
-| **M38** 格式与抛光 | Import/Export 矩阵测试；IGES/IDF 决策；Solver/Post 文档 | ✅ `test_m38_format_matrix`；§15.6 |
+| **M33–M38** | Boolean / panel / Control / CW Source / Library / 格式 | ✅ |
+| **M39 P0–P7** | 真体 Boolean/STL、Rθ、Place、Source→S、i18n/3DfindIT | ✅ |
+| **Domain fit + clip** | Import 包围盒自适应；缩放线框 | ✅ `c0b1442` |
+| **§16 L1–L10** | 难度阶梯（文案→金标→B-rep→Meshing…） | 📋 进行中（见 §16） |
 
-**建议下一迭代：** 抛光 / 金标 / Place library（按需）。
+**建议下一迭代：** L1 文案/死开关 → L2 金标 pytest → L3 Others 入算法。
 
 ### 15.5 已完成底座（保持）
 
-M24–M31 MVP、M32 D1–D7、Layout 多选右键、Assembly XT 展开分色、CAB 读写、facet 显示、Domain/Gridding 规则逼近、Initial Wizard、快照 Undo。
+M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Gridding 规则逼近、Initial Wizard、快照 Undo、M33–M39 交付物。
 
 ### 15.6 格式决策与 Solver/Post 启动说明（M38）
 
@@ -1020,8 +1013,8 @@ M24–M31 MVP、M32 D1–D7、Layout 多选右键、Assembly XT 展开分色、C
   （二选一，不能留死开关）；
 - 1.4 Detail… 打开真实 per-layer 明细（只读：当前场景各层 actor 数量/
   部件列表）；
-- 1.5 顺带清理 `cab-gui-stpre-gap.canvas.tsx` 中已过时的
-  “View Setting/Dialog 缺失、Part 专用件未进菜单”等行。
+- 1.5 顺带确认 `cab-gui-stpre-gap.canvas.tsx` 已与 2026-08-13 刷新一致
+  （Boolean PK、Condition/Aspect 绘制、AC/Diffuser、Domain fit 等）。
 
 验收：无死开关；文案与实现一致；pytest 全绿。
 
@@ -1356,9 +1349,11 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | **M36** | CW Source 写回 + 未实现物理禁用 | M35 | ✅ |
 | **M37** | Library Register + AC/Diffuser + 热 tint MVP | M36 | ✅ |
 | **M38** | 格式矩阵 / IGES·IDF 决策 / Solver·Post 文档 | M37 | ✅ |
-| M32+ 抛光 | i18n / Wiring 几何等 | 后备 | 📋 |
+| **M39** | P0–P7 可用深度（真体 Boolean/STL、Rθ、Place、Source→S、i18n…） | M38 | ✅ |
+| Domain fit | Import Domain 包围盒自适应 + 缩放线框裁剪 | M39 | ✅ `c0b1442` |
+| **§16 L1–L10** | 难度阶梯（文案→金标→B-rep→Meshing…） | M39 | 📋 |
 
-依赖主线：按需抛光；**冻结** Gridding/Meshing via STpre API。
+依赖主线：**§16 L1–L3**；**冻结** Gridding/Meshing via STpre API。
 
 ---
 
@@ -1366,9 +1361,9 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 
 | 文档 | 更新内容 | 时点 |
 |---|---|---|
-| `DEV_PLAN.md` | 本计划随实施进度标记；§13–§15 与画布同步 | 持续 |
-| `cab-gui-stpre-gap.canvas.tsx` | 不完整项看板 + M33+ | 2026-08-10 |
-| `DEV_SUMMARY.md` | 导入/域/网格逆向档案；Edit/Wizard 实施记录 | M3/M5/M23+ |
+| `DEV_PLAN.md` | 本计划随实施进度标记；§13–§16 与画布同步 | 持续 |
+| `cab-gui-stpre-gap.canvas.tsx` | 不完整项看板 + M33–M39 / L1+ | 2026-08-13 |
+| `DEV_SUMMARY.md` | 导入/域/网格逆向档案；§39 深度审计 | M3/M5/M23+/M39 |
 | `CAB_FORMAT_SPEC.md` | 补 `mesh_control`/`element` 生成规范、x_t 成员合并规则 | M3/M4 |
 | `CAB_GUI_DESIGN.md` | 更新菜单/对话框功能说明（含 Edit 24 项深度） | M1/M23/M24 |
 | `README.md` | 使用流程（导入→域→网格→导出） | M5 |
