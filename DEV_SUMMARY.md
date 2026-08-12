@@ -1872,3 +1872,177 @@ M33–M38 是“可演示的 MVP/子集”，核心缺口集中在 **B-rep 保�
   `GetItemAsObject(i)` 遍历；测试 fake renderer 同步改为该真实 API，
   并在本机 VTK 构建上冒烟验证（`vtkPropCollection count: 0`）；
   全仓回归仍为 **298 通过 / 5 跳过**。
+
+## 39. 可用深度专项审计（2026-08-13）：Edit B-rep / Meshing 金标 / CW / Control / STpre API
+
+> 用户口径：菜单表面约 90%、可用深度约 65%。主债不在缺入口，而在
+> Edit B-rep 内核、Meshing 金标、Condition Wizard 深度、Control 死角，
+> 以及 STpre API 网格路径的缺失功能与可用深度。
+
+### 39.1 总览
+
+- 菜单面：8 个菜单约 100 个 action，**全部有实际 handler，无 `_nyi` 死入口**
+  （`_nyi` 仅剩 Layout context 与未知 Part kind 兜底）；
+- 但按“chrome/MVP/近似/真实内核”四档评估，深度差距集中在四块主债；
+- 本审计基于代码走查 + STpre 官方手册
+  （`Manuals/ST/HTML/Pre_eng`、`VB_Interface_eng`）+ 已有黑盒/逆向数据
+  （`STPRE_GRID_RULES.md`、`data/stpre_probe_*`、`tests/box/box_bm.s`）。
+
+### 39.2 Edit B-rep 内核（23 项菜单 → 深度分层）
+
+| 深度档 | 菜单项 | 现状 |
+|---|---|---|
+| 真实 PK 内核 | Boolean Operation | `PK_BODY_boolean_2`（真实 x_t tag，M39-P1），pskernel 缺失时回退 tessellation CSG |
+| 真实 PK 内核 | Reconstruct of Part Facet | `PK_TOPOL_facet_2` 重建三角化（需 archive x_t） |
+| intent 占位 | Shape change by Boolean | 仅把布尔意图写到 Part A 注解；**几何内核未应用** |
+| tessellation 级 | Flipping / Part Face Paneling / Sweep Part Face / Edit Solid / Part Simplification | 翻转、面板化、拉伸、删三角均作用在显示三角网，不写回 x_t body |
+| 近似/占位 | Cutting / Wrapping / Shape Simplification | Cutting=AABB 切半（非真平面裁剪）；Wrapping=凸包近似；ShapeSimplification=简化意图/近似 |
+| XML/变换级 | Group / Deletion / Parts Conversion / Alignment / Place / Mirror / Connected Region / FEM Conversion / Reset Domain / Wiring / Image | 字段/XML 级操作，不触达几何内核 |
+
+结论与证据：
+
+1. **23 项中真正触达 Parasolid 内核的只有 2 项**（布尔、facet 重建），
+   Shape change 仍是 intent-only；其余算子均不修改 B-rep 几何，
+   保存后 x_t body 仍是原几何；
+2. Cutting 对话框虽有 “Normal vector / Point on surface” 字段，
+   实现却按 AABB 主导轴切半（`cab_edit_dialogs.CuttingPlaneDialog._exec`）；
+3. 面拾取只有三角片 cell 语义（`_picked_face=(part, cell_id)`），
+   没有 STpre 的 face/edge/vertex 拓扑拾取；
+4. Boolean 对话框顶部 `_capability_note` 仍写 “MVP: tessellation CSG”，
+   与下方 M33 的 PK 优先文案冲突（**过期文案**，需修正）；
+5. `_register_boolean_result` 持久化：PK 结果经 `PK_PART_transmit` 失败时
+   退化为 `.stl` 成员 + polygon 部件，x_t 结果未稳定写回 archive。
+
+### 39.3 Meshing 金标
+
+已对齐证据（正向）：
+
+- `tests/box/box_bm.s`（STpre 2025.2）与 `tests/box/box_new.s`（cabdecoding）：
+  `CXYZ` 均为 54×54×54，坐标逐点一致；`PARTS` 中 box 占用均为
+  `20 39 20 39 20 39`；
+- `stpre_rules.auto1_*`：13/13 黑盒用例验证（P 闭式 + L/R 拆分）；
+- 曲面件层级（all > representative > axis_plane = minmax = none）已在
+  tr03/ex4_e 上实测并实现。
+
+未对齐/缺失（金标差距）：
+
+1. **Others 页参数未进入原生算法**：`edge_eps`、`face_search`、
+   `element_threshold` 只写入 mesh_control，`cab_mesh.classify_cells`
+   不使用；`panel_block_face`、`check_scheme`、`solid_scheme`、
+   `panel_scheme`、`divide_scale`、并行度同样只存标志；
+2. 原生分类默认 `samples="center"`（可传 corners 但 GUI 未传）：
+   表贴/角点单元的判定未做 STpre 金标逐 cell 对比；
+3. `_merge_boxes` 是贪心 AABB 合并，不是 STpre 的精确 run 编码：
+   占用相同但 box 结构可能不同，S/XEMT 行数可能不同；
+4. 无自动回归测试 pin `box_bm.s` vs `box_new.s`（现为人工对比）；
+5. cylindrical/axial 仍是类型标志 + 近似 θ 轴，**元素分类仍是笛卡尔**；
+6. multiblock 的 ChildBlock 只是 XML stub（`_create_child_block`），
+   不参与网格生成；Basic Setting 中 “Consider only child-blocks” /
+   “Consider rough grid of lower level block” 因此禁用；
+7. panel 占用是“半单元带”近似，未与 STpre panel scheme 金标对齐
+   （STpre 对 speaker 等开放面实测 `part_boxes={}`，语义待还原）。
+
+### 39.4 Condition Wizard 深度
+
+- 页面：Initial 6 步；Condition 26+ 页（Analysis Types / Basic / Fluid /
+  Flow / Heat / Humidity / Porous / Initial / 4×BC / Source / Fixed /
+  Control 5 页 / Output 4 页 / File / List / Confirm）；
+- **Analysis Types 24 项中 18 项 `_ALWAYS_DISABLED`**（显式禁用，非伪成功）：
+  Diffusion、Plant canopy、Moving object、Thermoregulation、Solar、
+  Lamp、Reaction、Ventilation、Fusion、Marangoni、Topology、Particle、
+  Aircon、Current、Electrostatic、PCM、MSC CoSim、BCI-ROM；
+  实际启用：Flow/Turbulence、Heat、Humidity、Porous、Radiation、
+  Free surface（+FS 依赖 Evaporation/Boil）；
+- STpre 手册 Condition 对话框 **122 个**，cab 条件类型约 15 组；
+- 具体死角：
+  1. Source/Area 的 “Create Face… / Edit Face…” 禁用（BC 面创建/编辑未实现）；
+  2. “Select”（region 多选）禁用；Display type 可选但只影响列表显示；
+  3. Source 值类型为 “STpre-aligned subset”（`_SRC_VOL_TYPES` /
+     `_SRC_AREA_TYPES`），非全量；
+  4. Initial Purpose 的 enclosure AENT 系数与 power-law 风廓线
+     **仅描述、未写回**（`cab_iwizard_pages` 两处 MVP 标注）；
+  5. 高级物理（DEM/移动对象/电场/静电/VOF/反应/粒子/灯具/激光等）无产品页；
+- 优点：未实现物理用“禁用+诚实 tooltip”，避免假成功，测试可回归。
+
+### 39.5 Control 死角
+
+| 控件 | 状态 | 缺口 |
+|---|---|---|
+| Point 层 | 开关存在，`_rebuild_scene` 无 point actor | 勾选无任何效果（死开关） |
+| Detail… 按钮 | 只弹信息框 | 无 per-layer 明细；文案仍称 “Condition / Aspect ratio not drawn”（P3 已绘制，**文案过期**） |
+| Condition 层 | domain-boundary 橙色线框（MVP） | 非真实 condition 图形 |
+| Aspect ratio 层 | 元素占用紫色线框（MVP） | 非 STpre aspect-ratio 度量显示 |
+| Face division 层 | 与 element 相同 box 边显示 | 非真正 face division 绘制 |
+| Vertices 拾取 | 走 cell picker | 无顶点吸附；实际返回 part/cell |
+| DomainBoundary 拾取 | 选择第一个 DomainBoundary face | 无空间拾取 |
+| Library | [Project Parts] 只读 stub；材质库只读 | 无编辑/入库向导 |
+| Draw RMB | Layout 风格子集（Refer/Hide/Display/Delete/Property/Register） | 非完整 STpre 菜单 |
+| ActivePart / Property | 单行表 / 扩展只读 | 基本可用，深度浅 |
+
+### 39.6 STpre API 网格路径（冻结项专项审计）
+
+现状：COM relay = `OpenCabFile → GetMesher → GetBlock("root").SetParam
+(length/ratio/limit) → SetGridParam(子集) → ExecuteGrid → ExecuteElement →
+SaveCabFile → merge_mesh_result`。
+
+能力使用率（对照 `VB_Interface_eng` 手册）：
+
+- **Mesher 15 个方法中仅用 7 个**：GetMesher/GetBlock/SetGridParam/
+  ExecuteGrid/ExecuteElement/OpenCabFile/SaveCabFile；
+  未用：ExecutePartsElement、GetNumElements、GetNumEdgeContact、
+  RemoveEdgeContact、GetSelectGrid、SetSelectGrid、CreateBlock、
+  DeleteBlock、GetActiveBlock、SetActiveBlock、GetGridParam、GetRootBlock、Update；
+- **MeshBlock 约 23 个方法中仅用 1 个**（SetParam），且 SetParam 7 个键中
+  只用 3 个（length/ratio/limit），缺 extmin/extmax/common/reference；
+  未用 SetDetailGrid / DeleteGrid / SetDivideArray / GetAspectRatio /
+  GetDivideArray / SetRange / CreateBlock / CreateConnectedBlock 等；
+- **SetGridParam 13 个键中仅用 6 个**（division_method / division_type /
+  division_num / outer_ratio / edge_contact / max_elements），
+  缺：domain_type（内/外区）、division_scale（sub-block 系数）、
+  default_extend、solid_scheme、panel_scheme、flux_face_check、
+  grid_generation（child-only）。
+
+缺失功能清单：
+
+1. **Others 页参数不中继**：edge_eps / face_search / element_threshold /
+   panel_block_face / check_scheme / solid_scheme / panel_scheme /
+   divide_scale / 并行度均留在模板默认值，用户设置被 STpre API 路径丢弃；
+2. **内部区域开关不中继**：`chk_internal`（“Generate mesh as internal
+   region”）只影响 native，API 路径未发 `domain_type="inner"`；
+3. 指定部件网格划分未接 API（`ExecutePartsElement` 存在，native 有子集）；
+4. Edge-contact 数量/移除未接 API（GetNumEdgeContact/RemoveEdgeContact）；
+5. Edit/Detail/Deletion 三页在 API 开启时仍走 native 模型，未用
+   SetSelectGrid/SetDivideArray/SetDetailGrid/DeleteGrid；
+6. multiblock 未接 API（CreateBlock/SetRange/SetActiveBlock/Update）；
+7. Element # 未回读 `GetNumElements`，仍按 axes 点数推算；
+8. 无 `GetGridParam` 回读校验（参数是否真正生效不可见）；
+9. 无 COM 超时/错误对话框自动处理，STpre 弹窗可能挂住 UI；
+10. 安全策略：检测到任何 STpre 进程即拒绝 attach（防杀用户实例），
+    因此“用户已打开 STpre 时启用 API”不可用；
+11. STL/polygon 部件 relay 不识别（负向结论已记录：5 个 L 形用例全退化为
+    空均匀网格）。
+
+建议（若解冻，按序实施）：
+
+- P0：补 `domain_type` + `division_scale` + Others 页参数中继（低风险）；
+- P1：接入 `ExecutePartsElement` / `GetNumElements` / `GetNumEdgeContact` /
+  `RemoveEdgeContact`（回读 + 指定部件）；
+- P2：接入 `SetDetailGrid` / `DeleteGrid` / `SetDivideArray`（与六页 tab 对应）；
+- P3：multiblock `CreateBlock/SetRange`（需 XML 模型先支持 child 网格）；
+- P4：COM 超时与错误对话框处理；保留“已有实例拒绝 attach”策略。
+
+### 39.7 结论与优先级
+
+1. 菜单入口面不是主要债（~100%），主要债在“真实内核触达率”：
+   Edit B-rep 仅 2/23 项、Meshing 高级参数仅存标志、CW 18/24 分析类型禁用、
+   Control 仍有死开关与过期文案；
+2. 建议下一步：
+   - Edit：先补 Cutting 真平面裁剪、ShapeChangeBoolean 真布尔、Wrapping
+     真几何，修正 Boolean 过期文案，x_t 结果稳定写回 archive；
+   - Meshing：把 Others 参数接入 classify（edge_eps/阈值/角点投票），
+     新增 `box_bm.s` 自动金标测试，曲面件占用逐 cell 对比；
+   - CW：先补 BC face create/edit + region Select（禁用入口中成本最低、
+     收益最高），再补 Power-law/AENT 写回；
+   - Control：Point 层接线或移除、Detail… 打开真实明细、修正过期文案、
+     Vertex 拾取吸附；
+   - STpre API：维持冻结，但按 P0–P4 顺序把缺失能力文档化备选。

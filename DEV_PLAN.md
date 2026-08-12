@@ -688,9 +688,9 @@ Parasolid 会话对齐。详见 **§14**（菜单对话框逐项核对与实施�
 
 | 维度 | 估计 | 说明 |
 |---|---|---|
-| 菜单项覆盖 | ~85% | File/Edit/View/Part/Wizard/Mesh/Option/Help 表面齐全 |
-| 对话框可用度 | ~68% | 大量 Edit CAD / Wizard 深度 / Environment 页仍为子集或代理 |
-| 最高债务 | Edit CAD + View Setting + Environment 满页 + Part 专用对话框 | Sketch/Fan 已部分对齐，需回归核对 |
+| 菜单项覆盖 | ~90%（2026-08-13 复核） | 8 菜单约 100 action 全部有 handler，无 `_nyi` 死入口 |
+| 对话框可用度 | ~65% | Edit B-rep 内核、Meshing 金标、CW 深度、Control 死角为主债 |
+| 最高债务 | Edit B-rep 内核（2/23 触达 PK）+ Meshing 高级参数仅存标志 + CW 18/24 禁用 + Control 死开关 | 详见 DEV_SUMMARY §39 |
 
 **Fidelity：** `chrome`=壳 · `MVP`=可用子集 · `gap`=与 STpre 明显不一致或缺失
 
@@ -701,8 +701,15 @@ Parasolid 会话对齐。详见 **§14**（菜单对话框逐项核对与实施�
 | Gridding/Meshing via STpre API | `cab_gui` 菜单勾选、`cab_stpre_api.py`、Option→Mesh 勾选 | **禁止改**开关语义、COM 调用与结果合并 |
 | 原生网格算法金标收敛 | `cab_grid` / `cab_mesh` 内核 | 不在本对话框对齐批次（属 M27） |
 | P3/P7 冻结 | — | **已解冻（2026-08-12，M39-P3/P7）**：Aspect/Condition 层绘制、Draw RMB 补全、i18n、3DfindIT、Wiring Gerber 恢复为可改进项 |
+| STpre API 深度审计 | 只读分析（2026-08-13） | 已记录缺失能力（Mesher 7/15、MeshBlock 1/23、SetGridParam 6/13，见 DEV_SUMMARY §39.6）；实现仍冻结，解冻候选 P0–P4 |
 
 原生 Mesh **对话框 chrome**（Interference / Edit Mesh / Section / S-File）仍可做 UI 抛光。
+
+> 2026-08-13 审计结论：API 路径当前只覆盖“整体 Gridding + ExecuteElement +
+> 合并回传”一条窄线；Others 页参数、internal region、指定部件网格、
+> edge-contact、网格线编辑/删除/Detail、multiblock、GetNumElements 回读
+> 均未接入。若解冻，按 P0（参数中继）→ P1（指定部件/回读）→ P2
+> （Edit/Detail/Deletion API）→ P3（multiblock）→ P4（超时/错误处理）实施。
 
 ### 14.3 菜单库存（核对表）
 
