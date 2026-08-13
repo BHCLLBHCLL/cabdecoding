@@ -2104,3 +2104,27 @@ SaveCabFile → merge_mesh_result`。
 - 全仓回归：**307 通过 / 4 跳过**；
 - 未做（归入 L7）：`panel_block_face` / `flux_face_check` /
   `solid_scheme` / `panel_scheme` 的 S/XEMT 语义（当前仅持久化）。
+
+## 43. L4 执行：Control 交互补深（2026-08-13）
+
+- **Vertex 拾取吸附**：`_snap_picked_vertex()` 把世界坐标拾取吸附到部件
+  tessellation 最近顶点（容差 2mm 或部件对角线 5%），记录
+  `_picked_vertex=(part, idx, xyz)` 并在状态栏/日志输出坐标；
+  target 为 Vertices / Faces + Vertices / Vertex 时生效；
+- **DomainBoundary 空间拾取**：`ray_aabb_face()`（模块级纯函数）对射线与
+  域 AABB 求最近面（Xmin…Zmax），`_domain_boundary_from_pick()` 用相机
+  + WorldPointPicker 得到射线并映射到已注册的 face_list，替换原来
+  “总是选第一个面”；
+- **Condition 层按类型分色**：`_face_condition_types()` 解析
+  `<condition>/<region>` → `<value>@type`，六面各自按
+  flux(蓝)/wall(绿)/heat(橙)/radiation(黄)/fixed(红/青/紫) 着色，
+  未定义面灰色、线宽更细；新增 `cab_vtk.domain_face_edges()` 每面 4 条边；
+- **Aspect ratio 层按比例着色**：`aspect_ratio_color()` 绿(<2)/黄(2..5)/
+  红(>5)，线宽 1.0/1.5/2.2 随比例递增；
+- **Face division 层真实化**：face 层（element 关）改用
+  `element_division_lines(interior_stride=0, surface_eps=1e-5)` 的
+  表面网格线，不再显示完整占用盒线框；
+- 测试：`test_aspect_ratio_color`、`test_ray_aabb_face`、
+  `test_snap_picked_vertex`、`test_face_condition_types`、
+  `test_domain_face_edges_polydata`；
+- 全仓回归：**312 通过 / 4 跳过**。

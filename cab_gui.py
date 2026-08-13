@@ -95,6 +95,45 @@ def view_key_action(keysym: str, *, shift: bool = False
     return None
 
 
+def aspect_ratio_color(ratio: float) -> tuple[float, float, float]:
+    """Occupancy aspect-ratio colormap: green <2, yellow 2..5, red >5."""
+    if ratio <= 2.0:
+        return (0.15, 0.7, 0.3)
+    if ratio <= 5.0:
+        return (0.95, 0.75, 0.15)
+    return (0.9, 0.2, 0.2)
+
+
+def ray_aabb_face(cam_pos, ray_dir, lo, hi) -> Optional[str]:
+    """Nearest AABB face hit by a ray (returns Xmin…Zmax or None)."""
+    origin = np.asarray(cam_pos, dtype=float)
+    rd = np.asarray(ray_dir, dtype=float)
+    n = np.linalg.norm(rd)
+    if n < 1e-12:
+        return None
+    rd = rd / n
+    lo = np.asarray(lo, dtype=float)
+    hi = np.asarray(hi, dtype=float)
+    hits: list[tuple[float, str]] = []
+    for axis_i, (lo_name, hi_name) in enumerate(
+            (("Xmin", "Xmax"), ("Ymin", "Ymax"), ("Zmin", "Zmax"))):
+        if abs(rd[axis_i]) < 1e-12:
+            continue
+        for plane, fname in ((lo[axis_i], lo_name), (hi[axis_i], hi_name)):
+            t = (plane - origin[axis_i]) / rd[axis_i]
+            if t <= 0:
+                continue
+            hit = origin + rd * t
+            others = [j for j in range(3) if j != axis_i]
+            if all(lo[j] - 1e-9 <= hit[j] <= hi[j] + 1e-9
+                   for j in others):
+                hits.append((t, fname))
+    if not hits:
+        return None
+    hits.sort(key=lambda h: h[0])
+    return hits[0][1]
+
+
 # M5: dialogs live in cab_dialogs (STpre-style framework, aligned with the
 # [Edit Computational Domain] screenshot / Pre_eng manual / STpreParts DLL
 # strings).  Aliases keep the historical private names used by tests.
@@ -2187,6 +2226,49 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         lay.addLayout(brow)
         dlg.exec_()
 
+    def _face_condition_types(self) -> dict[str, list[str]]:
+        """Map each DomainBoundary face to the condition value types on it."""
+        types: dict[str, list[str]] = {f: [] for f in
+                                       ("Xmin", "Xmax", "Ymin", "Ymax",
+                                        "Zmin", "Zmax")}
+        if self.model is None:
+            return types
+        for c in self.model.conditions():
+            region = ""
+            value_name = ""
+            for ch in c:
+                if ch.tag == "region":
+                    region = (ch.text or "").strip()
+                elif ch.tag == "value":
+                    value_name = (ch.text or "").strip()
+            if region not in types or not value_name:
+                continue
+            v = self.model.find_value(value_name)
+            vtype = (v.attrib.get("type") or "") if v is not None else ""
+            if vtype:
+                types[region].append(vtype)
+        return types
+
+    @staticmethod
+    def _condition_face_color(
+            types: list[str]) -> tuple[float, float, float]:
+        """Per-face condition color (flux > wall > thermal > fixed > other)."""
+        priority = (
+            ("flux", (0.25, 0.45, 1.0)),
+            ("wall", (0.15, 0.7, 0.3)),
+            ("heat_transfer", (1.0, 0.55, 0.1)),
+            ("radiation_boundary", (1.0, 0.75, 0.15)),
+            ("fixed_temperature", (0.9, 0.2, 0.2)),
+            ("fixed_velocity", (0.2, 0.7, 0.8)),
+            ("fixed_pressure", (0.6, 0.4, 0.9)),
+        )
+        for key, color in priority:
+            if key in types:
+                return color
+        if types:
+            return (0.8, 0.4, 0.8)
+        return (0.62, 0.62, 0.62)
+
     def _on_layer_apply(self) -> None:
         """Control → Layer → Apply: filter part visibility by Display Layer."""
         if self.model is None:
@@ -2377,6 +2459,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._cell_picker.SetTolerance(0.005)
         self._sel_target = getattr(self, "_sel_target", "Part")
         self._picked_face = None  # (part_name, cell_id)
+        self._picked_vertex = None  # (part_name, vertex_idx, xyz)
         # QVTKRenderWindowInteractor.Initialize() sets up the Qt/VTK bridge;
         # falling back to the raw iren when the widget API is unavailable.
         if hasattr(self.vtk_widget, "Initialize"):
@@ -2541,14 +2624,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if target in ("Part", "Parts", None):
             return
         if target == "DomainBoundary":
-            # Cheap wire: select first DomainBoundary face in Layout Region
             if self.model is None:
                 return
             faces = self.model.domain_faces() or []
             if not faces:
                 self.log("Domain boundary: no DomainBoundary faces.", "WARN")
                 return
-            fname = faces[0][0]
+            fname = self._domain_boundary_from_pick(float(x), float(y))
+            if fname is None:
+                fname = faces[0][0]
             self._on_item_selected("domain_face", fname)
             self._mode_label.setText("DomainBoundary")
             self.log(f"Picked DomainBoundary: {fname}")
@@ -2576,6 +2660,23 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._picked_face = (name, int(cell))
             self._selected_kind = "part"
             self._selected_name = name
+            if target in ("Vertices", "Faces + Vertices", "Vertex"):
+                snapped = self._snap_picked_vertex(
+                    name, self._cell_picker.GetPickPosition())
+                if snapped is not None:
+                    self._picked_vertex = snapped
+                    vx, vy, vz = snapped[2]
+                    self.log(
+                        f"Picked Vertex: {name} #{snapped[1]} "
+                        f"({vx:g},{vy:g},{vz:g})")
+                    self.statusBar().showMessage(
+                        f"Vertex {name} #{snapped[1]} "
+                        f"({vx:g},{vy:g},{vz:g})", 4000)
+                    try:
+                        obj.SetAbortFlag(1)
+                    except Exception:
+                        pass
+                    return
             if getattr(self, "_paneling_mode", False):
                 faces = getattr(self, "_paneling_faces", None)
                 if faces is None:
@@ -2597,6 +2698,72 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._mode_label.setText(f"{target}")
         except Exception as exc:
             self.log(f"Pick failed: {exc}", "WARN")
+
+    def _snap_picked_vertex(self, name: str, world_xyz) -> Optional[tuple]:
+        """Snap a world pick to the nearest tessellation vertex of a part.
+
+        Returns ``(part_name, vertex_idx, (x,y,z))`` or None when no vertex
+        lies within the tolerance (2 mm or 5% of the part diagonal).
+        """
+        if not world_xyz or self.model is None:
+            return None
+        tess = next((m for m in (self._cad_meshes or [])
+                     if getattr(m, "name", None) == name), None)
+        if tess is None or getattr(tess, "points", None) is None \
+                or len(tess.points) == 0:
+            return None
+        pts = np.asarray(tess.points, dtype=np.float64)
+        transform = ""
+        for p in self.model.parts():
+            if p.name == name:
+                transform = p.transform or ""
+                break
+        pts = cab_vtk._apply_transform(pts, transform)
+        target = np.asarray(world_xyz, dtype=np.float64)
+        d = np.linalg.norm(pts - target, axis=1)
+        diag = float(np.ptp(pts, axis=0).sum()) if len(pts) > 1 else 1.0
+        tol = max(0.002, 0.05 * diag)
+        idx = int(np.argmin(d))
+        if d[idx] > tol:
+            return None
+        return (name, idx, tuple(float(v) for v in pts[idx]))
+
+    def _domain_boundary_from_pick(self, x: float, y: float) -> Optional[str]:
+        """Spatial pick of a DomainBoundary face (ray vs domain AABB)."""
+        if self.model is None or self.renderer is None:
+            return None
+        base = self.model.domain_base()
+        size = self.model.domain_size()
+        if base is None or size is None:
+            return None
+        lo = np.asarray(base, dtype=float) / 1000.0
+        hi = lo + np.asarray(size, dtype=float) / 1000.0
+        try:
+            cam = self.renderer.GetActiveCamera()
+            cam_pos = np.asarray(cam.GetPosition(), dtype=float)
+            fp = np.asarray(cam.GetFocalPoint(), dtype=float)
+            ray = fp - cam_pos
+            n = np.linalg.norm(ray)
+            if n < 1e-12:
+                return None
+            ray = ray / n
+            picker = vtk.vtkWorldPointPicker()
+            picker.Pick(float(x), float(y), 0.0, self.renderer)
+            p = np.asarray(picker.GetPickPosition(), dtype=float)
+            rd = p - cam_pos
+            dn = np.linalg.norm(rd)
+            if dn < 1e-12:
+                return None
+            fname = ray_aabb_face(cam_pos, rd, lo, hi)
+            if fname is None:
+                return None
+            known = {n for n, _e in self.model.domain_faces()}
+            if fname in known:
+                return fname
+            return None
+        except Exception as exc:
+            self.log(f"Domain boundary pick failed: {exc}", "WARN")
+            return None
 
     def _on_draw_right_click(self, obj, _event) -> None:
         """M35: Draw Window RMB — Layout-style part popup subset."""
@@ -3249,7 +3416,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     pd_lines = pd_elem_lines if pd_elem_lines is not None \
                         else pd_elem
                 else:
-                    pd_lines = pd_elem
+                    # Face division = surface-only face grids (not the full
+                    # occupancy-box wireframe).
+                    try:
+                        pd_lines = cab_vtk.element_division_lines(
+                            self.model, box.name, interior_stride=0,
+                            surface_eps=1e-5)
+                    except Exception:
+                        pd_lines = None
+                    if pd_lines is None:
+                        pd_lines = pd_elem
                 mesh_edge = cab_vtk.edges_actor(
                     pd_lines, color=col, line_width=line_w)
                 show_e = tree_vis and (element_on or face_on)
@@ -3323,23 +3499,34 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.renderer.AddActor(actor)
                 self._layer_actors["domain_frame"].append(actor)
 
-        # P3: Condition layer - domain-boundary wireframe overlay (MVP).
+        # P3/L4: Condition layer - per-face domain-boundary wireframe colored
+        # by the condition type bound to each face.
         if self.control.layer_on("condition"):
             frame = cab_vtk.domain_frame(self.model)
             if frame:
-                pd = cab_vtk._make_box_polydata(frame, wireframe=True)
-                mapper = vtk.vtkPolyDataMapper()
-                mapper.SetInputData(pd)
-                actor = vtk.vtkActor()
-                actor.SetMapper(mapper)
-                actor.GetProperty().SetColor(0.95, 0.62, 0.10)
-                actor.GetProperty().SetRepresentationToWireframe()
-                actor.GetProperty().SetLineWidth(1.4)
-                actor.GetProperty().LightingOff()
-                self.renderer.AddActor(actor)
-                self._layer_actors.setdefault("condition", []).append(actor)
+                face_types = self._face_condition_types()
+                lo3 = frame.bounds[0:3]
+                hi3 = frame.bounds[3:6]
+                for fname in ("Xmin", "Xmax", "Ymin", "Ymax",
+                              "Zmin", "Zmax"):
+                    pd = cab_vtk.domain_face_edges(fname, lo3, hi3)
+                    mapper = vtk.vtkPolyDataMapper()
+                    mapper.SetInputData(pd)
+                    actor = vtk.vtkActor()
+                    actor.SetMapper(mapper)
+                    actor.GetProperty().SetColor(
+                        *self._condition_face_color(
+                            face_types.get(fname, [])))
+                    actor.GetProperty().SetRepresentationToWireframe()
+                    actor.GetProperty().SetLineWidth(
+                        1.6 if face_types.get(fname) else 1.0)
+                    actor.GetProperty().LightingOff()
+                    self.renderer.AddActor(actor)
+                    self._layer_actors.setdefault(
+                        "condition", []).append(actor)
 
-        # P3: Aspect ratio layer - element occupancy wireframe (MVP).
+        # P3/L4: Aspect ratio layer - occupancy wireframe colored by the
+        # per-box max/min cell-width ratio.
         axes = self.model.mesh_axes() if self.model is not None else {}
         if self.control.layer_on("aspect_ratio") and axes:
             for p in self.model.parts():
@@ -3355,9 +3542,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                               axes["z"][b6[5]] / 1000.0)
                     except IndexError:
                         continue
+                    dx = max(hi[0] - lo[0], 1e-12)
+                    dy = max(hi[1] - lo[1], 1e-12)
+                    dz = max(hi[2] - lo[2], 1e-12)
+                    ratio = max(dx, dy, dz) / min(dx, dy, dz)
+                    color = aspect_ratio_color(ratio)
+                    line_w = 1.0 if ratio <= 2.0 else (
+                        1.5 if ratio <= 5.0 else 2.2)
                     bb = (lo[0], lo[1], lo[2], hi[0], hi[1], hi[2])
                     part_box = cab_vtk.PartBox(
-                        p.name, bb, (0.75, 0.25, 0.75), 1.0, cells=[bb])
+                        p.name, bb, color, 1.0, cells=[bb])
                     pd = cab_vtk._make_box_polydata(part_box, wireframe=True)
                     mapper = vtk.vtkPolyDataMapper()
                     mapper.SetInputData(pd)
@@ -3365,7 +3559,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     actor.SetMapper(mapper)
                     actor.GetProperty().SetColor(*part_box.color)
                     actor.GetProperty().SetRepresentationToWireframe()
-                    actor.GetProperty().SetLineWidth(1.1)
+                    actor.GetProperty().SetLineWidth(line_w)
                     actor.GetProperty().LightingOff()
                     self.renderer.AddActor(actor)
                     self._layer_actors.setdefault(

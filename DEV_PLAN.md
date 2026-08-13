@@ -995,7 +995,7 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
 | L1 | 文案与死开关清理 | 0.5–1 天 | 无 | ✅ 2026-08-13 |
 | L2 | 金标回归钉住 | 1–2 天 | 无 | ✅ 2026-08-13 |
 | L3 | Others 参数进入原生算法 | 1–2 天 | L2（有金标可测） | ✅ 2026-08-13 |
-| L4 | Control 交互补深 | 1–3 天 | L1 | 待办 |
+| L4 | Control 交互补深 | 1–3 天 | L1 | ✅ 2026-08-13 |
 | L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 | 待办 |
 | L6 | Edit B-rep 真实算子 | 1–2 周 | L3（测试习惯） | 待办 |
 | L7 | Meshing 金标收敛 | 2–4 周 | L2/L3 | 待办 |
@@ -1063,6 +1063,10 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
 - 4.5 Face division 层：真实面划分线（与 element 层区分）。
 
 验收：每个 selection target 与 layer 都有可见/可测效果。
+
+状态：**✅ 已完成（2026-08-13）**，见 DEV_SUMMARY §43；Vertex 吸附、
+DomainBoundary 射线拾取、Condition 分色、Aspect ratio 分色、
+Face division 表面网格线均已接线并有测试。
 
 ### 16.6 L5 Condition Wizard 低垂果实（中）
 

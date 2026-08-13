@@ -239,6 +239,62 @@ def test_point_layer_owns_point_markers(viewer):
     win.renderer = None
 
 
+def test_aspect_ratio_color():
+    from cab_gui import aspect_ratio_color
+    assert aspect_ratio_color(1.5) == (0.15, 0.7, 0.3)
+    assert aspect_ratio_color(3.0) == (0.95, 0.75, 0.15)
+    assert aspect_ratio_color(9.0) == (0.9, 0.2, 0.2)
+
+
+def test_ray_aabb_face():
+    from cab_gui import ray_aabb_face
+    lo = (0.0, 0.0, 0.0)
+    hi = (1.0, 1.0, 1.0)
+    assert ray_aabb_face((0.5, 0.5, 10.0), (0.0, 0.0, -1.0),
+                         lo, hi) == "Zmax"
+    assert ray_aabb_face((10.0, 0.5, 0.5), (-1.0, 0.0, 0.0),
+                         lo, hi) == "Xmax"
+    assert ray_aabb_face((0.5, 0.5, -1.0), (0.0, 0.0, 1.0),
+                         lo, hi) == "Zmin"
+    assert ray_aabb_face((10.0, 10.0, 10.0), (1.0, 0.0, 0.0),
+                         lo, hi) is None
+
+
+def test_snap_picked_vertex(viewer):
+    from cab_parts import cube_tess
+    tess = cube_tess((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
+    tess.name = "pt1"
+    viewer._cad_meshes = [tess]
+    got = viewer._snap_picked_vertex("pt1", (0.0001, 0.0, 0.0))
+    assert got is not None
+    assert got[1] in range(8)
+    assert got[2] == pytest.approx((0.0, 0.0, 0.0))
+    assert viewer._snap_picked_vertex("pt1", (0.1, 0.1, 0.1)) is None
+
+
+def test_face_condition_types(viewer):
+    import xml.etree.ElementTree as ET
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.ensure_domain_faces()
+    root = model.doc.root
+    val = ET.SubElement(root, "value")
+    val.attrib["type"] = "flux"
+    nm = ET.SubElement(val, "name")
+    nm.text = " v1 "
+    cond = ET.SubElement(root, "condition")
+    rg = ET.SubElement(cond, "region")
+    rg.text = " Xmin "
+    vv = ET.SubElement(cond, "value")
+    vv.text = " v1 "
+    viewer.model = model
+    types = viewer._face_condition_types()
+    assert types["Xmin"] == ["flux"]
+    assert types["Xmax"] == []
+    assert viewer._condition_face_color(["flux"]) == (0.25, 0.45, 1.0)
+    assert viewer._condition_face_color([]) == (0.62, 0.62, 0.62)
+
+
 def test_edges_actor_extracts_lines():
     if not cab_gui._HAS_GUI_DEPS:
         pytest.skip("no gui deps")
@@ -252,6 +308,16 @@ def test_edges_actor_extracts_lines():
     pd = cab_vtk._make_box_polydata(boxes[0], wireframe=False)
     actor = cab_vtk.edges_actor(pd)
     assert actor.GetMapper().GetInput().GetNumberOfCells() > 0
+
+
+def test_domain_face_edges_polydata():
+    if not cab_gui._HAS_GUI_DEPS:
+        pytest.skip("no gui deps")
+    import cab_vtk
+    pd = cab_vtk.domain_face_edges(
+        "Xmin", (0.0, 0.0, 0.0), (1.0, 1.0, 1.0))
+    assert pd.GetNumberOfPoints() == 4
+    assert pd.GetNumberOfLines() == 4
 
 
 def test_nyi_logs(viewer):

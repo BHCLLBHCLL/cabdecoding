@@ -257,6 +257,31 @@ def domain_frame(model: StpreModel) -> Optional[PartBox]:
     return PartBox("Domain", bb, (0.4, 0.7, 1.0), 1.0, cells=[bb])
 
 
+_FACE_AXIS = {"Xmin": 0, "Xmax": 0, "Ymin": 1, "Ymax": 1,
+              "Zmin": 2, "Zmax": 2}
+_FACE_SIDE = {"Xmin": -1, "Xmax": 1, "Ymin": -1, "Ymax": 1,
+              "Zmin": -1, "Zmax": 1}
+
+
+def domain_face_edges(face_name: str, lo_m, hi_m):
+    """Four line segments of one domain-boundary face (vtkPolyData)."""
+    lo = np.asarray(lo_m, dtype=float)
+    hi = np.asarray(hi_m, dtype=float)
+    axis = _FACE_AXIS[face_name]
+    c = lo[axis] if _FACE_SIDE[face_name] < 0 else hi[axis]
+    others = [j for j in range(3) if j != axis]
+    a, b = others
+    pts = np.array([
+        [c, lo[a], lo[b]],
+        [c, hi[a], lo[b]],
+        [c, hi[a], hi[b]],
+        [c, lo[a], hi[b]],
+    ], dtype=float)
+    pts = pts[:, [0, 1, 2]]
+    cells = np.array([[0, 1], [1, 2], [2, 3], [3, 0]], dtype=np.int64)
+    return _polydata(pts, cells, "lines")
+
+
 def root_block_frame(model: StpreModel) -> Optional[PartBox]:
     """STpre Layout→RootBlock AABB (mm→m) for the blue wireframe cuboid."""
     bb_mm = model.root_block_bounds()
