@@ -2664,6 +2664,9 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self.p_parallel = QSpinBox(par)
         self.p_parallel.setRange(1, 256)
         self.p_parallel.setValue(min(2, _os.cpu_count() or 1))
+        self.p_parallel.valueChanged.connect(
+            lambda v: self.model.set_mesh_control_value(
+                "parallel_degree", str(int(v))))
         parl.addWidget(self.p_parallel)
         parl.addWidget(QLabel("( Thread )", par))
         parl.addStretch(1)

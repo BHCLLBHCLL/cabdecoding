@@ -4994,11 +4994,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             samples = ("corners" if (self.model.mesh_control_value("samples")
                                      or "").strip().lower() == "corners"
                        else "center")
+            try:
+                workers = max(1, int(
+                    self.model.mesh_control_value("parallel_degree") or 1))
+            except (TypeError, ValueError):
+                workers = 1
             analysis_box, part_boxes = cab_mesh.classify_cells(
                 axes, meshes, transforms=transforms, progress=tick,
                 part_kinds=part_kinds, part_attrs=part_attrs,
                 edge_eps=edge_eps, face_search=face_search,
-                element_threshold=elem_thr, samples=samples)
+                element_threshold=elem_thr, samples=samples,
+                workers=workers)
             analysis_name = (self.model.analysis_names() or
                              ["Domain(cuboid)"])[0]
             cab_mesh.apply_elements(

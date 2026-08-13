@@ -998,10 +998,10 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
 | L4 | Control 交互补深 | 1–3 天 | L1 | ✅ 2026-08-13 |
 | L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 | ✅ 2026-08-13 |
 | L6 | Edit B-rep 真实算子 | 1–2 周 | L3（测试习惯） | ✅ 2026-08-13（核心项） |
-| L7 | Meshing 金标收敛 | 2–4 周 | L2/L3 | 待办 |
-| L8 | STpre API 深度（若解冻） | 1–2 周 | L3 参数中继先行 | 待办 |
-| L9 | CW 产品级扩展（长尾） | 按需滚动 | L5 | 待办 |
-| L10 | B-rep 全面接管（架构级） | 长期 | L6 | 待办 |
+| L7 | Meshing 金标收敛 | 2–4 周 | L2/L3 | 🔄 部分（7.7 完成） |
+| L8 | STpre API 深度（若解冻） | 1–2 周 | L3 参数中继先行 | ⏸ 保持冻结 |
+| L9 | CW 产品级扩展（长尾） | 按需滚动 | L5 | 🔄 滚动（L5 铺底） |
+| L10 | B-rep 全面接管（架构级） | 长期 | L6 | 📋 规划 |
 
 ### 16.2 L1 文案与死开关清理（易）
 
@@ -1117,6 +1117,10 @@ create/edit、region 多选绑定、Power-law 与 Enclosure A/B/eps 写回均已
 
 验收：简单件与 STpre 完全一致；曲面件逐 cell 占用比对；大模型可跑。
 
+状态：**🔄 部分完成（2026-08-13）**：7.7 并行分类已实现（workers +
+parallel_degree 持久化）；7.1–7.6 已登记缺口，见 DEV_SUMMARY §46，
+下一轮优先 7.5 圆柱坐标元素分类与 7.2 run-length 金标。
+
 ### 16.9 L8 STpre API 深度（若解冻；保持冻结则跳过）
 
 - 8.1 P0 参数中继：`domain_type`（inner/outer）、`division_scale`、
@@ -1131,6 +1135,9 @@ create/edit、region 多选绑定、Power-law 与 Enclosure A/B/eps 写回均已
 
 验收：开关开启时六页 tab 与 API 行为一致；参数回读校验通过。
 
+状态：**⏸ 保持冻结（2026-08-13）**；P0–P4 候选见 DEV_SUMMARY §39.6 /
+§47，待解冻后实施。
+
 ### 16.10 L9 CW 产品级扩展（长尾，按需）
 
 - 9.1 常用条件：porous anisotropic、radiation grouping 细节、humidity
@@ -1142,6 +1149,8 @@ create/edit、region 多选绑定、Power-law 与 Enclosure A/B/eps 写回均已
 
 验收：每页有写回 + 重载 + 测试；禁用项保持诚实标注。
 
+状态：**🔄 滚动**（L5 已铺底；下一批候选见 DEV_SUMMARY §47）。
+
 ### 16.11 L10 B-rep 全面接管（架构级）
 
 - 10.1 x_t 双向持久化：所有编辑算子输出真实 body；
@@ -1150,6 +1159,8 @@ create/edit、region 多选绑定、Power-law 与 Enclosure A/B/eps 写回均已
 - 10.4 拾取/测量/参考/距离全线打通。
 
 验收：工业用例可从导入 → 编辑 → 网格 → 求解全程不丢几何。
+
+状态：**📋 规划中**；依赖 L6 剩余项与 x_t 双向持久化完善。
 
 ### 16.12 推进建议
 

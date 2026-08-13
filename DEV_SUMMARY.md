@@ -2182,3 +2182,34 @@ SaveCabFile → merge_mesh_result`。
 - 全仓回归：**321 通过 / 4 跳过**；
 - 未做（记录）：6.2 PK 级平面分割、6.6 Edit Solid 面级移动/补孔、
   6.8 拓扑 face/edge/vertex 拾取（留在后续轮次）。
+
+## 46. L7 执行（部分）：并行分类 + 金标差距登记（2026-08-13）
+
+- **7.7 并行分类**：`cab_mesh.classify_cells` 新增 `workers` 参数，
+  `>1` 时用 `ThreadPoolExecutor` 按部件并行执行
+  `_classify_part`（结果与串行一致）；GUI `_meshing_dialog` 读取
+  mesh_control `parallel_degree` 传入，GriddingDialog Others 页
+  `p_parallel` 改动即持久化到 `parallel_degree`；
+- 测试：`test_workers_parallel_same_result`（双部件 workers=1 vs 2
+  占用一致）；
+- 全仓回归：**322 通过 / 4 跳过**；
+- **未完成项登记（L7 剩余）**：
+  - 7.1 panel scheme 黑盒补充（speaker/开放面；STpre 实测
+    `part_boxes={}` 语义待还原）；
+  - 7.2 run-length 精确编码（需更多 STpre box list 金标数据）；
+  - 7.3 V8 scheme（solid/panel_scheme 占用合并语义，依赖 multiblock）；
+  - 7.4 边界 element face / flux face 重复检查（S/XEMT 映射待定）；
+  - 7.5 圆柱坐标元素分类（需把 R/θ/Z cell 中心映射到笛卡尔再做
+    point-in-mesh，属算法改造，下一轮实施）；
+  - 7.6 multiblock native（ChildBlock 参与 gridding）。
+
+## 47. L8–L10 状态（2026-08-13）
+
+- **L8 STpre API 深度**：维持冻结（DEV_PLAN §14.2）。P0–P4 候选已记录
+  （参数中继 → 指定部件/回读 → Edit/Detail/Deletion API → multiblock →
+  COM 超时），待用户解冻后实施；
+- **L9 CW 产品级扩展**：滚动计划，L5 已铺底（BC face / 多选 / 写回）；
+  下一批候选：porous anisotropic、radiation grouping 细节、time series、
+  初始湍流场、总压/静压组合边界；
+- **L10 B-rep 全面接管**：架构规划已写入 DEV_PLAN §16.11；实施依赖 L6
+  剩余项（PK 分割、拓扑拾取）与 x_t 双向持久化完善。

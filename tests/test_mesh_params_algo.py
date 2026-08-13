@@ -47,3 +47,18 @@ def test_face_search_scales_panel_band():
         part_attrs={"P": "panel"}, face_search=1.0)
     assert not boxes0.get("P")
     assert boxes1.get("P")
+
+
+def test_workers_parallel_same_result():
+    """L7: threaded per-part classification must match serial output."""
+    from cab_parts import cube_tess
+    ta = cube_tess((0.0, 0.0, 0.0), (5.0, 5.0, 5.0))
+    ta.name = "A"
+    tb = cube_tess((5.0, 5.0, 5.0), (5.0, 5.0, 5.0))
+    tb.name = "B"
+    axes = {ax: [i * 1.0 for i in range(11)] for ax in "xyz"}
+    _, b1 = cab_mesh.classify_cells(axes, [ta, tb], workers=1)
+    _, b2 = cab_mesh.classify_cells(axes, [ta, tb], workers=2)
+    assert set(b1) == set(b2) == {"A", "B"}
+    for key in b1:
+        assert b1[key] == b2[key]

@@ -306,6 +306,7 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                    edge_eps: float = 0.0,
                    face_search: float = 1.0,
                    element_threshold: float = 0.5,
+                   workers: int = 1,
                    ) -> tuple[list[tuple[int, int, int, int, int, int]],
                               dict[str, list[tuple[int, int, int, int, int, int]]]]:
     """Classify every part against the structured grid.
@@ -353,11 +354,12 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     part_kinds = part_kinds or {}
     part_attrs = part_attrs or {}
     part_boxes: dict[str, list[tuple[int, int, int, int, int, int]]] = {}
-    for idx, part in enumerate(parts):
+
+    def _classify_part(part) -> Optional[list[tuple[int, int, int, int, int, int]]]:
         pts = np.asarray(part.points, dtype=np.float64)
         tris = np.asarray(part.triangles, dtype=np.int64)
         if len(pts) == 0 or len(tris) == 0:
-            continue
+            return None
         pts = cab_vtk._apply_transform(
             pts, transforms.get(part.name, ""))
         lo = pts.min(0)
@@ -388,7 +390,7 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
         k1 = min(nk - 1, int(np.searchsorted(
             zc_b, hi[2] + pad[2], "right")) - 1)
         if i0 > i1 or j0 > j1 or k0 > k1:
-            continue
+            return None
         if panel:
             mask = classify_panel_cells(
                 xc, yc, zc, pts, tris,
@@ -400,9 +402,32 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                 cell_range=(i0, i1, j0, j1, k0, k1), samples=samples,
                 edge_eps=edge_eps)
         if mask.any():
-            part_boxes[part.name] = _merge_boxes(mask)
-        if progress is not None:
-            progress(idx + 1, len(parts))
+            return _merge_boxes(mask)
+        return None
+
+    parts_list = list(parts)
+    workers = max(1, int(workers or 1))
+    if workers > 1 and len(parts_list) > 1:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = {ex.submit(_classify_part, p): p
+                       for p in parts_list}
+            done = 0
+            for fut in as_completed(futures):
+                part = futures[fut]
+                boxes = fut.result()
+                if boxes:
+                    part_boxes[part.name] = boxes
+                done += 1
+                if progress is not None:
+                    progress(done, len(parts_list))
+    else:
+        for idx, part in enumerate(parts_list):
+            boxes = _classify_part(part)
+            if boxes:
+                part_boxes[part.name] = boxes
+            if progress is not None:
+                progress(idx + 1, len(parts_list))
     analysis_box = (1, ni, 1, nj, 1, nk)
     return analysis_box, part_boxes
 
