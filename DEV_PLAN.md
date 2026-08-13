@@ -993,7 +993,7 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
 | 层级 | 主题 | 预计工作量 | 前置 | 状态 |
 |---|---|---|---|---|
 | L1 | 文案与死开关清理 | 0.5–1 天 | 无 | ✅ 2026-08-13 |
-| L2 | 金标回归钉住 | 1–2 天 | 无 | 待办 |
+| L2 | 金标回归钉住 | 1–2 天 | 无 | ✅ 2026-08-13 |
 | L3 | Others 参数进入原生算法 | 1–2 天 | L2（有金标可测） | 待办 |
 | L4 | Control 交互补深 | 1–3 天 | L1 | 待办 |
 | L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 | 待办 |
@@ -1032,6 +1032,9 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
   等）XML round-trip 测试。
 
 验收：金标成为 pytest 常驻项；STpre 升级后可重跑 probe 刷新 JSON。
+
+状态：**✅ 已完成（2026-08-13）**，见 DEV_SUMMARY §41；tr03 曲面件 native
+计数（65×115×115）与 STpre 参考的差距已作为已知偏差登记，留待 L7 收敛。
 
 ### 16.4 L3 Others 参数进入原生算法（易→中）
 

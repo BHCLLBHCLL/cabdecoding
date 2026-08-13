@@ -2066,3 +2066,20 @@ SaveCabFile → merge_mesh_result`。
   `test_point_layer_owns_point_markers`、`test_boolean_dialog_note_updated`；
   全仓回归 **300 通过 / 4 跳过**；
 - 未做：`cab-gui-stpre-gap.canvas.tsx` 过期行清理（可选，留待后续）。
+
+## 41. L2 执行：金标回归钉住（2026-08-13）
+
+- 新增 `tests/test_golden_reference.py`（4 项，无需 STpre/pskernel）：
+  1. `box_new.s` vs `box_bm.s` CXYZ 逐轴 55 点（54 cell）逐点一致
+     （rtol=0, atol=1e-15）；
+  2. 两文件 PARTS 中 box 占用均为 `20 39 20 39 20 39`；
+  3. tr03 黑盒参考计数钉住：`data/stpre_probe_20260808_tr03.json`
+     基础阈值组 all=59×118×121、rep=57×91×92、
+     plane/minmax/none=57×85×85、uniform=91×141×141；
+     同时记录 native 当前偏差（65×115×115，曲面件尚未收敛，属 L7 项）；
+  4. Others 页 9 项 mesh_control 参数
+     （edge_eps / element_threshold / face_search / panel_block_face /
+     check_scheme / solid_scheme / panel_scheme / divide_scale /
+     edge_contact）serialize → parse round-trip。
+- 全仓回归：**304 通过 / 4 跳过**（首次运行有一次瞬时崩溃，重跑稳定；
+  未发现代码回归）。
