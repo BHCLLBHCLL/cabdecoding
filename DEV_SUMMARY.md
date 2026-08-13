@@ -2213,3 +2213,37 @@ SaveCabFile → merge_mesh_result`。
   初始湍流场、总压/静压组合边界；
 - **L10 B-rep 全面接管**：架构规划已写入 DEV_PLAN §16.11；实施依赖 L6
   剩余项（PK 分割、拓扑拾取）与 x_t 双向持久化完善。
+
+## 48. L7 续执行：圆柱分类 / 占用金标 / 通量面查重（2026-08-14）
+
+- **7.5 圆柱坐标元素分类**：`cab_mesh.classify_part_cells_grid` /
+  `classify_panel_cells_grid` 支持任意 3D cell 中心网格的射线奇偶判定与
+  panel 带判定；`classify_cells(coordinate="cylindrical")` 把 R(mm)/
+  θ(deg)/Z(mm) 轴转换为笛卡尔 cell 中心（R·cosθ, R·sinθ, Z），
+  占用 mask 仍按 (R, θ, Z) 索引；GUI `_meshing_dialog` 与
+  `_mesh_single_part` 自动按 domain coordinate 传入；
+  测试：grid 分类器与 separable 路径逐 cell 一致；
+  圆柱体（R≤5mm、θ 全周、Z 全高）占用正确；
+- **7.2 占用金标**：`test_stpre_box_occupancy_golden` 用
+  `stpre_probe_20260808_all.json` 的 STpre axes + part_boxes 与 native
+  分类逐 cell 比对，**20/20 box 用例占用完全一致**（含 vd/auto1 等）；
+- **7.4 通量条件面重复检查**：`cab_mesh.find_flux_face_duplicates`
+  按 region 聚合 type=flux 的绑定值并报告重复；
+  `_check_sfile_dialog` 在 `check_scheme=1` 时输出 WARN/INFO；
+- 全仓回归：**327 通过 / 4 跳过**；
+- 仍待依赖（登记）：7.1 panel scheme 黑盒语义、7.3 V8 scheme
+  （需 multiblock）、7.6 multiblock native 参与 gridding。
+
+## 49. L10 续执行：拾取/测量/参考打通（2026-08-14）
+
+- **Option → Distance 非模态 + Draw Window 拾取**：Pick P1/Pick P2 按钮
+  把 Target 切到 Vertices，Draw 窗口顶点吸附结果经
+  `_feed_pick_point()` 回填 6 个坐标框，第二次拾取自动 Calculate；
+- **Option → Reference 非模态 + 原点拾取**：Pick origin 回填 ox/oy/oz，
+  OK 持久化 ref_ox/oy/oz/ref_show；
+- 新增 `_pick_dialog` / `_pick_slot` 状态与 `_clear_pick_dialog()`，
+  `_on_left_click` 顶点分支自动喂给活动对话框；
+- 测试：`test_feed_pick_point_distance`（P1/P2 回填、自动计算、清理）；
+- 全仓回归：**327 通过 / 4 跳过**；
+- 仍待推进（登记）：x_t 双向持久化全算子、PK 级 Undo/Redo、格式矩阵
+  扩展（MDL/DXF/OBJ/IDF 出口）为后续 L10 项。

@@ -2725,6 +2725,14 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         transforms = {p.name: p.transform for p in self.model.parts()}
         part_kinds = {p.name: p.kind for p in self.model.parts()}
         part_attrs = {p.name: p.attribute for p in self.model.parts()}
+        coord = "cartesian"
+        try:
+            import cab_domain
+            d = cab_domain.domain_from_xml(self.model)
+            if d is not None and (d.coordinate or "").strip():
+                coord = d.coordinate.strip().lower()
+        except Exception:
+            pass
 
         def _mc(tag: str, default: float) -> float:
             try:
@@ -2742,7 +2750,8 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             axes, [meshes[name]], transforms=transforms,
             part_kinds=part_kinds, part_attrs=part_attrs,
             edge_eps=edge_eps, face_search=face_search,
-            element_threshold=elem_thr, samples=samples)
+            element_threshold=elem_thr, samples=samples,
+            coordinate=coord)
         cab_mesh.update_part_elements(
             self.model, name, boxes.get(name, []))
         msg = f"Meshing of specified part: {name} -> " \

@@ -106,3 +106,48 @@ def test_gridding_dialog_domain_type_ui(qapp):
     assert model.mesh_control_value("domain_coordinate") == "cylindrical"
     assert "Select from list" in dlg.btn_select.text()
     dlg.close()
+
+
+def test_grid_classifier_matches_separable():
+    """L7.5: generic 3-D grid ray cast agrees with the separable path."""
+    from cab_parts import cube_tess
+    tess = cube_tess((2.0, 2.0, 2.0), (6.0, 6.0, 6.0))
+    x = np.arange(10) + 0.5
+    centers = np.stack(np.meshgrid(x, x, x, indexing="ij"),
+                       axis=-1) / 1000.0
+    m1 = cab_mesh.classify_part_cells_grid(
+        centers, tess.points, tess.triangles)
+    m2 = cab_mesh.classify_part_cells(
+        x / 1000.0, x / 1000.0, x / 1000.0,
+        tess.points, tess.triangles)
+    assert (m1 == m2).all()
+
+
+def test_cylindrical_classification_cylinder():
+    """L7.5: R/θ/Z grid maps to Cartesian centres and classifies a cylinder."""
+    from cab_parts import cylinder_tess
+    tess = cylinder_tess((0.0, 0.0, 0.0), 5.0, 10.0)
+    tess.name = "C"
+    axes = {
+        "x": [i * 1.0 for i in range(11)],      # R 0..10 mm
+        "y": [i * 10.0 for i in range(37)],     # theta 0..360 deg
+        "z": [i * 1.0 for i in range(11)],      # Z 0..10 mm
+    }
+    _, boxes = cab_mesh.classify_cells(
+        axes, [tess], part_kinds={"C": "cylinder"},
+        part_attrs={"C": "solid"}, coordinate="cylindrical")
+    assert boxes.get("C")
+    cells = set()
+    for b in boxes["C"]:
+        i1, i2, j1, j2, k1, k2 = b[:6]
+        for i in range(i1, i2 + 1):
+            for j in range(j1, j2 + 1):
+                for k in range(k1, k2 + 1):
+                    cells.add((i, j, k))
+    js = {j for _, j, _ in cells}
+    ks = {k for _, _, k in cells}
+    is_ = {i for i, _, _ in cells}
+    assert js == set(range(1, 37))       # full theta ring
+    assert ks == set(range(1, 11))       # full Z height
+    assert min(is_) == 1
+    assert max(is_) <= 5                 # radius 5 mm -> R cells 1..5

@@ -136,3 +136,19 @@ def test_purpose_buildings_power_law_writeback(qapp):
     assert _value_param(m, "flux", "bld_inlet", "exponent") == "0.25"
     assert _bound_regions(m, "bld_inlet") == ["Xmin"]
     assert _bound_regions(m, "bld_outlet") == ["Xmax"]
+
+
+def test_flux_face_duplicate_check():
+    """L7.4: duplicate flux conditions on one face are reported."""
+    from cab_mesh import find_flux_face_duplicates
+    m = _model()
+    m.upsert_value("flux", "inlet_a", [("kind", "fixed_vel", None)])
+    m.upsert_value("flux", "inlet_b", [("kind", "total_pres", None)])
+    m.bind_condition("region", "Xmin", "inlet_a")
+    m.bind_condition("region", "Xmin", "inlet_b")
+    assert find_flux_face_duplicates(m) == [
+        ("Xmin", ["inlet_a", "inlet_b"])]
+    m2 = _model()
+    m2.upsert_value("flux", "inlet_a", [("kind", "fixed_vel", None)])
+    m2.bind_condition("region", "Xmin", "inlet_a")
+    assert find_flux_face_duplicates(m2) == []

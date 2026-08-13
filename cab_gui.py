@@ -646,13 +646,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._apply_options(dlg.values())
 
     def _option_distance_dialog(self) -> None:
-        """M25 Option → Distance."""
+        """M25/L10 Option → Distance with Draw-Window vertex picking."""
         from PyQt5.QtWidgets import (
-            QDialog, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout,
-            QPushButton, QHBoxLayout,
+            QDialog, QFormLayout, QDoubleSpinBox, QLabel, QPushButton,
+            QHBoxLayout, QVBoxLayout,
         )
         dlg = QDialog(self)
         dlg.setWindowTitle("Distance")
+        dlg.setModal(False)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
         spins = []
@@ -662,16 +663,27 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             sp.setDecimals(3)
             form.addRow(lab + " (mm)", sp)
             spins.append(sp)
+        dlg.pick_spins = spins
         result = QLabel("Distance = —", dlg)
         lay.addLayout(form)
         lay.addWidget(result)
         row = QHBoxLayout()
+        pick1 = QPushButton("Pick P1", dlg)
+        pick2 = QPushButton("Pick P2", dlg)
         calc = QPushButton("Calculate", dlg)
         close = QPushButton("Close", dlg)
+        row.addWidget(pick1)
+        row.addWidget(pick2)
         row.addStretch(1)
         row.addWidget(calc)
         row.addWidget(close)
         lay.addLayout(row)
+        hint = QLabel("Select Target of selection = Vertices, then click "
+                      "Pick P1 and pick a vertex in the Draw Window.", dlg)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #555;")
+        lay.addWidget(hint)
+        dlg.pick_hint = hint
 
         def _calc() -> None:
             p1 = np.array([spins[i].value() for i in range(3)])
@@ -680,19 +692,36 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             result.setText(f"Distance = {d:.6g} mm")
             self.log(f"Distance: {d:.6g} mm")
 
+        dlg.pick_calc = _calc
+
+        def _begin(slot: str) -> None:
+            self._pick_dialog = dlg
+            self._pick_slot = slot
+            self._on_sel_target("Vertex")
+            hint.setText(
+                f"Pick {slot} in the Draw Window (Target = Vertices)…")
+
+        def _close() -> None:
+            self._clear_pick_dialog(dlg)
+            dlg.accept()
+
+        pick1.clicked.connect(lambda: _begin("P1"))
+        pick2.clicked.connect(lambda: _begin("P2"))
         calc.clicked.connect(_calc)
-        close.clicked.connect(dlg.accept)
-        dlg.exec_()
+        close.clicked.connect(_close)
+        dlg.finished.connect(lambda _r: self._clear_pick_dialog(dlg))
+        dlg.show()
 
     def _option_reference_dialog(self) -> None:
-        """M25 Option → Reference (origin / axes marker)."""
+        """M25/L10 Option → Reference (origin pick + axes marker)."""
         from cab_options import get_setting, set_setting
         from PyQt5.QtWidgets import (
-            QDialog, QFormLayout, QDoubleSpinBox, QCheckBox, QVBoxLayout,
+            QDialog, QFormLayout, QDoubleSpinBox, QCheckBox, QLabel, QVBoxLayout,
             QPushButton, QHBoxLayout,
         )
         dlg = QDialog(self)
         dlg.setWindowTitle("Reference")
+        dlg.setModal(False)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
         ox = QDoubleSpinBox(dlg)
@@ -709,13 +738,28 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         form.addRow("Origin Z (mm)", oz)
         form.addRow(show)
         lay.addLayout(form)
+        hint = QLabel("Click 'Pick origin' then pick a vertex in the Draw "
+                      "Window (Target = Vertices).", dlg)
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #555;")
+        lay.addWidget(hint)
         row = QHBoxLayout()
+        pick = QPushButton("Pick origin", dlg)
         ok = QPushButton("OK", dlg)
         cancel = QPushButton("Cancel", dlg)
+        row.addWidget(pick)
         row.addStretch(1)
         row.addWidget(ok)
         row.addWidget(cancel)
         lay.addLayout(row)
+        dlg.pick_spins = [ox, oy, oz]
+        dlg.pick_hint = hint
+
+        def _pick_origin() -> None:
+            self._pick_dialog = dlg
+            self._pick_slot = "P1"
+            self._on_sel_target("Vertex")
+            hint.setText("Pick the reference origin in the Draw Window…")
 
         def _ok() -> None:
             set_setting("ref_ox", ox.value())
@@ -727,9 +771,47 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 f"{oz.value():g}) show={show.isChecked()}")
             dlg.accept()
 
+        def _cancel() -> None:
+            self._clear_pick_dialog(dlg)
+            dlg.reject()
+
+        pick.clicked.connect(_pick_origin)
         ok.clicked.connect(_ok)
-        cancel.clicked.connect(dlg.reject)
-        dlg.exec_()
+        cancel.clicked.connect(_cancel)
+        dlg.finished.connect(lambda _r: self._clear_pick_dialog(dlg))
+        dlg.show()
+
+    def _clear_pick_dialog(self, dlg) -> None:
+        if self._pick_dialog is dlg:
+            self._pick_dialog = None
+            self._pick_slot = None
+
+    def _feed_pick_point(self, snapped) -> bool:
+        """Feed a snapped vertex into the active non-modal pick dialog."""
+        dlg = self._pick_dialog
+        slot = self._pick_slot
+        if dlg is None or slot is None:
+            return False
+        spins = getattr(dlg, "pick_spins", None)
+        if not spins:
+            return False
+        mm = np.asarray(snapped[2], dtype=float) * 1000.0
+        base = 0 if slot == "P1" else 3
+        for i in range(3):
+            spins[base + i].setValue(float(mm[i]))
+        hint = getattr(dlg, "pick_hint", None)
+        if slot == "P1" and len(spins) >= 6:
+            self._pick_slot = "P2"
+            if hint is not None:
+                hint.setText("Pick P2 in the Draw Window…")
+        else:
+            self._pick_slot = None
+            if hint is not None:
+                hint.setText("Points picked.")
+            calc = getattr(dlg, "pick_calc", None)
+            if calc is not None:
+                calc()
+        return True
 
     def _option_cutcell_dialog(self) -> None:
         """M27 Option → Cut Cell MVP."""
@@ -2460,6 +2542,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._sel_target = getattr(self, "_sel_target", "Part")
         self._picked_face = None  # (part_name, cell_id)
         self._picked_vertex = None  # (part_name, vertex_idx, xyz)
+        self._pick_dialog = None    # non-modal dialog waiting for vertex picks
+        self._pick_slot: Optional[str] = None  # "P1" | "P2" | None
         # QVTKRenderWindowInteractor.Initialize() sets up the Qt/VTK bridge;
         # falling back to the raw iren when the widget API is unavailable.
         if hasattr(self.vtk_widget, "Initialize"):
@@ -2665,6 +2749,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     name, self._cell_picker.GetPickPosition())
                 if snapped is not None:
                     self._picked_vertex = snapped
+                    self._feed_pick_point(snapped)
                     vx, vy, vz = snapped[2]
                     self.log(
                         f"Picked Vertex: {name} #{snapped[1]} "
@@ -4980,6 +5065,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
             part_kinds = {p.name: p.kind for p in self.model.parts()}
             part_attrs = {p.name: p.attribute for p in self.model.parts()}
+            coord = "cartesian"
+            try:
+                import cab_domain
+                d = cab_domain.domain_from_xml(self.model)
+                if d is not None and (d.coordinate or "").strip():
+                    coord = d.coordinate.strip().lower()
+            except Exception:
+                pass
 
             def _mc(tag: str, default: float) -> float:
                 try:
@@ -5004,7 +5097,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 part_kinds=part_kinds, part_attrs=part_attrs,
                 edge_eps=edge_eps, face_search=face_search,
                 element_threshold=elem_thr, samples=samples,
-                workers=workers)
+                workers=workers, coordinate=coord)
             analysis_name = (self.model.analysis_names() or
                              ["Domain(cuboid)"])[0]
             cab_mesh.apply_elements(
@@ -5083,6 +5176,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        if (self.model.mesh_control_value("check_scheme") or "0") == "1":
+            import cab_mesh
+            dups = cab_mesh.find_flux_face_duplicates(self.model)
+            if dups:
+                self.log(
+                    "Flux face duplication check: "
+                    + "; ".join(f"{f}: {','.join(ns)}"
+                                for f, ns in dups), "WARN")
+            else:
+                self.log("Flux face duplication check: none.", "INFO")
         dlg = cab_dialogs.SFileCheckDialog(self.model, self)
         dlg.exec_()
 

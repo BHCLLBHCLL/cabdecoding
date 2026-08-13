@@ -244,6 +244,124 @@ def classify_panel_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
     return mask
 
 
+def classify_part_cells_grid(centers3: np.ndarray, pts: np.ndarray,
+                             tris: np.ndarray,
+                             edge_eps: float = 0.0) -> np.ndarray:
+    """Even-odd +X ray cast over an arbitrary 3-D cell-centre grid.
+
+    ``centers3`` has shape ``(ni, nj, nk, 3)`` (Cartesian metres) and the
+    returned mask keeps the same index space — used for cylindrical
+    R/θ/Z grids whose Cartesian centres are not separable per axis.
+    """
+    ni, nj, nk, _ = centers3.shape
+    mask = np.zeros((ni, nj, nk), dtype=np.int32)
+    if tris is None or len(tris) == 0 or len(pts) == 0:
+        return mask.astype(bool)
+    X = centers3[..., 0]
+    Y = centers3[..., 1]
+    Z = centers3[..., 2]
+    tri = pts[tris]
+    tmin = tri.min(axis=1)
+    tmax = tri.max(axis=1)
+    eps = max(float(edge_eps), 1e-10)
+    scale = max(float(np.ptp(X)), float(np.ptp(Y)), float(np.ptp(Z)), 1e-12)
+    for t in range(len(tri)):
+        a, b, c = tri[t]
+        n = np.cross(b - a, c - a)
+        if abs(n[0]) < 1e-12:
+            continue  # ray (+X) parallel to the triangle plane
+        # candidate cells must lie LEFT of the triangle plane (ray +X);
+        # no lower x bound — like the separable path's per-triangle i range.
+        sel = ((X <= tmax[t, 0] + eps)
+               & (Y >= tmin[t, 1] - eps) & (Y <= tmax[t, 1] + eps)
+               & (Z >= tmin[t, 2] - eps) & (Z <= tmax[t, 2] + eps))
+        if not sel.any():
+            continue
+        Xs = X[sel]
+        Ys = Y[sel] + 1e-11 * scale
+        Zs = Z[sel] + 2e-11 * scale
+        inside = _inside_yz(
+            np.array([a[1], a[2]]), np.array([b[1], b[2]]),
+            np.array([c[1], c[2]]), Ys, Zs)
+        x_int = a[0] + (n[1] * (Ys - a[1]) + n[2] * (Zs - a[2])) / (-n[0])
+        hit = inside & (Xs < x_int + eps)
+        if hit.any():
+            mask[sel] ^= hit
+    return mask.astype(bool)
+
+
+def classify_panel_cells_grid(centers3: np.ndarray, pts: np.ndarray,
+                              tris: np.ndarray,
+                              face_search: float = 1.0) -> np.ndarray:
+    """Face-thin band over an arbitrary 3-D cell-centre grid (cylindrical)."""
+    ni, nj, nk, _ = centers3.shape
+    mask = np.zeros((ni, nj, nk), dtype=bool)
+    if tris is None or len(tris) == 0 or len(pts) == 0:
+        return mask
+    fs = max(float(face_search), 0.0)
+    X = centers3[..., 0]
+    Y = centers3[..., 1]
+    Z = centers3[..., 2]
+    tri = pts[tris]
+    tmin = tri.min(axis=1)
+    tmax = tri.max(axis=1)
+    # conservative cell-width estimate for the band
+    width = max(
+        float(np.median(np.abs(np.diff(np.unique(X))))),
+        float(np.median(np.abs(np.diff(np.unique(Y))))),
+        float(np.median(np.abs(np.diff(np.unique(Z))))),
+        1e-12)
+    pad = width * fs
+    for t in range(len(tri)):
+        a, b, c = tri[t]
+        n = np.cross(b - a, c - a)
+        area2 = float(np.linalg.norm(n))
+        if area2 < 1e-18:
+            continue
+        n_unit = n / area2
+        sel = ((X >= tmin[t, 0] - pad) & (X <= tmax[t, 0] + pad)
+               & (Y >= tmin[t, 1] - pad) & (Y <= tmax[t, 1] + pad)
+               & (Z >= tmin[t, 2] - pad) & (Z <= tmax[t, 2] + pad))
+        if not sel.any():
+            continue
+        Xs = X[sel]
+        Ys = Y[sel]
+        Zs = Z[sel]
+        dx = Xs - a[0]
+        dy = Ys - a[1]
+        dz = Zs - a[2]
+        dist = np.abs(n_unit[0] * dx + n_unit[1] * dy + n_unit[2] * dz)
+        near = dist <= pad + 1e-12
+        if not near.any():
+            continue
+        px = Xs - n_unit[0] * (n_unit[0] * dx + n_unit[1] * dy
+                               + n_unit[2] * dz)
+        py = Ys - n_unit[1] * (n_unit[0] * dx + n_unit[1] * dy
+                               + n_unit[2] * dz)
+        pz = Zs - n_unit[2] * (n_unit[0] * dx + n_unit[1] * dy
+                               + n_unit[2] * dz)
+        v0 = c - a
+        v1 = b - a
+        v2x = px - a[0]
+        v2y = py - a[1]
+        v2z = pz - a[2]
+        dot00 = float(v0 @ v0)
+        dot01 = float(v0 @ v1)
+        dot11 = float(v1 @ v1)
+        denom = dot00 * dot11 - dot01 * dot01
+        if abs(denom) < 1e-24:
+            continue
+        inv = 1.0 / denom
+        dot02 = v0[0] * v2x + v0[1] * v2y + v0[2] * v2z
+        dot12 = v1[0] * v2x + v1[1] * v2y + v1[2] * v2z
+        uu = (dot11 * dot02 - dot01 * dot12) * inv
+        vv = (dot00 * dot12 - dot01 * dot02) * inv
+        inside = near & (uu >= -0.05) & (vv >= -0.05) & ((uu + vv) <= 1.05)
+        if inside.any():
+            mask[sel] |= inside
+    return mask
+
+
 def _merge_boxes(mask: np.ndarray) -> list[tuple[int, int, int, int, int, int]]:
     """Greedy merge of occupied cells into 1-based inclusive boxes."""
     boxes: list[tuple[int, int, int, int, int, int]] = []
@@ -307,6 +425,7 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                    face_search: float = 1.0,
                    element_threshold: float = 0.5,
                    workers: int = 1,
+                   coordinate: str = "cartesian",
                    ) -> tuple[list[tuple[int, int, int, int, int, int]],
                               dict[str, list[tuple[int, int, int, int, int, int]]]]:
     """Classify every part against the structured grid.
@@ -327,8 +446,12 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     * ``element_threshold`` — reference point inside a cell (0..1, 0.5 =
       centre); shifts the ray-cast sample along the cell diagonal.
     """
+    coord = (coordinate or "cartesian").strip().lower()
     x = np.asarray(axes_mm.get("x", []), float) / 1000.0
-    y = np.asarray(axes_mm.get("y", []), float) / 1000.0
+    if coord == "cylindrical":
+        y = np.asarray(axes_mm.get("y", []), float)      # theta in degrees
+    else:
+        y = np.asarray(axes_mm.get("y", []), float) / 1000.0
     z = np.asarray(axes_mm.get("z", []), float) / 1000.0
     if len(x) < 2 or len(y) < 2 or len(z) < 2:
         raise ValueError("mesh_block needs at least 2 points per axis")
@@ -336,6 +459,12 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     yc = 0.5 * (y[:-1] + y[1:])
     zc = 0.5 * (z[:-1] + z[1:])
     ni, nj, nk = len(xc), len(yc), len(zc)
+    centers3: Optional[np.ndarray] = None
+    if coord == "cylindrical":
+        R, TH, ZZ = np.meshgrid(xc, yc, zc, indexing="ij")
+        thr = np.deg2rad(TH)
+        centers3 = np.stack(
+            [R * np.cos(thr), R * np.sin(thr), ZZ], axis=-1)
     if samples == "center" and abs(float(element_threshold) - 0.5) > 1e-9:
         def _widths(c: np.ndarray) -> np.ndarray:
             w = np.zeros(len(c))
@@ -356,6 +485,27 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     part_boxes: dict[str, list[tuple[int, int, int, int, int, int]]] = {}
 
     def _classify_part(part) -> Optional[list[tuple[int, int, int, int, int, int]]]:
+        if coord == "cylindrical":
+            if centers3 is None:
+                return None
+            pts = np.asarray(part.points, dtype=np.float64)
+            tris = np.asarray(part.triangles, dtype=np.int64)
+            if len(pts) == 0 or len(tris) == 0:
+                return None
+            pts = cab_vtk._apply_transform(
+                pts, transforms.get(part.name, ""))
+            kind = part_kinds.get(part.name, getattr(part, "kind", "") or "")
+            attr = part_attrs.get(
+                part.name, getattr(part, "attribute", "") or "")
+            if is_panel_part(kind, attr):
+                mask = classify_panel_cells_grid(
+                    centers3, pts, tris, face_search=face_search)
+            else:
+                mask = classify_part_cells_grid(
+                    centers3, pts, tris, edge_eps=edge_eps)
+            if mask.any():
+                return _merge_boxes(mask)
+            return None
         pts = np.asarray(part.points, dtype=np.float64)
         tris = np.asarray(part.triangles, dtype=np.int64)
         if len(pts) == 0 or len(tris) == 0:
@@ -726,3 +876,28 @@ def resolve_interferences(model: StpreModel) -> int:
             l.tail = "\n      "
         changed += 1
     return changed
+
+
+def find_flux_face_duplicates(model: StpreModel
+                              ) -> list[tuple[str, list[str]]]:
+    """Domain faces bound to more than one flux-type condition value.
+
+    Mirrors the STpre "Check duplication of flux condition faces" option
+    (``mesh_control/check_scheme``): a face carrying two different flux
+    values is ambiguous for the solver.
+    """
+    from cabxml import _first
+    by_face: dict[str, set[str]] = {}
+    for c in model.conditions():
+        region = _first(c, "region")
+        val = _first(c, "value")
+        if region is None or val is None:
+            continue
+        rname = (region.text or "").strip()
+        vname = (val.text or "").strip()
+        v = model.find_value(vname)
+        if v is None or v.attrib.get("type") != "flux":
+            continue
+        by_face.setdefault(rname, set()).add(vname)
+    return [(face, sorted(names))
+            for face, names in by_face.items() if len(names) > 1]

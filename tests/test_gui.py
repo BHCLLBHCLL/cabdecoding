@@ -295,6 +295,44 @@ def test_face_condition_types(viewer):
     assert viewer._condition_face_color([]) == (0.62, 0.62, 0.62)
 
 
+def test_feed_pick_point_distance(viewer):
+    """L10: snapped vertices feed the non-modal Distance dialog (P1/P2)."""
+
+    class Spin:
+        def __init__(self):
+            self.v = 0.0
+
+        def setValue(self, v):
+            self.v = float(v)
+
+        def value(self):
+            return self.v
+
+    class Dlg:
+        def __init__(self):
+            self.pick_spins = [Spin() for _ in range(6)]
+            self.pick_hint = type("H", (), {
+                "setText": lambda self, t: None})()
+            self.called = 0
+            self.pick_calc = self._calc
+
+        def _calc(self):
+            self.called += 1
+
+    dlg = Dlg()
+    viewer._pick_dialog = dlg
+    viewer._pick_slot = "P1"
+    assert viewer._feed_pick_point(("p", 0, (0.001, 0.002, 0.003))) is True
+    assert [s.v for s in dlg.pick_spins[:3]] == [1.0, 2.0, 3.0]
+    assert viewer._pick_slot == "P2"
+    assert viewer._feed_pick_point(("p", 1, (0.004, 0.005, 0.006))) is True
+    assert [s.v for s in dlg.pick_spins[3:]] == [4.0, 5.0, 6.0]
+    assert viewer._pick_slot is None
+    assert dlg.called == 1
+    viewer._clear_pick_dialog(dlg)
+    assert viewer._pick_dialog is None
+
+
 def test_edges_actor_extracts_lines():
     if not cab_gui._HAS_GUI_DEPS:
         pytest.skip("no gui deps")

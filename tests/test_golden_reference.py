@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 BOX_NEW = ROOT / "tests" / "box" / "box_new.s"
 BOX_BM = ROOT / "tests" / "box" / "box_bm.s"
 TR03_JSON = ROOT / "data" / "stpre_probe_20260808_tr03.json"
+ALL_JSON = ROOT / "data" / "stpre_probe_20260808_all.json"
 
 
 def _sfile_axis_points(path: Path) -> list[list[float]]:
@@ -109,3 +110,46 @@ def test_mesh_control_params_roundtrip():
     again = StpreModel(parse_stpre(model.doc.serialize()))
     for tag, text in vals.items():
         assert again.mesh_control_value(tag) == text
+
+
+def _cellset(boxes: list) -> set[tuple[int, int, int]]:
+    out = set()
+    for b in boxes:
+        i1, i2, j1, j2, k1, k2 = b[:6]
+        for i in range(i1, i2 + 1):
+            for j in range(j1, j2 + 1):
+                for k in range(k1, k2 + 1):
+                    out.add((i, j, k))
+    return out
+
+
+def test_stpre_box_occupancy_golden():
+    """Native occupancy cell sets equal STpre part_boxes (20 box cases)."""
+    import cab_mesh
+    from cab_parts import cube_tess
+    assert ALL_JSON.is_file()
+    data = json.loads(ALL_JSON.read_text(encoding="utf-8"))
+    recs = data if isinstance(data, list) else data.get("records", [])
+    tess = cube_tess((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
+    tess.name = "box"
+    checked = 0
+    for r in recs:
+        inp = r.get("input", {})
+        out = r.get("output", {})
+        if inp.get("part_transform") or inp.get("extra_part") \
+                or inp.get("stl_part"):
+            continue
+        pb = out.get("part_boxes", {})
+        if "box" not in pb:
+            continue
+        axes = out.get("axes")
+        if not axes or len(axes.get("x", [])) < 2:
+            continue
+        _, native = cab_mesh.classify_cells(
+            axes, [tess], part_kinds={"box": "cube"},
+            part_attrs={"box": "solid"})
+        st = _cellset(pb["box"])
+        nt = _cellset(native.get("box", []))
+        assert st == nt, f"occupancy mismatch for {r.get('name')}"
+        checked += 1
+    assert checked >= 20
