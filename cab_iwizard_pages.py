@@ -66,10 +66,11 @@ PURPOSE_BC = {
         "Top boundary  : Enclosure heat release (A=1.3 B=0.25 eps=0.9)\n"
         "Bottom boundary: Enclosure heat release (A=0.65 B=0.25 eps=0.9)\n"
         "Side boundary : Enclosure heat release (A=1.4 B=0.25 eps=0.9)\n"
-        "(MVP: coefficients shown; full AENT write-back pending)"),
+        "(write-back: heat_transfer values with kind=enclosure_heat_release)"),
     "external_buildings": (
         "Power-law inflow boundary on the inflow side.\n"
-        "(MVP: description only; power-law profile write-back pending)"),
+        "(write-back: flux value with kind=power_law + reference height/"
+        "exponent/velocity)"),
 }
 
 
@@ -1255,6 +1256,23 @@ class _IwPurposePage(QWidget if _HAS_GUI else object):
         self.enc_rad = QCheckBox("Radiation formula", enclosure)
         el.addWidget(self.enc_nat)
         el.addWidget(self.enc_rad)
+        enc_row = QHBoxLayout()
+        enc_row.addWidget(QLabel("A", enclosure))
+        self.enc_a = QDoubleSpinBox(enclosure)
+        self.enc_a.setRange(0.0, 1.0e3)
+        self.enc_a.setValue(1.3)
+        enc_row.addWidget(self.enc_a)
+        enc_row.addWidget(QLabel("B", enclosure))
+        self.enc_b = QDoubleSpinBox(enclosure)
+        self.enc_b.setRange(0.0, 1.0e3)
+        self.enc_b.setValue(0.25)
+        enc_row.addWidget(self.enc_b)
+        enc_row.addWidget(QLabel("eps", enclosure))
+        self.enc_eps = QDoubleSpinBox(enclosure)
+        self.enc_eps.setRange(0.0, 1.0)
+        self.enc_eps.setValue(0.9)
+        enc_row.addWidget(self.enc_eps)
+        el.addLayout(enc_row)
         el.addWidget(_note(PURPOSE_BC["internal_enclosure"], enclosure))
         el.addStretch(1)
         self._panels["internal_enclosure"] = enclosure
@@ -1262,6 +1280,25 @@ class _IwPurposePage(QWidget if _HAS_GUI else object):
 
         buildings = QWidget()
         bl = QVBoxLayout(buildings)
+        bd_row = QHBoxLayout()
+        bd_row.addWidget(QLabel("Inflow side", buildings))
+        self.build_dir = QComboBox(buildings)
+        self.build_dir.addItems(["+X", "-X", "+Y", "-Y", "+Z", "-Z"])
+        bd_row.addWidget(self.build_dir)
+        bd_row.addStretch(1)
+        bl.addLayout(bd_row)
+        self.build_h = QDoubleSpinBox(buildings)
+        self.build_h.setRange(0.0, 1.0e6)
+        self.build_h.setValue(10.0)
+        _pair_row(bl, "Reference height", self.build_h, "m")
+        self.build_exp = QDoubleSpinBox(buildings)
+        self.build_exp.setRange(0.0, 1.0)
+        self.build_exp.setValue(0.25)
+        _pair_row(bl, "Power-law exponent", self.build_exp, "")
+        self.build_vel = QDoubleSpinBox(buildings)
+        self.build_vel.setRange(0.0, 1.0e6)
+        self.build_vel.setValue(1.0)
+        _pair_row(bl, "Velocity at reference height", self.build_vel, "m/s")
         bl.addWidget(_note(PURPOSE_BC["external_buildings"], buildings))
         bl.addStretch(1)
         self._panels["external_buildings"] = buildings
@@ -1305,10 +1342,10 @@ class _IwPurposePage(QWidget if _HAS_GUI else object):
             self._apply_forced(model)
         elif purpose == "external_natural":
             self._apply_natural(model)
-        elif purpose in ("internal_enclosure", "external_buildings"):
-            self._log(
-                f"Initial Wizard: boundary auto-setting for '{purpose}' "
-                f"not written (phase 1).", "WARN")
+        elif purpose == "internal_enclosure":
+            self._apply_enclosure(model)
+        elif purpose == "external_buildings":
+            self._apply_buildings(model)
 
     def _apply_forced(self, model: StpreModel) -> None:
         ambient = model.project_value("ambient_temperature", "20")
@@ -1383,6 +1420,79 @@ class _IwPurposePage(QWidget if _HAS_GUI else object):
             model.bind_condition("region", face, "side_adiabatic")
         self._log("Initial Wizard: external natural-convection boundary "
                   "conditions written.")
+
+    def _apply_enclosure(self, model: StpreModel) -> None:
+        ambient = model.project_value("ambient_temperature", "20")
+        a_top = self.enc_a.value()
+        b = self.enc_b.value()
+        eps = self.enc_eps.value()
+        faces = {
+            "Zmax": ("enc_top", a_top),
+            "Zmin": ("enc_bottom", 0.65),
+            "Xmin": ("enc_side", 1.4),
+            "Xmax": ("enc_side", 1.4),
+            "Ymin": ("enc_side", 1.4),
+            "Ymax": ("enc_side", 1.4),
+        }
+        for face, (vname, a) in faces.items():
+            model.upsert_value("heat_transfer", vname, [
+                ("kind", "enclosure_heat_release", None),
+                ("a", f"{a:g}", None),
+                ("b", f"{b:g}", None),
+                ("eps", f"{eps:g}", None),
+                ("temperature", ambient, "C"),
+                ("use", "2", None),
+            ])
+            model.bind_condition("region", face, vname)
+        self._log("Initial Wizard: enclosure A/B/eps boundary conditions "
+                  "written (top/bottom/sides).")
+
+    def _apply_buildings(self, model: StpreModel) -> None:
+        ambient = model.project_value("ambient_temperature", "20")
+        dirs = {"+X": ("Xmin", "Xmax", (1, 0, 0)),
+                "-X": ("Xmax", "Xmin", (-1, 0, 0)),
+                "+Y": ("Ymin", "Ymax", (0, 1, 0)),
+                "-Y": ("Ymax", "Ymin", (0, -1, 0)),
+                "+Z": ("Zmin", "Zmax", (0, 0, 1)),
+                "-Z": ("Zmax", "Zmin", (0, 0, -1))}
+        in_face, out_face, vdir = dirs.get(
+            self.build_dir.currentText(), ("Xmin", "Xmax", (1, 0, 0)))
+        vel_str = ",".join(f"{self.build_vel.value() * c:g}" for c in vdir)
+        model.upsert_value("flux", "bld_inlet", [
+            ("kind", "power_law", None),
+            ("velocity", vel_str, "m/s"),
+            ("direction", ",".join(f"{c:g}" for c in vdir), None),
+            ("reference_height", f"{self.build_h.value():g}", "m"),
+            ("exponent", f"{self.build_exp.value():g}", None),
+            ("temperature", ambient, "C"),
+            ("turbulence_type", "none", None),
+            ("panel_option", "none", None),
+        ])
+        model.bind_condition("region", in_face, "bld_inlet")
+        model.upsert_value("flux", "bld_outlet", [
+            ("kind", "total_pres", None),
+            ("pressure", "0", "Pa"),
+            ("temperature", ambient, "C"),
+            ("turbulence_type", "none", None),
+            ("panel_option", "none", None),
+        ])
+        model.bind_condition("region", out_face, "bld_outlet")
+        model.upsert_value("wall", "bld_side_wall", [
+            ("kind", "free_slip", None),
+            ("option", "1", None),
+        ])
+        model.upsert_value("heat_transfer", "bld_side_adiabatic", [
+            ("kind", "adiabatic", None),
+            ("temperature", ambient, "C"),
+            ("use", "2", None),
+        ])
+        for face in ("Xmin", "Xmax", "Ymin", "Ymax", "Zmin", "Zmax"):
+            if face in (in_face, out_face):
+                continue
+            model.bind_condition("region", face, "bld_side_wall")
+            model.bind_condition("region", face, "bld_side_adiabatic")
+        self._log("Initial Wizard: power-law inflow boundary conditions "
+                  "written.")
 
 
 class _IwConfirmPage(QWidget if _HAS_GUI else object):

@@ -173,7 +173,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         table.setHorizontalHeaderLabels(headers)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setSelectionMode(QTableWidget.SingleSelection)
+        table.setSelectionMode(QTableWidget.ExtendedSelection)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
         body.addWidget(table, 1)
 
@@ -199,18 +199,18 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
 
         brow = QHBoxLayout()
         if face_buttons:
-            for text in ("Create Face...", "Edit Face..."):
-                b = QPushButton(text, page)
-                b.setEnabled(False)
-                b.setToolTip(
-                    "Face create/edit is not implemented in cabdecoding "
-                    "(use DomainBoundary faces from Layout / Domain).")
-                brow.addWidget(b)
+            b_create = QPushButton("Create Face...", page)
+            b_create.clicked.connect(lambda: self._create_face(table))
+            brow.addWidget(b_create)
+            b_edit = QPushButton("Edit Face...", page)
+            b_edit.clicked.connect(lambda: self._edit_face(table))
+            brow.addWidget(b_edit)
         btn_edit = QPushButton("Edit...", page)
         btn_cancel = QPushButton("Cancel", page)
         btn_select = QPushButton("Select", page)
-        btn_select.setEnabled(False)
-        btn_select.setToolTip("Region multi-select not wired in cabdecoding.")
+        btn_select.setToolTip(
+            "Select all visible region rows; Ctrl+click adds individual rows.")
+        btn_select.clicked.connect(lambda: self._select_all(table))
         btn_edit.clicked.connect(
             lambda: self._edit_selected(table, star))
         btn_cancel.clicked.connect(
@@ -292,6 +292,19 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             for face, _el in self.model.domain_faces():
                 if (face, "DomainBoundary") not in shown:
                     add(face, "DomainBoundary", "")
+            # custom sub-faces created by Create Face... also appear
+            from cabxml import _first as _f
+            ar = self.model.analysis_region()
+            for r in (list(ar) if ar is not None else []):
+                if r.attrib.get("type") != "face_list":
+                    continue
+                n = _f(r, "name")
+                if n is None or not (n.text or "").strip():
+                    continue
+                nm = n.text.strip()
+                if nm not in {f for f, _e in self.model.domain_faces()} \
+                        and (nm, "DomainBoundary") not in shown:
+                    add(nm, "DomainBoundary", "")
 
     def refresh(self) -> None:
         self._fill_table(
@@ -334,6 +347,174 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             region = self._domain_name()
             kind = "analysis"
         self.model.bind_condition(kind, region, cname)
+
+    def _selected_regions(self, table: QTableWidget, star: bool
+                          ) -> list[tuple[str, str]]:
+        """All selected region rows (Ctrl/Shift multi-select)."""
+        out: list[tuple[str, str]] = []
+        for idx in table.selectionModel().selectedRows():
+            row = idx.row()
+            c0 = 0
+            c_type = 2 if star else 1
+            region = table.item(row, c0).text() if table.item(row, c0) else ""
+            rtype = (table.item(row, c_type).text()
+                     if table.item(row, c_type) else "")
+            if region:
+                out.append((region, rtype))
+        return out
+
+    def _select_all(self, table: QTableWidget) -> None:
+        table.selectAll()
+        self._log(f"Select: {table.selectionModel().selectedRows().__len__()}"
+                  " region row(s) selected.")
+
+    @staticmethod
+    def _write_face_region(model: StpreModel, region_name: str, face: str,
+                           u0: float, u1: float,
+                           v0: float, v1: float) -> bool:
+        """Create/update an axis-aligned sub-face region on a boundary face.
+
+        Persisted as ``<analysis_region><region type="face_list">`` with
+        ``name`` / ``parent`` (Xmin…Zmax) / ``u0,u1,v0,v1`` (normalised
+        0..1 along the face's local U/V axes).  S-file export mapping for
+        partial faces is still a documented limitation (L5).
+        """
+        import xml.etree.ElementTree as ET
+        from cabxml import _first
+        ar = model.analysis_region()
+        if ar is None:
+            model.ensure_domain()
+            ar = model.analysis_region()
+        if ar is None:
+            return False
+        reg = None
+        for r in list(ar):
+            n = _first(r, "name")
+            if (r.attrib.get("type") == "face_list"
+                    and n is not None
+                    and (n.text or "").strip() == region_name):
+                reg = r
+                break
+        if reg is None:
+            reg = ET.SubElement(ar, "region")
+            reg.attrib["type"] = "face_list"
+            reg.tail = "\n   "
+
+        def _set(tag: str, text: str) -> None:
+            el = _first(reg, tag)
+            if el is None:
+                el = ET.SubElement(reg, tag)
+                el.tail = "\n      "
+            el.text = f" {text} "
+
+        _set("name", region_name)
+        _set("parent", face)
+        _set("u0", f"{u0:g}")
+        _set("u1", f"{u1:g}")
+        _set("v0", f"{v0:g}")
+        _set("v1", f"{v1:g}")
+        return True
+
+    def _face_dialog(self, *, region_name: str = "", face: str = "Xmin",
+                     u0: float = 0.0, u1: float = 1.0,
+                     v0: float = 0.0, v1: float = 1.0) -> Optional[dict]:
+        from PyQt5.QtWidgets import (
+            QComboBox, QDialog, QDoubleSpinBox, QHBoxLayout, QLineEdit,
+            QPushButton, QVBoxLayout,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Face (Create/Edit)")
+        lay = QVBoxLayout(dlg)
+        name_ed = QLineEdit(region_name or "Face1", dlg)
+        _pair(lay, "Face name", name_ed)
+        face_cb = QComboBox(dlg)
+        face_cb.addItems(["Xmin", "Xmax", "Ymin", "Ymax", "Zmin", "Zmax"])
+        if face in [face_cb.itemText(i) for i in range(face_cb.count())]:
+            face_cb.setCurrentText(face)
+        _pair(lay, "Boundary face", face_cb)
+        spins: dict[str, QDoubleSpinBox] = {}
+        for key, label, default in (
+                ("u0", "U from", u0), ("u1", "U to", u1),
+                ("v0", "V from", v0), ("v1", "V to", v1)):
+            sp = QDoubleSpinBox(dlg)
+            sp.setRange(0.0, 1.0)
+            sp.setDecimals(4)
+            sp.setValue(default)
+            _pair(lay, label, sp)
+            spins[key] = sp
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+        if not dlg.exec_():
+            return None
+        return {
+            "name": name_ed.text().strip() or "Face1",
+            "face": face_cb.currentText(),
+            "u0": spins["u0"].value(), "u1": spins["u1"].value(),
+            "v0": spins["v0"].value(), "v1": spins["v1"].value(),
+        }
+
+    def _create_face(self, table: QTableWidget) -> None:
+        res = self._face_dialog()
+        if res is None:
+            return
+        if self._write_face_region(
+                self.model, res["name"], res["face"],
+                res["u0"], res["u1"], res["v0"], res["v1"]):
+            self.refresh()
+            self._log(
+                f"Created face '{res['name']}' on {res['face']} "
+                f"U[{res['u0']:g},{res['u1']:g}] "
+                f"V[{res['v0']:g},{res['v1']:g}]")
+
+    def _edit_face(self, table: QTableWidget) -> None:
+        star = bool(table.property("star_col"))
+        region, _rtype, _cname = self._selected(table, star)
+        if not region:
+            self._log("Edit Face: select a face region row first.", "WARN")
+            return
+        from cabxml import _first
+        face, u0, u1, v0, v1 = "Xmin", 0.0, 1.0, 0.0, 1.0
+        ar = self.model.analysis_region()
+        for r in (list(ar) if ar is not None else []):
+            n = _first(r, "name")
+            if (r.attrib.get("type") != "face_list" or n is None
+                    or (n.text or "").strip() != region):
+                continue
+            p = _first(r, "parent")
+            if p is not None and (p.text or "").strip():
+                face = p.text.strip()
+            for tag in ("u0", "u1", "v0", "v1"):
+                el = _first(r, tag)
+                if el is not None and el.text:
+                    try:
+                        val = float(el.text.strip())
+                    except ValueError:
+                        continue
+                    if tag == "u0":
+                        u0 = val
+                    elif tag == "u1":
+                        u1 = val
+                    elif tag == "v0":
+                        v0 = val
+                    else:
+                        v1 = val
+            break
+        res = self._face_dialog(
+            region_name=region, face=face, u0=u0, u1=u1, v0=v0, v1=v1)
+        if res is None:
+            return
+        if self._write_face_region(
+                self.model, res["name"], res["face"],
+                res["u0"], res["u1"], res["v0"], res["v1"]):
+            self.refresh()
+            self._log(f"Edited face '{res['name']}' on {res['face']}")
 
     # -- New dialogs ------------------------------------------------------
 
@@ -393,9 +574,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             ("fy", f"{vals[1]:g}", "N/m3"),
             ("fz", f"{vals[2]:g}", "N/m3"),
         ])
-        region, rtype, _ = self._selected(self.vol_table, False)
-        self._bind_target(region or self._domain_name(),
-                          rtype or "Domain", name)
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
         self.vf_on.setChecked(True)
         self._log(f"Source: volumetric force '{name}'")
         self.refresh()
@@ -410,9 +593,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.model.upsert_value("volumetric_pressure_loss", name, [
             ("coeff", f"{vals[0]:g}", None),
         ])
-        region, rtype, _ = self._selected(self.vol_table, False)
-        self._bind_target(region or self._domain_name(),
-                          rtype or "Domain", name)
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
         self.pl_on.setChecked(True)
         self._log(f"Source: volumetric pressure loss '{name}'")
         self.refresh()
@@ -431,9 +616,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             ("heat", f"{vals[0]:g}", unit),
             ("kind", "volumetric", None),
         ])
-        region, rtype, _ = self._selected(self.vol_table, False)
-        self._bind_target(region or self._domain_name(),
-                          rtype or "Domain", name)
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: volumetric heat source '{name}' "
                   f"({vals[0]:g} {unit})")
         self.refresh()
@@ -448,9 +635,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.model.upsert_value("source_term", name, [
             ("param", f"{vals[0]:g}", None),
         ])
-        region, rtype, _ = self._selected(self.vol_table, False)
-        self._bind_target(region or self._domain_name(),
-                          rtype or "Domain", name)
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: generalized source term '{name}'")
         self.refresh()
 
@@ -464,10 +653,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.model.upsert_value("area_pressure_loss", name, [
             ("coeff", f"{vals[0]:g}", None),
         ])
-        region, rtype, _ = self._selected(self.area_table, True)
-        if not region:
-            region, rtype = "Xmin", "DomainBoundary"
-        self._bind_target(region, rtype or "DomainBoundary", name)
+        regions = self._selected_regions(self.area_table, True)
+        if not regions:
+            regions = [("Xmin", "DomainBoundary")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "DomainBoundary", name)
         self.pl_on.setChecked(True)
         self._log(f"Source: area pressure loss '{name}' on {region}")
         self.refresh()
@@ -486,10 +676,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             ("heat", f"{vals[0]:g}", unit),
             ("kind", "area", None),
         ])
-        region, rtype, _ = self._selected(self.area_table, True)
-        if not region:
-            region, rtype = "Xmin", "DomainBoundary"
-        self._bind_target(region, rtype or "DomainBoundary", name)
+        regions = self._selected_regions(self.area_table, True)
+        if not regions:
+            regions = [("Xmin", "DomainBoundary")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "DomainBoundary", name)
         self._log(f"Source: area heat source '{name}' on {region} "
                   f"({vals[0]:g} {unit})")
         self.refresh()
@@ -504,10 +695,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.model.upsert_value("perforated_plate", name, [
             ("coeff", f"{vals[0]:g}", None),
         ])
-        region, rtype, _ = self._selected(self.perf_table, False)
-        if not region:
-            region, rtype = "Xmin", "DomainBoundary"
-        self._bind_target(region, rtype or "DomainBoundary", name)
+        regions = self._selected_regions(self.perf_table, False)
+        if not regions:
+            regions = [("Xmin", "DomainBoundary")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "DomainBoundary", name)
         self._log(f"Source: perforated plate '{name}' on {region}")
         self.refresh()
 
@@ -531,8 +723,11 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             "Condition name:", names, 0, False)
         if not ok or not name:
             return
-        region, rtype, _ = self._selected(table, star)
-        self._bind_target(region, rtype, name)
+        regions = self._selected_regions(table, star)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype, name)
         self.refresh()
 
     def _edit_selected(self, table: QTableWidget, star: bool) -> None:

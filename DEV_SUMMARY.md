@@ -2128,3 +2128,27 @@ SaveCabFile → merge_mesh_result`。
   `test_snap_picked_vertex`、`test_face_condition_types`、
   `test_domain_face_edges_polydata`；
 - 全仓回归：**312 通过 / 4 跳过**。
+
+## 44. L5 执行：Condition Wizard 低垂果实（2026-08-13）
+
+- **BC face create/edit 解锁**（Source/Area/Perforated 页）：
+  `_write_face_region()` 在 `analysis_region` 写入
+  `<region type="face_list">`（name / parent=Xmin…Zmax / u0,u1,v0,v1
+  归一化 0..1）；`_create_face` / `_edit_face` 对话框创建/编辑并即时
+  refresh；自定义 face 会出现在 DomainBoundary 列表中并可被条件绑定。
+  注：S/XEMT 对局部面的导出映射仍是已知限制（后续补齐）；
+- **region 多选**：Source 页表格改为 ExtendedSelection，
+  `_selected_regions()` 返回全部选中行，7 个 `_new_*` 与
+  `_assign_existing` 均改为对每个选中 region 写条件绑定；Select 按钮
+  全选可见行；
+- **Initial Wizard 写回补齐**：
+  - `external_buildings`（Power-law）：flux `kind=power_law` +
+    velocity / direction / reference_height / exponent / temperature，
+    绑定 inflow face；outlet 总压 0；侧面 free-slip + adiabatic；
+  - `internal_enclosure`：六面 heat_transfer
+    `kind=enclosure_heat_release` + A/B/eps（顶 1.3/0.25/0.9、
+    底 0.65、侧 1.4），绑定对应 face；PURPOSE_BC 文案去掉
+    “write-back pending”；
+- 测试 `tests/test_l5_cw.py`（5 项）：face region round-trip、
+  多选 region 提取、enclosure/power-law 写回与绑定；
+- 全仓回归：**316 通过 / 4 跳过**。

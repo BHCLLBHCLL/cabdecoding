@@ -996,7 +996,7 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
 | L2 | 金标回归钉住 | 1–2 天 | 无 | ✅ 2026-08-13 |
 | L3 | Others 参数进入原生算法 | 1–2 天 | L2（有金标可测） | ✅ 2026-08-13 |
 | L4 | Control 交互补深 | 1–3 天 | L1 | ✅ 2026-08-13 |
-| L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 | 待办 |
+| L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 | ✅ 2026-08-13 |
 | L6 | Edit B-rep 真实算子 | 1–2 周 | L3（测试习惯） | 待办 |
 | L7 | Meshing 金标收敛 | 2–4 周 | L2/L3 | 待办 |
 | L8 | STpre API 深度（若解冻） | 1–2 周 | L3 参数中继先行 | 待办 |
@@ -1078,6 +1078,10 @@ Face division 表面网格线均已接线并有测试。
 - 5.5 Source 值类型扩展（time series 等常用项）。
 
 验收：原禁用的 Create/Edit/Select 可用；写回 XML 可重载。
+
+状态：**✅ 已完成（2026-08-13）**，见 DEV_SUMMARY §44；BC face
+create/edit、region 多选绑定、Power-law 与 Enclosure A/B/eps 写回均已
+实现并有测试；局部 face 的 S/XEMT 导出映射留待后续。
 
 ### 16.7 L6 Edit B-rep 真实算子（难，按子项递进）
 
