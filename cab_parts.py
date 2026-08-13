@@ -281,7 +281,7 @@ def sphere_tess(center_mm, radius, divisions: int = 12) -> PrimitivePart:
             d = b + nlon
             tris.append([a, b, d])
             tris.append([a, d, c2])
-    last = 1 + (nlat - 1) * nlon
+    last = 1 + (nlat - 2) * nlon
     for j in range(nlon):
         j2 = (j + 1) % nlon
         tris.append([last + j, last + j2, last + nlon])

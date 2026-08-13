@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 import cab_edit_ops
 import cab_ps_ops
 from cab_parts import cube_tess
@@ -117,3 +119,68 @@ def test_extrude_and_delete_faces():
     removed = cab_edit_ops.delete_selected_faces_tess(meshes, "A", 0)
     assert removed > 0
     assert len(meshes[0].triangles) < n_before
+
+
+def _signed_volume(pts, tris) -> float:
+    pts = np.asarray(pts, dtype=float)
+    tris = np.asarray(tris, dtype=np.int64)
+    return abs(float(np.einsum(
+        "ij,ij->i", pts[tris[:, 0]],
+        np.cross(pts[tris[:, 1]], pts[tris[:, 2]])).sum()) / 6.0)
+
+
+def test_cut_tess_with_plane_box():
+    """L6: true plane cut produces two closed shells with matching volume."""
+    from cab_parts import cube_tess
+    tess = cube_tess((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
+    res = cab_edit_ops.cut_tess_with_plane(
+        tess, (0.005, 0.0, 0.0), (1.0, 0.0, 0.0))
+    assert res["capped"] is True
+    vf = _signed_volume(res["front"]["points"], res["front"]["triangles"])
+    vb = _signed_volume(res["back"]["points"], res["back"]["triangles"])
+    assert abs(vf + vb - 1e-6) < 1e-8
+    assert vf > 0 and vb > 0
+    assert float(np.asarray(res["front"]["points"])[:, 0].min()) >= \
+        0.004999 - 1e-9
+    assert float(np.asarray(res["back"]["points"])[:, 0].max()) <= \
+        0.005001 + 1e-9
+
+
+def test_simplify_tess_grid_reduces():
+    """L6: vertex-clustering decimation lowers triangle count."""
+    from cab_parts import sphere_tess
+    tess = sphere_tess((0.0, 0.0, 0.0), 10.0, divisions=24)
+    simp = cab_edit_ops.simplify_tess_grid(tess, 2.0)
+    assert simp is not None
+    assert len(simp.triangles) < len(tess.triangles)
+
+
+def test_convex_hull_tess_cube():
+    """L6: convex hull of a cube is a 12-triangle closed shell."""
+    from cab_parts import cube_tess
+    tess = cube_tess((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
+    hull = cab_edit_ops.convex_hull_tess(tess.points)
+    assert hull is not None
+    assert len(hull.triangles) == 12
+
+
+def test_register_tess_part_archive_stl():
+    """L6: tessellation results persist as polygon part + STL member."""
+    from cab_container import CabArchive
+    from cab_parts import cube_tess
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    arch = CabArchive.parse((ROOT / "tests" / "box.cab").read_bytes())
+    arch.fill_member_data()
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    tess = cube_tess((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
+    assert cab_edit_ops.register_tess_part(model, [], arch, "res1", tess)
+    assert any(m.name == "res1.stl" for m in arch.members)
+    assert any(p.name == "res1" for p in model.parts())
+
+
+def test_sphere_tess_indices_valid():
+    """Regression: sphere_tess south-pole ring used out-of-range indices."""
+    from cab_parts import sphere_tess
+    for div in (8, 12, 24):
+        t = sphere_tess((0.0, 0.0, 0.0), 10.0, divisions=div)
+        assert int(t.triangles.max()) < len(t.points)

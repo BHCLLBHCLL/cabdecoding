@@ -693,6 +693,350 @@ def boolean_mesh_parts(model: StpreModel, cad_meshes, part_a: str, part_b: str,
     return name, "csg"
 
 
+def register_tess_part(model: StpreModel, cad_meshes, archive, name: str,
+                       tess) -> bool:
+    """Register a tessellation result as a polygon part (+ STL member)."""
+    from cab_parts import PrimitivePart
+    from xml.etree.ElementTree import SubElement
+    file_ref = ""
+    kind = "polygon"
+    if archive is not None:
+        import cab_import
+        stl = cab_import._tris_to_stl_bytes(
+            np.asarray(tess.points, dtype=np.float64),
+            np.asarray(tess.triangles, dtype=np.int64), name)
+        member = cab_import.add_stl_member(
+            archive, stl, name=f"{name}.stl")
+        file_ref = member.name
+    el = model.add_part(name=name, kind=kind, attribute="solid",
+                        file_ref=file_ref)
+    if el is None:
+        return False
+    tess.name = name
+    pts = np.asarray(tess.points, dtype=np.float64)
+    lo, hi = pts.min(0) * 1000.0, pts.max(0) * 1000.0
+    for tag, val in (
+            ("base", ",".join(f"{v:.17g}" for v in lo)),
+            ("size", ",".join(f"{v:.17g}" for v in (hi - lo))),
+    ):
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, val)
+    if cad_meshes is not None:
+        cad_meshes.append(PrimitivePart(name, pts, np.asarray(
+            tess.triangles, dtype=np.int64)))
+    return True
+
+
+def _clip_triangle(pts, tris, d, eps):
+    """Clip one triangle against plane d>=0 front / d<0 back."""
+    front_poly: list[np.ndarray] = []
+    back_poly: list[np.ndarray] = []
+    for i in range(3):
+        p1 = pts[tris[i]]
+        p2 = pts[tris[(i + 1) % 3]]
+        d1, d2 = d[tris[i]], d[tris[(i + 1) % 3]]
+        if d1 >= -eps:
+            front_poly.append(p1)
+        if d1 < eps:
+            back_poly.append(p1)
+        if (d1 > eps and d2 < -eps) or (d1 < -eps and d2 > eps):
+            t = d1 / (d1 - d2)
+            p = p1 + t * (p2 - p1)
+            front_poly.append(p)
+            back_poly.append(p)
+    return front_poly, back_poly
+
+
+def _fan_tris(poly: list[np.ndarray], vmap: dict,
+              vlist: list[np.ndarray]) -> list[tuple[int, int, int]]:
+    out: list[tuple[int, int, int]] = []
+    if len(poly) < 3:
+        return out
+    ids = []
+    for p in poly:
+        key = tuple(np.round(p, 12))
+        if key not in vmap:
+            vmap[key] = len(vlist)
+            vlist.append(p)
+        ids.append(vmap[key])
+    for i in range(1, len(ids) - 1):
+        out.append((ids[0], ids[i], ids[i + 1]))
+    return out
+
+
+def _build_loops(segments: list[tuple[np.ndarray, np.ndarray]]
+                 ) -> list[list[np.ndarray]]:
+    """Join cut-plane segments into closed boundary loops."""
+    from collections import defaultdict
+    adj: dict[tuple, list[tuple]] = defaultdict(list)
+    pos: dict[tuple, np.ndarray] = {}
+    for p, q in segments:
+        kp = tuple(np.round(p, 12))
+        kq = tuple(np.round(q, 12))
+        pos[kp] = p
+        pos[kq] = q
+        adj[kp].append(kq)
+        adj[kq].append(kp)
+    loops: list[list[np.ndarray]] = []
+    used: set[tuple] = set()
+    for start in list(adj):
+        if start in used or len(adj[start]) != 2:
+            continue
+        loop: list[tuple] = [start]
+        used.add(start)
+        prev, cur = start, adj[start][0]
+        guard = 0
+        while cur != start and guard < 100000:
+            guard += 1
+            if cur in used:
+                break
+            used.add(cur)
+            loop.append(cur)
+            nxt = [k for k in adj[cur] if k != prev]
+            if not nxt:
+                break
+            prev, cur = cur, nxt[0]
+        if cur == start and len(loop) >= 3:
+            loops.append([pos[k] for k in loop])
+    return loops
+
+
+def _cross2d(a, b, c) -> float:
+    return (b[0] - a[0]) * (c[1] - a[1]) - \
+        (b[1] - a[1]) * (c[0] - a[0])
+
+
+def _point_in_tri2d(a, b, c, p) -> bool:
+    d1 = _cross2d(a, b, p)
+    d2 = _cross2d(b, c, p)
+    d3 = _cross2d(c, a, p)
+    has_neg = d1 < 0 or d2 < 0 or d3 < 0
+    has_pos = d1 > 0 or d2 > 0 or d3 > 0
+    return not (has_neg and has_pos)
+
+
+def _ear_clip(loop: list[np.ndarray], u: np.ndarray, v: np.ndarray
+              ) -> list[tuple[int, int, int]]:
+    pts2 = [(float(p @ u), float(p @ v)) for p in loop]
+    area = 0.0
+    for i in range(len(pts2)):
+        x1, y1 = pts2[i]
+        x2, y2 = pts2[(i + 1) % len(pts2)]
+        area += x1 * y2 - x2 * y1
+    if area < 0:
+        pts2 = pts2[::-1]
+    idx = list(range(len(pts2)))
+    out: list[tuple[int, int, int]] = []
+    guard = 0
+    while len(idx) > 3 and guard < 10000:
+        guard += 1
+        found = False
+        m = len(idx)
+        for i in range(m):
+            i0, i1, i2 = idx[(i - 1) % m], idx[i], idx[(i + 1) % m]
+            a, b, c = pts2[i0], pts2[i1], pts2[i2]
+            if _cross2d(a, b, c) <= 1e-12:
+                continue
+            inside = any(
+                j not in (i0, i1, i2) and
+                _point_in_tri2d(a, b, c, pts2[j]) for j in idx)
+            if inside:
+                continue
+            out.append((i0, i1, i2))
+            idx.pop(i)
+            found = True
+            break
+        if not found:
+            return []
+    if len(idx) == 3:
+        out.append(tuple(idx))
+    return out
+
+
+def cut_tess_with_plane(tess, origin_m, normal) -> dict:
+    """True plane cut of a tessellation into front/back shells (+ caps).
+
+    Returns ``{"front": {points, triangles}, "back": {...},
+    "capped": bool}``.  Caps are built by ear-clipping the cut loops; when a
+    loop cannot be closed (e.g. multiple disjoint cut loops), the shells are
+    returned open and ``capped`` is False.
+    """
+    pts = np.asarray(tess.points, dtype=np.float64)
+    tris = np.asarray(tess.triangles, dtype=np.int64)
+    n = np.asarray(normal, dtype=float)
+    nn = np.linalg.norm(n)
+    if nn < 1e-12:
+        raise ValueError("cut plane normal must be non-zero")
+    n = n / nn
+    o = np.asarray(origin_m, dtype=float)
+    d = (pts - o) @ n
+    eps = 1e-9
+    front_vmap: dict = {}
+    back_vmap: dict = {}
+    front_vlist: list[np.ndarray] = []
+    back_vlist: list[np.ndarray] = []
+    front_out: list[tuple[int, int, int]] = []
+    back_out: list[tuple[int, int, int]] = []
+    segments: list[tuple[np.ndarray, np.ndarray]] = []
+    coplanar: list[tuple[int, int, int]] = []
+    for t in tris:
+        ds = d[t]
+        if np.all(np.abs(ds) <= eps):
+            coplanar.append((int(t[0]), int(t[1]), int(t[2])))
+            continue
+        front_poly, back_poly = _clip_triangle(pts, t, d, eps)
+        front_out.extend(_fan_tris(front_poly, front_vmap, front_vlist))
+        back_out.extend(_fan_tris(back_poly, back_vmap, back_vlist))
+        inter: list[np.ndarray] = []
+        for i in range(3):
+            p1 = pts[t[i]]
+            p2 = pts[t[(i + 1) % 3]]
+            d1, d2 = ds[i], ds[(i + 1) % 3]
+            if (d1 > eps and d2 < -eps) or (d1 < -eps and d2 > eps):
+                tt = d1 / (d1 - d2)
+                inter.append(p1 + tt * (p2 - p1))
+        if len(inter) == 2:
+            segments.append((inter[0], inter[1]))
+    # choose plane basis
+    ref = np.array([1.0, 0.0, 0.0])
+    if abs(n @ ref) > 0.9:
+        ref = np.array([0.0, 1.0, 0.0])
+    u = np.cross(n, ref)
+    u /= np.linalg.norm(u)
+    v = np.cross(n, u)
+    capped = False
+    loops = _build_loops(segments)
+    if len(loops) == 1 and len(loops[0]) >= 3:
+        loop = loops[0]
+        area2 = 0.0
+        pts2 = [(float(p @ u), float(p @ v)) for p in loop]
+        for i in range(len(pts2)):
+            x1, y1 = pts2[i]
+            x2, y2 = pts2[(i + 1) % len(pts2)]
+            area2 += x1 * y2 - x2 * y1
+        loop_use = loop if area2 >= 0 else loop[::-1]
+        clip = _ear_clip(loop_use, u, v)
+        if len(clip) >= 1:
+            # front cap normal must point toward -n; check orientation
+            cap_area = 0.0
+            for i0, i1, i2 in clip:
+                cap_area += float(np.dot(
+                    np.cross(loop_use[i1] - loop_use[i0],
+                             loop_use[i2] - loop_use[i0]), n))
+            if cap_area > 0:
+                clip = [(i2, i1, i0) for i0, i1, i2 in clip]
+            cap_vmap: dict = {}
+            cap_vlist: list[np.ndarray] = []
+            cap_tris: list[tuple[int, int, int]] = []
+            for i0, i1, i2 in clip:
+                ids = []
+                for p in (loop_use[i0], loop_use[i1], loop_use[i2]):
+                    key = tuple(np.round(p, 12))
+                    if key not in cap_vmap:
+                        cap_vmap[key] = len(cap_vlist)
+                        cap_vlist.append(p)
+                    ids.append(cap_vmap[key])
+                cap_tris.append(tuple(ids))
+            front_out.extend(cap_tris)
+            # back cap uses the reversed orientation (+n)
+            rev = [(i2, i1, i0) for i0, i1, i2 in clip]
+            rev_vmap: dict = {}
+            rev_vlist: list[np.ndarray] = []
+            rev_tris: list[tuple[int, int, int]] = []
+            for i0, i1, i2 in rev:
+                ids = []
+                for p in (loop_use[i0], loop_use[i1], loop_use[i2]):
+                    key = tuple(np.round(p, 12))
+                    if key not in rev_vmap:
+                        rev_vmap[key] = len(rev_vlist)
+                        rev_vlist.append(p)
+                    ids.append(rev_vmap[key])
+                rev_tris.append(tuple(ids))
+            back_out.extend(rev_tris)
+            for i0, i1, i2 in coplanar:
+                for target_map, target_list, target_out, reverse in (
+                        (cap_vmap, cap_vlist, front_out, False),
+                        (rev_vmap, rev_vlist, back_out, True)):
+                    ids = []
+                    for i in ((i2, i1, i0) if reverse else (i0, i1, i2)):
+                        p = pts[i]
+                        key = tuple(np.round(p, 12))
+                        if key not in target_map:
+                            target_map[key] = len(target_list)
+                            target_list.append(p)
+                        ids.append(target_map[key])
+                    target_out.append(tuple(ids))
+            capped = True
+    front_pts = np.array(front_vlist, dtype=float) if front_vlist else \
+        np.zeros((0, 3))
+    back_pts = np.array(back_vlist, dtype=float) if back_vlist else \
+        np.zeros((0, 3))
+    return {
+        "front": {"points": front_pts,
+                  "triangles": np.array(front_out, dtype=np.int64)
+                  if front_out else np.zeros((0, 3), dtype=np.int64)},
+        "back": {"points": back_pts,
+                 "triangles": np.array(back_out, dtype=np.int64)
+                 if back_out else np.zeros((0, 3), dtype=np.int64)},
+        "capped": capped,
+    }
+
+
+def simplify_tess_grid(tess, tol_mm: float):
+    """Vertex-clustering decimation (real simplification, not a stub)."""
+    from cab_parts import PrimitivePart
+    pts = np.asarray(tess.points, dtype=np.float64)
+    tris = np.asarray(tess.triangles, dtype=np.int64)
+    tol = float(tol_mm) / 1000.0
+    if tol <= 0 or len(pts) == 0 or len(tris) == 0:
+        return None
+    cell = np.floor(pts / tol).astype(np.int64)
+    uniq, inv = np.unique(cell, axis=0, return_inverse=True)
+    new_pts = np.zeros((len(uniq), 3), dtype=np.float64)
+    counts = np.zeros(len(uniq), dtype=np.int64)
+    np.add.at(new_pts, inv, pts)
+    np.add.at(counts, inv, 1)
+    new_pts /= counts[:, None]
+    nt = inv[tris]
+    keep = (nt[:, 0] != nt[:, 1]) & (nt[:, 1] != nt[:, 2]) & \
+        (nt[:, 0] != nt[:, 2])
+    nt = nt[keep]
+    if len(nt) == 0:
+        return None
+    return PrimitivePart(getattr(tess, "name", ""), new_pts, nt)
+
+
+def convex_hull_tess(points):
+    """Convex hull over a point cloud (scipy) with AABB fallback."""
+    from cab_parts import PrimitivePart
+    pts = np.asarray(points, dtype=np.float64)
+    if len(pts) < 4:
+        return None
+    try:
+        from scipy.spatial import ConvexHull
+        hull = ConvexHull(pts)
+        return PrimitivePart("", pts, hull.simplices.astype(np.int64))
+    except Exception:
+        pass
+    lo = pts.min(0)
+    hi = pts.max(0)
+    corners = np.array([
+        [lo[0], lo[1], lo[2]], [hi[0], lo[1], lo[2]],
+        [hi[0], hi[1], lo[2]], [lo[0], hi[1], lo[2]],
+        [lo[0], lo[1], hi[2]], [hi[0], lo[1], hi[2]],
+        [hi[0], hi[1], hi[2]], [lo[0], hi[1], hi[2]],
+    ], dtype=float)
+    tris = np.array([
+        [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7],
+        [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+        [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7],
+    ], dtype=np.int64)
+    return PrimitivePart("", corners, tris)
+
+
 def flip_selected_triangles(cad_meshes, name: str,
                             tri_indices: Optional[list[int]] = None) -> bool:
     """Flip all faces or a subset of triangle indices (M24 face pick)."""

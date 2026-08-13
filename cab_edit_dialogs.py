@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+import numpy as np
+
 import cab_edit_ops as ops
 from cab_dialogs import DialogHeader
 from cabxml import StpreModel, _first
@@ -980,8 +982,9 @@ class ShapeChangeBooleanDialog(_EditDlg):
             "Change in geometry by Boolean operation", parent)
         self.model = model
         self.body.addWidget(_capability_note(
-            "Registers the Boolean shape-change intent on the project "
-            "(geometry kernel application pending).", self))
+            "Applies the Boolean to the target part immediately "
+            "(PK_BODY_boolean_2 preferred, tessellation CSG fallback).",
+            self))
         form = QFormLayout()
         names = ["Domain(cuboid)"] + _part_names(model)
         self.part_a = QComboBox(self)
@@ -1005,15 +1008,31 @@ class ShapeChangeBooleanDialog(_EditDlg):
         )))
 
     def _set(self) -> None:
-        # Record intent as a condition-like annotation on Part A.
         a, b = self.part_a.currentText(), self.part_b.currentText()
         if not b:
             QMessageBox.warning(self, "Boolean", "Select Part B.")
             return
-        kind = "subtraction" if self.rb_sub.isChecked() else "face_division"
+        parent = self.parent()
+        cad = (getattr(parent, "_cad_meshes", None)
+               if parent is not None else None)
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
+        op = "subtract" if self.rb_sub.isChecked() else "intersect"
+        out = ops.boolean_mesh_parts(
+            self.model, cad, a, b, op, f"{a}_bool",
+            keep_a=True, keep_b=True, archive=archive)
+        if not out:
+            QMessageBox.warning(
+                self, "Boolean",
+                "Boolean failed (need tessellation for both parts).")
+            return
+        name, backend = out
         self.model.set_project_value(
-            "boolean_shape_change", f"{kind}:{a}:{b}")
+            "boolean_shape_change", f"{op}:{a}:{b}:{name}")
         self.applied = True
+        QMessageBox.information(
+            self, "Change in geometry by Boolean operation",
+            f"Applied to '{a}': result '{name}' via {backend}.")
         self.accept()
 
 
@@ -1095,56 +1114,62 @@ class CuttingPlaneDialog(_EditDlg):
         name = self.part.currentText()
         if not name:
             return
-        bounds = ops.part_world_bounds(self.model, name, self.cad_meshes)
-        if bounds is None:
-            QMessageBox.warning(self, "Cutting Plane",
-                                "No geometry for selected part.")
+        tess = next((m for m in (self.cad_meshes or [])
+                     if getattr(m, "name", None) == name), None)
+        if tess is None or getattr(tess, "triangles", None) is None \
+                or len(tess.triangles) == 0:
+            QMessageBox.warning(
+                self, "Cutting Plane",
+                "No tessellation for the selected part.")
             return
-        lo, hi = bounds
-        # Split AABB by plane point along dominant normal axis.
-        n = abs(self.nx.value()), abs(self.ny.value()), abs(self.nz.value())
-        idx = int(max(range(3), key=lambda i: n[i]))
-        split = (self.px.value(), self.py.value(), self.pz.value())[idx]
+        n = np.array([self.nx.value(), self.ny.value(),
+                      self.nz.value()], dtype=float)
+        if np.linalg.norm(n) < 1e-12:
+            QMessageBox.warning(self, "Cutting Plane",
+                                "Normal vector must be non-zero.")
+            return
+        origin = np.array([self.px.value(), self.py.value(),
+                           self.pz.value()], dtype=float) / 1000.0
+        try:
+            res = ops.cut_tess_with_plane(tess, origin, n)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Cutting Plane", str(exc))
+            return
+        parent = self.parent()
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
         created = []
-        if self.chk_front.isChecked():
-            flo, fhi = lo.copy(), hi.copy()
-            flo[idx] = max(flo[idx], split)
-            if (fhi > flo).all():
-                created.append(self._make_half(name, "_front", flo, fhi))
-        if self.chk_back.isChecked():
-            blo, bhi = lo.copy(), hi.copy()
-            bhi[idx] = min(bhi[idx], split)
-            if (bhi > blo).all():
-                created.append(self._make_half(name, "_back", blo, bhi))
+        from cab_parts import PrimitivePart
+        if self.chk_front.isChecked() and len(
+                res["front"]["triangles"]):
+            new = ops.unique_part_name(self.model, f"{name}_front")
+            ft = PrimitivePart("", res["front"]["points"],
+                               res["front"]["triangles"])
+            if ops.register_tess_part(
+                    self.model, self.cad_meshes, archive, new, ft):
+                created.append(new)
+        if self.chk_back.isChecked() and len(res["back"]["triangles"]):
+            new = ops.unique_part_name(self.model, f"{name}_back")
+            bt = PrimitivePart("", res["back"]["points"],
+                               res["back"]["triangles"])
+            if ops.register_tess_part(
+                    self.model, self.cad_meshes, archive, new, bt):
+                created.append(new)
         if not created:
             QMessageBox.warning(self, "Cutting Plane",
                                 "Nothing to keep on the selected side(s).")
             return
         self.model.delete_part(name)
-        self.created = [c for c in created if c]
+        if self.cad_meshes is not None:
+            self.cad_meshes[:] = [
+                m for m in self.cad_meshes
+                if getattr(m, "name", None) != name]
+        self.created = created
         self.applied = True
         QMessageBox.information(
             self, "Cutting Plane",
-            f"Created {len(self.created)} part(s) (AABB cut).")
-
-    def _make_half(self, src, suffix, lo, hi) -> Optional[str]:
-        new = ops.unique_part_name(self.model, f"{src}{suffix}")
-        el = self.model.add_part(name=new, kind="cube", attribute="solid")
-        if el is None:
-            return None
-        from cabxml import set_text
-        from xml.etree.ElementTree import SubElement
-        size = hi - lo
-        for tag, val in (
-                ("base", ",".join(f"{v:.17g}" for v in lo)),
-                ("size", ",".join(f"{v:.17g}" for v in size)),
-        ):
-            c = _first(el, tag)
-            if c is None:
-                c = SubElement(el, tag)
-                c.tail = "\n         "
-            set_text(c, val)
-        return new
+            f"Cut '{name}' into {', '.join(created)}"
+            + ("" if res["capped"] else " (open shells; cap loop not closed)."))
 
 
 # -------------------------------------------------------- Edit Solid
@@ -1302,41 +1327,64 @@ class PartSimplificationDialog(_EditDlg):
 
 
 class ShapeSimplificationDialog(_EditDlg):
-    """[Shape simplification] — screw-hole name based."""
+    """[Shape simplification] — vertex-clustering decimation."""
 
     def __init__(self, model: StpreModel, parent=None):
         super().__init__("Shape simplification", "Shape simplification",
                          parent)
         self.model = model
         form = QFormLayout()
+        self.target = QComboBox(self)
+        self.target.addItems(_part_names(model))
+        form.addRow("Target", self.target)
         self.screw = QLineEdit(self)
-        form.addRow("Identification name (screw)", self.screw)
+        self.screw.setPlaceholderText("optional result name")
+        form.addRow("Result name", self.screw)
         self.mag = QDoubleSpinBox(self)
-        self.mag.setRange(0.1, 100.0)
-        self.mag.setValue(1.0)
+        self.mag.setRange(0.01, 1000.0)
+        self.mag.setValue(0.5)
         self.mag.setDecimals(3)
-        form.addRow("Magnification rate", self.mag)
+        form.addRow("Tolerance (mm)", self.mag)
         self.body.addLayout(form)
         self._root.addLayout(_bottom_buttons(self, (
-            ("Selection", lambda: QMessageBox.information(
-                self, "Shape simplification",
-                "Select faces by identification name.")),
-            ("Delete selected faces", self._exec),
+            ("Simplify", self._exec),
             ("Close", self.accept),
         )))
 
     def _exec(self) -> None:
-        if not self.screw.text().strip():
-            QMessageBox.warning(self, "Shape simplification",
-                                "Enter an identification name.")
+        name = self.target.currentText()
+        parent = self.parent()
+        cad = (getattr(parent, "_cad_meshes", None)
+               if parent is not None else None)
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
+        tess = next((m for m in (cad or [])
+                     if getattr(m, "name", None) == name), None)
+        if tess is None or getattr(tess, "triangles", None) is None:
+            QMessageBox.warning(
+                self, "Shape simplification",
+                "No tessellation for the target part.")
+            return
+        simp = ops.simplify_tess_grid(tess, self.mag.value())
+        if simp is None:
+            QMessageBox.warning(
+                self, "Shape simplification",
+                "Simplification produced no triangles.")
+            return
+        base = self.screw.text().strip() or f"{name}_simp"
+        new = ops.unique_part_name(self.model, base)
+        if not ops.register_tess_part(
+                self.model, cad, archive, new, simp):
+            QMessageBox.warning(
+                self, "Shape simplification",
+                "Result registration failed.")
             return
         self.applied = True
-        self.model.set_project_value(
-            "shape_simplify",
-            f"{self.screw.text().strip()}|{self.mag.value():g}")
         QMessageBox.information(
             self, "Shape simplification",
-            "Delete selected faces requested (Parasolid).")
+            f"Simplified '{name}' -> '{new}' "
+            f"({len(tess.triangles)} -> {len(simp.triangles)} triangles, "
+            f"tol={self.mag.value():g} mm).")
 
 
 # -------------------------------------------------------- FEM / Wrapping
@@ -1400,8 +1448,8 @@ class WrappingDialog(_EditDlg):
         self.cad_meshes = cad_meshes
         self.created_name: Optional[str] = None
         self.body.addWidget(_capability_note(
-            "MVP: Convex hull from tessellation AABB / point cloud. "
-            "Specify wrapping accuracy uses hull with inflated margin.",
+            "Convex hull from the tessellation point cloud (scipy hull, "
+            "AABB fallback). Accuracy mode inflates the hull by a margin.",
             self))
         form = QFormLayout()
         self.target = QComboBox(self)
@@ -1430,33 +1478,49 @@ class WrappingDialog(_EditDlg):
 
     def _exec(self) -> None:
         name = self.target.currentText()
-        bounds = ops.part_world_bounds(self.model, name, self.cad_meshes)
-        if bounds is None:
+        tess = next((m for m in (self.cad_meshes or [])
+                     if getattr(m, "name", None) == name), None)
+        if tess is None or getattr(tess, "points", None) is None \
+                or len(tess.points) == 0:
             QMessageBox.warning(self, "Wrapping",
-                                "No geometry for target.")
+                                "No tessellation for target.")
             return
-        lo, hi = bounds
+        info = next((p for p in self.model.parts() if p.name == name), None)
+        pts = np.asarray(tess.points, dtype=np.float64)
+        import cab_vtk
+        pts = cab_vtk._apply_transform(
+            pts, info.transform if info else "")
+        hull = ops.convex_hull_tess(pts)
+        if hull is None:
+            QMessageBox.warning(self, "Wrapping",
+                                "Convex hull failed (need >= 4 points).")
+            return
+        margin = 0.0
+        if self.rb_acc.isChecked():
+            diag = float(np.ptp(pts, axis=0).sum())
+            margin = self.accuracy.value() * diag * 0.25
+        if margin > 0:
+            centroid = pts.mean(0)
+            hull.points = hull.points + margin * (
+                hull.points - centroid) / np.maximum(
+                    np.linalg.norm(hull.points - centroid, axis=1,
+                                   keepdims=True), 1e-12)
         new = ops.unique_part_name(self.model, f"{name}_wrap")
-        el = self.model.add_part(name=new, kind="cube", attribute="solid")
-        if el is None:
+        parent = self.parent()
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
+        if not ops.register_tess_part(
+                self.model, self.cad_meshes, archive, new, hull):
+            QMessageBox.warning(self, "Wrapping",
+                                "Result registration failed.")
             return
-        from cabxml import set_text
-        from xml.etree.ElementTree import SubElement
-        size = hi - lo
-        for tag, val in (
-                ("base", ",".join(f"{v:.17g}" for v in lo)),
-                ("size", ",".join(f"{v:.17g}" for v in size)),
-        ):
-            c = _first(el, tag)
-            if c is None:
-                c = SubElement(el, tag)
-                c.tail = "\n         "
-            set_text(c, val)
         self.created_name = new
         self.applied = True
         QMessageBox.information(
             self, "Wrapping",
-            f"Wrapped as '{new}' (AABB / convex-hull proxy).")
+            f"Wrapped as '{new}' (convex hull"
+            + (f", margin {margin * 1000.0:g} mm" if margin else "")
+            + ").")
 
 
 # ------------------------------------------- Reset Computational Domain

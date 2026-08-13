@@ -2152,3 +2152,33 @@ SaveCabFile → merge_mesh_result`。
 - 测试 `tests/test_l5_cw.py`（5 项）：face region round-trip、
   多选 region 提取、enclosure/power-law 写回与绑定；
 - 全仓回归：**316 通过 / 4 跳过**。
+
+## 45. L6 执行：Edit B-rep 真实算子（2026-08-13）
+
+- **Cutting 真平面裁剪**（`cut_tess_with_plane`）：三角形按平面裁剪为
+  front/back 两个壳，剪口线段拼成边界环，环用耳切算法封盖（法向按
+  ±n 校正）；单环封盖成功时两个半体闭合、体积和等于原体积；
+  多环/无法闭合时返回开放壳并明确标注 `capped=False`；
+  `CuttingPlaneDialog._exec` 由 AABB 切半改为真实裁剪，结果经
+  `register_tess_part` 注册为 polygon + STL 成员并删除原部件；
+- **Shape change by Boolean 真布尔**：`ShapeChangeBooleanDialog._set`
+  不再只记 intent，改为立即调用 `boolean_mesh_parts`
+  （PK_BODY_boolean_2 优先 / CSG 回退），保留原部件并登记结果；
+- **Wrapping 真凸包**：`convex_hull_tess`（scipy ConvexHull，AABB
+  兜底）；accuracy 模式把凸包顶点沿质心方向外扩
+  `accuracy × 对角线 × 0.25`；`WrappingDialog._exec` 改为真实凸包 +
+  STL 持久化；
+- **Shape Simplification 真实简化**：`simplify_tess_grid` 顶点聚类
+  抽稀（容差 mm，删除退化三角形）；对话框增加 Target / Result name /
+  Tolerance 字段并注册结果；
+- **持久化**：`register_tess_part` 统一写入 polygon 部件 + `.stl`
+  archive 成员（与 boolean fallback 一致）；
+- **修复 sphere_tess 索引越界 bug**：南极点环起始索引
+  `1+(nlat-1)*nlon` 应为 `1+(nlat-2)*nlon`，此前所有 Sphere 部件
+  三角索引越界（默认 divisions=12 也受影响）；新增回归测试；
+- 测试：`test_cut_tess_with_plane_box`（体积守恒 + 闭合）、
+  `test_simplify_tess_grid_reduces`、`test_convex_hull_tess_cube`、
+  `test_register_tess_part_archive_stl`、`test_sphere_tess_indices_valid`；
+- 全仓回归：**321 通过 / 4 跳过**；
+- 未做（记录）：6.2 PK 级平面分割、6.6 Edit Solid 面级移动/补孔、
+  6.8 拓扑 face/edge/vertex 拾取（留在后续轮次）。
