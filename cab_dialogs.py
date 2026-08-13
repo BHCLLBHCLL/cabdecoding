@@ -2722,9 +2722,24 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         transforms = {p.name: p.transform for p in self.model.parts()}
         part_kinds = {p.name: p.kind for p in self.model.parts()}
         part_attrs = {p.name: p.attribute for p in self.model.parts()}
+
+        def _mc(tag: str, default: float) -> float:
+            try:
+                return float(self.model.mesh_control_value(tag) or default)
+            except (TypeError, ValueError):
+                return default
+
+        edge_eps = _mc("edge_eps", 0.0001)
+        face_search = _mc("face_search", 1.0)
+        elem_thr = _mc("element_threshold", 0.5)
+        samples = ("corners" if (self.model.mesh_control_value("samples")
+                                 or "").strip().lower() == "corners"
+                   else "center")
         _abox, boxes = cab_mesh.classify_cells(
             axes, [meshes[name]], transforms=transforms,
-            part_kinds=part_kinds, part_attrs=part_attrs)
+            part_kinds=part_kinds, part_attrs=part_attrs,
+            edge_eps=edge_eps, face_search=face_search,
+            element_threshold=elem_thr, samples=samples)
         cab_mesh.update_part_elements(
             self.model, name, boxes.get(name, []))
         msg = f"Meshing of specified part: {name} -> " \

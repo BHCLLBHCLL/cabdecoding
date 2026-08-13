@@ -2083,3 +2083,24 @@ SaveCabFile → merge_mesh_result`。
      edge_contact）serialize → parse round-trip。
 - 全仓回归：**304 通过 / 4 跳过**（首次运行有一次瞬时崩溃，重跑稳定；
   未发现代码回归）。
+
+## 42. L3 执行：Others 参数进入原生网格算法（2026-08-13）
+
+- `cab_mesh.classify_part_cells` 新增 `edge_eps`（Edge tolerance，m）：
+  候选单元范围与表面命中判定均按容差外扩（大容差 → 部件识别更大，
+  与 STpre 手册语义一致）；
+- `cab_mesh.classify_panel_cells` 新增 `face_search`：panel 带宽度由固定
+  “半单元”改为 `face_search × 单元宽度`（手册：以单元宽度的倍数为
+  搜索范围）；
+- `cab_mesh.classify_cells` 新增 `element_threshold`（0..1，默认 0.5）：
+  非 0.5 时把实体分类参考点沿单元对角线平移
+  `(threshold−0.5)×宽度`（手册：调整判定属性时的参考点；精确方向语义
+  留待 L7 黑盒验证）；
+- GUI 接线：`_meshing_dialog` 与 GriddingDialog `_mesh_single_part`
+  从 mesh_control 读取 edge_eps / face_search / element_threshold 并传入
+  分类；隐藏项 `samples=corners` 可切换 8 角点投票（默认 center）；
+- 测试 `tests/test_mesh_params_algo.py`（3 项）：薄板容差外扩、
+  参考点平移、panel 搜索范围缩放；
+- 全仓回归：**307 通过 / 4 跳过**；
+- 未做（归入 L7）：`panel_block_face` / `flux_face_check` /
+  `solid_scheme` / `panel_scheme` 的 S/XEMT 语义（当前仅持久化）。

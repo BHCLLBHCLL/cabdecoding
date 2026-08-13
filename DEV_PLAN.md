@@ -994,7 +994,7 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
 |---|---|---|---|---|
 | L1 | 文案与死开关清理 | 0.5–1 天 | 无 | ✅ 2026-08-13 |
 | L2 | 金标回归钉住 | 1–2 天 | 无 | ✅ 2026-08-13 |
-| L3 | Others 参数进入原生算法 | 1–2 天 | L2（有金标可测） | 待办 |
+| L3 | Others 参数进入原生算法 | 1–2 天 | L2（有金标可测） | ✅ 2026-08-13 |
 | L4 | Control 交互补深 | 1–3 天 | L1 | 待办 |
 | L5 | Condition Wizard 低垂果实 | 2–4 天 | L1 | 待办 |
 | L6 | Edit B-rep 真实算子 | 1–2 周 | L3（测试习惯） | 待办 |
@@ -1049,6 +1049,9 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
   `panel_scheme` 至少先影响 S/XEMT 输出字段（先语义后算法）。
 
 验收：box/panel 占用不回归，曲面件与金标偏差缩小，参数有可测效果。
+
+状态：**✅ 已完成（2026-08-13）**，见 DEV_SUMMARY §42；`panel_block_face` /
+`flux_face_check` / V8 scheme 的 S/XEMT 语义归入 L7。
 
 ### 16.5 L4 Control 交互补深（中）
 
@@ -1144,6 +1147,42 @@ M24–M32、Layout 多选右键、Assembly XT、CAB 读写、facet、Domain/Grid
   可先行；
 - L9–L10 为长尾/架构项，滚动排期；
 - 每完成一个细项，更新本路线图状态列并自动 commit/push。
+
+---
+
+## 17. 几何编辑 / 网格 vs STpre（2026-08-13；非 scFLOWpre）
+
+> 画布：`cab-edit-mesh-completeness.canvas.tsx`。  
+> **产品边界：** 本仓对齐 **STpre / scSTREAM**（笛卡尔结构网格）。  
+> **scFLOWpre** 是 scFLOW 非结构前处理（表面网格、hex-core、棱柱层、多面体），
+> 不是本仓补丁级对标对象。
+
+### 17.1 完整度（相对 STpre）
+
+| 切面 | 估计 | 说明 |
+|---|---|---|
+| 菜单入口 | ~100% | 无 `_nyi` 死菜单 |
+| 分区平均可用深度 | ~72% | Edit/Wizard/Mesh 拉低 |
+| Edit 算子平均保真 | ~40% | 仅 Boolean + Facet 重建触达 PK |
+| 网格管线平均保真 | ~53% | 笛卡尔 Gridding/盒占用强；Others/圆柱/panel/ChildBlock 弱 |
+
+### 17.2 几何编辑主债
+
+- **PK：** Boolean（真 x_t 优先，transmit 常退 STL）、Facet 重建。
+- **tess：** Flip / Paneling / Sweep / Edit Solid 删三角；`PK_FACE_delete_2` 未调用。
+- **intent：** Cutting=AABB 切半；ShapeChangeBoolean 只写注解；Wrap/Simplify 近似。
+- **XML：** Mirror/Align/Place/Group 变换级已可用。
+
+### 17.3 网格主债
+
+- **已齐：** box 金标 CXYZ/PARTS（L2）；Domain Import 自适应；笛卡尔 auto1 规则。
+- **未齐：** Others 参数未进 `classify_*`；tr03 计数偏差（L7）；panel 半单元带；
+  贪心盒合并 ≠ STpre run-length；圆柱分类仍 XYZ；ChildBlock stub；API 冻结。
+
+### 17.4 下一步（同 §16）
+
+L3 Others 入算法 → L6 Cutting/ShapeChange/face_delete 真几何 → L7 金标收敛。  
+不要用 scFLOWpre 的八叉树/棱柱层指标衡量本仓。
 
 ---
 

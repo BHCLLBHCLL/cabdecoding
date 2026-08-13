@@ -46,11 +46,14 @@ def _inside_yz(a: np.ndarray, b: np.ndarray, c: np.ndarray,
 def classify_part_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
                         pts: np.ndarray, tris: np.ndarray,
                         cell_range: Optional[tuple[int, int, int, int, int, int]]
-                        = None, samples: str = "center") -> np.ndarray:
+                        = None, samples: str = "center",
+                        edge_eps: float = 0.0) -> np.ndarray:
     """Even-odd +X ray cast of one closed part over the cell grid.
 
     ``xc/yc/zc`` are cell centres (metres).  Returns a bool mask of shape
-    ``(len(xc), len(yc), len(zc))``.
+    ``(len(xc), len(yc), len(zc))``.  ``edge_eps`` (metres) is the STpre
+    Edge tolerance: candidate cells near a surface and the boundary-hit
+    test are expanded by it, so a larger value recognizes parts as larger.
     """
     if samples == "corners":
         ni, nj, nk = len(xc), len(yc), len(zc)
@@ -76,7 +79,7 @@ def classify_part_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
                     votes += classify_part_cells(
                         xc + sx * hx, yc + sy * hy, zc + sz * hz,
                         pts, tris, cell_range=cell_range,
-                        samples="center").astype(np.int32)
+                        samples="center", edge_eps=edge_eps).astype(np.int32)
         return votes >= 5
     ni, nj, nk = len(xc), len(yc), len(zc)
     mask = np.zeros((ni, nj, nk), dtype=np.int32)
@@ -91,18 +94,23 @@ def classify_part_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
     tri = pts[tris]  # (T,3,3)
     tmin = tri.min(axis=1)
     tmax = tri.max(axis=1)
-    eps = 1e-10
+    eps = max(float(edge_eps), 1e-10)
     for t in range(len(tri)):
         a, b, c = tri[t]
         n = np.cross(b - a, c - a)
         if abs(n[0]) < 1e-12:
             continue  # ray (+X) parallel to the triangle plane
         # candidate j/k from the yz bbox, i from centres left of tmax x
-        jj0 = max(j0, int(np.searchsorted(yc, tmin[t, 1], "left")))
-        jj1 = min(j1, int(np.searchsorted(yc, tmax[t, 1], "right")) - 1)
-        kk0 = max(k0, int(np.searchsorted(zc, tmin[t, 2], "left")))
-        kk1 = min(k1, int(np.searchsorted(zc, tmax[t, 2], "right")) - 1)
-        ii1 = min(i1, int(np.searchsorted(xc, tmax[t, 0], "right")) - 1)
+        jj0 = max(j0, int(np.searchsorted(
+            yc, tmin[t, 1] - eps, "left")))
+        jj1 = min(j1, int(np.searchsorted(
+            yc, tmax[t, 1] + eps, "right")) - 1)
+        kk0 = max(k0, int(np.searchsorted(
+            zc, tmin[t, 2] - eps, "left")))
+        kk1 = min(k1, int(np.searchsorted(
+            zc, tmax[t, 2] + eps, "right")) - 1)
+        ii1 = min(i1, int(np.searchsorted(
+            xc, tmax[t, 0] + eps, "right")) - 1)
         if jj0 > jj1 or kk0 > kk1 or ii1 < i0:
             continue
         Y, Z = np.meshgrid(yc[jj0:jj1 + 1], zc[kk0:kk1 + 1],
@@ -140,12 +148,13 @@ def is_panel_part(kind: str = "", attribute: str = "") -> bool:
 def classify_panel_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
                          pts: np.ndarray, tris: np.ndarray,
                          cell_range: Optional[tuple[int, int, int, int, int, int]]
-                         = None) -> np.ndarray:
+                         = None, face_search: float = 1.0) -> np.ndarray:
     """Face-thin occupancy: cells whose centres lie near a triangle.
 
     Marks a one-cell band around each open surface so panel / sheet parts
     are not ignored by the solid even-odd ray cast (which yields empty
-    masks on non-watertight geometry).
+    masks on non-watertight geometry).  ``face_search`` is the STpre
+    "Search range for element face" in multiples of the cell width.
     """
     ni, nj, nk = len(xc), len(yc), len(zc)
     mask = np.zeros((ni, nj, nk), dtype=bool)
@@ -158,18 +167,19 @@ def classify_panel_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
     if i0 > i1 or j0 > j1 or k0 > k1:
         return mask
 
-    def _half(centers: np.ndarray) -> np.ndarray:
+    def _full(centers: np.ndarray) -> np.ndarray:
         n = len(centers)
-        h = np.zeros(n)
+        w = np.zeros(n)
         if n >= 2:
-            h[1:-1] = (centers[2:] - centers[:-2]) / 4.0
-            h[0] = (centers[1] - centers[0]) / 2.0
-            h[-1] = (centers[-1] - centers[-2]) / 2.0
+            w[1:-1] = (centers[2:] - centers[:-2]) / 2.0
+            w[0] = centers[1] - centers[0]
+            w[-1] = centers[-1] - centers[-2]
         else:
-            h[:] = 1e-6
-        return np.maximum(h, 1e-12)
+            w[:] = 1e-6
+        return np.maximum(w, 1e-12)
 
-    hx, hy, hz = _half(xc), _half(yc), _half(zc)
+    fs = max(float(face_search), 0.0)
+    wx, wy, wz = _full(xc), _full(yc), _full(zc)
     tri = pts[tris]
     tmin = tri.min(axis=1)
     tmax = tri.max(axis=1)
@@ -180,8 +190,8 @@ def classify_panel_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
         if area2 < 1e-18:
             continue
         n_unit = n / area2
-        # bbox of triangle expanded by one half-cell (conservative band)
-        pad = max(float(hx.max()), float(hy.max()), float(hz.max()))
+        # bbox expanded by the search range (multiples of cell width)
+        pad = max(float(wx.max()), float(wy.max()), float(wz.max())) * fs
         ii0 = max(i0, int(np.searchsorted(xc, tmin[t, 0] - pad, "left")))
         ii1 = min(i1, int(np.searchsorted(xc, tmax[t, 0] + pad, "right")) - 1)
         jj0 = max(j0, int(np.searchsorted(yc, tmin[t, 1] - pad, "left")))
@@ -203,14 +213,14 @@ def classify_panel_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
             xc[ii0:ii1 + 1], yc[jj0:jj1 + 1], zc[kk0:kk1 + 1],
             indexing="ij")
         HX, HY, HZ = np.meshgrid(
-            hx[ii0:ii1 + 1], hy[jj0:jj1 + 1], hz[kk0:kk1 + 1],
+            wx[ii0:ii1 + 1], wy[jj0:jj1 + 1], wz[kk0:kk1 + 1],
             indexing="ij")
         dx = Xs - a[0]
         dy = Ys - a[1]
         dz = Zs - a[2]
         dist = np.abs(n_unit[0] * dx + n_unit[1] * dy + n_unit[2] * dz)
-        band = (abs(n_unit[0]) * HX + abs(n_unit[1]) * HY
-                + abs(n_unit[2]) * HZ) + 1e-12
+        band = fs * (abs(n_unit[0]) * HX + abs(n_unit[1]) * HY
+                     + abs(n_unit[2]) * HZ) + 1e-12
         near = dist <= band
         if not near.any():
             continue
@@ -293,6 +303,9 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                    , samples: str = "center",
                    part_kinds: Optional[dict[str, str]] = None,
                    part_attrs: Optional[dict[str, str]] = None,
+                   edge_eps: float = 0.0,
+                   face_search: float = 1.0,
+                   element_threshold: float = 0.5,
                    ) -> tuple[list[tuple[int, int, int, int, int, int]],
                               dict[str, list[tuple[int, int, int, int, int, int]]]]:
     """Classify every part against the structured grid.
@@ -303,6 +316,15 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
 
     Panel / open-surface parts (see :func:`is_panel_part`) use
     :func:`classify_panel_cells` (face-thin band) instead of solid ray cast.
+
+    ``edge_eps`` / ``face_search`` / ``element_threshold`` map to the STpre
+    Mesh:Set division → Others meshing parameters:
+
+    * ``edge_eps`` — edge tolerance (m), expands surface-hit classification;
+    * ``face_search`` — search range for element face (multiples of cell
+      width), used as the panel band width;
+    * ``element_threshold`` — reference point inside a cell (0..1, 0.5 =
+      centre); shifts the ray-cast sample along the cell diagonal.
     """
     x = np.asarray(axes_mm.get("x", []), float) / 1000.0
     y = np.asarray(axes_mm.get("y", []), float) / 1000.0
@@ -313,6 +335,20 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     yc = 0.5 * (y[:-1] + y[1:])
     zc = 0.5 * (z[:-1] + z[1:])
     ni, nj, nk = len(xc), len(yc), len(zc)
+    if samples == "center" and abs(float(element_threshold) - 0.5) > 1e-9:
+        def _widths(c: np.ndarray) -> np.ndarray:
+            w = np.zeros(len(c))
+            if len(c) >= 2:
+                w[1:-1] = (c[2:] - c[:-2]) / 2.0
+                w[0] = c[1] - c[0]
+                w[-1] = c[-1] - c[-2]
+            return np.maximum(w, 1e-12)
+        shift = float(element_threshold) - 0.5
+        xc_use = xc + shift * _widths(xc)
+        yc_use = yc + shift * _widths(yc)
+        zc_use = zc + shift * _widths(zc)
+    else:
+        xc_use, yc_use, zc_use = xc, yc, zc
     transforms = transforms or {}
     part_kinds = part_kinds or {}
     part_attrs = part_attrs or {}
@@ -337,24 +373,32 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                     return 1e-6
                 return float(np.median(np.diff(centers))) * 0.51
             pad = (_pad(xc), _pad(yc), _pad(zc))
+            xc_b, yc_b, zc_b = xc, yc, zc
         else:
-            pad = (1e-9, 1e-9, 1e-9)
-        i0 = max(0, int(np.searchsorted(xc, lo[0] - pad[0], "left")))
-        i1 = min(ni - 1, int(np.searchsorted(xc, hi[0] + pad[0], "right")) - 1)
-        j0 = max(0, int(np.searchsorted(yc, lo[1] - pad[1], "left")))
-        j1 = min(nj - 1, int(np.searchsorted(yc, hi[1] + pad[1], "right")) - 1)
-        k0 = max(0, int(np.searchsorted(zc, lo[2] - pad[2], "left")))
-        k1 = min(nk - 1, int(np.searchsorted(zc, hi[2] + pad[2], "right")) - 1)
+            eps = max(float(edge_eps), 1e-9)
+            pad = (eps, eps, eps)
+            xc_b, yc_b, zc_b = xc_use, yc_use, zc_use
+        i0 = max(0, int(np.searchsorted(xc_b, lo[0] - pad[0], "left")))
+        i1 = min(ni - 1, int(np.searchsorted(
+            xc_b, hi[0] + pad[0], "right")) - 1)
+        j0 = max(0, int(np.searchsorted(yc_b, lo[1] - pad[1], "left")))
+        j1 = min(nj - 1, int(np.searchsorted(
+            yc_b, hi[1] + pad[1], "right")) - 1)
+        k0 = max(0, int(np.searchsorted(zc_b, lo[2] - pad[2], "left")))
+        k1 = min(nk - 1, int(np.searchsorted(
+            zc_b, hi[2] + pad[2], "right")) - 1)
         if i0 > i1 or j0 > j1 or k0 > k1:
             continue
         if panel:
             mask = classify_panel_cells(
                 xc, yc, zc, pts, tris,
-                cell_range=(i0, i1, j0, j1, k0, k1))
+                cell_range=(i0, i1, j0, j1, k0, k1),
+                face_search=face_search)
         else:
             mask = classify_part_cells(
-                xc, yc, zc, pts, tris,
-                cell_range=(i0, i1, j0, j1, k0, k1), samples=samples)
+                xc_use, yc_use, zc_use, pts, tris,
+                cell_range=(i0, i1, j0, j1, k0, k1), samples=samples,
+                edge_eps=edge_eps)
         if mask.any():
             part_boxes[part.name] = _merge_boxes(mask)
         if progress is not None:
