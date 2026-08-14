@@ -307,6 +307,46 @@ def face_delete(face_tags: list[int], *,
         raise RuntimeError(f"PK_FACE_delete_2 failed: {rc}")
 
 
+def match_face_by_plane(body_tag: int, normal, origin, *,
+                        normal_tol: float = 0.98,
+                        dist_tol: float = 1e-4) -> Optional[int]:
+    """A2: match a body's PK_FACE to a plane ``(normal, origin)``.
+
+    ``normal``/``origin`` must be in the body's local coordinates.  Returns
+    the best-matching face tag or ``None`` when no face lies on the plane.
+    """
+    if not available():
+        return None
+    sess = _ps._get_session()
+    faces = sess.body_faces(int(body_tag))
+    if not faces:
+        return None
+    n = np.asarray(normal, dtype=np.float64)
+    nn = float(np.linalg.norm(n))
+    if nn < 1e-12:
+        return None
+    n = n / nn
+    o = np.asarray(origin, dtype=np.float64)
+    best: Optional[int] = None
+    best_score = -1.0
+    for ft in faces:
+        pl = sess.face_plane(ft)
+        if pl is None:
+            continue
+        fn, fo = pl
+        dot = abs(float(np.dot(fn, n)))
+        if dot < normal_tol:
+            continue
+        dist = abs(float(np.dot(fo - o, n)))
+        if dist > dist_tol:
+            continue
+        score = dot - dist * 1e3
+        if score > best_score:
+            best_score = score
+            best = int(ft)
+    return best
+
+
 def entity_copy(tag: int) -> int:
     """``PK_ENTITY_copy`` → new tag."""
     if not available():

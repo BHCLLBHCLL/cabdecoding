@@ -1307,3 +1307,73 @@ def delete_selected_faces_tess(cad_meshes, name: str,
     tess.triangles = np.asarray(
         [[remap[int(i)] for i in t] for t in kept], dtype=np.int64)
     return len(drop)
+
+
+def _transform_plane_to_world(normal_local, origin_local, transform: str):
+    """A2: map a local plane (normal, origin) to world via the XML transform."""
+    n = np.asarray(normal_local, dtype=np.float64)
+    o = np.asarray(origin_local, dtype=np.float64)
+    if not transform:
+        return n, o
+    try:
+        m = np.array([float(v) for v in transform.split(",")[:16]]
+                     ).reshape(4, 4)
+    except (ValueError, IndexError):
+        return n, o
+    R = m[:3, :3]
+    t = m[3, :3]
+    ow = o @ R + t
+    nw = n @ R
+    nn = float(np.linalg.norm(nw))
+    if nn > 1e-12:
+        nw = nw / nn
+    return nw, ow
+
+
+def delete_face_pk(model: StpreModel, archive, name: str,
+                   normal_world, origin_world, *,
+                   heal: str = "cap") -> Optional[int]:
+    """A2: PK-level face delete for [Edit Solid], matched by world plane.
+
+    Finds the part's live body, matches the picked world plane to a PK_FACE,
+    calls ``PK_FACE_delete_2`` and returns the post-delete face count, or
+    ``None`` when no x_t body / match is available (caller falls back to the
+    tessellation path ``delete_selected_faces_tess``).
+    """
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return None
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return None
+    info = next((p for p in model.parts() if p.name == name), None)
+    tf = info.transform if info else ""
+    sess = _ps._get_session()
+    faces = sess.body_faces(tag)
+    if not faces:
+        return None
+    n_w = np.asarray(normal_world, dtype=np.float64)
+    n_w = n_w / (float(np.linalg.norm(n_w)) or 1.0)
+    o_w = np.asarray(origin_world, dtype=np.float64)
+    best: Optional[int] = None
+    best_score = -1.0
+    for ft in faces:
+        pl = sess.face_plane(ft)
+        if pl is None:
+            continue
+        fn, fo = _transform_plane_to_world(pl[0], pl[1], tf)
+        dot = abs(float(np.dot(fn, n_w)))
+        if dot < 0.98:
+            continue
+        dist = abs(float(np.dot(fo - o_w, n_w)))
+        if dist > 1e-3:
+            continue
+        score = dot - dist * 1e3
+        if score > best_score:
+            best_score, best = score, int(ft)
+    if best is None:
+        return None
+    cab_ps_ops.face_delete([best], heal=heal)
+    after = sess.body_faces(tag)
+    return len(after) if after else None
