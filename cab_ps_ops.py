@@ -307,6 +307,103 @@ def face_delete(face_tags: list[int], *,
         raise RuntimeError(f"PK_FACE_delete_2 failed: {rc}")
 
 
+def create_rotated_block(size_m: tuple[float, float, float],
+                        center_m, axis, ref_dir) -> int:
+    """``PK_BODY_create_solid_block`` in a rotated frame (axis = local Z)."""
+    if not available():
+        raise RuntimeError("pskernel not available")
+    pk = _ps._get_session().pk
+    pk.PK_SESSION_set_check_arguments.restype = c_int
+    pk.PK_SESSION_set_check_arguments.argtypes = [c_int]
+    pk.PK_SESSION_set_check_arguments(0)
+    ax = _AXIS2()
+    ax.location[:] = (float(center_m[0]), float(center_m[1]),
+                      float(center_m[2]))
+    ax.axis[:] = (float(axis[0]), float(axis[1]), float(axis[2]))
+    ax.ref_direction[:] = (float(ref_dir[0]), float(ref_dir[1]),
+                           float(ref_dir[2]))
+    body = c_int(0)
+    pk.PK_BODY_create_solid_block.restype = c_int
+    pk.PK_BODY_create_solid_block.argtypes = [
+        c_double, c_double, c_double, POINTER(_AXIS2), POINTER(c_int)]
+    rc = pk.PK_BODY_create_solid_block(
+        float(size_m[0]), float(size_m[1]), float(size_m[2]),
+        byref(ax), byref(body))
+    if rc != 0 or not body.value:
+        raise RuntimeError(f"PK_BODY_create_solid_block failed: {rc}")
+    return int(body.value)
+
+
+def _half_space_block(o, n, lo, hi, margin) -> int:
+    """A3: a solid block covering ``{p : (p-o).n in [0, hi+margin]}``.
+
+    Oriented so its local Z is ``n`` and its cross-section spans the body
+    AABB projection onto the plane's two tangent axes.
+    """
+    n = np.asarray(n, dtype=np.float64)
+    n = n / float(np.linalg.norm(n))
+    ref = np.array([1.0, 0.0, 0.0])
+    if abs(float(n @ ref)) > 0.9:
+        ref = np.array([0.0, 1.0, 0.0])
+    u = np.cross(n, ref)
+    u = u / float(np.linalg.norm(u))
+    v = np.cross(n, u)
+    corners = np.array([
+        [lo[0], lo[1], lo[2]], [hi[0], lo[1], lo[2]],
+        [hi[0], hi[1], lo[2]], [lo[0], hi[1], lo[2]],
+        [lo[0], lo[1], hi[2]], [hi[0], lo[1], hi[2]],
+        [hi[0], hi[1], hi[2]], [lo[0], hi[1], hi[2]],
+    ], dtype=np.float64)
+    uu = corners @ u
+    vv = corners @ v
+    ww = (corners - o) @ n
+    u_lo, u_hi = float(uu.min()), float(uu.max())
+    v_lo, v_hi = float(vv.min()), float(vv.max())
+    w_span = max(0.0, float(ww.max())) + margin
+    # PK_BODY_create_solid_block places basis_set.location at the centre of
+    # the face at -axis (the block extends +dz along axis, centred on location
+    # in the ref/cross directions).  The plane is w=0, so location sits on it.
+    center = (o + u * ((u_lo + u_hi) / 2.0)
+              + v * ((v_lo + v_hi) / 2.0))
+    return create_rotated_block(
+        ((u_hi - u_lo) + 2.0 * margin,
+         (v_hi - v_lo) + 2.0 * margin,
+         w_span),
+        center, n, u)
+
+
+def cut_body_by_plane(body_tag: int, origin_m, normal) -> dict:
+    """A3: PK-level plane cut of a body into front(+n)/back(-n) solids.
+
+    Uses ``PK_BODY_boolean_2`` intersect against two half-space blocks so the
+    results are real B-rep bodies (not tessellation shells).  Returns
+    ``{"front": body_tag, "back": body_tag}``.
+    """
+    if not available():
+        raise RuntimeError("pskernel not available")
+    sess = _ps._get_session()
+    n = np.asarray(normal, dtype=np.float64)
+    nn = float(np.linalg.norm(n))
+    if nn < 1e-12:
+        raise ValueError("cut plane normal must be non-zero")
+    n = n / nn
+    o = np.asarray(origin_m, dtype=np.float64)
+    tess = (sess.facet_body_adaptive(body_tag)
+            or sess.facet2(body_tag) or sess.facet_go(body_tag))
+    if tess is None or len(tess.points) == 0:
+        raise RuntimeError("failed to facet body for cut")
+    pts = np.asarray(tess.points, dtype=np.float64)
+    lo, hi = pts.min(0), pts.max(0)
+    margin = max(float((hi - lo).max()) * 0.5, 1e-3)
+    front_block = _half_space_block(o, n, lo, hi, margin)
+    back_block = _half_space_block(o, -n, lo, hi, margin)
+    fa = entity_copy(int(body_tag))
+    fb = entity_copy(int(body_tag))
+    fr = body_boolean(fa, [front_block], "intersect")
+    bk = body_boolean(fb, [back_block], "intersect")
+    return {"front": int(fr[0]), "back": int(bk[0])}
+
+
 def match_face_by_plane(body_tag: int, normal, origin, *,
                         normal_tol: float = 0.98,
                         dist_tol: float = 1e-4) -> Optional[int]:
