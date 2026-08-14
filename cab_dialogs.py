@@ -1981,11 +1981,31 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         return page
 
     def _populate_parameter_tab(self) -> None:
+        import cab_grid
         self.block_tree.clear()
-        std = "/".join(f"{self.std[a].value():g}" for a in "xyz")
-        ratio = "/".join(f"{self.ratio[a].value():g}" for a in "xyz")
-        thr = "/".join(f"{self.thr[a].value():g}" for a in "xyz")
-        QTreeWidgetItem(self.block_tree, ["RootBlock", std, ratio, thr])
+
+        def add_item(blk: dict, parent_item=None) -> None:
+            divide = cab_grid._parse_block_vec(
+                blk.get("divide", ""), 1.0)
+            ratio = cab_grid._parse_block_vec(
+                blk.get("ratio", ""), 1.0)
+            limit = cab_grid._parse_block_vec(
+                blk.get("limit", ""), 0.1)
+            item = QTreeWidgetItem([
+                blk["name"],
+                "/".join(f"{v:g}" for v in divide),
+                "/".join(f"{v:g}" for v in ratio),
+                "/".join(f"{v:g}" for v in limit),
+            ])
+            if parent_item is None:
+                self.block_tree.addTopLevelItem(item)
+            else:
+                parent_item.addChild(item)
+            for child in blk.get("children", []):
+                add_item(child, item)
+
+        for blk in self.model.mesh_blocks():
+            add_item(blk)
 
         self.part_mesh_tree.clear()
         self._part_vertex_combos: dict[str, QComboBox] = {}
@@ -2024,51 +2044,99 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         menu.exec_(self.block_tree.viewport().mapToGlobal(pos))
 
     def _create_child_block(self) -> None:
-        """M27: register a child mesh block under RootBlock (XML stub)."""
-        import xml.etree.ElementTree as ET
-        from cabxml import _first, set_text
-        mc = self.model.mesh_control()
-        if mc is None:
-            self._log("Create mesh block: no mesh_control yet — "
-                      "run Gridding first.", "WARN")
+        """L7.6: append a nested child <block> (STpre multiblock layout)."""
+        item = self.block_tree.currentItem()
+        parent = item.text(0) if item is not None else "RootBlock"
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Create mesh block")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        spins = []
+        for label in ("X min", "Y min", "Z min",
+                      "X max", "Y max", "Z max"):
+            sp = QDoubleSpinBox(dlg)
+            sp.setRange(-1.0e9, 1.0e9)
+            sp.setDecimals(4)
+            spins.append(sp)
+            form.addRow(label + " (mm)", sp)
+        length = QDoubleSpinBox(dlg)
+        length.setRange(1e-6, 1e9)
+        length.setValue(0.5)
+        form.addRow("Standard length (mm)", length)
+        limit = QDoubleSpinBox(dlg)
+        limit.setRange(1e-6, 1e9)
+        limit.setValue(0.1)
+        form.addRow("Threshold (mm)", limit)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+        if not dlg.exec_():
             return
-        existing = [c for c in list(mc) if c.tag not in (
-            "RootBlock",) and "Block" in c.tag or c.tag.startswith("Child")]
+        lo = tuple(spins[i].value() for i in range(3))
+        hi = tuple(spins[i + 3].value() for i in range(3))
         n = 1
-        while any((c.attrib.get("name") or c.tag) == f"ChildBlock{n}"
-                  for c in mc):
+        blocks = self.model.mesh_blocks()
+        names = set()
+
+        def collect(blk):
+            names.add(blk["name"])
+            for c in blk.get("children", []):
+                collect(c)
+
+        for blk in blocks:
+            collect(blk)
+        while f"ChildBlock{n}" in names:
             n += 1
         name = f"ChildBlock{n}"
-        child = ET.SubElement(mc, "ChildBlock")
-        child.attrib["name"] = name
-        child.attrib["parent"] = "RootBlock"
-        # copy current RootBlock AABB as a starting range
-        rb = _first(mc, "RootBlock")
-        if rb is not None:
-            for attr in ("min", "max"):
-                if attr in rb.attrib:
-                    child.attrib[attr] = rb.attrib[attr]
-        child.tail = "\n   "
-        item = QTreeWidgetItem([name])
-        root_item = self.block_tree.invisibleRootItem().child(0)
-        if root_item is None:
-            self.block_tree.addTopLevelItem(item)
-        else:
-            root_item.addChild(item)
+        if not self.model.add_child_block(
+                name, parent, lo, hi,
+                length=(length.value(), length.value(), length.value()),
+                limit=(limit.value(), limit.value(), limit.value())):
+            self._log(f"Create mesh block '{name}' failed.", "WARN")
+            return
+        self._populate_parameter_tab()
         self.chk_child_only.setEnabled(True)
-        self._log(f"Created mesh block '{name}' (multiblock stub).")
+        self.chk_lower_level.setEnabled(True)
+        self._log(
+            f"Created mesh block '{name}' under '{parent}' "
+            f"({lo[0]:g},{lo[1]:g},{lo[2]:g})-"
+            f"({hi[0]:g},{hi[1]:g},{hi[2]:g}) mm.")
 
     def _edit_mesh_block(self) -> None:
-        """[Mesh: Block] dialog (subset): RootBlock std/ratio/threshold."""
+        """[Mesh: Block] dialog: selected block std/ratio/threshold."""
+        import cab_grid
+        item = self.block_tree.currentItem()
+        name = item.text(0) if item is not None else "RootBlock"
         dlg = QDialog(self)
         dlg.setWindowTitle("Mesh: Block")
         lay = QVBoxLayout(dlg)
         grid = QGridLayout()
         for i, ax in enumerate(("X", "Y", "Z")):
             grid.addWidget(QLabel(ax, dlg), 0, i + 1)
-        rows = (("Standard length", self.std),
-                ("Threshold length", self.thr),
-                ("Geometric ratio", self.ratio))
+        if name == "RootBlock":
+            divide = [self.std[a].value() for a in "xyz"]
+            limit = [self.thr[a].value() for a in "xyz"]
+            ratio = [self.ratio[a].value() for a in "xyz"]
+        else:
+            divide = list(cab_grid._parse_block_vec(
+                self.model.block_param(name, "divide_length", "1,1,1"),
+                1.0))
+            limit = list(cab_grid._parse_block_vec(
+                self.model.block_param(name, "limit", "0.1,0.1,0.1"),
+                0.1))
+            ratio = list(cab_grid._parse_block_vec(
+                self.model.block_param(name, "divide_ratio1", "1,1,1"),
+                1.0))
+        rows = (("Standard length", divide),
+                ("Threshold length", limit),
+                ("Geometric ratio", ratio))
         spins: list[tuple[str, QDoubleSpinBox]] = []
         for r, (label, src) in enumerate(rows, 1):
             grid.addWidget(QLabel(label, dlg), r, 0)
@@ -2076,7 +2144,7 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
                 sb = QDoubleSpinBox(dlg)
                 sb.setRange(1.0e-6, 1.0e9)
                 sb.setDecimals(6)
-                sb.setValue(src[ax].value())
+                sb.setValue(src[i])
                 grid.addWidget(sb, r, i + 1)
                 spins.append((ax + str(r), sb))
         lay.addLayout(grid)
@@ -2090,12 +2158,26 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         row.addWidget(cancel)
         lay.addLayout(row)
         if dlg.exec_():
-            for r, (_label, src) in enumerate(rows, 1):
+            for r, (_label, vals) in enumerate(rows, 1):
                 for i, ax in enumerate("xyz"):
                     sb = dict(spins)[ax + str(r)]
-                    src[ax].setValue(sb.value())
+                    vals[i] = sb.value()
+            if name == "RootBlock":
+                for i, ax in enumerate("xyz"):
+                    self.std[ax].setValue(divide[i])
+                    self.thr[ax].setValue(limit[i])
+                    self.ratio[ax].setValue(ratio[i])
+            self.model.set_block_param(
+                name, "divide_length",
+                ",".join(f"{v:g}" for v in divide), unit="mm")
+            self.model.set_block_param(
+                name, "limit",
+                ",".join(f"{v:g}" for v in limit), unit="mm")
+            self.model.set_block_param(
+                name, "divide_ratio1",
+                ",".join(f"{v:g}" for v in ratio))
             self._populate_parameter_tab()
-            self._log("Mesh block RootBlock parameters updated.")
+            self._log(f"Mesh block '{name}' parameters updated.")
 
     # ------------------------------------------------------ Detail meshing
 
@@ -2884,6 +2966,10 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             self.model.mesh_control_value("panel_scheme") == "0")
         self._on_method_changed()
         self._populate_parameter_tab()
+        has_children = bool(self.model.mesh_blocks()
+                            and self.model.mesh_blocks()[0].get("children"))
+        self.chk_child_only.setEnabled(has_children)
+        self.chk_lower_level.setEnabled(has_children)
         self._refresh_edit_list()
         self._refresh_detail_ranges()
         self._update_element_label()
@@ -2979,9 +3065,19 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             part_max = tuple(float(v) * 1000.0 for v in hi)
             part_bounds = (np.asarray(part_min, dtype=float),
                            np.asarray(part_max, dtype=float))
-        _rough, detailed = cab_grid.build_axes(
-            part_points, spec, part_vertices=part_vertices or None,
-            part_bounds=part_bounds)
+        blocks = self.model.mesh_blocks()
+        entries = None
+        has_children = bool(blocks and blocks[0].get("children"))
+        if has_children:
+            _rough, detailed, entries = cab_grid.build_axes_multiblock(
+                part_points, spec, blocks,
+                part_vertices=part_vertices or None,
+                part_bounds=part_bounds,
+                child_only=self.chk_child_only.isChecked())
+        else:
+            _rough, detailed = cab_grid.build_axes(
+                part_points, spec, part_vertices=part_vertices or None,
+                part_bounds=part_bounds)
         self.model.set_mesh(
             detailed,
             unit="mm",
@@ -2997,6 +3093,10 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             part_min=part_min,
             part_max=part_max,
         )
+        if entries:
+            for ax in "xyz":
+                self.model.set_mesh_axis(ax, entries[ax])
+            self._update_child_grid_counts(blocks, entries)
         self.model.set_mesh_control_value(
             "divide_scale", str(self.subblock_factor.value()))
         self.model.set_mesh_control_value(
@@ -3019,9 +3119,29 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             f"{cells[0]}x{cells[1]}x{cells[2]} elements "
             f"({counts[0]}x{counts[1]}x{counts[2]} points)"
             + (" (internal region)" if internal else "")
+            + (" (multiblock)" if has_children else "")
             + (f"; domain_type={domain_coord}"
                + (" (axes still cartesian AABB)"
                   if domain_coord != "cartesian" else "")))
+
+    def _update_child_grid_counts(self, blocks: list[dict], entries) -> None:
+        """Sync each child block's ``<grid>`` with merged axis entries."""
+
+        def walk(blk: dict) -> None:
+            if blk.get("min") and blk.get("max"):
+                counts = []
+                for i, ax in enumerate("xyz"):
+                    lo = blk["min"][i]
+                    hi = blk["max"][i]
+                    n = sum(1 for v, _m in entries[ax]
+                            if lo - 1e-9 <= v <= hi + 1e-9)
+                    counts.append(max(2, n))
+                self.model.update_child_block_grid(blk["name"], counts)
+            for child in blk.get("children", []):
+                walk(child)
+
+        for blk in blocks:
+            walk(blk)
 
     def _apply(self) -> None:
         """Backward-compatible alias for the [Gridding] button."""

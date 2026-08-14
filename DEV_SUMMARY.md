@@ -2265,3 +2265,30 @@ SaveCabFile → merge_mesh_result`。
 - 全仓回归：**329 通过 / 4 跳过**；
 - 仍待推进（登记）：PK 级 Undo/Redo、全算子 x_t 输出（Cut/Wrap/
   Simplify 目前为 STL 持久化）、格式矩阵出口扩展。
+
+## 51. L7.6 执行：multiblock native gridding（2026-08-14）
+
+- **格式勘察（真实 STpre 落盘）**：用 STpre COM 创建 ChildBlock 并存出
+  cab，确认子块 XML 为 `mesh_control/block` 内**嵌套**
+  `<block name=…>`（kind=any / min / max / limit / grid /
+  subblock@divide / area），合并轴在 `mesh_block` 中把子块边界标记为
+  `CS`/`C`（父块仍用 `B`/`N`）；
+- **cabxml 多块读写**：`mesh_blocks()` 解析嵌套块树，
+  `add_child_block()` 按 STpre 布局写入（含 subblock/area），
+  `update_child_block_grid()` / `block_param()` /
+  `set_block_param()` 支持子块参数读写，serialize→parse round-trip；
+- **cab_grid 多块轴生成**：`build_axes_multiblock()` 在根轴上叠加子块
+  细化（子块 std/ratio/limit 来自 subblock），子块范围
+  [lo,hi] 内替换为子块网格，边界标 `CS`/`C`，嵌套子块递归覆盖；
+  `child_only=True` 时只保留子块 + 域边界；
+- **GriddingDialog 接线**：`_create_child_block` 改为嵌套格式 + 范围/参数
+  对话框；参数树递归显示子块；`_edit_mesh_block` 编辑选中块；
+  “Consider only child-blocks for gridding” / “Consider rough grid of
+  lower level block” 在有子块时启用；native `_gridding` 写入带标记轴表并
+  同步子块 `<grid>` 计数；
+- 测试 `tests/test_multiblock.py`（3 项）：嵌套块 round-trip、
+  `build_axes_multiblock` 合并（CS/C 标记、0.5mm 子块间隔、child_only
+  23 点）、GriddingDialog 多块 gridding（21,21,21 子块计数）；
+- 全仓回归：**332 通过 / 4 跳过**；
+- 剩余依赖：7.1 panel scheme 黑盒语义、7.3 V8 scheme
+  （solid/panel_scheme 与 multiblock 元素形状合并）仍登记待续。

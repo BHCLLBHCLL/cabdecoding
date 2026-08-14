@@ -1263,6 +1263,153 @@ class StpreModel:
         if grid is not None:
             set_text(grid, ",".join(counts))
 
+    def mesh_control(self) -> Optional[ET.Element]:
+        return _first(self.root, "mesh_control")
+
+    @staticmethod
+    def _parse_vec3(el: Optional[ET.Element]
+                    ) -> Optional[tuple[float, float, float]]:
+        if el is None or not el.text:
+            return None
+        try:
+            vals = [float(x) for x in el.text.split(",")[:3]]
+        except ValueError:
+            return None
+        return tuple(vals) if len(vals) == 3 else None
+
+    def _block_element(self, name: str) -> Optional[ET.Element]:
+        """Nested ``mesh_control/block`` element by name (STpre multiblock)."""
+        mc = self.mesh_control()
+        root = _first(mc, "block") if mc is not None else None
+
+        def find(el: ET.Element) -> Optional[ET.Element]:
+            if (el.attrib.get("name") or "").strip() == name:
+                return el
+            for c in _children(el, "block"):
+                r = find(c)
+                if r is not None:
+                    return r
+            return None
+
+        return find(root) if root is not None else None
+
+    def mesh_blocks(self, parent: Optional[str] = None) -> list[dict]:
+        """Multiblock tree from ``mesh_control`` (RootBlock + children)."""
+        mc = self.mesh_control()
+        root = _first(mc, "block") if mc is not None else None
+        if root is None:
+            return []
+
+        def parse(el: ET.Element) -> dict:
+            def txt(tag: str) -> str:
+                e = _first(el, tag)
+                return (e.text or "").strip() if e is not None and e.text \
+                    else ""
+            sub = _first(el, "subblock")
+            return {
+                "name": (el.attrib.get("name") or "").strip(),
+                "kind": txt("kind") or "any",
+                "min": self._parse_vec3(_first(el, "min")),
+                "max": self._parse_vec3(_first(el, "max")),
+                "limit": self._parse_vec3(_first(el, "limit")),
+                "grid": txt("grid"),
+                "divide": ((sub.attrib.get("divide") or "")
+                           if sub is not None else "") or "1,1,1",
+                "ratio": (sub.attrib.get("ratio") or "")
+                if sub is not None else "",
+                "children": [parse(c) for c in _children(el, "block")],
+            }
+
+        tree = parse(root)
+        if parent is None:
+            return [tree]
+
+        def find(d: dict) -> Optional[dict]:
+            if d["name"] == parent:
+                return d
+            for c in d["children"]:
+                r = find(c)
+                if r is not None:
+                    return r
+            return None
+
+        found = find(tree)
+        return [found] if found is not None else []
+
+    def add_child_block(self, name: str, parent: str = "RootBlock",
+                        xyz_min=None, xyz_max=None, *,
+                        length=(0.5, 0.5, 0.5),
+                        ratio=(1.0, 1.0, 1.0),
+                        limit=(0.1, 0.1, 0.1)) -> bool:
+        """Append a nested child ``<block>`` (STpre multiblock layout)."""
+        parent_el = self._block_element(parent)
+        if parent_el is None or self._block_element(name) is not None:
+            return False
+        if xyz_min is None or xyz_max is None:
+            pmin = self._parse_vec3(_first(parent_el, "min"))
+            pmax = self._parse_vec3(_first(parent_el, "max"))
+            if pmin is None or pmax is None:
+                return False
+            xyz_min = tuple(a + 0.25 * (b - a) for a, b in zip(pmin, pmax))
+            xyz_max = tuple(a + 0.75 * (b - a) for a, b in zip(pmin, pmax))
+        child = ET.SubElement(parent_el, "block")
+        child.attrib["name"] = name
+        child.tail = "\n      "
+        for tag, text, attrs in (
+                ("kind", "any", {}),
+                ("min", self._vec_text(tuple(xyz_min)), {"unit": "mm"}),
+                ("max", self._vec_text(tuple(xyz_max)), {"unit": "mm"}),
+                ("limit", self._vec_text(tuple(limit)), {"unit": "mm"}),
+                ("grid", "2,2,2", {}),
+        ):
+            e = ET.SubElement(child, tag)
+            e.text = f" {text} "
+            e.tail = "\n        "
+        sub = ET.SubElement(child, "subblock")
+        sub.attrib["divide"] = self._vec_text(tuple(length))
+        sub.tail = "\n        "
+        area = ET.SubElement(sub, "area")
+        area.attrib["no"] = "0"
+        area.tail = "\n          "
+        for tag in ("valid", "min", "max"):
+            e = ET.SubElement(area, tag)
+            e.text = " "
+            e.tail = "\n            "
+        set_text(_first(area, "valid"), "T")
+        set_text(_first(area, "min"), self._vec_text(tuple(xyz_min)))
+        set_text(_first(area, "max"), self._vec_text(tuple(xyz_max)))
+        # ratio is stored on the subblock for finer control (cab extension
+        # keeps STpre's divide attribute as the standard length).
+        if ratio != (1.0, 1.0, 1.0):
+            sub.attrib["ratio"] = self._vec_text(tuple(ratio))
+        return True
+
+    def update_child_block_grid(self, name: str, counts) -> bool:
+        el = self._block_element(name)
+        if el is None:
+            return False
+        self._mesh_child(el, "grid", ",".join(str(int(c)) for c in counts))
+        return True
+
+    def block_param(self, name: str, tag: str, default: str = "") -> str:
+        el = self._block_element(name)
+        e = _first(el, tag) if el is not None else None
+        return (e.text or "").strip() if e is not None and e.text else default
+
+    def set_block_param(self, name: str, tag: str, text: str,
+                        unit: Optional[str] = None) -> bool:
+        el = self._block_element(name)
+        if el is None:
+            return False
+        e = _first(el, tag)
+        if e is None:
+            e = ET.SubElement(el, tag)
+            e.tail = "\n      "
+        set_text(e, text)
+        if unit:
+            e.attrib["unit"] = unit
+        return True
+
     def mesh_control_value(self, tag: str) -> Optional[str]:
         mc = _first(self.root, "mesh_control")
         el = _first(mc, tag) if mc is not None else None

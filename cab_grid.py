@@ -468,6 +468,127 @@ def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
     return {"x": r_axis, "y": theta, "z": z_axis}
 
 
+def _block_internal_points(lo: float, hi: float, std: float, ratio: float,
+                           limit: float) -> list[float]:
+    """Interior grid lines of one block interval (STpre child refinement)."""
+    if hi <= lo:
+        return []
+    if ratio and abs(ratio - 1.0) > 1e-9:
+        try:
+            pts = _inner_symmetric(lo, hi, std, ratio, limit)
+        except Exception:
+            pts = []
+        return [float(v) for v in pts if lo < v < hi]
+    n = max(1, stpre_rules._trunc_round((hi - lo) / std)) if std > 0 else 1
+    return list(np.linspace(lo, hi, n + 1)[1:-1])
+
+
+def _parse_block_vec(text: str, default: float) -> tuple[float, float, float]:
+    if isinstance(text, (tuple, list)):
+        vals = [float(x) for x in text[:3]]
+        while len(vals) < 3:
+            vals.append(default)
+        return (vals[0], vals[1], vals[2])
+    try:
+        vals = [float(x) for x in (text or "").split(",")[:3]]
+        while len(vals) < 3:
+            vals.append(default)
+        return (vals[0], vals[1], vals[2])
+    except ValueError:
+        return (default, default, default)
+
+
+def _mark_priority(mark: str) -> int:
+    return {"B": 4, "CS": 3, "C": 3, "F": 2, "S": 2, "N": 1}.get(
+        (mark or "N").upper(), 0)
+
+
+def _merge_block_axis(entries: list[tuple[float, str]], block: dict,
+                      ax_i: int, spec: GridSpec,
+                      is_root: bool) -> list[tuple[float, str]]:
+    """Overlay one block's refinement onto an axis entry list."""
+    lo_mm = block.get("min")
+    hi_mm = block.get("max")
+    if not lo_mm or not hi_mm:
+        return entries
+    lo, hi = float(lo_mm[ax_i]), float(hi_mm[ax_i])
+    divide = _parse_block_vec(
+        block.get("divide", ""), _as3(spec.standard_length)[ax_i])
+    ratio = _parse_block_vec(
+        block.get("ratio", ""), spec.ratio_internal()[ax_i])
+    limit = _parse_block_vec(
+        block.get("limit", ""), _as3(spec.threshold_length)[ax_i])
+    interior = _block_internal_points(
+        lo, hi, divide[ax_i], ratio[ax_i], limit[ax_i])
+    if is_root:
+        # root keeps its own rough/detailed lines; only children overlay
+        keep = list(entries)
+    else:
+        keep = [(v, m) for v, m in entries if not (lo < v < hi)]
+        keep.append((lo, "CS"))
+        keep.append((hi, "C"))
+        keep.extend((float(v), "N") for v in interior)
+    merged: dict[float, str] = {}
+    for v, m in keep:
+        key = round(float(v), 9)
+        if key not in merged or _mark_priority(m) > _mark_priority(
+                merged[key]):
+            merged[key] = (m or "N").upper()
+    return sorted(merged.items(), key=lambda kv: kv[0])
+
+
+def build_axes_multiblock(part_points: dict[str, np.ndarray],
+                          spec: GridSpec, blocks: list[dict], *,
+                          part_vertices: Optional[dict] = None,
+                          part_bounds=None, child_only: bool = False
+                          ) -> tuple[dict[str, list[float]],
+                                     dict[str, list[float]],
+                                     dict[str, list[tuple[float, str]]]]:
+    """Root + nested child-block gridding (STpre multiblock layout).
+
+    Returns ``(rough, detailed, entries)``; ``entries`` carries per-axis
+    ``(coord, mark)`` pairs where child boundaries are ``CS``/``C``.
+    """
+    rough, detailed = build_axes(
+        part_points, spec, part_vertices=part_vertices,
+        part_bounds=part_bounds)
+    root = blocks[0] if blocks else None
+    if root is None or not root.get("children"):
+        plain = {}
+        for i, ax in enumerate("xyz"):
+            vals = detailed[ax]
+            plain[ax] = [
+                (v, "B" if i in (0, len(vals) - 1) else "N")
+                for i, v in enumerate(vals)]
+        return rough, detailed, plain
+    dmin = np.asarray(spec.domain_min, float)
+    dmax = np.asarray(spec.domain_max, float)
+    entries_out: dict[str, list[tuple[float, str]]] = {}
+    for ax_i, ax in enumerate("xyz"):
+        if child_only:
+            entries: list[tuple[float, str]] = [
+                (float(dmin[ax_i]), "B"), (float(dmax[ax_i]), "B")]
+        else:
+            entries = [
+                (v, "B" if idx in (0, len(detailed[ax]) - 1) else "N")
+                for idx, v in enumerate(detailed[ax])]
+
+        def apply_block(blk: dict, is_root: bool) -> None:
+            nonlocal entries
+            if not is_root or not child_only:
+                entries = _merge_block_axis(
+                    entries, blk, ax_i, spec, is_root=is_root)
+            for child in blk.get("children", []):
+                apply_block(child, is_root=False)
+
+        apply_block(root, is_root=True)
+        if not entries:
+            entries = [(float(dmin[ax_i]), "B"), (float(dmax[ax_i]), "B")]
+        entries_out[ax] = entries
+    detailed_mb = {ax: [v for v, _m in entries_out[ax]] for ax in "xyz"}
+    return rough, detailed_mb, entries_out
+
+
 def divide_interval(axis_vals: list[float], a: float, b: float, n: int,
                     ratio: float = 1.0, mode: str = "forward",
                     threshold: float = 0.0,
