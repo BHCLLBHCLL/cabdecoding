@@ -1,6 +1,6 @@
 # cab_gui 功能补齐开发计划（逆向驱动）
 
-> 日期：2026-08-13（§15 对照刷新至 HEAD `c0b1442`；§16 L1–L10 路线图仍有效）
+> 日期：2026-08-14（§18 全量对照刷新至 HEAD `ac4e3e7`；§15/§16 路线图仍有效）
 > 仓库：`cabdecoding`
 > 关联文档：[CAB_GUI_DESIGN.md](CAB_GUI_DESIGN.md)（UI 布局）、
 > [DEV_SUMMARY.md](DEV_SUMMARY.md)（逆向档案 / §39 深度审计）、
@@ -9,7 +9,7 @@
 > 参考手册：`C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\Pre_eng\index.html`
 > 对照源：Pre_eng `toc.csv` + `cab_gui.py` / `cab_edit_*` / `cab_parts` / wizards
 >
-> **当前主线：** §16 L1–L3（文案清理 / 金标钉住 / Others 入算法）；M33–M39 已交付。  
+> **当前主线：** §16 L1–L7 主体完成（7.1 panel scheme / 7.3 V8 scheme 待依赖）；§18 为最新全量对照基线。  
 > **冻结：** Gridding/Meshing via STpre API（§14.2）。
 
 ---
@@ -1210,6 +1210,297 @@ x_t/STL 双向持久化闭环（§50：布尔 x_t 成员引用 + body_files 登�
 
 L3 Others 入算法 → L6 Cutting/ShapeChange/face_delete 真几何 → L7 金标收敛。  
 不要用 scFLOWpre 的八叉树/棱柱层指标衡量本仓。
+
+---
+
+## 18. 全量对照：代码现状 vs STpre（2026-08-14，HEAD `ac4e3e7`）
+
+> 独立复核（代码走查 + 全仓测试实测）+ 官方手册量化基准
+> （`Manuals/ST/HTML/Pre_eng/toc.csv`，717 条）+ 已有逆向/黑盒数据。
+> §13/§15 为过程快照，本节为最新基线，可复现口径见 18.2/18.3。
+> **产品边界不变**：本仓对齐 STpre / scSTREAM（笛卡尔结构网格），
+> 不用 scFLOWpre 的八叉树/棱柱层指标衡量。
+
+### 18.1 结论摘要
+
+| 维度 | 评估 | 依据 |
+|---|---|---|
+| 菜单入口覆盖 | ~93%（无死菜单） | 8 菜单约 43+ action 全有 handler，`_nyi` 仅 4 处兜底 |
+| 可用实现深度（加权） | ~70–72% | 被 Edit B-rep / CW / Part 专用件 / Meshing 金标拉低 |
+| 几何编辑内核保真 | ~40% | Edit 23 项中仅 Boolean + Facet 重建触达 Parasolid 内核 |
+| 网格管线保真 | ~53% | 笛卡尔 Gridding/盒占用已对齐金标；panel/V8/圆柱分类未收敛 |
+| 测试 | 332 通过 / 4 跳过（`ac4e3e7`） | 本沙箱实测 284 通过 / 4 跳过 / 40 失败 / 8 错误，均为环境性 |
+
+> 测试说明：本沙箱因 `.pytest_tmp_*` 与 `tests/tmp*` 带 deny-ACL 遗留目录、
+> pskernel/STpre COM 会话不可用，纯逻辑测试 284 通过；失败/错误项全部为
+> 环境性（临时目录写权限 + pskernel DLL + STpre 会话），非逻辑回归。
+> 文档记录的最后全绿基线为 **332 通过 / 4 跳过**。
+
+### 18.2 代码现状（独立核查，非仅凭文档）
+
+- Git：HEAD `ac4e3e7`（2026-08-14），工作区干净，`main`。
+- 规模：约 30 个 Python 模块、约 3.5 万行；核心
+  `cab_gui.py`(5077) / `cab_cwizard_pages.py`(6219) / `cab_wizards.py`(3415) /
+  `cab_dialogs.py`(3379) / `cab_parts.py`(2001) / `cabxml.py`(1675)。
+- 分层（代码存在性已核实）：
+  `cab_container.py`（MSCF/MSZIP 容器）→ `cabxml.py`（stpre XML 模型）→
+  `cab_import.py`/`cab_occ.py`（几何导入）→ `ps_facet2_nodes.py`/`ps_tessellate.py`
+  （Parasolid 面片）→ `cab_grid.py`/`cab_mesh.py`（网格）→ `s_export.py`/
+  `xemt_export.py`（导出）→ `cab_gui.py` + 各对话框（GUI）。
+- 菜单/死入口：`cab_gui.py` 约 43 处 `addAction/createAction`；全仓 `_nyi`
+  仅 4 处（Layout context 与未知 Part kind 兜底），无死菜单。
+
+### 18.3 STpre 全量功能面（量化基准，toc.csv 共 717 条）
+
+| 菜单 | 手册条目 | 说明 |
+|---|---:|---|
+| File | 13 | Open/Save/SaveAs/Import/Export/3DfindIT/Print/Solver/Post/Recent/Exit |
+| Edit | 26 | 24 项 + 菜单页 |
+| View | 4 | Setting/Dialog/Toolbar（Clipping/热显示/部件列表） |
+| Part | 38 | 基础体 9 + 热专用件 ~14 + Sketch 8 模型 + Pipe 等 |
+| Mesh | 13 | Gridding(6 标签)/Meshing/Interference/Edit Mesh/Cross-Section/S-File |
+| Option | 11 | Cut Cell/Parametric/Selection/Distance/Reference/Mouse/Detailed/Viewer |
+| Wizard | 270 | Initial ~11 页 + **Condition Setting ~250+ 页** |
+| Help | 3 | — |
+
+> 量级关键：STpre 的 Condition Wizard 是 **~250+ 页物理条件长尾**，而 cab
+> 条件类型约 15 组——这是最大的结构性差距来源。
+
+### 18.4 分区覆盖对比（cab vs STpre）
+
+| 区域 | STpre 条目 | cab 菜单覆盖 | 可用深度 | 主缺口 |
+|---|---:|---:|---:|---|
+| File | 13 | 完整 | 高 | Import 无 IGES/IDF、无本地 3DfindIT；Solver/Post 仅外部启动 |
+| Edit | 26 | 24/24 | 低（~40%） | 见 18.5 Blocker |
+| View | 4(子菜单) | 完整 | 中高 | 已挂项可用；热显示/Aspect 为 MVP 线框 |
+| Part | 38 | ~14 种 | 中 | 热专用件为几何代理、缺完整热属性模型 |
+| Wizard | 270 | 2 入口 | 低 | CW 仅 ~26 页、18/24 分析类型禁用 |
+| Mesh | 13 | 6/6 | 中（~53%） | panel/V8/run-length 未收敛 |
+| Option | 11 | ~4–5 | 中 | 缺 Cut Cell/Parametric Study/Selection 深度 |
+
+### 18.5 深度差距（chrome ≠ 内核，按严重度）
+
+#### 🔴 Blocker —— 非布尔 B-rep 编辑（Edit 23 项中仅 2 项触达 Parasolid 内核）
+
+- **真实内核**：Boolean（`PK_BODY_boolean_2`）、Reconstruct of Part Facet（`PK_TOPOL_facet_2`）。
+- **tess 级（改三角网、不写回 x_t body）**：Flipping / Part Face Paneling / Sweep / Edit Solid（删三角）/ Part Simplification。
+- **近似/占位**：Cutting 已从 AABB 切半升级为真平面裁剪（仍 tess 级）、Wrapping=凸包、Shape Simplification=顶点抽稀。
+- **意图/XML 级**：Shape change by Boolean、FEM Conversion、Wiring、Image 等仅写元数据。
+- **未做**：`PK_FACE_delete_2` 已绑定未调用；PK 级平面分割；面/边/顶点**拓扑拾取**（现为 cell 拾取 + 顶点吸附）。
+
+#### 🔴 High —— Condition Wizard 深度（~250 页中仅覆盖 ~15 组条件）
+
+- Analysis Types 24 项中 **18 项禁用**（Diffusion/Plant canopy/Moving object/Solar/Lamp/Reaction/Ventilation/Fusion/Marangoni/Topology/Particle/Aircon/Current/Electrostatic/PCM/MSC CoSim/BCI-ROM/Thermoregulation）。
+- 实际启用仅：Flow/Turbulence、Heat、Humidity、Porous、Radiation、Free surface。
+- 已实现子集有**诚实禁用 + tooltip**（优点，避免假成功）；Source→S 导出已打通、BC face create/edit、region 多选、Power-law/enclosure 写回已落地。
+
+#### 🔴 High —— Part 专用件（38 项中 cab 约 14 种）
+
+- 已有：Cuboid/Hexahedron/Cylinder/Cone/Sphere/Panel/Point/Fan/Axial/Blower/Sketch/Pipe + Enclosure/Plate·Pin Fin/Peltier/Two-Resistor/AC/Diffuser（后两者为 cuboid/conical 几何代理）。
+- 缺完整热属性模型：Delphi/HeatPipe/Multiple-Resistor/Card Guide/Slit Punching/Anemostat 等。
+
+#### 🟠 High —— Meshing 金标
+
+- **已对齐**：box 金标 CXYZ 逐点一致 + PARTS 占用 `20 39 20 39 20 39`；auto1 规则 13/13；占用金标 **20/20 box 用例一致**；圆柱 R/θ 分类、multiblock native（真实嵌套块 + CS/C 合并轴）、并行分类已完成。
+- **未收敛**：panel scheme 黑盒语义（STpre 对开放面 `part_boxes={}`）、V8 scheme（solid/panel_scheme 合并）、run-length 精确编码（现为贪心 AABB 合并）、tr03 曲面件网格线数偏差（native 65×115×115 vs STpre 59×118×121）。
+
+#### 🟠 Medium —— Import/Export 格式矩阵
+
+- Import：XT/STL/OBJ/STEP/SAT/DXF/MDL 已支持；**IGES/IDF 明确放弃**（§15.6）。
+- Export：S/XEMT/STL/XT/Property XML；无 Neutral 全矩阵。
+
+#### 🟡 Medium —— STpre API 路径（已冻结）
+
+- COM relay 仅用 Mesher **7/15**、MeshBlock **1/23**、SetGridParam **6/13** 个方法；
+- Others 页参数、internal region、指定部件网格、edge-contact、multiblock、GetNumElements 回读均未接。
+- 保持冻结（策略明确：检测到用户已开 STpre 时拒绝 attach，防杀用户实例）。
+
+### 18.6 已对齐 / 优势（保持，不宜推倒）
+
+- **CAB 容器**：MSCF + MSZIP 跨块历史解压/重打包，与 Windows `expand` 逐字节一致（md5 全同）。
+- **XML 往返**：两个 XML 成员字节级稳定序列化（BOM/注释/缩进/未知元素零丢失）。
+- **Parasolid 几何显示**：`PK_TOPOL_facet_2` 表路径（与 STpre 同源，经反汇编确认）为主，GO 回退，含自适应面片容差。
+- **网格算法**：auto1 每轴分配公式、几何比求解器、内区 P 闭式公式均来自 DLL 反汇编（`STpreBase_Bx64.dll`），黑盒 13/13 验证。
+- **Initial Wizard** 完整 6 步（含冷启动自动弹出）。
+- **测试基建**：金标回归已钉住（`box_bm.s` vs `box_new.s` 自动对比）。
+
+### 18.7 建议优先级（下一迭代）
+
+1. **P0 环境清理**：删除带 deny-ACL 的 `.pytest_tmp_*` / `tests/tmp*` 遗留目录（当前阻塞 pytest 收集），恢复全绿基线。
+2. **P1 Edit B-rep 保真**：`PK_FACE_delete_2` 接线、PK 级平面分割、拓扑拾取（face/edge/vertex）——把 Edit 从“对话框齐”推向“CAD 准备可用”。
+3. **P2 Meshing 金标收敛**：panel scheme 黑盒语义还原、V8 scheme、run-length 编码。
+4. **P3 Condition Wizard 扩展**：按产品需求从 18 个禁用分析类型中逐步解锁（porous anisotropic / radiation grouping / time series / 湍流初始场优先）。
+5. **P4 格式矩阵出口**：MDL/DXF/OBJ 出口 + 完整往返回归。
+
+---
+
+## 19. 按差距程度排序的改进开发计划（2026-08-14）
+
+> 承接 §18.7。以「差距严重度」为主序、依赖与收益/成本为次序，把
+> §18.5 的差距逐条展开为可执行里程碑。每阶段含：目标 / 现状差距 /
+> 任务分解 / 验收标准。状态随推进回填。
+
+### 19.1 总览（严重度 → 阶段）
+
+| 阶段 | 对应差距 | 严重度 | 预计工作量 | 前置 | 状态 |
+|---|---|---|---|---|---|
+| **A** | 非布尔 B-rep 编辑 | 🔴 Blocker | 2–3 周 | — | 📋 |
+| **B** | Meshing 金标收敛 | 🟠 High | 2–4 周 | A（测试习惯）/ 金标 | 📋 |
+| **C** | Condition Wizard 深度 | 🔴 High | 3–6 周（滚动） | L5 已铺底 | 📋 |
+| **D** | Part 专用件热模型 | 🔴 High | 1–2 周 | D7 热字段 | 📋 |
+| **E** | Import/Export 格式矩阵 | 🟠 Medium | 1–2 周 | M38 已有 | 📋 |
+| **F** | STpre API 深度 | 🟡 Medium | 1–2 周（若解冻） | 冻结解除 | ⏸ |
+| **G** | Undo↔PS / i18n / 3DfindIT / Wiring | 🟡 Low | 滚动 | 各阶段 | 📋 |
+
+依赖主线：A → B → C（几何/网格/物理三层递进）；D/E/G 可并行；F 独立（冻结）。
+
+---
+
+### 19.2 阶段 A（Blocker）：Edit B-rep 内核补全
+
+**目标**：把 Edit 从「对话框齐 + 少数真内核」提升到「几何准备可用」——
+所有 Edit 算子的产物是**真实 Parasolid body**，且保存重开不丢几何。
+
+**现状差距**（§18.5）：23 项中仅 Boolean（`PK_BODY_boolean_2`）与
+Reconstruct of Part Facet（`PK_TOPOL_facet_2`）触达 PK；Cutting/Wrapping/
+Simplify 为 tess 级；Shape change Boolean 已接真布尔（L6.3）；`PK_FACE_delete_2`
+已绑定未调用；面/边/顶点**拓扑拾取**缺失；Undo 仍是 XML 快照。
+
+| 子项 | 内容 | 工作量 | 验收 |
+|---|---|---|---|
+| A1 拓扑拾取 | `PK_BODY_ask_faces/ask_edges/ask_vertices` + 屏幕射线→拓扑实体映射（替换 cell 拾取），作为 Edit Solid/Paneling 前置 | 3–5 天 | 点选面/边/顶点返回真实 PK tag；状态栏输出 |
+| A2 `PK_FACE_delete_2` 接线 | Edit Solid「删面」从三角网删除改为拓扑面删除，删后 `PK_BODY_export` 写回 x_t | 2–3 天 | 删面后 body 拓扑合法、体积符合预期、可重开 |
+| A3 PK 级平面分割（Cutting） | 用 pskernel 平面/曲面分割替代 tess 裁剪，结果 x_t 持久化（tess 路径保留为回退） | 3–5 天 | 平面切 box 得两闭合实体；体积守恒；重开一致 |
+| A4 全算子 x_t 输出 | Cut/Wrap/Simplify/Boolean 结果统一走 `PK_PART_transmit` 写 x_t（失败退 STL + polygon，沿用 §50 重映射） | 3–5 天 | 每个算子的结果部件在 cab 重开后仍为可编辑 body |
+| A5 Undo↔PS 一致性 | Undo/Redo 与 Parasolid 会话历史或快照 diff 对齐（至少：Edit 后 Undo 恢复几何与 XML 双一致） | 3–5 天 | Edit→Undo→Redo 后几何与 XML 均一致 |
+
+**验收标准**：A1–A5 各有金标几何用例（体积/形状断言）且「编辑→保存→重开」
+不丢几何；Edit 触达 PK 的算子数从 2 提升到 ≥6（Boolean/Facet/Cutting/
+Edit Solid/Wrap/Simplify）。
+
+---
+
+### 19.3 阶段 B（High）：Meshing 金标收敛
+
+**目标**：与 STpre 在**占用与行程编码**上达到可复现一致（不止 CXYZ 坐标）。
+
+**现状差距**（§18.5）：box CXYZ/PARTS 已对齐、auto1 13/13、占用 20/20 box、
+圆柱 R/θ 分类、multiblock native、并行分类已完成；**未收敛**：panel scheme、
+V8 scheme、run-length 精确编码、tr03 曲面件网格线数偏差（native 65×115×115
+vs STpre 59×118×121）。
+
+| 子项 | 内容 | 工作量 | 验收 |
+|---|---|---|---|
+| B1 panel scheme 黑盒补充 | 还原 STpre 对开放面/panel 的 `part_boxes={}` 语义：用 speaker/开放面 x_t 多实例探测，归纳「实体占用 vs 面占用」判定规则 | 3–5 天 | 新增 `data/stpre_probe_*panel*.json`；规则文档化 |
+| B2 panel 占用 native 实现 | 按 B1 规则实现 `classify_panel_cells` 精确语义（替换「半单元带」近似） | 2–4 天 | panel 用例与 STpre `part_boxes` 逐 cell 一致 |
+| B3 V8 scheme | 还原 solid_scheme/panel_scheme 改变占用合并的语义（依赖 multiblock 元素形状），接入 `classify_cells` | 3–5 天 | 两 scheme 开关切换后占用/导出字段符合金标 |
+| B4 run-length 精确编码 | 用 PK 或贪心→RLE 改写 `_merge_boxes`，对齐 STpre box list 行程编码（box/tr03 金标） | 3–5 天 | `box_new.s` 与 `box_bm.s` 的 PARTS 行数与结构一致 |
+| B5 曲面件计数收敛 | 定位 tr03 native 65×115×115 vs STpre 59×118×121 的偏差来源（顶点检测层级 + threshold 合并），逐 cell 对比 | 3–5 天 | tr03/ex4_e 曲面件网格线数与 STpre 参考一致 |
+
+**验收标准**：新增 `test_golden_reference.py` 常驻项覆盖 B1–B5；简单件与
+STpre 完全一致，曲面件逐 cell 占用比对通过；大模型可跑（并行分类已就绪）。
+
+---
+
+### 19.4 阶段 C（High）：Condition Wizard 深度扩展
+
+**目标**：把 CW 从「~26 页核心子集」扩展到「覆盖主要产品物理场景」，并保持
+诚实禁用（不假成功）。
+
+**现状差距**（§18.5）：Analysis Types 24 项中 18 项禁用；STpre Condition 手册
+约 250+ 页；cab 条件类型约 15 组。已落地：BC face create/edit、region 多选、
+Power-law/enclosure 写回、Source→S 导出。
+
+| 子项 | 内容 | 工作量 | 验收 |
+|---|---|---|---|
+| C1 常用 BC 深挖 | porous anisotropic、radiation grouping 细节、humidity 深度、time series、初始湍流场、总压/静压组合边界 | 1–2 周 | 每页有写回 + 重载 + 测试；`.s` 导出字段正确 |
+| C2 Source 全类型 | 补齐 `_SRC_VOL_TYPES/_SRC_AREA_TYPES` 到 STpre 全量（含 time series/函数） | 3–5 天 | 每个 Source 类型可往返（写回→重载→导出） |
+| C3 高级物理分批解锁 | 按产品需求排序（建议：Solar→Particle→Diffusion→Ventilation→Reaction→…），每批 1–2 个分析类型 | 滚动 | 解锁项有产品页 + 写回 + 测试 |
+| C4 支持矩阵 | 对 250+ 手册对话框建立「支持/子集/禁用」矩阵，作为解锁顺序与验收清单 | 2–3 天 | 矩阵入库（`docs/cw_matrix.md`），禁用项带 tooltip |
+
+**验收标准**：C1–C2 每项可往返且 `.s` 一致；C3 每批独立提交；C4 矩阵随解锁
+同步更新；未实现物理保持 `setEnabled(False)` + 诚实 tooltip。
+
+---
+
+### 19.5 阶段 D（High）：Part 专用件热属性模型
+
+**目标**：把 Part 菜单从「几何代理」提升到「几何 + 完整热属性」产品级。
+
+**现状差距**（§18.5）：已有 Cuboid…Point 基础体 + Enclosure/Plate·Pin Fin/
+Peltier/Two-Resistor（含基本热字段）+ AC/Diffuser（几何代理）；缺 Delphi /
+HeatPipe / Multiple-Resistor / Card Guide / Slit Punching / Anemostat 及完整
+热属性模型。
+
+| 子项 | 内容 | 工作量 | 验收 |
+|---|---|---|---|
+| D1 补齐专用件菜单 | Delphi / HeatPipe / Multiple-Resistor / Card Guide / Slit Punching / Anemostat 进 Part 菜单 + 几何 + 热字段 | 3–5 天 | 与 STpre Part 菜单 38 项对齐至 ≥20 种 |
+| D2 热属性完整模型 | 各专用件热参数（Rjc/Rjb/Power、PQ 曲线、Peltier ΔT、AC 制冷量等）写入 `<parts>` 并进入 `condition_values()` | 3–5 天 | 热字段写回 XML 可重载；`.s`/`.xemt` 导出正确 |
+| D3 AC/Diffuser 真几何 | 按手册几何替换 cuboid/conical 代理（含 4 方向/2 方向/壁挂/便携/室外机 + 风口） | 3–5 天 | 几何与手册一致，占用/网格正确 |
+
+**验收标准**：Part 菜单 ≥20 种、热属性往返 + 导出正确、AC/Diffuser 非代理。
+
+---
+
+### 19.6 阶段 E（Medium）：Import/Export 格式矩阵补全
+
+**目标**：把格式矩阵从「smoke」提升到「全矩阵 + 往返回归」。
+
+**现状差距**（§18.5）：Import 支持 XT/STL/OBJ/STEP/SAT/DXF/MDL；Export 支持
+S/XEMT/STL/XT/Property XML；IGES/IDF 明确放弃（§15.6）。缺 MDL/DXF/OBJ 出口
+与全矩阵自动化回归。
+
+| 子项 | 内容 | 工作量 | 验收 |
+|---|---|---|---|
+| E1 出口补齐 | MDL（OBJ 等价）/ DXF（3DFACE）/ OBJ 导出 | 2–4 天 | 各格式导出可被上游 CAD 打开 |
+| E2 全矩阵回归 | `test_m38_format_matrix.py` 扩展：DXF/MDL/STEP/SAT 导入 + S/XEMT/XT/Property/MDL/DXF/OBJ 导出往返；GUI 过滤器联动 | 2–3 天 | 矩阵 100% 通过；OCC 相关保留 skip |
+
+**验收标准**：格式矩阵双向往返全绿，纳入 CI；IGES/IDF 保持显式拒绝。
+
+---
+
+### 19.7 阶段 F（Medium）：STpre API 深度（若解冻）
+
+> 当前**冻结**（§14.2）。下列为解冻候选，按序实施；不解除前仅文档化。
+
+**现状差距**（§18.5）：COM relay 仅用 Mesher 7/15、MeshBlock 1/23、
+SetGridParam 6/13。
+
+| 子项 | 内容 | 工作量 | 验收 |
+|---|---|---|---|
+| F1 参数中继（P0） | `domain_type`（inner/outer）+ `division_scale` + Others 页参数写入 relay | 2–3 天 | 开关开启时 Others 参数生效 |
+| F2 指定部件/回读（P1） | `ExecutePartsElement` + `GetNumElements` + `GetNumEdgeContact`/`RemoveEdgeContact` | 3–5 天 | 部件网格/Elen# 与 STpre 一致 |
+| F3 Edit/Detail/Deletion API（P2） | `SetSelectGrid`/`SetDivideArray`/`SetDetailGrid`/`DeleteGrid`（对应六页 tab） | 3–5 天 | 六页 tab 在 API 下行为一致 |
+| F4 multiblock（P3） | `CreateBlock`/`SetRange`/`SetActiveBlock`/`Update` | 3–5 天 | multiblock 经 API 生成 |
+| F5 超时/错误（P4） | COM 超时与错误对话框处理；保留「已有实例拒绝 attach」 | 1–2 天 | 无挂起 UI；策略不变 |
+
+---
+
+### 19.8 阶段 G（Low）：收尾项
+
+| 子项 | 内容 | 状态 |
+|---|---|---|
+| G1 Undo↔PS 一致性 | 并入 A5 | 📋 |
+| G2 i18n 完整性 | `cab_i18n` 扩展到菜单/对话框（当前仅标题/就绪文案） | 📋 |
+| G3 本地 3DfindIT | 当前为 web 搜索；本地 CAD 插件按需 | 📋 |
+| G4 Wiring Gerber 几何 | 当前仅记录元数据；几何生成按需 | 📋 |
+
+---
+
+### 19.9 里程碑与验收汇总
+
+| 阶段 | 里程碑 | 关键验收 |
+|---|---|---|
+| A | Edit B-rep 补全 | 触达 PK 算子 ≥6；Edit→Undo→Redo 几何/XML 双一致 |
+| B | Meshing 金标 | 简单件完全一致；曲面件逐 cell 一致；run-length 对齐 |
+| C | CW 深度 | C1–C2 往返 + `.s` 一致；C4 矩阵入库 |
+| D | Part 专用件 | ≥20 种 + 热属性往返 + AC/Diffuser 非代理 |
+| E | 格式矩阵 | 全矩阵往返全绿 |
+| F | STpre API | （若解冻）六页 tab 与 API 一致 + 回读校验 |
+| G | 收尾 | i18n/3DfindIT/Wiring 按需 |
+
+**建议执行顺序**：A（Blocker 先行）→ 并行 B/D/E → C（滚动长尾）→ G；
+F 视解冻。每个子项完成即：pytest → 回填本节状态 → commit/push。
 
 ---
 
