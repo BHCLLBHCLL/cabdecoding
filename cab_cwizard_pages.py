@@ -48,10 +48,11 @@ def _pair(lay, label: str, widget, unit: str = "") -> None:
     lay.addLayout(row)
 
 
-# Value types written for Source Condition (STpre-aligned subset)
+# Value types written for Source Condition (STpre-aligned; C2 extends the
+# volumetric set with humidity/diffusion sources).
 _SRC_VOL_TYPES = frozenset({
     "volumetric_force", "volumetric_pressure_loss", "heat_source",
-    "source_term",
+    "source_term", "moisture_source", "smoke_source",
 })
 _SRC_AREA_TYPES = frozenset({
     "area_pressure_loss", "area_heat_source",
@@ -78,6 +79,8 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
                 ("Volumetric force", self._new_vol_force),
                 ("Volumetric pressure loss", self._new_vol_ploss),
                 ("Volumetric heat source", self._new_vol_heat),
+                ("Moisture source", self._new_vol_moisture),
+                ("Smoke source", self._new_vol_smoke),
                 ("Generalized source term", self._new_vol_term),
             ),
             face_buttons=False,
@@ -641,6 +644,46 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         for region, rtype in regions:
             self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: generalized source term '{name}'")
+        self.refresh()
+
+    def _new_vol_moisture(self) -> None:
+        """C2: humidity source (STpre [Moisture source], humidity analysis)."""
+        res = self._dlg_name_value(
+            "Condition (Humidification)", "MoistSource1",
+            [("Moisture source", "kg/s", 0.0, "q")])
+        if res is None:
+            return
+        name, vals, unit = res
+        self.model.upsert_value("moisture_source", name, [
+            ("source", f"{vals[0]:g}", unit or "kg/s"),
+        ])
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: moisture source '{name}' "
+                  f"({vals[0]:g} {unit or 'kg/s'})")
+        self.refresh()
+
+    def _new_vol_smoke(self) -> None:
+        """C2: smoke source (STpre [Smoke source], diffusion/reaction)."""
+        res = self._dlg_name_value(
+            "Condition (Smoke)", "SmokeSource1",
+            [("Smoke source", "kg/s", 0.0, "q")])
+        if res is None:
+            return
+        name, vals, unit = res
+        self.model.upsert_value("smoke_source", name, [
+            ("source", f"{vals[0]:g}", unit or "kg/s"),
+        ])
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: smoke source '{name}' "
+                  f"({vals[0]:g} {unit or 'kg/s'})")
         self.refresh()
 
     def _new_area_ploss(self) -> None:
@@ -5913,7 +5956,8 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "initial", "flux", "wall", "heat_transfer", "radiation_boundary",
         "fixed_temperature", "fixed_velocity",
         "volumetric_force", "volumetric_pressure_loss", "heat_source",
-        "source_term", "area_pressure_loss", "area_heat_source",
+        "moisture_source", "smoke_source", "source_term",
+        "area_pressure_loss", "area_heat_source",
         "perforated_plate",
     )
 
@@ -5928,6 +5972,8 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "volumetric_force": "Volumetric force",
         "volumetric_pressure_loss": "Volumetric pressure loss",
         "heat_source": "Volumetric heat source",
+        "moisture_source": "Moisture source",
+        "smoke_source": "Smoke source",
         "source_term": "Generalized source term",
         "area_pressure_loss": "Area pressure loss",
         "area_heat_source": "Area heat source",
