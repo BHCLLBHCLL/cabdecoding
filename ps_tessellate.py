@@ -24,6 +24,15 @@ from typing import Optional
 
 import numpy as np
 
+
+def _temp_dir(prefix: str) -> Path:
+    """Sandbox-safe unique temp dir (``os.makedirs``, not ``mkdtemp``)."""
+    import uuid
+    base = Path(tempfile.gettempdir()) / f"{prefix}{uuid.uuid4().hex}"
+    os.makedirs(base, exist_ok=False)
+    return base
+
+
 # GO tokens (Parasolid Graphical Output)
 _SGTPFT = 2016          # facet segment
 _L3TPFV = 3007          # facet vertices (ngeom = #vectors)
@@ -392,7 +401,7 @@ class _PsSession:
         pk.PK_SESSION_set_check_arguments(0)
 
     def receive_xt(self, xt_bytes: bytes) -> list[int]:
-        tmpdir = Path(tempfile.mkdtemp(prefix="cab_ps_"))
+        tmpdir = _temp_dir("cab_ps_")
         xtp = tmpdir / "part.x_t"
         xtp.write_bytes(xt_bytes)
         key = str(xtp.with_suffix("")).encode()

@@ -121,7 +121,16 @@ def available() -> bool:
 
 
 def transmit_parts(tags: list[int]) -> bytes:
-    """``PK_PART_transmit`` body/part tags → text ``.x_t`` bytes."""
+    """``PK_PART_transmit`` body/part tags → text ``.x_t`` bytes.
+
+    A4 note: standalone bodies created by ``PK_BODY_boolean_2`` (boolean and
+    plane-cut results) have no owning PART, and this kernel build exports
+    neither ``PK_BODY_export`` nor any part-assignment function
+    (``PK_PART_new``/``PK_ENTITY_set_part``), while ``PK_BODY_ask_parent``
+    returns 5022 for such bodies.  ``PK_PART_transmit`` therefore rejects them
+    with 973; callers must fall back to the STL + polygon-part persistence
+    path (see ``cab_edit_ops.register_tess_part``).
+    """
     if not tags:
         raise ValueError("no body tags to transmit")
     sess = _ps._get_session()
@@ -139,7 +148,7 @@ def transmit_parts(tags: list[int]) -> bytes:
             pass
         parts.append(int(parent.value) if rc == 0 and parent.value
                      else int(tag))
-    tmpdir = Path(tempfile.mkdtemp(prefix="cab_tx_"))
+    tmpdir = _ps._temp_dir("cab_tx_")
     key = str(tmpdir / "out").encode()
     opts = _Transmit()
     opts.o_t_version = 1

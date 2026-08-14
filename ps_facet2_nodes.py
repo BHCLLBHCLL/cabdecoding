@@ -337,6 +337,20 @@ class _RECV(Structure):
     ]
 
 
+def _temp_dir(prefix: str) -> Path:
+    """Sandbox-safe unique temp dir (``os.makedirs``, not ``mkdtemp``).
+
+    ``tempfile.mkdtemp`` creates a directory whose security descriptor the
+    DSH workspace sandbox denies for later file writes, while a plain
+    ``os.makedirs`` directory stays writable.  Returns a unique path under
+    the system temp dir.
+    """
+    import uuid
+    base = Path(tempfile.gettempdir()) / f"{prefix}{uuid.uuid4().hex}"
+    os.makedirs(base, exist_ok=False)
+    return base
+
+
 class _PsSession:
     """One pskernel session with text x_t receive + facet_2 + GO fallback."""
 
@@ -557,7 +571,7 @@ class _PsSession:
 
     # -- part receive ------------------------------------------------------
     def receive_xt(self, xt_bytes: bytes) -> list[int]:
-        tmpdir = Path(tempfile.mkdtemp(prefix="cab_ps_"))
+        tmpdir = _temp_dir("cab_ps_")
         xtp = tmpdir / "part.x_t"
         xtp.write_bytes(xt_bytes)
         key = str(xtp.with_suffix("")).encode()

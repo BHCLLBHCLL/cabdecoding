@@ -1377,3 +1377,40 @@ def delete_face_pk(model: StpreModel, archive, name: str,
     cab_ps_ops.face_delete([best], heal=heal)
     after = sess.body_faces(tag)
     return len(after) if after else None
+
+
+def cut_part_by_plane_pk(model: StpreModel, archive, cad_meshes, name: str,
+                         origin_m, normal, *,
+                         result_base: Optional[str] = None
+                         ) -> Optional[list[str]]:
+    """A3/A4: PK-level plane cut of a part, registered as two new parts.
+
+    ``origin_m``/``normal`` are in the body's **local** coordinates.  The two
+    halves are real B-rep bodies (``PK_BODY_boolean_2``) and are registered via
+    ``register_tess_part`` (STL member + polygon part) because this kernel
+    cannot x_t-transmit standalone boolean bodies (see
+    ``cab_ps_ops.transmit_parts``).  Returns the two new part names.
+    """
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return None
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return None
+    sess = _ps._get_session()
+    res = cab_ps_ops.cut_body_by_plane(tag, origin_m, normal)
+    base = result_base or name
+    created: list[str] = []
+    for key, prefix in (("front", "front"), ("back", "back")):
+        btag = res[key]
+        tess = (sess.facet_body_adaptive(btag)
+                or sess.facet2(btag) or sess.facet_go(btag))
+        if tess is None or not getattr(tess, "triangles", None).size:
+            continue
+        new_name = unique_part_name(model, f"{base}_{prefix}")
+        if register_tess_part(model, cad_meshes, archive, new_name, tess):
+            created.append(new_name)
+    if created:
+        model.delete_part(name)
+    return created or None
