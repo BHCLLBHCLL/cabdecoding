@@ -877,6 +877,13 @@ class _PsSession:
 
         Used by the gridding "All / Representative" vertex detection:
         STpre reads the Parasolid vertices, not the display mesh points.
+
+        B5 note: ``PK_VERTEX_ask_point`` on this kernel returns garbage
+        (denormal x, zero y/z) with both the ``double[3]`` and struct output
+        signatures, so these coordinates are unreliable for curved parts —
+        the tr03 "all" count (native 65x115x115 vs STpre 59x118x121) is the
+        visible symptom.  The facet path (``_facet2_call``) returns correct
+        points and is used by ``face_plane`` as a workaround.
         """
         faces = self.body_faces(tag)
         if not faces:
