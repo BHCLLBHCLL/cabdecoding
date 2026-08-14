@@ -240,6 +240,42 @@ def _tris_to_stl_bytes(pts, tris, name: str) -> bytes:
         return bytes(buf)
 
 
+def _tris_to_obj_bytes(pts, tris, name: str) -> bytes:
+    """E1: Wavefront OBJ text from a triangle mesh."""
+    p = np.asarray(pts, dtype=np.float64)
+    t = np.asarray(tris, dtype=np.int64)
+    lines = [f"o {name}"]
+    for v in p:
+        lines.append(f"v {v[0]:.8g} {v[1]:.8g} {v[2]:.8g}")
+    for f in t:
+        lines.append(f"f {f[0] + 1} {f[1] + 1} {f[2] + 1}")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _tris_to_dxf_bytes(pts, tris, name: str) -> bytes:
+    """E1: DXF 3DFACE entities from a triangle mesh (mm)."""
+    p = np.asarray(pts, dtype=np.float64) * 1000.0  # m -> mm
+    t = np.asarray(tris, dtype=np.int64)
+    out = [
+        "0", "SECTION", "2", "ENTITIES",
+    ]
+    for f in t:
+        a, b, c = (p[i] for i in f)
+        out += [
+            "0", "3DFACE", "8", "0",
+            "10", f"{a[0]:.8g}", "20", f"{a[1]:.8g}", "30", f"{a[2]:.8g}",
+            "11", f"{b[0]:.8g}", "21", f"{b[1]:.8g}", "31", f"{b[2]:.8g}",
+            "12", f"{c[0]:.8g}", "22", f"{c[1]:.8g}", "32", f"{c[2]:.8g}",
+        ]
+    out += ["0", "ENDSEC", "0", "EOF"]
+    return ("\r\n".join(out) + "\r\n").encode("ascii")
+
+
+def _tris_to_mdl_bytes(pts, tris, name: str) -> bytes:
+    """E1: Cradle MDL is treated as OBJ-compatible vertex data (best effort)."""
+    return _tris_to_obj_bytes(pts, tris, name)
+
+
 def add_stl_member(archive: CabArchive, stl_bytes: bytes,
                    name: Optional[str] = None) -> CabMember:
     """Append an STL stream as a new cab member (``.stl``)."""
