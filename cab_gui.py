@@ -1181,6 +1181,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not xt_names and not stl_names:
             return None
         out: list = []
+        out_src: list[Optional[str]] = []
         if xt_names:
             try:
                 from cab_options import get_setting
@@ -1193,10 +1194,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 if ps_facet2_nodes.available():
                     for xt_name in xt_names:
                         try:
-                            out += ps_facet2_nodes.tessellate_xt(
+                            added = ps_facet2_nodes.tessellate_xt(
                                 members[xt_name], adaptive=True,
                                 facet_tol=facet_tol,
                                 facet_angle_deg=facet_angle)
+                            out += added
+                            out_src += [xt_name] * len(added)
                         except Exception as exc:
                             self.log(
                                 f"facet_2 tessellation skipped {xt_name}: "
@@ -1210,9 +1213,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     if ps_tessellate.available():
                         for xt_name in xt_names:
                             try:
-                                out += ps_tessellate.tessellate_xt(
+                                added = ps_tessellate.tessellate_xt(
                                     members[xt_name], facet_tol=facet_tol,
                                     facet_angle_deg=facet_angle)
+                                out += added
+                                out_src += [xt_name] * len(added)
                             except Exception as exc:
                                 self.log(
                                     f"GO tessellation skipped {xt_name}: "
@@ -1229,9 +1234,50 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     out.append(_f2.TessPart(
                         name=Path(name).stem, points=pts,
                         triangles=tris.astype(np.int32), tag=0))
+                    out_src.append(name)
             except Exception as exc:
                 self.log(f"STL member rebuild skipped: {exc}", "WARN")
-        return out or None
+        return self._remap_tess_to_parts(out, out_src) or None
+
+    def _remap_tess_to_parts(self, out: list,
+                             out_src: Optional[list] = None) -> list:
+        """Attach reloaded x_t/STL tessellations to parts by file reference.
+
+        Parasolid body SDL names can differ from the cab part name (e.g.
+        boolean results), so a tessellation whose name matches no part is
+        renamed to an unused part whose ``<file>`` reference points at the
+        same source member.
+        """
+        if self.model is None or not out:
+            return out or []
+        from collections import defaultdict
+        from cabxml import _first
+        part_refs: list[tuple[str, str]] = []
+        for p in self.model.parts():
+            el = self.model.find_part(p.name)
+            f = _first(el, "file") if el is not None else None
+            ref = ""
+            if f is not None and f.text:
+                ref = (f.text or "").strip()
+            part_refs.append((p.name, ref))
+        names = {p.name for p in self.model.parts()}
+        used = set()
+        for t in out:
+            nm = getattr(t, "name", None)
+            if nm in names and nm not in used:
+                used.add(nm)
+        src = out_src or [None] * len(out)
+        groups: dict[str, list[int]] = defaultdict(list)
+        for i, t in enumerate(out):
+            if getattr(t, "name", None) not in names and src[i]:
+                groups[src[i]].append(i)
+        for member_name, idxs in groups.items():
+            candidates = [pname for pname, ref in part_refs
+                          if ref == member_name and pname not in used]
+            for i, pname in zip(idxs, candidates):
+                out[i].name = pname
+                used.add(pname)
+        return out
 
     # ------------------------------------------------------- undo / redo
 

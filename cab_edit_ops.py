@@ -531,7 +531,12 @@ def _register_boolean_result(model, cad_meshes, archive, name, tess,
     if archive is not None and xt:
         try:
             import cab_import
-            cab_import.add_xt_member(archive, xt, name=f"{name}.x_t")
+            member_name = f"{name}.x_t"
+            cab_import.add_xt_member(archive, xt, name=member_name)
+            model.add_body_file(member_name, unit="m")
+            f_el = _first(el, "file")
+            if f_el is not None:
+                set_text(f_el, member_name)
         except Exception:
             pass
     if cad_meshes is not None:

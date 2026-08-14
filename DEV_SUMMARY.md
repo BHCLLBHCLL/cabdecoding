@@ -2247,3 +2247,21 @@ SaveCabFile → merge_mesh_result`。
 - 全仓回归：**327 通过 / 4 跳过**；
 - 仍待推进（登记）：x_t 双向持久化全算子、PK 级 Undo/Redo、格式矩阵
   扩展（MDL/DXF/OBJ/IDF 出口）为后续 L10 项。
+
+## 50. L10 续执行：x_t/STL 双向持久化闭环（2026-08-14）
+
+- **布尔 x_t 结果持久化修复**：`_register_boolean_result` 在
+  `PK_PART_transmit` 成功时，部件 `<file>` 由笼统的 “x_t” 改为具体成员
+  `结果名.x_t`，并调用 `model.add_body_file()` 登记到 body_files；
+  此前新 x_t 成员无引用，重开 cab 后网格无法挂回部件；
+- **重开几何重映射**：`_tessellate_members` 为每个 tess 记录源成员名，
+  新增 `_remap_tess_to_parts(out, out_src)`：先按部件名精确匹配，未匹配
+  的 tess 按源成员分组，分配给 `<file>` 引用同一成员且未占用的部件
+  （解决 Parasolid SDL 名与 cab 部件名不一致的问题）；STL 路径
+  （`register_tess_part` 产物）保持 stem 匹配；
+- 测试：`test_remap_tess_to_parts_by_file_ref`（SDL→部件按引用分配、
+  精确名不受扰动）、`test_stl_member_reload_roundtrip`
+  （polygon+STL 成员 保存→重开→`_tessellate_members` 重建）；
+- 全仓回归：**329 通过 / 4 跳过**；
+- 仍待推进（登记）：PK 级 Undo/Redo、全算子 x_t 输出（Cut/Wrap/
+  Simplify 目前为 STL 持久化）、格式矩阵出口扩展。

@@ -333,6 +333,50 @@ def test_feed_pick_point_distance(viewer):
     assert viewer._pick_dialog is None
 
 
+def test_remap_tess_to_parts_by_file_ref(viewer):
+    """L10: x_t body SDL names remap to parts via <file> reference."""
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+
+    class T:
+        def __init__(self, name):
+            self.name = name
+
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.add_part(name="bool1", kind="body", file_ref="bool1.x_t")
+    model.add_part(name="bool2", kind="body", file_ref="bool2.x_t")
+    viewer.model = model
+    out = viewer._remap_tess_to_parts(
+        [T("SDL_A"), T("SDL_B")], ["bool1.x_t", "bool2.x_t"])
+    assert [t.name for t in out] == ["bool1", "bool2"]
+    # exact-name tessellations are left untouched
+    model2 = StpreModel(parse_stpre(new_stpre_bytes()))
+    model2.add_part(name="bool1", kind="body", file_ref="bool1.x_t")
+    viewer.model = model2
+    out2 = viewer._remap_tess_to_parts([T("bool1")], ["bool1.x_t"])
+    assert out2[0].name == "bool1"
+
+
+def test_stl_member_reload_roundtrip(viewer):
+    """L10: polygon part + STL member survives save -> reload as mesh."""
+    import cab_edit_ops
+    from cab_container import CabArchive
+    from cab_parts import cube_tess
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    arch = CabArchive.parse(
+        open(os.path.join(HERE, "box.cab"), "rb").read())
+    arch.fill_member_data()
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    tess = cube_tess((0.0, 0.0, 0.0), (10.0, 10.0, 10.0))
+    assert cab_edit_ops.register_tess_part(model, [], arch, "res1", tess)
+    data = arch.to_bytes(preserve_source_blocks=False)
+    arch2 = CabArchive.parse(data)
+    arch2.fill_member_data()
+    members = {m.name: m.data for m in arch2.members}
+    viewer.model = StpreModel(parse_stpre(model.doc.serialize()))
+    meshes = viewer._tessellate_members(members)
+    assert any(getattr(m, "name", None) == "res1" for m in meshes or [])
+
+
 def test_edges_actor_extracts_lines():
     if not cab_gui._HAS_GUI_DEPS:
         pytest.skip("no gui deps")
