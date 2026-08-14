@@ -24,7 +24,8 @@ import numpy as np
 
 import cab_vtk
 import xemt_export
-from cab_container import CabArchive, CabFolder, CabMember
+from cab_container import (
+    CabArchive, CabFolder, CabMember, restore_members, snapshot_members)
 from cab_icons import AppIcons
 from cab_panes import (
     ControlWindow, MessageWindow, PaneFrame, TreeListView,
@@ -1284,14 +1285,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _snapshot(self) -> tuple:
         xml = self.model.doc.serialize() if self.model is not None else None
         prop = self.props.doc.serialize() if self.props is not None else None
-        return (xml, prop)
+        members = snapshot_members(self.archive) \
+            if self.archive is not None else None
+        return (xml, prop, members)
 
     def _restore_snapshot(self, snap: tuple) -> None:
-        xml, prop = snap
+        xml, prop = snap[0], snap[1]
+        snap_members = snap[2] if len(snap) > 2 else None
         if xml is not None:
             self.model = StpreModel(parse_stpre(xml))
         if prop is not None:
             self.props = PropertyModel(parse_property(prop))
+        if snap_members is not None and self.archive is not None:
+            # A5: restore the archive members too, so geometry and XML stay
+            # consistent after undo/redo of PK edits (boolean/cut add members).
+            restore_members(self.archive, snap_members)
         members = {m.name: m.data for m in self.archive.members} \
             if self.archive is not None else {}
         self._cad_meshes = self._tessellate_members(members)

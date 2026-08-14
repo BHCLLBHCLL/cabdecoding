@@ -280,3 +280,23 @@ class CabArchive:
                  "md5": hashlib.md5(m.data or b"").hexdigest()}
                 for m in self.members],
         }
+
+
+def snapshot_members(archive: "CabArchive") -> list:
+    """A5: capture member name + payload + metadata for undo snapshots.
+
+    PK edits (boolean / cut) persist results as new STL/x_t members, so an
+    undo that only restores the XML would leave orphaned geometry behind.
+    This returns a lightweight, pickle-safe representation of every member.
+    """
+    return [(m.name, m.data, m.i_folder, m.date, m.time, m.attribs)
+            for m in archive.members]
+
+
+def restore_members(archive: "CabArchive", snap: list) -> None:
+    """A5: replace archive members from a ``snapshot_members`` result."""
+    archive.members = [
+        CabMember(name=n, cb_file=len(d or b""), uoff_folder_start=0,
+                  i_folder=f, date=dt, time=tm, attribs=at, data=d)
+        for n, d, f, dt, tm, at in snap
+    ]
