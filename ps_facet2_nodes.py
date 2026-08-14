@@ -836,6 +836,28 @@ class _PsSession:
         except OSError:
             return None
 
+    def body_edges(self, tag: int) -> Optional[list[int]]:
+        """Return the PK_EDGE tags owned by a body (``PK_BODY_ask_edges``).
+
+        Mirrors ``body_faces``; body entities only (class 5006).
+        """
+        klass = self.entity_class(tag)
+        if klass is not None and klass != PK_CLASS_body:
+            return None
+        pk = self.pk
+        try:
+            pk.PK_BODY_ask_edges.restype = c_int
+            pk.PK_BODY_ask_edges.argtypes = [
+                c_int, POINTER(c_int), POINTER(c_void_p)]
+            n = c_int(0)
+            edges = c_void_p()
+            rc = pk.PK_BODY_ask_edges(int(tag), byref(n), byref(edges))
+            if rc != 0 or n.value <= 0 or not edges:
+                return None
+            return list(cast(edges, POINTER(c_int * n.value)).contents)
+        except OSError:
+            return None
+
     def body_vertices(self, tag: int) -> Optional[np.ndarray]:
         """Real B-rep vertex coordinates of a body (PK_FACE_ask_vertices).
 
@@ -870,6 +892,42 @@ class _PsSession:
         if not pts:
             return None
         return np.asarray(pts, dtype=np.float64)
+
+    def face_plane(self, tag: int, *,
+                    facet_tol: float = DEFAULT_FACET_TOL,
+                    facet_angle_deg: float = DEFAULT_FACET_ANGLE_DEG
+                    ) -> Optional[tuple[np.ndarray, np.ndarray]]:
+        """Plane ``(normal, origin)`` of one PK_FACE from its facet points.
+
+        ``PK_VERTEX_ask_point`` returns garbage coordinates on this kernel
+        build (its point output ABI differs from the standard ``double[3]``),
+        so the plane is derived from the ``PK_TOPOL_facet_2`` facet points of
+        the face instead, which are verified correct against the GO path.
+        Returns ``None`` for empty or degenerate faces.
+        """
+        result = self._facet2_call(
+            [tag], facet_tol=facet_tol, facet_angle_deg=facet_angle_deg)
+        if result is None:
+            return None
+        part = self._decode_result(result, tag, "")
+        if part is None:
+            return None
+        tris = np.asarray(getattr(part, "triangles", []), dtype=np.int64)
+        pts = np.asarray(getattr(part, "points", []), dtype=np.float64)
+        if len(pts) < 3 or len(tris) == 0:
+            return None
+        normal = None
+        for t in tris:
+            a, b, c = pts[t[0]], pts[t[1]], pts[t[2]]
+            n = np.cross(b - a, c - a)
+            nn = float(np.linalg.norm(n))
+            if nn > 1e-12:
+                normal = n / nn
+                break
+        if normal is None:
+            return None
+        origin = pts.mean(axis=0)
+        return normal, origin
 
     def _face_metrics(self, tag: int, *, facet_tol: float,
                       facet_angle_deg: float
