@@ -1504,6 +1504,40 @@ F 视解冻。每个子项完成即：pytest → 回填本节状态 → commit/p
 
 ---
 
+## 20. A–G 执行记录（2026-08-14）
+
+> 按 §19 顺序执行；每个关键功能点独立提交 + 推送 GitHub。
+> 图例：✅ 完成 · 🟡 部分/根因已登记 · ⏸ 冻结 · 🔴 阻塞。
+
+| 阶段 | 结果 | 提交 | 说明 |
+|---|---|---|---|
+| A1 拓扑查询 | ✅ | `6f373b3` | `body_edges` + facet 路径 `face_plane` |
+| A2 面删接线 | ✅ | `bece384` | `match_face_by_plane` + `delete_face_pk` |
+| A3 平面分割 | ✅ | `694b48d` | `cut_body_by_plane`（布尔半空间） |
+| A4 x_t 输出 | 🟡 | `99bcf2f` | `cut_part_by_plane_pk`；x_t 透传受阻（无 `PK_BODY_export`），STL 回退 |
+| A5 Undo↔PS | ✅ | `f2a8229` | 快照含 archive 成员（`snapshot_members`） |
+| B4 run-length | ✅ | `0e91510` | RLE 编码钉住（凸盒单盒 + 无损往返） |
+| B5 曲面偏差 | 🟡 | `86dfb98` | 根因：`PK_VERTEX_ask_point` 返回垃圾坐标 |
+| B1/B2/B3 panel/V8 | 🔴 | — | 需 STpre COM 黑盒探测（冻结） |
+| C2 Source 全类型 | ✅ | `5b79c8a` | 补 moisture/smoke source |
+| C4 CW 支持矩阵 | ✅ | `8d818ff` | `docs/cw_matrix.md` + 一致性测试 |
+| C1 BC 深挖 | 🟡 | — | 长尾（porous/rad/time series），待 STpre 语义 |
+| C3 高级物理 | 🟡 | — | 18 禁用类型分批解锁（大范围） |
+| D1 专用件菜单 | ✅ | `fb562ed` | +6 种（Delphi/HeatPipe/Multi-Resistor/CardGuide/Slit/Anemostat） |
+| D2 热属性模型 | 🟡 | — | 新件为 cuboid 代理 + 基础字段 |
+| D3 AC/Diffuser 真几何 | 🟡 | — | 仍为 cuboid/conical 代理 |
+| E1 格式出口 | ✅ | `1552833` | MDL/DXF/OBJ 导出 + 往返 |
+| E2 全矩阵回归 | 🟡 | — | E1 覆盖往返；全矩阵 CI 待扩 |
+| F STpre API | ⏸ | — | 保持冻结（§14.2） |
+| G i18n/3DfindIT/Wiring | 🟡 | — | 低优先，滚动 |
+
+**环境修复**：`99bcf2f` 用 `os.makedirs` 替代 `tempfile.mkdtemp`（沙箱临时目录写入）
+；`b027196` `conftest.py` 补丁 pytest tmp 目录。
+
+**新增回归**：29 项 A–G 功能测试全绿（`pytest tests/test_a* test_b4 test_c2 test_c4 test_d1 test_e1`）。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
