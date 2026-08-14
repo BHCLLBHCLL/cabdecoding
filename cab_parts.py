@@ -57,6 +57,12 @@ PART_MENU_ITEMS: list[tuple[str, str] | None] = [
     ("Pin Fin…", "pin_fin"),
     ("Peltier Device Model…", "peltier"),
     ("Thermal Circuit Model (Two-Resistor)…", "two_resistor"),
+    ("Thermal Circuit Model (Delphi)…", "delphi"),
+    ("Multiple-Resistors Model…", "multi_resistor"),
+    ("Heat Pipe Model…", "heat_pipe"),
+    ("Card Guide…", "card_guide"),
+    ("Slit Punching…", "slit_punching"),
+    ("Anemostat Model…", "anemostat"),
     ("AC Unit…", "ac_unit"),
     ("Diffuser…", "diffuser"),
     None,
@@ -72,6 +78,8 @@ PRIMITIVE_KINDS = (
     "cube", "hexahedron", "cylinder", "conical", "sphere", "panel",
     "quad_panel", "revolved", "point",
     "enclosure", "plate_fin", "pin_fin", "peltier", "two_resistor",
+    "delphi", "multi_resistor", "heat_pipe", "card_guide",
+    "slit_punching", "anemostat",
     "ac_unit", "diffuser",
     "fan", "axial_fan", "blower_fan", "sketch", "pipe",
 )
@@ -96,6 +104,12 @@ KIND_TITLES = {
     "pin_fin": "Pin Fin",
     "peltier": "Peltier Device Model",
     "two_resistor": "Thermal Circuit Model (Two-Resistor)",
+    "delphi": "Thermal Circuit Model (Delphi)",
+    "multi_resistor": "Multiple-Resistors Model",
+    "heat_pipe": "Heat Pipe Model",
+    "card_guide": "Card Guide",
+    "slit_punching": "Slit Punching",
+    "anemostat": "Anemostat Model",
     "ac_unit": "AC Unit",
     "diffuser": "Diffuser",
 }
@@ -512,7 +526,8 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
         # Parametric UV profile — tessellated by cab_sketch.tess_for_sketch_part
         return None
     if kind in ("cube", "blower_fan", "enclosure", "peltier",
-                "two_resistor", "ac_unit"):
+                "two_resistor", "delphi", "multi_resistor", "heat_pipe",
+                "card_guide", "slit_punching", "anemostat", "ac_unit"):
         p = cube_tess(_el_vec(el, "base"),
                       _el_vec(el, "size", (10.0, 10.0, 10.0)))
     elif kind == "diffuser":
@@ -872,7 +887,9 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
 
     if kind in ("cube", "panel", "sketch", "blower_fan",
                 "enclosure", "plate_fin", "pin_fin", "peltier",
-                "two_resistor", "ac_unit", "diffuser"):
+                "two_resistor", "delphi", "multi_resistor", "heat_pipe",
+                "card_guide", "slit_punching", "anemostat",
+                "ac_unit", "diffuser"):
         add("base", mm(params["base"]), "mm")
         add("size", mm(params["size"]), "mm")
     if kind == "plate_fin":
@@ -1011,6 +1028,9 @@ _DEFAULT_NAME = {
     "sketch": "SketchPart1", "pipe": "Pipe1",
     "enclosure": "Enclosure1", "plate_fin": "PlateFin1", "pin_fin": "PinFin1",
     "peltier": "Peltier1", "two_resistor": "TwoResistor1",
+    "delphi": "Delphi1", "multi_resistor": "MultiResistor1",
+    "heat_pipe": "HeatPipe1", "card_guide": "CardGuide1",
+    "slit_punching": "SlitPunch1", "anemostat": "Anemostat1",
     "ac_unit": "ACUnit1", "diffuser": "Diffuser1",
 }
 _DEFAULT_COLOR = {
@@ -1024,6 +1044,9 @@ _DEFAULT_COLOR = {
     "enclosure": (160, 160, 200, 255), "plate_fin": (200, 160, 120, 255),
     "pin_fin": (200, 180, 100, 255), "peltier": (120, 200, 160, 255),
     "two_resistor": (180, 140, 200, 255),
+    "delphi": (140, 160, 220, 255), "multi_resistor": (160, 140, 200, 255),
+    "heat_pipe": (220, 120, 120, 255), "card_guide": (120, 200, 200, 255),
+    "slit_punching": (200, 200, 120, 255), "anemostat": (160, 200, 140, 255),
     "ac_unit": (100, 160, 220, 255), "diffuser": (220, 180, 100, 255),
 }
 _ATTRIBUTES = {
