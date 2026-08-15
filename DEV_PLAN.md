@@ -1678,6 +1678,23 @@ arg2(RDX) 被用作循环计数（`sub rdx,1; jne` 复制 0x80 字节块），�
 
 ---
 
+
+**⑥ 最终进展（V37 参考 + refine 修复）**：
+- **旋转/镜像/缩放变换已打通**（提交 `f5e0f72`）：
+  `PK_TRANSF_create_rotation/reflection/equal_scale` 均返回 32 位 tag，
+  经 `PK_BODY_transform_2` 应用；`body_transform_rotate/reflect/scale`
+  已实现并测试（绕 X 轴 90°、x=0 镜像、2 倍缩放均验证）。
+- **凸包 Wrap 出 x_t 已打通**（提交 `100a475`）：
+  `convex_hull_solid`（scipy 凸包 → 逐面半空间布尔交集 → 实体 →
+  `transmit_parts` 写 x_t）。盒体体积 1e-6、四面体、往返均验证。
+- **B5 refine 修复**（提交 `30a27d5`）：根因是 `refine_grids` 丢掉了
+  中间 rough 网格线（`axis_pts=[rough[0]]` 起、只 append 末点）。改为
+  `axis_pts=list(rough)` 保留全部 rough 线。tr03 对拍：
+  `66×125×121`（STpre 59×118×121）——**z 精确一致**，x/y 仍差 7（外部几何级数
+  计数或内部 round 边界，待下一轮细调）。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
