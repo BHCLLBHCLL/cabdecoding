@@ -47,3 +47,20 @@ def test_tr03_impeller_vertices_are_real():
     assert not np.any((np.abs(v) > 0) & (np.abs(v) < 1e-300)), \
         "vertex coords contain denormal garbage"
     assert np.all(np.abs(v) < 10.0)
+
+@pytest.mark.skipif(not ps_facet2.available(), reason="pskernel not available")
+def test_representative_vertices_abi_safe():
+    """P0-1: representative_vertices uses the 4-arg oriented-edges ABI and
+    falls back to the full vertex set while the sharp/smooth convexity
+    enum is unconfirmed (no crash, no empty result for the impeller)."""
+    xt = ROOT / "tests" / "tr03" / "_tr03_all.x_t"
+    if not xt.exists():
+        pytest.skip("tr03 x_t fixture missing")
+    sess = ps_facet2._get_session()
+    tags = sess.expand_to_bodies(sess.receive_xt(xt.read_bytes()))
+    imp = next((t for t in tags if sess.body_name(t) == "Impeller"),
+               tags[0] if tags else None)
+    assert imp is not None
+    v = sess.representative_vertices(imp)
+    assert v is not None and len(v) >= 8
+    assert np.all(np.isfinite(v))

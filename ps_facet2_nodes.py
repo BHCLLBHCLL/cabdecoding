@@ -942,6 +942,61 @@ class _PsSession:
             return None
         return np.asarray(pts, dtype=np.float64)
 
+    def representative_vertices(self, tag: int) -> Optional[np.ndarray]:
+        """B-rep vertices on at least one *sharp* edge (STpre Representative).
+
+        Empirically matched to STpre's "Representative" vertex detection on
+        the tr03 impeller: every vertex whose incident edges are all
+        G1-smooth (PK_EDGE_convexity_smooth_c = 3) is excluded, and only
+        vertices touching a convex/concave edge are gridded.
+        """
+        pk = self.pk
+        pk.PK_SESSION_set_check_arguments(0)
+        pk.PK_BODY_ask_vertices.restype = c_int
+        pk.PK_BODY_ask_vertices.argtypes = [
+            c_int, POINTER(c_int), POINTER(c_void_p)]
+        pk.PK_VERTEX_ask_oriented_edges.restype = c_int
+        pk.PK_VERTEX_ask_oriented_edges.argtypes = [
+            c_int, POINTER(c_int), POINTER(c_void_p), POINTER(c_void_p)]
+        pk.PK_EDGE_ask_convexity.restype = c_int
+        pk.PK_EDGE_ask_convexity.argtypes = [c_int, POINTER(c_int)]
+        n = c_int(0)
+        arr = c_void_p()
+        if pk.PK_BODY_ask_vertices(int(tag), byref(n), byref(arr)) != 0:
+            return None
+        if n.value <= 0 or not arr:
+            return None
+        pts: list[np.ndarray] = []
+        for vt in cast(arr, POINTER(c_int * n.value)).contents:
+            # V35 ABI: PK_VERTEX_ask_oriented_edges(vertex, &n, &edges,
+            # &orients); PK_VERTEX_ask_point returns a PK_POINT_t tag.
+            ne = c_int(0)
+            ep = c_void_p()
+            op = c_void_p()
+            if pk.PK_VERTEX_ask_oriented_edges(vt, byref(ne), byref(ep),
+                                               byref(op)) != 0:
+                continue
+            edges = list(cast(ep, POINTER(c_int * max(ne.value, 1))).contents) \
+                if ne.value > 0 and ep else []
+            sharp = False
+            for e in edges:
+                cv = c_int(-1)
+                if pk.PK_EDGE_ask_convexity(e, byref(cv)) != 0:
+                    # convexity unknown (ABI/state) -> keep vertex (safe)
+                    sharp = True
+                    break
+                if cv.value != 3:  # 3 = PK_EDGE_convexity_smooth_c
+                    sharp = True
+                    break
+            if not sharp and edges:
+                continue
+            p = self.vertex_point(vt)
+            if p is not None:
+                pts.append(p)
+        if not pts:
+            return None
+        return np.asarray(pts, dtype=np.float64)
+
     def face_plane(self, tag: int, *,
                     facet_tol: float = DEFAULT_FACET_TOL,
                     facet_angle_deg: float = DEFAULT_FACET_ANGLE_DEG

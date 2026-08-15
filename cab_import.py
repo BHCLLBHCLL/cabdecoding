@@ -353,6 +353,12 @@ def import_xt_bytes(raw: bytes, *, adaptive: bool = True,
             part.vertices = sess.body_vertices(tag)
         except Exception:
             part.vertices = None
+        try:
+            # STpre "Representative": only sharp-edge vertices (smooth-only
+            # vertices are not gridded; P0-1 exact-count fix).
+            part.rep_vertices = sess.representative_vertices(tag)
+        except Exception:
+            part.rep_vertices = None
         out.append(ImportedBody(name=part.name, tag=tag, tess=part))
     if progress is not None:
         try:

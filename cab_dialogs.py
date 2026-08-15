@@ -3052,7 +3052,8 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             for p in self.cad_meshes
         }
         part_vertices = {
-            p.name: _mm(p.vertices, p.name)
+            p.name: _mm(p.rep_vertices if getattr(p, "rep_vertices", None)
+                        is not None else p.vertices, p.name)
             for p in self.cad_meshes
             if getattr(p, "vertices", None) is not None
         }

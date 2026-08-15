@@ -435,6 +435,12 @@ PK_MESH_create_from_facets(facet_reader, context, options, mesh)
   tess 体积（`mesh_volume_m3`）过滤掉。
 * **PK_BODY_ask_type / ask_regions**：ask_type 是出参式（body, &type），
   ask_regions 对片体恒返回 1（不可作闭合判据）。
+* **顶点/边查询 ABI（P0-① 排查所得）**：
+  `PK_VERTEX_ask_point(vertex, PK_POINT_t *point)` 返回 **点实体 tag**（不是
+  double[3]，读坐标需再接 `PK_POINT_ask`）；`PK_VERTEX_ask_oriented_edges`
+  是 **4 参**（vertex, &n, &edges, &orients），2/3 参调用会访问违例；
+  `PK_EDGE_ask_convexity(edge, PK_EDGE_convexity_t *)` 2 参出参式，本内核
+  返回值仍未确认（smooth=3 判据待定）。
 * 单三角形片体可直接 `transmit_parts`（15KB x_t）；再 `PK_PART_receive` 后
   `PK_BODY_ask_faces`=12 面（立方体）。
 
