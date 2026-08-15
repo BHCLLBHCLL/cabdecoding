@@ -533,6 +533,42 @@ def body_transform_scale(body_tag: int, scale: float, centre,
         body_tag, _create_equal_scale(scale, centre), tolerance)
 
 
+def convex_hull_solid(points_m) -> int:
+    """Wrap：point cloud → convex-hull solid body (half-space intersection).
+
+    Builds the convex hull (scipy), then intersects one inward half-space
+    block per hull face against a seed block via ``PK_BODY_boolean_2``.
+    Returns the resulting solid body tag.
+    """
+    from scipy.spatial import ConvexHull
+    if not available():
+        raise RuntimeError("pskernel not available")
+    pts = np.asarray(points_m, dtype=np.float64)
+    if len(pts) < 4:
+        raise ValueError("need at least 4 points for a convex hull")
+    try:
+        hull = ConvexHull(pts)
+    except Exception as e:
+        raise ValueError(f"ConvexHull failed: {e}")
+    lo, hi = pts.min(0), pts.max(0)
+    margin = max(float((hi - lo).max()) * 0.5, 1e-3)
+    size = (hi - lo) + 2.0 * margin
+    # V37 create_solid_block: x/y centred at origin, z from origin.z upward
+    origin = ((lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, lo[2] - margin)
+    block = create_solid_block(tuple(size), origin)
+    for eq in hull.equations:
+        n = np.asarray(eq[:3], dtype=np.float64)
+        nn = float(np.linalg.norm(n))
+        if nn < 1e-12:
+            continue
+        n = n / nn
+        offset = float(eq[3])
+        origin = -offset * n  # a point on the face plane
+        half = _half_space_block(origin, -n, lo, hi, margin)
+        block = body_boolean(block, [half], "intersect")[0]
+    return int(block)
+
+
 def match_face_by_plane(body_tag: int, normal, origin, *,
                         normal_tol: float = 0.98,
                         dist_tol: float = 1e-4) -> Optional[int]:
