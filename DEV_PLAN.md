@@ -1826,6 +1826,35 @@ tessellation，属独立长期项。
 
 ---
 
+**⑬ P0→P3 目标轮（round 12–29，2026-08-15）**：
+
+- **P0-② 圆柱/轴向网格 STpre 对齐**（round 12，334b5ee）：COM 探针
+  SetCylindricalDomain 保存格式 + 布点规则全复现——域存
+  radius/angle/height（type=cylinder）、mesh_block r/t(radian)/z +
+  system=1、θ=span(度)/std、径向含轴 r_min=0、环域全域外区；轴向 =
+  cube + axissymmetry=1 + Y 两线；双向弧度↔度序列化；11 项金标测试。
+- **P0-① all 顶点检测**（round 13–16, 25）：真身 = 显示网格顶点投影
+  （SaveStlFile 100% 覆盖全部 S 线，rep⊄all 之谜解开）；MakeFacetParam
+  6-double 容差结构、GetEnvironment 五字段（0x29A8..0x29C8，角度×π/180、
+  chord 钳 0.001m）、facet_kind 角度分支（10°/15°/7.5°/30°）全部解码；
+  最终网格为 STpreBase 私有三角化器（0x1b5620→0x1b8a30），列为长期项。
+  副产品：per-part select_vertex 覆盖（round 14）、disasm 工具链
+  （pe_disasm/list_exports/resolve_iat）。
+- **P1-③ CW 高级物理 23/25**（round 11, 13–15, 18–20, 24）：Plant/Moving/
+  Marangoni/Topology/Aircon（analysis_etc/analysis_set 探针 tag 对齐）、
+  pcm/es_field 存储迁移、Evaporation（FS 门控）；expression 热源、
+  diffusion 源 + Diffusion Boundary 页（浓度/传质系数，COM 探针格式）；
+  热源单位集对齐 SetHeatSource。
+- **P1-⑤/Edit Solid/FEM**（round 17, 22）：suite 全绿（boolean x_t 持久化
+  测试对齐）；FEM 网格规模估算 + 退化警告；blend 家族 V37 ABI
+  崩溃记录（pskernel_user_guide 6.9）。
+- **P2 源条件/专用件/IFC-ECXML**（round 19–21, 26–28）：time-series、
+  expression（express 计算函数）、diffusion source（SetDiffusionCondition
+  探针格式）；Delphi 节点级热回路（thermal_node + ECXML Node 网络）；
+  IFC 圆形/多段线型材（cylinder / ear-clip 棱柱 STL 件）；Parametric
+  Study 案例矩阵 + CSV 导出；DomainDialog 圆柱 R/θ/Z 列（round 23）。
+- 全仓 **433 passed / 0 failed**（8 既有沙箱 error），提交
+  334b5ee…db7bb05。
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py

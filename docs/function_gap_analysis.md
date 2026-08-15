@@ -10,14 +10,17 @@
 
 ## 一、总体判断
 
-- **测试**：全仓 **382 passed / 1 failed / 4 skipped / 8 errors**。1 失败与 8 错误
-  均为既有（boolean STL 持久化、tempfile 沙箱权限），非本次引入。
-  （原 part-kinds 清单失败已随 P2-⑦ 修复。）
+- **测试**：全仓 **433 passed / 0 failed / 4 skipped / 8 errors**。8 错误均为
+  既有（tempfile 沙箱权限）；原 boolean STL 持久化失败已随 x_t 管线更新
+  修复（P1-⑤），原 part-kinds 清单失败已随 P2-⑦ 修复——**0 失败**。
 - **代码规模**：35 个 Python 模块 ≈1.4 MB，GUI 主壳 `cab_gui.py`(225KB)、
   Condition Wizard `cab_cwizard_pages.py`(269KB)、wizard `cab_wizards.py`(148KB)。
-- **总体覆盖度估计**：**≈70%**。几何/部件/网格/编辑/导入导出已近完整；
-  **Condition Wizard 的高级物理已达 22/25 支持**（2 项 scFLOW-only 诚实禁用）；
-  最大缺口转为 all 顶点检测精确计数与部分编辑算子的深度（Edit Solid 全量）。
+- **总体覆盖度估计**：**≈75%**。几何/部件/网格/编辑/导入导出已近完整；
+  **Condition Wizard 的高级物理已达 23/25 支持**（Boil 待 FS、2 项
+  scFLOW-only 诚实禁用）；源条件全量（time-series/expression/diffusion
+  源与边界）、Delphi 节点级热回路、IFC 矩形/圆形/多段线型材、参数化
+  案例矩阵均已落地；剩余为 all 顶点检测的私有三角化器移植（长期项）
+  与 Edit Solid 二级算子深度。
 - **三支柱**：
   1. **原生实现**：cab 容器/XML 模型 + 网格/网格化算法 + VTK 显示（不依赖 STpre）。
   2. **pskernel 直调**（Parasolid V37 逆向）：B-rep 真实算子（布尔/切割/变换/包裹）。
@@ -220,8 +223,10 @@
 相对首评（§18）与专项审计（§39），本仓库已从「解析器 + 网格近似」推进到：
 **原生网格金标收敛（uniform 精确、minmax/rep x/y 精确）+ 圆柱/轴向极坐标网格 +
 pskernel V37 真实 B-rep 编辑 + SCTpre VBS/COM 全量桥接**多路并进。几何/部件/网格/
-编辑/导入导出近完整；**Condition Wizard 高级物理（22/25 支持，2 项 scFLOW-only）**
-已收敛；当前最集中的功能缺口转为 all 顶点检测精确计数（已定位 STpreMesh
-MeshFineExecute，STpre 显示 tess 与 pskernel facet_body 顶点集差异 2~34）与
-moving body 运动定义/aircon 零件参数等二级深度项。整体完成度 **≈70%**，
-其中「可运行、可持久化、可导出求解」的 MVP 闭环已完整。
+编辑/导入导出近完整；**Condition Wizard 高级物理（23/25 支持）** 与
+**Source/边界条件（时间序列/计算函数/diffusion 三类 + 全单位集）** 均已
+收敛；当前最集中的功能缺口为 all 顶点检测精确计数（顶点源=显示网格、
+容差管线已全解码，剩余 = STpreBase 私有三角化器 0x1b5620→0x1b8a30 逐行
+移植，长期项）与 Edit Solid 二级算子（blend 家族 V37 ABI 未解）/
+moving body 运动定义等二级深度项。整体完成度 **≈75%**，其中
+「可运行、可持久化、可导出求解」的 MVP 闭环已完整。
