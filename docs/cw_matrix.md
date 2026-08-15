@@ -16,7 +16,7 @@
 | Porous media | porous_media | 支持 | 各向同性/正交/粒子 |
 | Radiation | radiation_analysis | 支持 | VF/Flux/Monte Carlo |
 | Free surface | free_surface | 支持 | MARS/VOF |
-| Evaporation (free surf.) | evaporation | 禁用(待 FS) | 依赖 free_surface |
+| Evaporation (free surf.) | evaporation | 支持(FS 门控) | 2026-08-15 COM 探针对齐：analysis_etc/evaporation（liquid_temp/gas_temp/latent_heat/recoil_model/atomic_mass）；勾选依赖 free_surface |
 | Boil/condensation | boil | 禁用(待 FS) | 依赖 free_surface |
 | Diffusion | diffusion | 支持 | 2026-08-15 后新增产品页（物种数/扩散系数/Schmidt） |
 | Plant canopy | plant_canopy | 支持 | 2026-08-15 COM 探针对齐：analysis_etc/plant_resistance（STpre SetAnalysisType "plant_resistance"）；冠层条件在 Source 页 |
@@ -37,7 +37,7 @@
 | MSC CoSim | msc_cosim | 禁用(scFLOW) | scFLOW-only 连成分析（scFLOW 工程设置中配置）；scSTREAM .cab 不承载 |
 | BCI-ROM | bci_rom | 禁用(scFLOW) | scFLOW-only ROM 导出；scSTREAM .cab 不承载 |
 
-统计：支持 22（含 Flow）/ 禁用(待 FS) 2 / 禁用(scFLOW-only) 2。
+统计：支持 23（含 Flow）/ 禁用(待 FS) 1（Boil）/ 禁用(scFLOW-only) 2。
 
 > STpre 存储实证（2026-08-15 COM 探针 tools/probe_cw_types.py）：
 > SetAnalysisType("plant_resistance"/"marangoni"/"topopt"/"move_body"/"aircon", "T")

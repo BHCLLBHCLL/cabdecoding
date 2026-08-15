@@ -166,11 +166,11 @@
    `tests/test_cylindrical_axes.py` 11 项绿，STPRE_GRID_RULES.md §7 记录。
 
 ### P1 — 高价值功能缺失
-3. **Condition Wizard 高级物理**（2026-08-15 COM 探针对齐后 **22/25 支持**：
-   新增 Plant/Moving/Marangoni/Topology/Aircon 5 页——均按 SetAnalysisType 实测
-   写回 analysis_etc / analysis_set 真实 tag；剩余 MSC CoSim/BCI-ROM 为
-   scFLOW-only（scSTREAM .cab 不承载，诚实禁用 + 说明 tooltip）；Evaporation/
-   Boil 待 FS 解锁；pcm/es_field 对齐存储列为迁移项）。
+3. **Condition Wizard 高级物理**（2026-08-15 COM 探针对齐后 **23/25 支持**：
+   Plant/Moving/Marangoni/Topology/Aircon/Evaporation 6 页——均按
+   SetAnalysisType 实测写回 analysis_etc / analysis_set 真实 tag；
+   剩余 Boil（待 FS，无独立 SetAnalysisType kind）与 MSC CoSim/BCI-ROM
+   （scFLOW-only，诚实禁用 + 说明 tooltip）；pcm/es_field 对齐存储已迁移）。
 4. ~~**mesh→B-rep 出 x_t**~~ **已完成（2026-08-15 后）**：经典 PK 管线
    （plane/bcurve/spcurve 裁剪片体 + sew + make_solid_bodies），见 §3 与
    `cab_ps_ops.triangles_to_brep`。

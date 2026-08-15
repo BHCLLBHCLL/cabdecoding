@@ -483,3 +483,39 @@ def test_diffusion_boundary_page_present(pieces):
     assert (_first(v, "kind").text or "").strip() == "boundary"
     assert (_first(v, "diff_param2").text or "").strip() == "0.25"
     w.close()
+
+
+def test_condition_wizard_evaporation_page(pieces):
+    """P1-3: Evaporation page (analysis_etc/evaporation, FS-gated)."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    cb = w.p_analysis.types["evaporation"]
+    assert not cb.isEnabled()          # gated until free surface is on
+    w.p_analysis.types["free_surface"].setChecked(True)
+    w.p_analysis._sync_fs_deps(True)
+    assert cb.isEnabled()
+    cb.setChecked(True)
+    w.p_analysis.apply()
+    assert model.analysis_etc_section("evaporation") is not None
+    w.p_evaporation.enable.setChecked(True)
+    w.p_evaporation.liquid_temp.setValue(101.0)
+    w.p_evaporation.gas_temp.setValue(99.5)
+    w.p_evaporation.latent.setValue(2250000.0)
+    w.p_evaporation.recoil.setCurrentIndex(1)
+    w.p_evaporation.atomic.setValue(0.018)
+    w.p_evaporation.apply()
+    assert abs(float(model.analysis_etc_child(
+        "evaporation", "liquid_temp", "0")) - 101.0) < 1e-9
+    assert model.analysis_etc_child("evaporation", "recoil_model") == "1"
+    sec = model.analysis_etc_section("evaporation")
+    assert sec.find("latent_heat").attrib.get("unit") == "J/kg"
+    # reload reflects the stored section
+    w2 = cab_wizards._CwAnalysisTypesPage(model)
+    w2._sync_fs_deps(True)
+    assert w2.types["evaporation"].isChecked()
+    # disable removes the section
+    w.p_evaporation.enable.setChecked(False)
+    w.p_evaporation.apply()
+    assert model.analysis_etc_section("evaporation") is None
+    w.close()

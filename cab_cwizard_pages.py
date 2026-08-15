@@ -7958,3 +7958,89 @@ class _CwAirconPage(QWidget if _HAS_GUI else object):
             "aircon_model", "T" if on else "F")
         self.model.set_project_value(
             "aircon_model_enable", "T" if on else "F")
+
+# ---------------------------------------------------------------------------
+# P1-3: Evaporation (free surface) - analysis_etc/evaporation storage
+# (COM-probed 2026-08-15: SetAnalysisType('evap','T') writes
+#  <analysis_etc><evaporation><liquid_temp/><gas_temp/><latent_heat/>)
+# ---------------------------------------------------------------------------
+class _CwEvaporationPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Evaporation (free surf.)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Evaporation analysis (requires the Free surface analysis). "
+            "Enable writes STpre's evaporation section (bubble point / dew "
+            "point / latent heat); the recoil pressure model and atomic "
+            "mass are stored alongside.", self))
+        g = QGroupBox("Evaporation (free surf.)", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider evaporation", g)
+        sec = model.analysis_etc_section("evaporation")
+        self.enable.setChecked(sec is not None)
+
+        def child(tag, default=""):
+            return (model.analysis_etc_child(
+                "evaporation", tag, default) or default).strip()
+
+        self.liquid_temp = QDoubleSpinBox(g)
+        self.liquid_temp.setRange(-273.15, 10000.0)
+        self.liquid_temp.setDecimals(2)
+        self.gas_temp = QDoubleSpinBox(g)
+        self.gas_temp.setRange(-273.15, 10000.0)
+        self.gas_temp.setDecimals(2)
+        self.latent = QDoubleSpinBox(g)
+        self.latent.setRange(0.0, 1e9)
+        self.latent.setDecimals(2)
+        self.latent_unit = QComboBox(g)
+        self.latent_unit.addItems(["J/kg", "kJ/kg"])
+        self.recoil = QComboBox(g)
+        self.recoil.addItems([
+            "Not considered (0)", "Molecular dynamics (1)",
+            "Clausius-Clapeyron (2)"])
+        self.atomic = QDoubleSpinBox(g)
+        self.atomic.setRange(0.0, 1e6)
+        self.atomic.setDecimals(6)
+        for w, tag, cast, default in (
+                (self.liquid_temp, "liquid_temp", float, 100.0),
+                (self.gas_temp, "gas_temp", float, 100.0),
+                (self.latent, "latent_heat", float, 2256000.0),
+                (self.atomic, "atomic_mass", float, 0.018015)):
+            try:
+                w.setValue(cast(child(tag, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        r = child("recoil_model", "0")
+        self.recoil.setCurrentIndex(int(r) if r.isdigit()
+                                    and 0 <= int(r) <= 2 else 0)
+        f.addRow(self.enable)
+        f.addRow("Bubble point (C)", self.liquid_temp)
+        f.addRow("Dew point (C)", self.gas_temp)
+        f.addRow("Latent heat", self.latent)
+        f.addRow("Latent heat unit", self.latent_unit)
+        f.addRow("Recoil pressure model", self.recoil)
+        f.addRow("Atomic mass of liquid (kg/mol)", self.atomic)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "evaporation_enable", "T" if on else "F")
+        if not on:
+            self.model.remove_analysis_etc_section("evaporation")
+            return
+        self.model.set_analysis_etc_child(
+            "evaporation", "liquid_temp", f"{self.liquid_temp.value():g}")
+        self.model.set_analysis_etc_child(
+            "evaporation", "gas_temp", f"{self.gas_temp.value():g}")
+        self.model.set_analysis_etc_child(
+            "evaporation", "latent_heat", f"{self.latent.value():g}",
+            unit=self.latent_unit.currentText())
+        self.model.set_analysis_etc_child(
+            "evaporation", "recoil_model", str(self.recoil.currentIndex()))
+        self.model.set_analysis_etc_child(
+            "evaporation", "atomic_mass", f"{self.atomic.value():g}")
