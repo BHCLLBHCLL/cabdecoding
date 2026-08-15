@@ -1621,6 +1621,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if dlg.exec_() and dlg.applied:
             self._edit_finish(snap, "Connected Region registered.")
 
+    def _blend_edge_dialog(self) -> None:
+        if not self._edit_require_model():
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.BlendEdgeDialog(
+            self.model, self._cad_meshes, self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, 'Blend Edge / Chamfer finished.')
+
     def _boolean_operation_dialog(self) -> None:
         if not self._edit_require_model():
             return

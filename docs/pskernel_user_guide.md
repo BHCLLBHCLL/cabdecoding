@@ -283,16 +283,31 @@ facet2 失败（无表）时走 GO 路径：PK_TOPOL_render_facet 通过 GOSGMT 
 面数 >200 时退回普通 facet_2 防崩溃。
 ---
 
-## 6.9 Blend（倒圆/倒角）ABI 未解（2026-08-15 实测记录）
+## 6.9 Blend（倒圆/倒角）ABI 已解（2026-08-16，round 30 实测通过）
 
-PK_EDGE_set_blend_constant / PK_EDGE_set_blend_chamfer（pskernel V37，
-Cradle 2025.2）在 box body 上以全部尝试签名调用均访问违例：
-- (edge, double)、(edge, PK_BLEND_radius_t*{double})、(edge, double*)、
-  (PK_EDGE_t*, double)——均读 0xFFFFFFFFFFFFFFFF（chamfer 读 0x50），
-  疑似 V37 改用选项结构或需要 blend 会话配置；
-- 会话 check_arguments 关闭后依旧硬崩溃（非参数校验报错）。
-下一步：V37 blend 选项结构布局（PK_EDGE_set_blends / blend_o_t）或改用
-PK_FACE_make_blend 路径；blend 家族暂列"可挖未封装"。
+旧记录（2026-08-15）：2-arg 时代签名全部访问违例（读 0xFFFFFFFFFFFFFFFF /
+0x50）——原因是 V37 已改为**数组 API + 选项结构**，旧签名把寄存器垃圾当
+指针。已解码的可用 ABI（cab_blend.py 封装，实机验证通过）：
+
+- **PK_EDGE_set_blend_constant(n_edges, edges[], radius, options, &n_out,
+  &blend_edges)**——6 参 V35 形状；options o_t_version=1（内核现行版本；
+  STpreBase 写 2 是其旧头文件版本，走旧布局会得 920 tolerance_too_loose）：
+  {1, cliff_edge=0, properties, xs_shape=0x56b9}。
+- **PK_EDGE_set_blend_chamfer(n, edges[], range_2, range_1, faces[]|NULL,
+  options, &n_out, &blend_edges)**——8 参 V35 形状；options {1, pad,
+  properties, 1.0, 0.0}（0x48 字节，尾两个 double 是 V37 新增）。
+- **PK_BODY_fix_blends(body, options, &n_blends, &blends, &unders, &topols,
+  &fault, &fault_edge, &fault_topol)**——9 参；options o_t_version=1：
+  {1,0,0,0x5230,0x523a,0x5244,0,NULL,0x550a,0,byte1}。
+- properties（PK_blend_properties_t，0x30 字节）= STpre 字节级同款：
+  {0x47ea, 0x47f4, 0x47fe, draw_fix=1, 0x4809, 0x4813, 0x481c, 0x4827,
+  tolerance=1e-5, ribspace=0}（从 STpreBase 0x276f80 blend 函数反汇编 +
+  46e030/46e040/42ddc0 常量块还原）。
+- 实测：40mm 块 radius 0.01 → fix → 1 个 blend 面、530 三角；chamfer
+  0.008/0.008 → 422 三角；Edit Solid 菜单已接线（Blend Edge / Chamfer，
+  cab_edit_dialogs.BlendEdgeDialog + cab_edit_ops.blend_part_edge_pk）。
+- 注意：check_arguments 开启时报 5014（版本错误）会误导——选项结构必须按
+  上表版本 1 逐字段对齐（错位打包曾致 chamfer 1043 bad_blend_param）。
 
 ## 7. 可挖掘函数清单（1204 个 PK_* 导出按类别）
 

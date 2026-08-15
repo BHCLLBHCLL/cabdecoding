@@ -1061,6 +1061,117 @@ class ShapeChangeBooleanDialog(_EditDlg):
         self.accept()
 
 
+# -------------------------------------------------------- Blend / Chamfer
+
+
+class BlendEdgeDialog(_EditDlg):
+    # [Blend Edge / Chamfer] - V37 PK blend ABI (cab_blend).
+
+    def __init__(self, model: StpreModel, cad_meshes, parent=None):
+        super().__init__('Blend Edge / Chamfer', 'Blend Edge / Chamfer',
+                         parent)
+        self.model = model
+        self.cad_meshes = cad_meshes
+        self.body.addWidget(_capability_note(
+            'Blends (rounds) or chamfers one edge of the selected part ',
+            'in place via pskernel V37 (PK_EDGE_set_blend_* + ',
+            'PK_BODY_fix_blends); the part x_t member is rewritten.', self))
+        form = QFormLayout()
+        self.part_combo = QComboBox(self)
+        self.part_combo.addItems(_part_names(model))
+        self.edge_spin = QSpinBox(self)
+        self.edge_spin.setRange(0, 99999)
+        self.edge_count = QLabel('-', self)
+        self.edge_count.setStyleSheet('color: #555; font-size: 11px;')
+        self.radius_spin = QDoubleSpinBox(self)
+        self.radius_spin.setRange(0.0001, 100.0)
+        self.radius_spin.setDecimals(6)
+        self.radius_spin.setValue(0.005)
+        self.radius_spin.setSuffix(' m')
+        self.range_spin = QDoubleSpinBox(self)
+        self.range_spin.setRange(0.0001, 100.0)
+        self.range_spin.setDecimals(6)
+        self.range_spin.setValue(0.005)
+        self.range_spin.setSuffix(' m')
+        form.addRow('Part', self.part_combo)
+        erow = QHBoxLayout()
+        erow.addWidget(self.edge_spin, 1)
+        erow.addWidget(self.edge_count)
+        form.addRow('Edge index', erow)
+        form.addRow('Radius (range 2)', self.radius_spin)
+        form.addRow('Range 1 (chamfer)', self.range_spin)
+        self.body.addLayout(form)
+        typ = QGroupBox('Type', self)
+        tl = QVBoxLayout(typ)
+        self.rb_blend = QRadioButton('Constant radius blend', typ)
+        self.rb_cham = QRadioButton('Chamfer', typ)
+        self.rb_blend.setChecked(True)
+        tl.addWidget(self.rb_blend)
+        tl.addWidget(self.rb_cham)
+        self.body.addWidget(typ)
+        self._root.addLayout(_bottom_buttons(self, (
+            ('Execute', self._run),
+            ('Cancel', self.reject),
+        )))
+        self.part_combo.currentIndexChanged.connect(self._refresh_edges)
+        self._refresh_edges()
+
+    def _refresh_edges(self) -> None:
+        name = self.part_combo.currentText()
+        if not name:
+            self.edge_count.setText('-')
+            return
+        try:
+            import cab_ps_ops
+            import cab_edit_ops as _eo
+            parent = self.parent()
+            archive = (getattr(parent, 'archive', None)
+                       if parent is not None else None)
+            tag, _ = _eo._find_body_tags(self.model, archive, name, '')
+            if tag is None or not cab_ps_ops.available():
+                self.edge_count.setText('n/a')
+                return
+            import cab_blend
+            import ps_facet2_nodes as _ps
+            sess = _ps._get_session()
+            edges = cab_blend.body_edges(sess.pk, tag)
+            self.edge_count.setText(f'/ {len(edges)} edges')
+            self.edge_spin.setMaximum(max(0, len(edges) - 1))
+        except Exception:
+            self.edge_count.setText('n/a')
+
+    def _run(self) -> None:
+        name = self.part_combo.currentText()
+        if not name:
+            QMessageBox.warning(self, 'Blend', 'Select a part.')
+            return
+        parent = self.parent()
+        cad = (getattr(parent, '_cad_meshes', None)
+               if parent is not None else None)
+        archive = (getattr(parent, 'archive', None)
+                   if parent is not None else None)
+        chamfer = self.rb_cham.isChecked()
+        ok = ops.blend_part_edge_pk(
+            self.model, archive, cad, name, self.radius_spin.value(),
+            edge_index=self.edge_spin.value(), chamfer=chamfer,
+            range1=self.range_spin.value())
+        if not ok:
+            QMessageBox.warning(
+                self, 'Blend',
+                'Blend failed (pskernel missing, no x_t body, or the ',
+                'radius is too small for the edge precision).')
+            return
+        self.applied = True
+        self.model.set_project_value(
+            'blend_edge',
+            f"{'chamfer' if chamfer else 'blend'}:{name}:",
+            f'{self.edge_spin.value()}:{self.radius_spin.value():.6g}')
+        QMessageBox.information(
+            self, 'Blend Edge / Chamfer',
+            f"Applied to '{name}' edge {self.edge_spin.value()}.")
+        self.accept()
+
+
 # -------------------------------------------------------- Cutting Plane
 
 
@@ -1243,11 +1354,20 @@ class EditSolidDialog(_EditDlg):
         form.addRow("Thickness", self.thickness)
         self.body.addLayout(form)
         self._root.addLayout(_bottom_buttons(self, (
-            ("Preview", lambda: None),
-            ("Execute", self._exec),
-            ("Close", self.accept),
+            ('Preview', lambda: None),
+            ('Blend Edge / Chamfer', self._open_blend),
+            ('Execute', self._exec),
+            ('Close', self.accept),
         )))
         self.deleted = 0
+
+    def _open_blend(self) -> None:
+        from PyQt5.QtWidgets import QMessageBox
+        dlg = BlendEdgeDialog(self.model, self.cad_meshes, self.parent())
+        dlg.exec_()
+        if dlg.applied:
+            QMessageBox.information(
+                self, 'Blend Edge / Chamfer', 'Blend applied.')
 
     def _exec(self) -> None:
         etype = self.edit_type.currentText()

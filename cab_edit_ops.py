@@ -1421,6 +1421,72 @@ def transform_part_pk(model: StpreModel, archive, name: str,
     return True
 
 
+def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
+                        radius: float, edge_index: int = 0, *,
+                        chamfer: bool = False,
+                        range1: Optional[float] = None,
+                        tolerance: float = 1e-6) -> bool:
+    # Blend (or chamfer) one edge of a part's body in place, write x_t back.
+    # Decoded V37 blend ABI (cab_blend): PK_EDGE_set_blend_* +
+    # PK_BODY_fix_blends, then PK_PART_transmit -> new .x_t member and a
+    # refreshed tessellation in cad_meshes.  Returns True on success.
+    import cab_ps_ops
+    import cab_import
+    import cab_blend
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return False
+    tag, _ = _find_body_tags(model, archive, name, '')
+    if tag is None:
+        return False
+    sess = _ps._get_session()
+    edges = cab_blend.body_edges(sess.pk, tag)
+    if not edges or not (0 <= edge_index < len(edges)):
+        return False
+    try:
+        rc, n_set = cab_blend.blend_edge(
+            sess.pk, [edges[edge_index]], radius, chamfer=chamfer,
+            range1=range1)
+        if rc != 0 or n_set < 1:
+            return False
+        rc2, n_blends, _ = cab_blend.fix_blends(sess.pk, tag)
+        if rc2 != 0 or n_blends < 1:
+            return False
+    except Exception:
+        return False
+    try:
+        xt = cab_ps_ops.transmit_parts([tag])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    el = info.elem
+    member_name = f'{name}.x_t'
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit='m')
+    f_el = _first(el, 'file')
+    if f_el is not None:
+        set_text(f_el, member_name)
+    if cad_meshes is not None:
+        try:
+            tess = (sess.facet_body_stpre(tag)
+                    or sess.facet_body(tag, facet_tol=tolerance))
+            if tess is not None:
+                tess.name = name
+                for i, t in enumerate(cad_meshes):
+                    if getattr(t, 'name', None) == name:
+                        cad_meshes[i] = tess
+                        break
+                else:
+                    cad_meshes.append(tess)
+        except Exception:
+            pass
+    return True
+
+
 def cut_part_by_plane_pk(model: StpreModel, archive, cad_meshes, name: str,
                          origin_m, normal, *,
                          result_base: Optional[str] = None
