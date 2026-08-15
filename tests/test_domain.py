@@ -173,3 +173,35 @@ def qapp():
     from PyQt5 import QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     yield app
+
+
+def test_domain_dialog_cylindrical_labels(qapp):
+    """P0-2: DomainDialog shows R/theta/Z columns for cylindrical domains."""
+    pytest.importorskip("cab_gui")
+    import cab_gui
+    import cab_domain
+    archive = CabArchive.parse(BOX.read_bytes())
+    archive.fill_member_data()
+    xml_name = next(m.name for m in archive.members
+                    if m.name.endswith(".xml") and not m.name.startswith("_"))
+    xml_member = next(m for m in archive.members if m.name == xml_name)
+    model = StpreModel(parse_stpre(xml_member.data))
+    spec = cab_domain.DomainSpec(
+        coordinate="cylindrical", unit="mm",
+        xyz_min=(10.0, 0.0, 0.0), xyz_max=(50.0, 360.0, 80.0))
+    cab_domain.apply_domain(model, spec)
+    viewer = cab_gui.CabViewer(enable_3d=False)
+    viewer.model = model
+    viewer._cad_meshes = []
+    dlg = cab_gui._DomainDialog(model, None, [], viewer)
+    assert [l.text() for l in dlg.col_labels] == ["R", "θ", "Z"]
+    assert dlg.spins["xmin"].value() == pytest.approx(10.0)
+    assert dlg.spins["ymax"].value() == pytest.approx(360.0)
+    # apply round-trips radius/angle/height
+    dlg.spins["xmax"].setValue(60.0)
+    dlg._apply(True)
+    ar = model.analysis_region()
+    assert ar.attrib.get("type") == "cylinder"
+    assert (ar.find("radius").text or "").strip() == "10,60"
+    dlg._revert()
+    dlg.close()

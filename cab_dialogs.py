@@ -1008,12 +1008,23 @@ class DomainDialog(StpreDialogBase):
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(4)
-        for i, ax in enumerate(("X", "Y", "Z")):
+        self.col_labels = []
+        labels = (("R", "θ", "Z")
+                  if self.old_spec.coordinate == "cylindrical"
+                  else ("X", "Y", "Z"))
+        for i, ax in enumerate(labels):
             lab = QLabel(ax, self)
             lab.setAlignment(Qt.AlignCenter)
             grid.addWidget(lab, 0, i + 1)
+            self.col_labels.append(lab)
         grid.addWidget(QLabel("Minimum", self), 1, 0)
         grid.addWidget(QLabel("Maximum", self), 2, 0)
+        if self.old_spec.coordinate == "cylindrical":
+            tip = QLabel(
+                "Cylindrical domain: R [unit], θ [degrees 0..360], "
+                "Z [unit] (STpre radius/angle/height).", self)
+            tip.setStyleSheet("color: #666; font-size: 10px;")
+            lay.addWidget(tip)
         self.spins: dict[str, QDoubleSpinBox] = {}
         for i, ax in enumerate("xyz"):
             for row, side in ((1, "min"), (2, "max")):
@@ -1763,8 +1774,9 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self._radio_group(dl_dt, self._DOMAIN_TYPES, "domain_type_radios",
                           cols=3)
         note = QLabel(
-            "Note: cylindrical/axial are stored on the model; native "
-            "gridding still generates cartesian AABB axes.", dt)
+            "Note: cylindrical domains grid R/θ/Z axes (θ in degrees, "
+            "STpre r/t/z tables on save); axial collapses Y to two "
+            "lines (auto max length).", dt)
         note.setWordWrap(True)
         note.setStyleSheet("color: #666; font-size: 10px;")
         dl_dt.addWidget(note)
