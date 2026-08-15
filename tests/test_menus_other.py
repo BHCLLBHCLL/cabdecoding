@@ -372,3 +372,37 @@ def test_dialog_modules_use_coord_spinbox(qapp):
     assert cab_dialogs.QDoubleSpinBox is CoordSpinBox
     assert cab_parts.QDoubleSpinBox is CoordSpinBox
     assert cab_options.QDoubleSpinBox is CoordSpinBox
+
+
+def test_parametric_case_matrix():
+    """P2: Parametric Study case expansion + CSV export helpers."""
+    from cab_options import expand_cases, case_matrix_csv
+    cases = expand_cases(
+        ["w", "h"], ["1,2", "10,20,30"])
+    assert cases == [
+        {"w": "1", "h": "10"}, {"w": "1", "h": "20"},
+        {"w": "1", "h": "30"}, {"w": "2", "h": "10"},
+        {"w": "2", "h": "20"}, {"w": "2", "h": "30"},
+    ]
+    assert expand_cases([], []) == []
+    assert expand_cases(["a"], [""]) == [{"a": ""}]
+    csv_text = case_matrix_csv(["w", "h"], ["1,2", "10,20,30"])
+    lines = csv_text.splitlines()
+    assert lines[0] == "w,h"
+    assert len(lines) == 7
+    assert lines[4] == "2,10"    # header + 3 cases of the first value
+
+
+def test_parametric_dialog_smoke(qapp):
+    """P2: Parametric Study dialog previews case count."""
+    from cab_options import ParametricStudyDialog
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    m = StpreModel(parse_stpre(new_stpre_bytes("demo")))
+    dlg = ParametricStudyDialog(m)
+    dlg._add_row("w", "1,2")
+    dlg._refresh_cases()
+    assert dlg.case_label.text() == "2 case(s)"
+    dlg._add_row("h", "10,20,30")
+    dlg._refresh_cases()
+    assert dlg.case_label.text() == "6 case(s)"
+    dlg.close()

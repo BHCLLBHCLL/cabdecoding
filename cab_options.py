@@ -505,11 +505,32 @@ class ThermalCharacteristicsDialog(QDialog):
         self.accept()
 
 
+def expand_cases(names, value_lists):
+    """Cross product of the parameter value lists -> case dicts."""
+    from itertools import product
+    if not names:
+        return []
+    lists = []
+    for v in value_lists:
+        vals = [x.strip() for x in (v or '').split(',') if x.strip()]
+        lists.append(vals if vals else [''])
+    return [dict(zip(names, combo)) for combo in product(*lists)]
+
+
+def case_matrix_csv(names, value_lists) -> str:
+    """CSV of the full parameter case matrix (header + cross product)."""
+    cases = expand_cases(names, value_lists)
+    header = ','.join(names)
+    rows = [','.join(c[name] for name in names) for c in cases]
+    return '\n'.join([header] + rows) + ('\n' if rows else '')
+
+
 class ParametricStudyDialog(QDialog):
     """Option → Parametric Study (parameter set definition).
 
     Registers named parameters with value lists; the case matrix is stored
     as analysis_set values (param_study_enable / param_names / param_values).
+    The dialog previews the case count and exports the case matrix as CSV.
     """
 
     def __init__(self, model, parent=None):
@@ -533,13 +554,20 @@ class ParametricStudyDialog(QDialog):
         for i, n in enumerate(nlist):
             self._add_row(n, vlist[i] if i < len(vlist) else "")
         lay.addWidget(self.table, 1)
+        self.case_label = QLabel("0 case(s)", self)
+        self.case_label.setStyleSheet("color: #555;")
+        lay.addWidget(self.case_label)
+        self.table.itemChanged.connect(lambda *a: self._refresh_cases())
         brow = QHBoxLayout()
         self.btn_add = QPushButton("Add", self)
         self.btn_add.clicked.connect(lambda: self._add_row("", ""))
         self.btn_del = QPushButton("Remove", self)
         self.btn_del.clicked.connect(self._remove_row)
+        self.btn_csv = QPushButton("Export CSV...", self)
+        self.btn_csv.clicked.connect(self._export_csv)
         brow.addWidget(self.btn_add)
         brow.addWidget(self.btn_del)
+        brow.addWidget(self.btn_csv)
         brow.addStretch(1)
         ok = QPushButton("OK", self)
         ok.clicked.connect(self._apply_and_accept)
@@ -548,6 +576,7 @@ class ParametricStudyDialog(QDialog):
         brow.addWidget(ok)
         brow.addWidget(cancel)
         lay.addLayout(brow)
+        self._refresh_cases()
 
     def _add_row(self, name: str, values: str) -> None:
         from PyQt5.QtWidgets import QTableWidgetItem
@@ -560,6 +589,43 @@ class ParametricStudyDialog(QDialog):
         r = self.table.currentRow()
         if r >= 0:
             self.table.removeRow(r)
+            self._refresh_cases()
+
+    def _rows(self):
+        names, values = [], []
+        for r in range(self.table.rowCount()):
+            n = (self.table.item(r, 0).text() if self.table.item(r, 0)
+                 else '').strip()
+            v = (self.table.item(r, 1).text() if self.table.item(r, 1)
+                 else '').strip()
+            if n:
+                names.append(n)
+                values.append(v)
+        return names, values
+
+    def _refresh_cases(self) -> None:
+        names, values = self._rows()
+        n = len(expand_cases(names, values))
+        self.case_label.setText(f'{n} case(s)')
+
+    def _export_csv(self) -> None:
+        from pathlib import Path
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        names, values = self._rows()
+        if not names:
+            QMessageBox.information(
+                self, "Parametric Study",
+                "Define at least one parameter first.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export case matrix",
+            (self.model.project_name or "cases") + "_cases.csv",
+            "CSV (*.csv)")
+        if not path:
+            return
+        Path(path).write_text(case_matrix_csv(names, values),
+                              encoding="utf-8")
+        self._refresh_cases()
 
     def _apply_and_accept(self) -> None:
         names, values = [], []

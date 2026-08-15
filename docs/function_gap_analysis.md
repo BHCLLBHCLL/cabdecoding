@@ -199,7 +199,9 @@
    节点级热回路已补**：Part 对话框 Delphi 页新增节点表（名称 + Rji C/W，
    可增删），持久化为 parts/thermal_node（no/name/resistance@C/W），
    ECXML 导入导出含 <Node name r> 网络往返（2 项测试）。
-8. Parametric Study / Printer paper-feeding / Thermal Characteristics 占位。
+8. Parametric Study（已加深：参数矩阵展开为完整案例组合 + 案例数预览 +
+   CSV 案例矩阵导出 + 2 项测试）/ Printer paper-feeding 占位 /
+   Thermal Characteristics（默认发射率 + 逐部件覆盖表）已完成。
 9. ~~IFC / ECXML 导入导出~~ **已完成（2026-08-15 后）**：`cab_ifc.py`（IFC-SPF
    解析：拉伸矩形型材 + LOCALPLACEMENT 链 + m→mm，导入为 cube 件 + part
    transform；导出最小 IFC2X3）+`ecxml.py`（two_resistor/delphi 热模型
