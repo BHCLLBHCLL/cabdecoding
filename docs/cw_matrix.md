@@ -54,9 +54,16 @@
 
 | 页 | 类型 | STpre 对齐 |
 |---|---|---|
-| Volumetric | volumetric_force / volumetric_pressure_loss / heat_source / source_term | 子集 |
+| Volumetric | volumetric_force / volumetric_pressure_loss / heat_source / source_term / time_series / diffusion | 支持 |
 | Area | area_pressure_loss / area_heat_source | 子集 |
 | Perforated Plate | — | 支持 |
+
+> 2026-08-15 COM 实证：expression 热源 = <express> 计算函数（kind
+> VENT_source）+ value/source@type=express 引用；diffusion source =
+> SetDiffusionCondition(name, no, "source", amount, 0) →
+> <value type="diffusion"><kind>source</kind><no>N</no><diff_source unit>。
+> diffusion 边界条件（"diffusion"/"transfer" → kind boundary +
+> diff_param1/diff_param2）已探明，编辑器为后续项。
 
 > 完整 STpre Source 类型（含 time series / 函数 / diffusion source 等）待 C2 补齐。
 
