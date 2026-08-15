@@ -247,6 +247,42 @@ def test_register_all_part_menu_kinds(qapp):
         assert f"p_{kind}" in rebuilt
 
 
+def test_thermal_characteristics_dialog(qapp):
+    """P2-⑧: Thermal Characteristics of Surface sets default + part emissivity."""
+    from cab_options import ThermalCharacteristicsDialog
+    viewer = _viewer(qapp)
+    dlg = ThermalCharacteristicsDialog(viewer.model, viewer)
+    dlg.default_emi.setValue(0.75)
+    if dlg.table.rowCount() > 0:
+        dlg.table.setItem(0, 1, type(dlg.table.item(0, 0))("0.6"))
+    dlg._apply_and_accept()
+    assert viewer.model.analysis_set_value(
+        "default_rad_coefficient") == "0.75"
+    from cabxml import _first
+    parts = list(viewer.model.parts())
+    if parts:
+        el = _first(parts[0].elem, "emissivity")
+        assert el is not None and el.text.strip() == "0.6"
+    viewer.close()
+
+
+def test_parametric_study_dialog(qapp):
+    """P2-⑧: Parametric Study stores enable + parameter matrix."""
+    from cab_options import ParametricStudyDialog
+    viewer = _viewer(qapp)
+    dlg = ParametricStudyDialog(viewer.model, viewer)
+    dlg.enable.setChecked(True)
+    dlg._add_row("inflow_temp", "20, 25, 30")
+    dlg._add_row("velocity", "1.0, 2.0")
+    dlg._apply_and_accept()
+    assert viewer.model.analysis_set_value("param_study_enable") == "T"
+    assert viewer.model.analysis_set_value(
+        "param_names") == "inflow_temp|velocity"
+    assert viewer.model.analysis_set_value(
+        "param_values") == "20, 25, 30|1.0, 2.0"
+    viewer.close()
+
+
 def test_part_menu_items_cover_all_kinds():
     import cab_parts
     kinds = [k for item in cab_parts.PART_MENU_ITEMS if item

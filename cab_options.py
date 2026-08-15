@@ -428,3 +428,153 @@ class OptionsDialog(QDialog):
         for key, value in self.values().items():
             set_setting(key, value)
         self.accept()
+
+class ThermalCharacteristicsDialog(QDialog):
+    """Option → Thermal Characteristics of Surface.
+
+    Sets the default emissivity (absorptance) plus per-part emissivity;
+    values persist as analysis_set / part elements and reach the .s export.
+    """
+
+    def __init__(self, model, parent=None):
+        super().__init__(parent)
+        self.model = model
+        self.setWindowTitle("Thermal Characteristics of Surface")
+        self.resize(520, 420)
+        lay = QVBoxLayout(self)
+        f = QFormLayout()
+        self.default_emi = QDoubleSpinBox(self)
+        self.default_emi.setRange(0.0, 1.0)
+        self.default_emi.setDecimals(3)
+        try:
+            self.default_emi.setValue(float(
+                model.analysis_set_value("default_rad_coefficient", "0.8")))
+        except (TypeError, ValueError):
+            self.default_emi.setValue(0.8)
+        f.addRow("Default emissivity (absorptance)", self.default_emi)
+        lay.addLayout(f)
+        lay.addWidget(QLabel("Part emissivity overrides:", self))
+        from PyQt5.QtWidgets import QTableWidget, QTableWidgetItem
+        parts = [p for p in model.parts()]
+        self.table = QTableWidget(len(parts), 2, self)
+        self.table.setHorizontalHeaderLabels(["Part", "Emissivity"])
+        from cabxml import _first
+        self._rows = []
+        for r, p in enumerate(parts):
+            emi = ""
+            el = _first(p.elem, "emissivity")
+            if el is not None and el.text:
+                emi = el.text.strip()
+            it0 = QTableWidgetItem(p.name)
+            it0.setFlags(it0.flags() & ~2)  # not editable
+            self.table.setItem(r, 0, it0)
+            self.table.setItem(r, 1, QTableWidgetItem(emi))
+            self._rows.append((p.elem, emi))
+        self.table.resizeColumnsToContents()
+        lay.addWidget(self.table, 1)
+        brow = QHBoxLayout()
+        brow.addStretch(1)
+        ok = QPushButton("OK", self)
+        ok.clicked.connect(self._apply_and_accept)
+        cancel = QPushButton("Cancel", self)
+        cancel.clicked.connect(self.reject)
+        brow.addWidget(ok)
+        brow.addWidget(cancel)
+        lay.addLayout(brow)
+
+    def _apply_and_accept(self) -> None:
+        import xml.etree.ElementTree as ET
+        from cabxml import _first, set_text
+        self.model.set_analysis_set_value(
+            "default_rad_coefficient", f"{self.default_emi.value():g}")
+        for r in range(self.table.rowCount()):
+            el = self._rows[r][0]
+            item = self.table.item(r, 1)
+            text = (item.text() if item else "").strip()
+            if not text:
+                continue
+            try:
+                emi = f"{float(text):g}"
+            except ValueError:
+                continue
+            e = _first(el, "emissivity")
+            if e is None:
+                e = ET.SubElement(el, "emissivity")
+                e.tail = "\n         "
+            set_text(e, emi)
+        self.accept()
+
+
+class ParametricStudyDialog(QDialog):
+    """Option → Parametric Study (parameter set definition).
+
+    Registers named parameters with value lists; the case matrix is stored
+    as analysis_set values (param_study_enable / param_names / param_values).
+    """
+
+    def __init__(self, model, parent=None):
+        super().__init__(parent)
+        self.model = model
+        self.setWindowTitle("Parametric Study")
+        self.resize(560, 420)
+        lay = QVBoxLayout(self)
+        self.enable = QCheckBox("Enable parametric study", self)
+        flag = (model.analysis_set_value("param_study_enable", "F")
+                or "F").strip().upper()
+        self.enable.setChecked(flag in ("T", "1"))
+        lay.addWidget(self.enable)
+        from PyQt5.QtWidgets import QTableWidget, QTableWidgetItem
+        self.table = QTableWidget(0, 2, self)
+        self.table.setHorizontalHeaderLabels(["Parameter", "Values (comma)"])
+        names = (model.analysis_set_value("param_names", "") or "")
+        values = (model.analysis_set_value("param_values", "") or "")
+        nlist = [x for x in names.split("|") if x]
+        vlist = [x for x in values.split("|") if x]
+        for i, n in enumerate(nlist):
+            self._add_row(n, vlist[i] if i < len(vlist) else "")
+        lay.addWidget(self.table, 1)
+        brow = QHBoxLayout()
+        self.btn_add = QPushButton("Add", self)
+        self.btn_add.clicked.connect(lambda: self._add_row("", ""))
+        self.btn_del = QPushButton("Remove", self)
+        self.btn_del.clicked.connect(self._remove_row)
+        brow.addWidget(self.btn_add)
+        brow.addWidget(self.btn_del)
+        brow.addStretch(1)
+        ok = QPushButton("OK", self)
+        ok.clicked.connect(self._apply_and_accept)
+        cancel = QPushButton("Cancel", self)
+        cancel.clicked.connect(self.reject)
+        brow.addWidget(ok)
+        brow.addWidget(cancel)
+        lay.addLayout(brow)
+
+    def _add_row(self, name: str, values: str) -> None:
+        from PyQt5.QtWidgets import QTableWidgetItem
+        r = self.table.rowCount()
+        self.table.insertRow(r)
+        self.table.setItem(r, 0, QTableWidgetItem(name))
+        self.table.setItem(r, 1, QTableWidgetItem(values))
+
+    def _remove_row(self) -> None:
+        r = self.table.currentRow()
+        if r >= 0:
+            self.table.removeRow(r)
+
+    def _apply_and_accept(self) -> None:
+        names, values = [], []
+        for r in range(self.table.rowCount()):
+            n = (self.table.item(r, 0).text() if self.table.item(r, 0)
+                 else "").strip()
+            v = (self.table.item(r, 1).text() if self.table.item(r, 1)
+                 else "").strip()
+            if n:
+                names.append(n)
+                values.append(v)
+        self.model.set_analysis_set_value(
+            "param_study_enable", "T" if self.enable.isChecked() else "F")
+        self.model.set_analysis_set_value(
+            "param_names", "|".join(names))
+        self.model.set_analysis_set_value(
+            "param_values", "|".join(values))
+        self.accept()

@@ -488,6 +488,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Cut Cell…", self._option_cutcell_dialog)
         add(m, "Selection Mode…", self._option_selection_mode)
         add(m, "Viewer Mode…", self._option_viewer_mode)
+        add(m, "Thermal Characteristics of Surface…",
+            self._option_thermal_surface)
+        add(m, "Parametric Study…", self._option_parametric)
         m.addSeparator()
         add(m, "Environment Settings", self._environment_settings)
         add(m, "Detailed Program Settings", self._detailed_settings)
@@ -901,6 +904,28 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ok.clicked.connect(_ok)
         cancel.clicked.connect(dlg.reject)
         dlg.exec_()
+
+    def _option_thermal_surface(self) -> None:
+        """P2: Option → Thermal Characteristics of Surface (emissivity set)."""
+        if not self._edit_require_model():
+            return
+        from cab_options import ThermalCharacteristicsDialog
+        snap = self._snapshot()
+        dlg = ThermalCharacteristicsDialog(self.model, self)
+        if dlg.exec_() and dlg.result():
+            self._edit_finish(snap, "Thermal characteristics applied.")
+
+
+    def _option_parametric(self) -> None:
+        """P2: Option → Parametric Study (parameter set definition)."""
+        if not self._edit_require_model():
+            return
+        from cab_options import ParametricStudyDialog
+        snap = self._snapshot()
+        dlg = ParametricStudyDialog(self.model, self)
+        if dlg.exec_() and dlg.result():
+            self._edit_finish(snap, "Parametric study parameters applied.")
+
 
     def _option_viewer_mode(self) -> None:
         """M29 Option → Viewer Mode."""

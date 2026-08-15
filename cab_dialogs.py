@@ -53,8 +53,8 @@ try:
         QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFrame,
         QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
         QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
-        QSlider, QSpinBox, QTabWidget, QTreeWidget, QTreeWidgetItem,
-        QVBoxLayout, QWidget,
+        QSlider, QSpinBox, QTabWidget, QTextEdit, QTreeWidget,
+        QTreeWidgetItem, QVBoxLayout, QWidget,
     )
     _HAS_GUI_DEPS = True
 except Exception:  # pragma: no cover - headless environments
@@ -3661,6 +3661,12 @@ class SFileCheckDialog(QDialog if _HAS_GUI_DEPS else object):
         self.tree.itemChanged.connect(self._on_toggled)
         lay.addWidget(self.tree, 1)
 
+        self.diag = QTextEdit(self)
+        self.diag.setReadOnly(True)
+        self.diag.setFixedHeight(96)
+        self.diag.setStyleSheet("color:#333;")
+        lay.addWidget(self.diag)
+
         brow = QHBoxLayout()
         brow.addStretch(1)
         close = QPushButton("Close", self)
@@ -3686,6 +3692,14 @@ class SFileCheckDialog(QDialog if _HAS_GUI_DEPS else object):
         self._refresh_tree(open_file=True)
         self._log(f"Checking S-File: {path} -> {len(self._loaded_names)} "
                   f"part/region name(s)")
+        try:
+            diags = s_export.validate_sfile(text)
+            lines = [f"[{lv}] {msg}" for lv, msg in diags]
+            self.diag.setPlainText("\n".join(lines))
+            for lv, msg in diags:
+                self._log(f"S-File {lv}: {msg}", lv)
+        except Exception as exc:
+            self.diag.setPlainText(f"validation failed: {exc}")
 
     def _refresh_tree(self, open_file: bool) -> None:
         self.tree.blockSignals(True)

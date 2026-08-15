@@ -626,6 +626,92 @@ def build_sdat(model: StpreModel, props: PropertyModel) -> str:
     return SExport(model, props).render()
 
 
+def validate_sfile(text: str) -> list[tuple[str, str]]:
+    """P3: structural validation of an S file.
+
+    Returns (level, message) diagnostics (INFO/WARN/ERROR):
+    * required sections present (CXYZ/PARTS/REGIONS) and GOGO termination;
+    * SDAT header grid counts vs CXYZ axis point counts;
+    * PARTS occupancy boxes within the CXYZ axis ranges.
+    """
+    diags: list[tuple[str, str]] = []
+    raw_lines = text.splitlines()
+    lines = [l.strip() for l in raw_lines]
+    for sec in ('CXYZ', 'PARTS', 'REGIONS'):
+        if sec in lines:
+            diags.append(('INFO', 'section %s present' % sec))
+        else:
+            diags.append(('WARN', 'section %s missing' % sec))
+    if lines and lines[-1].strip() == 'GOGO':
+        diags.append(('INFO', 'GOGO termination present'))
+    else:
+        diags.append(('WARN', 'missing GOGO termination'))
+    # -- CXYZ axis point counts ----------------------------------------
+    axes: list[list[float]] = []
+    current: list[float] = []
+    if 'CXYZ' in lines:
+        for raw in lines[lines.index('CXYZ') + 1:]:
+            s = raw.strip()
+            if s == 'PARTS':
+                if current:
+                    axes.append(current)
+                break
+            if s in ('0', '0.0'):
+                if current:
+                    axes.append(current)
+                    current = []
+                continue
+            try:
+                current.extend(float(x) for x in s.split())
+            except ValueError:
+                continue
+        counts = [len(a) - 1 for a in axes if len(a) >= 2]
+        diags.append(('INFO', 'CXYZ axis points: %s' % [len(a) for a in axes]))
+        # -- SDAT header counts (12-wide fields) -----------------------
+        try:
+            sd = lines.index('SDAT')
+            hdr = None
+            for cand in raw_lines[sd + 1:sd + 40]:
+                fields = [cand[i:i + 12].strip() for i in
+                          range(0, len(cand), 12)]
+                if len(fields) == 8 and all(f.lstrip('-').isdigit()
+                                            for f in fields):
+                    hdr = [int(f) for f in fields]
+                    break
+            if hdr is not None and len(counts) == 3:
+                for ax in range(3):
+                    expect, got = hdr[ax], counts[ax]
+                    if expect != got:
+                        diags.append(('WARN', 'axis %d: SDAT=%d CXYZ=%d'
+                                      % (ax, expect, got)))
+                    else:
+                        diags.append(('INFO', 'axis %d count %d consistent'
+                                      % (ax, got)))
+        except Exception:
+            diags.append(('WARN', 'SDAT header counts not parsable'))
+        # -- PARTS boxes within range ------------------------------------
+        if 'PARTS' in lines:
+            n_bad = 0
+            n_box = 0
+            for raw in lines[lines.index('PARTS') + 1:]:
+                s = raw.strip()
+                if s == '/' or s == '   /':
+                    break
+                nums = [int(x) for x in s.split() if x.lstrip('-').isdigit()]
+                if len(nums) == 6:
+                    n_box += 1
+                    if len(counts) == 3 and (
+                            nums[1] > counts[0] or nums[3] > counts[1]
+                            or nums[5] > counts[2]):
+                        n_bad += 1
+            diags.append(('INFO', 'PARTS boxes: %d' % n_box))
+            if n_bad:
+                diags.append(('ERROR', '%d box(es) out of axis range' % n_bad))
+            else:
+                diags.append(('INFO', 'all PARTS boxes within axis range'))
+    return diags
+
+
 def parse_s_parts(text: str) -> list[str]:
     """Names of the part/region entries in the PARTS section of an S file.
 
