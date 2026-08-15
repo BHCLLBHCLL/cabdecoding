@@ -13,8 +13,8 @@
 - DLL：C:\Program Files\Cradle\CradleCFD2025.2\Programs_x64\pskernel.dll
   （约 72MB，1454 个导出，其中 PK_* 1204 个）。
 - Schema：同目录 Schemas\*.sch_txt（文本）与 *.s_t（二进制），frustrum 按名匹配。
-- 版本：Parasolid V37。公开头文件为 V35
-  （http://www.q-solid.com/Parasolid_Docs_V35/headers/pk_*.html），差异见 §4.1。
+- 版本：Parasolid V37。公开头文件为 V35（http://www.q-solid.com/Parasolid_Docs_V35/，
+  结构体布局、x_t 流格式等资源清单见 §9），差异见 §4.1。
 - 入口链路（STpre 显示网格生成，反汇编确认）：
 
       STpreBase_Bx64.dll
@@ -388,14 +388,38 @@ POINT(6，PK_POINT_ask 已用)、APPITEM(5)、INSTANCE(5)、MTOPOL(5)、LROD(4)�
 
 ---
 
-## 9. 与 V35 公开文档对照
+## 9. 网络资源与 V35 公开文档对照（精确 ABI 参考）
 
-V35 头文件（ABI 骨架参考）：http://www.q-solid.com/Parasolid_Docs_V35/headers/，
-如 pk_vertex_ask_point.html、pk_body_boolean_2.html、pk_transf_create.html。
-用法：函数签名/枚举 token 基本可信；结构体字段数、字段顺序、PK_TRANSF_t 表示必须
-按 V37 实测为准（§4.1、§5 已列出全部差异）。facet 表 token 顺序、_Transmit/
-_TransformOpts/_BooleanOpts 布局均已三路验证（单 choice 探测 + 数据语义 + 反汇编对照），
-可直接复用于新功能。
+Parasolid V35 文档公开在 q-solid.com。⚠️ 注意：Cradle 2025.2 内核可能高于 V35，
+函数签名/枚举 token 基本可信，**结构体布局仍需黑盒校准**（本项目已对
+PK_BODY_boolean_2 o_t=2、PK_TOPOL_facet_2 v5 这样验证过，见 §4.1、§5）。
+
+| 资源 | URL | 用途 |
+|---|---|---|
+| 头文件 | http://www.q-solid.com/Parasolid_Docs_V35/headers/pk_*.html | 每个 _o_t / _r_t 结构体精确字段布局（ABI 骨架） |
+| 函数描述 PDF | http://www.q-solid.com/Parasolid_Docs_V35/pdf/fd.pdf | 函数参考手册全集（函数描述、参数语义） |
+| 函数章节 | http://www.q-solid.com/Parasolid_Docs_V35/chapters/fd_chap.*.html | 函数描述（分章节 HTML，便于单函数查阅） |
+| x_t 流格式 | http://www.q-solid.com/Parasolid_Docs_V35/chapters/xt_chap.02.html | x_t 传输流格式（对应 PK_PART_receive / PK_PART_transmit） |
+
+常用头文件速查（与 §7 已封装/可挖函数一一对应）：
+- pk_vertex_ask_point.html —— PK_VERTEX_ask_point / PK_POINT_t 语义（§4.7 坑）
+- pk_body_boolean_2.html —— PK_BODY_boolean_2_o_t / _r_t（§5.2）
+- pk_transf_create.html —— PK_TRANSF_create / PK_TRANSF_t 表示（注意 V37 是 32 位 tag）
+- pk_body_transform_2.html —— PK_BODY_transform_o_t（§5.3）
+- pk_face_delete_2.html —— PK_FACE_delete_o_t（§5.3）
+- pk_topol_facet_2.html —— PK_TOPOL_facet_2_o_t / 表 token（§6.1）
+- pk_part_receive.html / pk_part_transmit.html —— PK_PART_receive_o_t / transmit_o_t（§5.1）
+
+x_t 流格式（xt_chap.02.html）与本仓数据流的对应：
+- receive_xt：PK_PART_receive 按文本/二进制流解析，FFOPRD/FFREAD 逐行（文本）或裸读（二进制 .s_t）
+- transmit_parts：PK_PART_transmit 生成文本 .x_t，经 FFOPWR/FFWRIT/FFCLOS 捕获（§2）
+
+黑盒校准清单（V37 与 V35 差异，务必实测）：
+1. PK_TRANSF_t 是 32 位 tag（V35 是 4x4 double 矩阵）
+2. PK_PART_transmit_o_t 是 6 字段（曾照 V35 误改 7 字段）
+3. PK_BODY_boolean_o_t o_t_version=2
+4. PK_TOPOL_facet_2_o_t version 5 表顺序 point_vec/normal_vec 在 data_curv_idx 之前
+5. PK_PART_receive 返回 body tag（非 V35 的 part tag）
 
 ---
 
