@@ -58,18 +58,16 @@
   Mirror/Align/Place 出真实 body、x_t 写回（frustrum 写回调）。
 - **差距**：FEM Conversion / Part Simplification 仍为元数据级；Edit Solid 仅面删除
   （非完整 solid 编辑）；Part Face Paneling/Sweep Part Face 为 tess 近似；
-  Simplification「mesh→B-rep 出 x_t」仍在推进：`PK_MESH_create_from_facets` V37
-  ABI 已全部破解并实测（facet_geometry token 0x64E7、create_now/later = 0x6784/0x6785、
-  回调 status token 0x187a4/0x187a6、facet_type 5=index/6=vector；create_later 已能返回
-  合法 mesh tag），create_now finalize 的 5241 已定位到内核深层（引擎 0x13ce100 →
-  finalize 0x13c69c0 → 构建器 0x13cb320/0x13cd5e0；含箱体的 create_later 亦无法被
-  `PK_MESH_make_bodies` 物化（907））。另查明 **STpre 自身并不调用
-  `PK_MESH_create_from_facets`/`PK_MESH_make_bodies`**（ParasolidGW vtable
-  0x19a8/0x19f8 无调用点，仅解析），其 mesh 处理走 GW 的
-  `PKSheet_MakeUntrimmedSheet` + `PKFaces_GetMaxDistanceFromContour`
-  （find_laminar_mfins）查询路径——下轮改按该路径实现（`PK_MESH_make_surf_trimmed`
-  /sheet 拼合 + `PK_FACE_make_solid_bodies`）。详见
-  `docs/pskernel_user_guide.md` §7.8.1 与 `tools/mesh_create_probe.py`。
+  Simplification「mesh→B-rep 出 x_t」**已实现（经典 PK 管线，2026-08-15 后）**：
+  `cab_ps_ops.triangles_to_brep`（每三角形 `PK_PLANE_create`（sf=9 double：
+  点/法向/x 轴）→ `PK_BCURVE_create`(2D polyline) → `PK_SPCURVE_create` →
+  `PK_SURF_make_sheet_trimmed` → `PK_BODY_sew_bodies` 拼合 →
+  `PK_FACE_make_solid_bodies` 出实体；开网格的零体积「补帽」实体按体积过滤），
+  `cab_edit_ops.facets_to_solid_part`（STL/polygon 件 → 真实 x_t body 件 +
+  `.x_t` member 写回），GUI「Edit → Convert Facets to Solid」已接线；
+  12 三角形立方体 → 1 实体 → x_t 再接收 12 面，3 项测试全过。
+  `PK_MESH_create_from_facets` 路线已弃用（facet_geometry 门 + finalize 5241，
+  详见 `docs/pskernel_user_guide.md` §7.8.1 与 `tools/mesh_create_probe.py`）。
 
 ### 4. Mesh / Gridding — ✅ 中-高（~85%，金标收敛 + 极坐标网格）
 
@@ -147,8 +145,9 @@
 3. **Condition Wizard 高级物理 18 项**（Solar/Particle/Diffusion/Reaction/Ventilation/
    Moving/Solidification/Thermoregulation/Electric/Electrostatic/MSC CoSim/BCI-ROM/
    Topology/PCM/Aircon/Lamp/Marangoni/Plant）。
-4. **mesh→B-rep 出 x_t**（Simplify/STL→实体）：依赖 `PK_FACE_make_solid_bodies`
-   + `PK_BODY_sew_bodies`（已定位候选 API，未实现）。
+4. ~~**mesh→B-rep 出 x_t**~~ **已完成（2026-08-15 后）**：经典 PK 管线
+   （plane/bcurve/spcurve 裁剪片体 + sew + make_solid_bodies），见 §3 与
+   `cab_ps_ops.triangles_to_brep`。
 5. **完整 Edit Solid / FEM Conversion 深度**。
 
 ### P2 — 深度不足

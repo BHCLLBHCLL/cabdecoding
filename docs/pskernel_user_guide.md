@@ -413,6 +413,31 @@ PK_MESH_create_from_facets(facet_reader, context, options, mesh)
   classic 曲面）或 GW 式 sheet 拼合 + `PK_FACE_make_solid_bodies` 出 body。
 - 完整可运行探针：`tools/mesh_create_probe.py`（含所有 struct/回调定义）。
 
+#### 7.8.2 经典 facet→solid 管线（已实现并验证，`cab_ps_ops.triangles_to_brep`）
+
+绕开 Convergent Modeling 的纯经典路线，逐 ABI 探针实测：
+
+* **PK_PLANE_create**：sf 实测为 **9 个 double**（{点[3], 法向[3], x 轴[3]}，
+  72 字节，不是文档的 2×PK_VECTOR1_t！）；参数化 p(u,v)=点+u·x轴+v·(n×x轴)，
+  x 轴必须与法向正交（2-vector/3-vector 布局都会产出退化平面，V 恒 0）。
+* **PK_BCURVE_create**：`PK_LOGICAL_t`=**unsigned char**；2D 直线 =
+  {degree=1, n_vertices=2, vertex_dim=2, vertex=[u0,v0,u1,v1], form=1(polyline),
+  n_knots=2, knot_mult=[2,2], knot=[0,1], 其余 0}。
+* **PK_SPCURVE_create**：sf={PK_SURF_t surf; PK_CURVE_t curve(2D BCURVE)}；
+  平面退化（V=0）时返回 999，修正平面 sf 后通过。
+* **PK_SURF_make_sheet_trimmed**：trim_data={n=3, spcurves[3], intervals[3]=[0,1],
+  trim_loop[3]=0, trim_set[3]=0}，options 5 字段（4×uchar 检查开关），
+  precision=1e-6 → 每个三角形一个片体（body type 5602=sheet）。
+* **PK_BODY_sew_bodies**：options v1（treat_as_manifold=1），gap=1e-4，
+  12 片体 → 1 拼合片体（rc=0）。
+* **PK_FACE_make_solid_bodies**：heal=PK_FACE_heal_cap_c(18081) → 实体
+  （body type 5601=solid）；开网格会被「补帽」成零体积实体，生产代码按
+  tess 体积（`mesh_volume_m3`）过滤掉。
+* **PK_BODY_ask_type / ask_regions**：ask_type 是出参式（body, &type），
+  ask_regions 对片体恒返回 1（不可作闭合判据）。
+* 单三角形片体可直接 `transmit_parts`（15KB x_t）；再 `PK_PART_receive` 后
+  `PK_BODY_ask_faces`=12 面（立方体）。
+
 ### 7.9 其余类别（按数量）
 EDGE(67)、PARTITION(56)、CURVE(54)、TOPOL(42，含 PK_TOPOL_facet_2 已用)、LATTICE(41)、
 SURF(41)、ATTRIB(38，PK_ATTRIB_ask_string 已用)、BCURVE(30)、PART(28，PK_PART_receive/

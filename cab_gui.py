@@ -372,6 +372,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Edit Solid", self._edit_solid_dialog)
         add(m, "Part Simplification", self._part_simplification_dialog)
         add(m, "Shape Simplification", self._shape_simplification_dialog)
+        add(m, "Convert Facets to Solid", self._facets_to_solid_dialog)
         add(m, "FEM Conversion", self._fem_conversion_dialog)
         add(m, "Wrapping", self._wrapping_dialog)
         add(m, "Reset Computational Domain", self._reset_domain_dialog)
@@ -1699,6 +1700,42 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg.exec_()
         if dlg.applied:
             self._edit_finish(snap, "FEM Conversion finished.")
+
+    def _facets_to_solid_dialog(self) -> None:
+        """Edit -> Convert Facets to Solid: faceted part -> solid x_t part."""
+        if not self._edit_require_model():
+            return
+        from PyQt5.QtWidgets import QInputDialog
+        candidates = [
+            p.name for p in self.model.parts()
+            if p.kind in ("polygon", "body", "stl")
+            and next((m for m in (self._cad_meshes or [])
+                      if getattr(m, "name", None) == p.name
+                      and len(getattr(m, "triangles", []))), None) is not None]
+        if not candidates:
+            QMessageBox.information(
+                self, "Convert Facets to Solid",
+                "No faceted part with triangles found.")
+            return
+        if len(candidates) > 1:
+            name, ok = QInputDialog.getItem(
+                self, "Convert Facets to Solid", "Part:", candidates,
+                0, False)
+            if not ok or not name:
+                return
+        else:
+            name = candidates[0]
+        import cab_edit_ops
+        snap = self._snapshot()
+        new_name = cab_edit_ops.facets_to_solid_part(
+            self.model, self.archive, self._cad_meshes, name)
+        if new_name is None:
+            QMessageBox.warning(
+                self, "Convert Facets to Solid",
+                "Conversion failed (kernel unavailable or mesh not closed).")
+            return
+        self._edit_finish(
+            snap, f"Convert Facets to Solid: created '{new_name}'.")
 
     def _wrapping_dialog(self) -> None:
         if not self._edit_require_model():

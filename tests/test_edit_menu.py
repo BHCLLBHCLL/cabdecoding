@@ -20,7 +20,8 @@ STPRE_EDIT_ITEMS = [
     "Place Part", "Mirror Copy Parts", "Connected Region",
     "Boolean Operation", "Shape change by Boolean operation",
     "Cutting", "Edit Solid", "Part Simplification",
-    "Shape Simplification", "FEM Conversion", "Wrapping",
+    "Shape Simplification", "Convert Facets to Solid",
+    "FEM Conversion", "Wrapping",
     "Reset Computational Domain", "Edit Wiring on Board",
     "Placement of Image",
 ]

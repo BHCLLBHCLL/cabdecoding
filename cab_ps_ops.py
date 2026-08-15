@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import tempfile
 from ctypes import (
-    POINTER, Structure, byref, c_byte, c_char_p, c_double, c_int, c_void_p,
-    memset, sizeof,
+    POINTER, Structure, byref, cast, c_byte, c_char_p, c_double, c_int,
+    c_ubyte, c_void_p, memset, sizeof,
 )
 from pathlib import Path
 from typing import Optional
@@ -731,3 +731,264 @@ def tess_world_aabb(tess, transform: str = ""
         return None
     pts = cab_vtk._apply_transform(pts, transform)
     return pts.min(0), pts.max(0)
+
+# ---------------------------------------------------------------------------
+# M39: STL/facet triangles -> B-rep solid (classic PK, no facet geometry)
+#
+# Reverse-engineered chain (probe-verified on the V37 kernel):
+#   PK_PLANE_create   sf = {point[3], normal[3], x_axis[3]}  (72 bytes)
+#   PK_BCURVE_create  2D polyline (vertex_dim=2, degree=1, 2 vertices)
+#   PK_SPCURVE_create sf = {surf, curve}
+#   PK_SURF_make_sheet_trimmed(surf, trim_data, precision, opts, &body, &state)
+#   PK_BODY_sew_bodies -> single stitched sheet body
+#   PK_FACE_make_solid_bodies -> solid body
+# ---------------------------------------------------------------------------
+class _SheetPlaneSf(Structure):
+    """PK_PLANE_sf_t on this kernel: 9 doubles (point, normal, x_axis)."""
+    _fields_ = [("data", c_double * 9)]
+
+
+class _SheetBcurveSf(Structure):
+    """PK_BCURVE_sf_t (PK_LOGICAL_t = unsigned char)."""
+    _fields_ = [
+        ("degree", c_int),
+        ("n_vertices", c_int),
+        ("vertex_dim", c_int),
+        ("is_rational", c_ubyte),
+        ("vertex", POINTER(c_double)),
+        ("form", c_int),
+        ("n_knots", c_int),
+        ("knot_mult", POINTER(c_int)),
+        ("knot", POINTER(c_double)),
+        ("knot_type", c_int),
+        ("is_periodic", c_ubyte),
+        ("is_closed", c_ubyte),
+        ("self_intersecting", c_ubyte),
+    ]
+
+
+class _SheetSpcurveSf(Structure):
+    _fields_ = [("surf", c_int), ("curve", c_int)]
+
+
+class _SheetInterval(Structure):
+    _fields_ = [("value", c_double * 2)]
+
+
+class _SheetTrimData(Structure):
+    """PK_SURF_trim_data_t."""
+    _fields_ = [
+        ("n_spcurves", c_int),
+        ("spcurves", POINTER(c_int)),
+        ("intervals", POINTER(_SheetInterval)),
+        ("trim_loop", POINTER(c_int)),
+        ("trim_set", POINTER(c_int)),
+    ]
+
+
+class _SheetTrimOpts(Structure):
+    """PK_SURF_make_sheet_trimmed_o_t."""
+    _fields_ = [
+        ("o_t_version", c_int),
+        ("check_wires", c_ubyte),
+        ("check_self_int", c_ubyte),
+        ("check_loops", c_ubyte),
+        ("nominal_geom", c_ubyte),
+    ]
+
+
+class _SheetSewOpts(Structure):
+    """PK_BODY_sew_bodies_o_t (generous trailing pad)."""
+    _fields_ = [
+        ("o_t_version", c_int),
+        ("set_global_tolerance", c_ubyte),
+        ("allow_disjoint_result", c_ubyte),
+        ("treat_as_manifold", c_ubyte),
+        ("prefered_body_type", c_int),
+        ("duplicate_removal", c_int),
+        ("number_of_iterations", c_int),
+        ("iteration_bounds", POINTER(c_double)),
+        ("_pad", c_int * 8),
+    ]
+
+
+def _sheet_declare(pk) -> None:
+    """Declare the sheet-building prototypes once per kernel handle."""
+    pk.PK_PLANE_create.restype = c_int
+    pk.PK_PLANE_create.argtypes = [POINTER(_SheetPlaneSf), POINTER(c_int)]
+    pk.PK_BCURVE_create.restype = c_int
+    pk.PK_BCURVE_create.argtypes = [POINTER(_SheetBcurveSf), POINTER(c_int)]
+    pk.PK_SPCURVE_create.restype = c_int
+    pk.PK_SPCURVE_create.argtypes = [POINTER(_SheetSpcurveSf), POINTER(c_int)]
+    pk.PK_SURF_make_sheet_trimmed.restype = c_int
+    pk.PK_SURF_make_sheet_trimmed.argtypes = [
+        c_int, POINTER(_SheetTrimData), c_double, POINTER(_SheetTrimOpts),
+        POINTER(c_int), POINTER(c_int)]
+    pk.PK_BODY_sew_bodies.restype = c_int
+    pk.PK_BODY_sew_bodies.argtypes = [
+        c_int, POINTER(c_int), c_double, POINTER(_SheetSewOpts),
+        POINTER(c_int), POINTER(c_void_p), POINTER(c_int), POINTER(c_void_p),
+        POINTER(c_int), POINTER(c_void_p)]
+    pk.PK_BODY_ask_faces.restype = c_int
+    pk.PK_BODY_ask_faces.argtypes = [c_int, POINTER(c_int), POINTER(c_void_p)]
+    pk.PK_FACE_make_solid_bodies.restype = c_int
+    pk.PK_FACE_make_solid_bodies.argtypes = [
+        c_int, POINTER(c_int), c_int, c_ubyte, POINTER(c_int),
+        POINTER(c_void_p), POINTER(c_void_p)]
+
+
+def _triangle_sheet(pk, a, b, c, precision=1e-6) -> int:
+    """One trimmed planar sheet body for triangle (a, b, c) in metres."""
+    import numpy as _np
+    a = _np.asarray(a, dtype=_np.float64)
+    b = _np.asarray(b, dtype=_np.float64)
+    c = _np.asarray(c, dtype=_np.float64)
+    n = _np.cross(b - a, c - a)
+    nn = _np.linalg.norm(n)
+    if nn < 1e-12:
+        raise ValueError("degenerate triangle")
+    n = n / nn
+    xax = (b - a) / _np.linalg.norm(b - a)
+    yax = _np.cross(n, xax)
+    sf = _SheetPlaneSf()
+    sf.data[0:3] = a
+    sf.data[3:6] = n
+    sf.data[6:9] = xax
+    plane = c_int(0)
+    rc = pk.PK_PLANE_create(byref(sf), byref(plane))
+    if rc != 0:
+        raise RuntimeError(f"PK_PLANE_create failed: {rc}")
+    corners = [a, b, c]
+    uvs = [_np.array([(p - a) @ xax, (p - a) @ yax]) for p in corners]
+    spcs = []
+    for e in range(3):
+        p0 = uvs[e]
+        p1 = uvs[(e + 1) % 3]
+        verts = (c_double * 4)(p0[0], p0[1], p1[0], p1[1])
+        kmult = (c_int * 2)(2, 2)
+        knots = (c_double * 2)(0.0, 1.0)
+        bsf = _SheetBcurveSf()
+        memset(byref(bsf), 0, sizeof(bsf))
+        bsf.degree = 1
+        bsf.n_vertices = 2
+        bsf.vertex_dim = 2
+        bsf.vertex = verts
+        bsf.form = 1
+        bsf.n_knots = 2
+        bsf.knot_mult = kmult
+        bsf.knot = knots
+        crv = c_int(0)
+        r2 = pk.PK_BCURVE_create(byref(bsf), byref(crv))
+        if r2 != 0:
+            raise RuntimeError(f"PK_BCURVE_create failed: {r2}")
+        ssf = _SheetSpcurveSf(plane.value, crv.value)
+        spc = c_int(0)
+        r3 = pk.PK_SPCURVE_create(byref(ssf), byref(spc))
+        if r3 != 0:
+            raise RuntimeError(f"PK_SPCURVE_create failed: {r3}")
+        spcs.append(spc.value)
+    spc_arr = (c_int * 3)(*spcs)
+    ivs = (_SheetInterval * 3)(_SheetInterval((0.0, 1.0)),
+                               _SheetInterval((0.0, 1.0)),
+                               _SheetInterval((0.0, 1.0)))
+    loops = (c_int * 3)(0, 0, 0)
+    sets = (c_int * 3)(0, 0, 0)
+    td = _SheetTrimData(3, spc_arr, ivs, loops, sets)
+    sopts = _SheetTrimOpts()
+    memset(byref(sopts), 0, sizeof(sopts))
+    sopts.o_t_version = 1
+    body = c_int(0)
+    state = c_int(0)
+    r4 = pk.PK_SURF_make_sheet_trimmed(plane.value, byref(td), precision,
+                                       byref(sopts), byref(body),
+                                       byref(state))
+    if r4 != 0:
+        raise RuntimeError(f"PK_SURF_make_sheet_trimmed failed: {r4}")
+    return body.value
+
+
+def triangles_to_brep(points, triangles, gap=1e-4) -> list:
+    """Convert a triangle mesh (metres) into solid body tags.
+
+    Classic Parasolid route (no Convergent Modeling needed): one trimmed
+    planar sheet per triangle, ``PK_BODY_sew_bodies`` to stitch, then
+    ``PK_FACE_make_solid_bodies`` per stitched sheet.  Returns the final
+    solid body tags; raises RuntimeError when the kernel rejects the input.
+    """
+    if not available():
+        raise RuntimeError("pskernel not available")
+    import numpy as _np
+    pts = _np.asarray(points, dtype=_np.float64)
+    tris = _np.asarray(triangles, dtype=_np.int64)
+    if tris.size == 0:
+        return []
+    sess = _ps._get_session()
+    pk = sess.pk
+    pk.PK_SESSION_set_check_arguments.restype = c_int
+    pk.PK_SESSION_set_check_arguments.argtypes = [c_int]
+    pk.PK_SESSION_set_check_arguments(0)
+    _sheet_declare(pk)
+    sheet_bodies = []
+    for tri in tris:
+        try:
+            tag = _triangle_sheet(pk, pts[tri[0]], pts[tri[1]], pts[tri[2]])
+            sheet_bodies.append(int(tag))
+        except RuntimeError:
+            continue  # degenerate triangle etc.
+    if not sheet_bodies:
+        return []
+    solids = []
+    if len(sheet_bodies) == 1:
+        sewn = sheet_bodies
+    else:
+        arr = (c_int * len(sheet_bodies))(*sheet_bodies)
+        sewo = _SheetSewOpts()
+        memset(byref(sewo), 0, sizeof(sewo))
+        sewo.o_t_version = 1
+        sewo.treat_as_manifold = 1
+        n_sewn = c_int(0)
+        sewn_p = c_void_p()
+        n_un = c_int(0)
+        un_p = c_void_p()
+        n_prob = c_int(0)
+        prob_p = c_void_p()
+        r5 = pk.PK_BODY_sew_bodies(len(sheet_bodies), arr, gap,
+                                   byref(sewo), byref(n_sewn), byref(sewn_p),
+                                   byref(n_un), byref(un_p), byref(n_prob),
+                                   byref(prob_p))
+        if r5 != 0:
+            raise RuntimeError(f"PK_BODY_sew_bodies failed: {r5}")
+        if n_sewn.value == 0:
+            return []
+        sewn = [int(t) for t in
+                cast(sewn_p, POINTER(c_int * n_sewn.value)).contents]
+    for body_tag in sewn:
+        nf = c_int(0)
+        faces_p = c_void_p()
+        rc = pk.PK_BODY_ask_faces(int(body_tag), byref(nf), byref(faces_p))
+        if rc != 0 or nf.value == 0:
+            continue
+        farr = cast(faces_p, POINTER(c_int * nf.value)).contents
+        n_sol = c_int(0)
+        sols_p = c_void_p()
+        checks_p = c_void_p()
+        r6 = pk.PK_FACE_make_solid_bodies(
+            nf.value, farr, PK_FACE_heal_cap_c, 0, byref(n_sol),
+            byref(sols_p), byref(checks_p))
+        if r6 != 0 or n_sol.value == 0:
+            continue
+        for tag in cast(sols_p, POINTER(c_int * n_sol.value)).contents:
+            # open sheets get "capped" into zero-volume solids; drop them
+            # (STpre keeps open meshes out of the solid result).
+            try:
+                part = (sess.facet_body_adaptive(int(tag))
+                        or sess.facet2(int(tag)) or sess.facet_go(int(tag)))
+            except Exception:
+                part = None
+            if part is not None and len(part.triangles):
+                vol = mesh_volume_m3(part.points, part.triangles)
+                if abs(vol) < 1e-15:
+                    continue
+            solids.append(int(tag))
+    return solids
+

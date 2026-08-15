@@ -1721,3 +1721,58 @@ def wrap_part_pk(model: StpreModel, archive, cad_meshes, name: str,
         if cad_meshes is not None:
             cad_meshes.append(t)
     return new_name
+
+def facets_to_solid_part(model: StpreModel, archive, cad_meshes, name: str,
+                         *, gap: float = 1e-4) -> Optional[str]:
+    """Convert a faceted part (STL / polygon) into a solid B-rep x_t part.
+
+    Classic Parasolid route (no Convergent Modeling): one trimmed planar
+    sheet body per triangle (``PK_PLANE_create`` + ``PK_BCURVE_create`` +
+    ``PK_SPCURVE_create`` + ``PK_SURF_make_sheet_trimmed``), stitch with
+    ``PK_BODY_sew_bodies``, then ``PK_FACE_make_solid_bodies`` per sheet.
+    The resulting solid is transmitted to a real ``.x_t`` member and
+    registered as a new ``body`` part.  Returns the new part name, or
+    ``None`` when PK/x_t is unavailable or the mesh cannot be converted.
+    """
+    import cab_ps_ops
+    if archive is None or not cab_ps_ops.available():
+        return None
+    tess = next((m for m in (cad_meshes or [])
+                 if getattr(m, "name", None) == name), None)
+    if tess is None or not len(getattr(tess, "points", [])):
+        return None
+    info = next((p for p in model.parts() if p.name == name), None)
+    pts = np.asarray(tess.points, dtype=np.float64)
+    pts_w = cab_vtk._apply_transform(
+        pts, info.transform if info else "")
+    tris = np.asarray(getattr(tess, "triangles", []), dtype=np.int64)
+    if tris.size == 0:
+        return None
+    try:
+        solids = cab_ps_ops.triangles_to_brep(pts_w, tris, gap=gap)
+    except Exception:
+        return None
+    if not solids:
+        return None
+    try:
+        xt = cab_ps_ops.transmit_parts([int(s) for s in solids])
+    except Exception:
+        xt = None
+    if not xt:
+        return None
+    new_name = unique_part_name(model, f"{name}_solid")
+    el = model.add_part(name=new_name, kind="body", attribute="solid",
+                        file_ref="x_t", transform=IDENTITY)
+    if el is None:
+        return None
+    _attach_xt_member(model, archive, el, xt, f"{new_name}.x_t")
+    import ps_facet2_nodes as _ps
+    sess = _ps._get_session()
+    t = (sess.facet_body_adaptive(int(solids[0]))
+         or sess.facet2(int(solids[0])) or sess.facet_go(int(solids[0])))
+    if t is not None:
+        t.name = new_name
+        if cad_meshes is not None:
+            cad_meshes.append(t)
+    return new_name
+
