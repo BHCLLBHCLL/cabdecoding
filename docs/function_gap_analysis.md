@@ -161,7 +161,9 @@
    round-trip）+ File 菜单接线，7 项测试全过。
 
 ### P3 — 低优先级
-10. Element cross-section / Checking S-File 浅实现。
+10. Element cross-section / Checking S-File（已加深：截面新增 Quality 显示
+    类型——按单元长宽比（aspect=最长边/最短边，蓝→红）着色切片；S-File 校验
+    新增轴单调/正宽度、非有限值、倒置占位盒检查）。
 11. 3DfindIT / Library part 替换深度。
 
 ---

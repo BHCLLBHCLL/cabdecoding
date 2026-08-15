@@ -667,6 +667,24 @@ def validate_sfile(text: str) -> list[tuple[str, str]]:
                 continue
         counts = [len(a) - 1 for a in axes if len(a) >= 2]
         diags.append(('INFO', 'CXYZ axis points: %s' % [len(a) for a in axes]))
+        # -- per-axis sanity: finite, strictly increasing, positive widths
+        for ax, arr in enumerate(axes):
+            if len(arr) < 2:
+                continue
+            n_bad = sum(1 for v in arr
+                        if not (v == v) or abs(v) == float('inf'))
+            if n_bad:
+                diags.append(('ERROR', 'axis %d: %d non-finite value(s)'
+                              % (ax, n_bad)))
+                continue
+            widths = [arr[i + 1] - arr[i] for i in range(len(arr) - 1)]
+            n_neg = sum(1 for w in widths if w <= 0.0)
+            if n_neg:
+                diags.append(('ERROR', 'axis %d: %d non-positive width(s) '
+                             '(non-monotonic/duplicate coords)' % (ax, n_neg)))
+            else:
+                diags.append(('INFO', 'axis %d monotonic, min width %g'
+                              % (ax, min(widths))))
         # -- SDAT header counts (12-wide fields) -----------------------
         try:
             sd = lines.index('SDAT')
@@ -704,6 +722,10 @@ def validate_sfile(text: str) -> list[tuple[str, str]]:
                             nums[1] > counts[0] or nums[3] > counts[1]
                             or nums[5] > counts[2]):
                         n_bad += 1
+                    if nums[0] > nums[1] or nums[2] > nums[3] \
+                            or nums[4] > nums[5]:
+                        diags.append(('ERROR',
+                                      'inverted occupancy box %s' % nums))
             diags.append(('INFO', 'PARTS boxes: %d' % n_box))
             if n_bad:
                 diags.append(('ERROR', '%d box(es) out of axis range' % n_bad))

@@ -1371,15 +1371,76 @@ def element_section_polydata(model: StpreModel, axis: str, index: int,
     return pd, colors
 
 
+def element_quality_section_polydata(model: StpreModel, axis: str,
+                                    index: int, mode: str = 'show'):
+    # vtkPolyData of the cross-section slice coloured by element aspect
+    # ratio. Each slice cell carries an 'aspect' cell scalar = longest /
+    # shortest edge of the local cell box (1.0 = perfect cube). Used by
+    # [Mesh] - [Showing Element Cross-Section] display type 'Quality'.
+    if not _HAS_VTK:
+        raise RuntimeError('vtk is not installed')
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return None
+    cells, _colors = element_section_data(model, axis, index, mode)
+    if not cells:
+        return None
+    widths = {a: np.asarray([
+        axes[a][i + 1] - axes[a][i] for i in range(len(axes[a]) - 1)])
+        for a in 'xyz'}
+    w_axis = widths[axis][index - 1]
+    pts = []
+    quads = []
+    aspects = []
+    for quad, part_id in cells:
+        base = len(pts)
+        for p in quad:
+            pts.append(list(p))
+        quads.append([base, base + 1, base + 2, base + 3])
+        p0 = np.asarray(quad[0])
+        e1 = float(np.linalg.norm(np.asarray(quad[1]) - p0))
+        e2 = float(np.linalg.norm(np.asarray(quad[3]) - p0))
+        longest = max(e1, e2, w_axis)
+        shortest = min(x for x in (e1, e2, w_axis) if x > 0) or 1e-30
+        aspects.append(longest / shortest)
+    pd = _polydata(np.asarray(pts, dtype=np.float64),
+                   np.asarray(quads, dtype=np.int64), 'quads')
+    arr = numpy_support.numpy_to_vtk(
+        np.asarray(aspects, dtype=np.float64), deep=True)
+    arr.SetName('aspect')
+    pd.GetCellData().AddArray(arr)
+    return pd
+
+
 def section_actor(pd, colors, mode: str = "show"):
     """Scalar-coloured actor for the cross-section slice.
 
     ``colors`` is the ``(name, rgb)`` list returned by
-    :func:`element_section_data`; part_id 0 (fluid) is light grey.
+    :func:`element_section_data`; part_id 0 (fluid) is light grey.  When
+    ``colors`` is None the slice carries an ``aspect`` cell scalar and is
+    coloured by element quality (blue = cube-like, red = high aspect).
     """
     if not _HAS_VTK:
         raise RuntimeError("vtk is not installed")
     lut = vtk.vtkLookupTable()
+    if colors is None:
+        lut.SetNumberOfTableValues(64)
+        lut.SetHueRange(0.667, 0.0)   # blue -> red
+        lut.SetSaturationRange(1.0, 1.0)
+        lut.SetValueRange(1.0, 0.7)
+        arr = pd.GetCellData().GetArray("aspect")
+        rng = arr.GetRange() if arr is not None else (1.0, 1.0)
+        lut.SetRange(rng[0], rng[1])
+        lut.Build()
+        mapper = vtk.vtkPolyDataMapper()
+        mapper.SetInputData(pd)
+        mapper.SetLookupTable(lut)
+        mapper.SetScalarRange(rng[0], rng[1])
+        mapper.SetScalarModeToUseCellData()
+        mapper.SelectColorArray("aspect")
+        actor = vtk.vtkActor()
+        actor.SetMapper(mapper)
+        return actor
     lut.SetNumberOfTableValues(len(colors) + 1)
     lut.SetTableValue(0, 0.82, 0.84, 0.86, 1.0)   # fluid
     for i, (_name, rgb) in enumerate(colors, start=1):

@@ -137,3 +137,17 @@ def test_parse_s_parts():
     names = s_export.parse_s_parts(text)
     assert names and names[0] == "Domain(cuboid)"
     assert "box" in names
+
+
+def test_quality_section_polydata():
+    """P3: quality cross-section carries an aspect cell scalar."""
+    model = _box_model()
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        pytest.skip("no mesh axes in fixture")
+    pd = cab_vtk.element_quality_section_polydata(model, "x", 1)
+    assert pd is not None
+    arr = pd.GetCellData().GetArray("aspect")
+    assert arr is not None and arr.GetNumberOfTuples() > 0
+    vals = [arr.GetValue(i) for i in range(arr.GetNumberOfTuples())]
+    assert all(v >= 1.0 for v in vals)

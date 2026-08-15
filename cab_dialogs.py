@@ -3532,7 +3532,8 @@ class SectionDialog(QDialog if _HAS_GUI_DEPS else object):
         dt = QHBoxLayout()
         self.disp_type: dict[str, QRadioButton] = {}
         for label, key in (("Element address", "element"),
-                           ("Face address", "face")):
+                           ("Face address", "face"),
+                           ("Quality (aspect ratio)", "quality")):
             rb = QRadioButton(label, loc)
             ll.addWidget(rb)
             self.disp_type[key] = rb
@@ -3589,6 +3590,8 @@ class SectionDialog(QDialog if _HAS_GUI_DEPS else object):
         axes = self.model.mesh_axes()
         self._ncells = {a: max(len(axes.get(a, [])), 1) - 1 for a in "xyz"}
         self._on_axis_changed()
+        for rb in self.disp_type.values():
+            rb.toggled.connect(self._render)
 
     def _current_axis(self) -> str:
         for ax in "xyz":
@@ -3618,8 +3621,13 @@ class SectionDialog(QDialog if _HAS_GUI_DEPS else object):
         import cab_vtk
         ax = self._current_axis()
         idx = self.slider.value()
-        pd, colors = cab_vtk.element_section_polydata(
-            self.model, ax, idx, self._current_mode())
+        if self.disp_type["quality"].isChecked():
+            pd = cab_vtk.element_quality_section_polydata(
+                self.model, ax, idx, self._current_mode())
+            colors = None
+        else:
+            pd, colors = cab_vtk.element_section_polydata(
+                self.model, ax, idx, self._current_mode())
         parent = self.parent()
         if parent is not None and hasattr(parent, "_show_section"):
             parent._show_section(pd, colors)
