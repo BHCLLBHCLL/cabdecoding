@@ -1696,7 +1696,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         import cab_edit_dialogs
         snap = self._snapshot()
-        dlg = cab_edit_dialogs.FEMConversionDialog(self.model, self)
+        dlg = cab_edit_dialogs.FEMConversionDialog(
+            self.model, self, cad_meshes=getattr(self, "_cad_meshes", []))
         dlg.exec_()
         if dlg.applied:
             self._edit_finish(snap, "FEM Conversion finished.")

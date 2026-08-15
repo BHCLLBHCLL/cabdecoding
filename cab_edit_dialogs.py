@@ -10,6 +10,7 @@ Wrapping / Reset Computational Domain / Edit wiring of board / Place Image.
 
 from __future__ import annotations
 
+import math
 from typing import Optional
 
 import numpy as np
@@ -1417,9 +1418,11 @@ class ShapeSimplificationDialog(_EditDlg):
 class FEMConversionDialog(_EditDlg):
     """[FEM Conversion]."""
 
-    def __init__(self, model: StpreModel, parent=None):
+    def __init__(self, model: StpreModel, parent=None, *,
+                 cad_meshes=None):
         super().__init__("FEM Conversion", "FEM Conversion", parent)
         self.model = model
+        self.cad_meshes = cad_meshes or []
         form = QFormLayout()
         self.target = QComboBox(self)
         self.target.addItems(_part_names(model))
@@ -1431,6 +1434,10 @@ class FEMConversionDialog(_EditDlg):
         form.addRow("Element size of FEM", self.elem_size)
         self.leave = QCheckBox("Leave edges", self)
         form.addRow(self.leave)
+        self.estimate = QLabel("", self)
+        self.estimate.setStyleSheet("color:#555;")
+        self.estimate.setWordWrap(True)
+        form.addRow(self.estimate)
         self.body.addLayout(form)
         contact = QGroupBox("Create edges where Target contacts another part",
                             self)
@@ -1447,7 +1454,10 @@ class FEMConversionDialog(_EditDlg):
             ("Execute", self._exec),
             ("Close", self.accept),
         )))
+        self.elem_size.valueChanged.connect(self._refresh_estimate)
+        self.target.currentTextChanged.connect(self._refresh_estimate)
         self._load()
+        self._refresh_estimate()
 
     def _load(self) -> None:
         el = self.model.find_part(self.target.currentText())
@@ -1493,6 +1503,49 @@ class FEMConversionDialog(_EditDlg):
             self, "FEM Conversion",
             "Contact edges registered: " + self.target.currentText()
             + " <-> " + other + ".")
+
+    def _estimate_counts(self) -> tuple:
+        """Estimate FEM surface node/element counts for the target part.
+
+        Surface area from the part tessellation (mm^2) divided by the
+        element size squared; nodes ~= elements/2 + boundary terms.
+        Returns (n_triangles, area_mm2, n_elem_est, n_node_est) or None.
+        """
+        name = self.target.currentText()
+        for m in (self.cad_meshes or []):
+            if getattr(m, "name", "") == name:
+                tris = np.asarray(getattr(m, "triangles", []), int)
+                pts = np.asarray(getattr(m, "points", []), float)
+                if len(tris) == 0 or len(pts) == 0:
+                    return None
+                v0 = pts[tris[:, 0]]
+                v1 = pts[tris[:, 1]]
+                v2 = pts[tris[:, 2]]
+                area = 0.5 * np.linalg.norm(
+                    np.cross(v1 - v0, v2 - v0), axis=1).sum()
+                size = max(float(self.elem_size.value()), 1e-9)
+                n_elem = max(1, int(round(area / (size * size))))
+                n_node = max(4, n_elem // 2 + n_elem)
+                return len(tris), area, n_elem, n_node
+        return None
+
+    def _refresh_estimate(self) -> None:
+        est = self._estimate_counts()
+        if est is None:
+            self.estimate.setText(
+                "No tessellation for the target part; FEM mesh size "
+                "cannot be estimated.")
+            return
+        n_tris, area, n_elem, n_node = est
+        size = float(self.elem_size.value())
+        warn = ""
+        if area > 0 and size * 2.0 >= math.sqrt(area):
+            warn = ("\nWarning: element size is larger than the part - "
+                    "the FEM mesh degenerates.")
+        self.estimate.setText(
+            f"Surface area {area:g} mm2 ({n_tris} triangles) -> "
+            f"~{n_elem} elements / ~{n_node} nodes at size {size:g} mm."
+            f"{warn}")
 
     def _exec(self) -> None:
         el = self.model.find_part(self.target.currentText())

@@ -174,7 +174,10 @@
 4. ~~**mesh→B-rep 出 x_t**~~ **已完成（2026-08-15 后）**：经典 PK 管线
    （plane/bcurve/spcurve 裁剪片体 + sew + make_solid_bodies），见 §3 与
    `cab_ps_ops.triangles_to_brep`。
-5. **完整 Edit Solid / FEM Conversion 深度**。
+5. **完整 Edit Solid / FEM Conversion 深度**（FEM 对话框新增网格规模
+   估算：由部件 tess 面积 ÷ 单元尺寸² 给出元素/节点数，单元尺寸过大时
+   显示退化警告；CreateFEM COM 探针仅产生 rad_group_num/percent 副作用，
+   未暴露 FEM 网格存储——solver 端 FEM 生成记录为剩余项）。
 
 ### P2 — 深度不足
 6. Source 条件（已新增 **time series** 体积源 + **expression（计算函数）热源**：

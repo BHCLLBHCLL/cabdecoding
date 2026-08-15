@@ -149,6 +149,23 @@ def test_fem_conversion_dialog(qapp, monkeypatch):
     dlg2._load()
     assert dlg2.elem_size.value() == pytest.approx(2.5)
     assert dlg2.leave.isChecked()
+    # P1-5: FEM mesh size estimate from the part tessellation
+    import numpy as np
+    class _M:
+        name = "fem_p"
+        points = np.array([[0.0, 0, 0], [0.01, 0, 0], [0, 0.01, 0]])
+        triangles = np.array([[0, 1, 2]], int)
+    dlg3 = cab_edit_dialogs.FEMConversionDialog(
+        model, cad_meshes=[_M()])
+    dlg3.target.setCurrentText("fem_p")
+    dlg3.elem_size.setValue(0.001)
+    dlg3._refresh_estimate()
+    assert "elements" in dlg3.estimate.text()
+    assert "nodes" in dlg3.estimate.text()
+    assert "Warning" not in dlg3.estimate.text()
+    dlg3.elem_size.setValue(0.1)
+    dlg3._refresh_estimate()
+    assert "Warning" in dlg3.estimate.text()
     viewer.close()
 
 
