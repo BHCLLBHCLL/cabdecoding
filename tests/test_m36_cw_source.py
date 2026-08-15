@@ -86,9 +86,11 @@ def test_unsupported_analysis_types_disabled(qapp):
     from cab_wizards import _CwAnalysisTypesPage
     m = _model()
     page = _CwAnalysisTypesPage(m)
-    assert not page.types["plant_canopy"].isEnabled()
-    assert "not supported" in (
-        page.types["plant_canopy"].toolTip() or "").lower()
+    # scFLOW-only coupling analyses stay grey with an honest reason
+    for key in ("msc_cosim", "bci_rom"):
+        assert not page.types[key].isEnabled()
+        assert "scflow" in (
+            page.types[key].toolTip() or "").lower()
     # Core product types stay enabled
     assert page.types["heat"].isEnabled()
     assert page.types["humidity"].isEnabled()
@@ -97,6 +99,10 @@ def test_unsupported_analysis_types_disabled(qapp):
     assert page.types["diffusion"].isEnabled()
     assert page.types["particle"].isEnabled()
     assert page.types["jos_model"].isEnabled()
+    # P1-3: STpre analysis_etc-backed types are enabled now
+    for key in ("plant_canopy", "moving_body", "marangoni",
+                "topology_opti", "aircon_model"):
+        assert page.types[key].isEnabled()
 
 
 def test_source_writeback_s_export_consistency(qapp):

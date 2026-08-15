@@ -706,6 +706,88 @@ class StpreModel:
             el.attrib["unit"] = unit
         return True
 
+    # ---- <analysis_etc> (STpre advanced-analysis storage) -------------
+    # STpre keeps several CW analysis types outside <analysis_set>:
+    #   <analysis_etc><plant_resistance> 1 </plant_resistance></analysis_etc>
+    #   <analysis_etc><marangoni><temp_coeff> 0 </temp_coeff></marangoni>
+    #   <analysis_etc><topology_optimize> ... </topology_optimize>
+    #   <analysis_etc><phase_change_material/>  (pcm)
+    #   <analysis_etc><partcile_echarge> 1|2 </partcile_echarge> (es field)
+    # Verified against STpre 2025.2 COM SetAnalysisType save round-trips.
+
+    def ensure_analysis_etc(self) -> ET.Element:
+        """Create <analysis_etc> (inserted after <analysis_set>)."""
+        aet = _first(self.root, "analysis_etc")
+        if aet is not None:
+            return aet
+        aet = ET.Element("analysis_etc")
+        aet.text = "\n   "
+        aet.tail = "\n"
+        aset = _first(self.root, "analysis_set")
+        if aset is not None:
+            children = list(self.root)
+            self.root.insert(children.index(aset) + 1, aet)
+        else:
+            self.root.append(aet)
+        return aet
+
+    def analysis_etc_value(self, tag: str, default: str = "") -> str:
+        aet = _first(self.root, "analysis_etc")
+        el = _first(aet, tag) if aet is not None else None
+        return (el.text or "").strip() if el is not None and el.text \
+            else default
+
+    def set_analysis_etc_value(self, tag: str, text: str) -> bool:
+        aet = self.ensure_analysis_etc()
+        el = _first(aet, tag)
+        if el is None:
+            el = ET.SubElement(aet, tag)
+            el.tail = "\n   "
+        set_text(el, text)
+        return True
+
+    def analysis_etc_section(self, tag: str):
+        """Return the named child element of <analysis_etc> or None."""
+        aet = _first(self.root, "analysis_etc")
+        return _first(aet, tag) if aet is not None else None
+
+    def ensure_analysis_etc_section(self, tag: str) -> ET.Element:
+        aet = self.ensure_analysis_etc()
+        sec = _first(aet, tag)
+        if sec is None:
+            sec = ET.SubElement(aet, tag)
+            sec.tail = "\n   "
+        return sec
+
+    def remove_analysis_etc_section(self, tag: str) -> bool:
+        aet = _first(self.root, "analysis_etc")
+        if aet is None:
+            return False
+        sec = _first(aet, tag)
+        if sec is None:
+            return False
+        aet.remove(sec)
+        return True
+
+    def analysis_etc_child(self, section: str, tag: str,
+                           default: str = "") -> str:
+        sec = self.analysis_etc_section(section)
+        el = _first(sec, tag) if sec is not None else None
+        return (el.text or "").strip() if el is not None and el.text \
+            else default
+
+    def set_analysis_etc_child(self, section: str, tag: str, text: str,
+                               unit=None) -> bool:
+        sec = self.ensure_analysis_etc_section(section)
+        el = _first(sec, tag)
+        if el is None:
+            el = ET.SubElement(sec, tag)
+            el.tail = "\n         "
+        set_text(el, text)
+        if unit is not None:
+            el.attrib["unit"] = unit
+        return True
+
     def ensure_analysis_file(self) -> ET.Element:
         """``<analysis_set>/<file>`` block for Field/Restart/TM names."""
         aset = self.ensure_analysis_set()

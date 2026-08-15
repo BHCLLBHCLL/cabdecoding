@@ -562,6 +562,11 @@ _CW_PAGES = [
     ("fusion", "Solidification/Melting", None),
     ("artificial_light", "Lamp", None),
     ("pcm", "Phase Change Material", None),
+    ("plant_canopy", "Plant Canopy", None),
+    ("moving_body", "Moving Object", None),
+    ("marangoni", "Marangoni Convection", None),
+    ("topology_opti", "Topology Optimization", None),
+    ("aircon_model", "Air Conditioner Unit", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -631,17 +636,29 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
     )
     # Grayed in typical incompressible sessions until a parent option exists.
     _DISABLED_UNTIL_FS = frozenset({"evaporation", "boil"})
-    # No dedicated Condition Wizard product page in cabdecoding — disabled
-    # with honesty tooltip (analysis_set flag-only would be silent chrome).
-    _ALWAYS_DISABLED = frozenset({
-        "plant_canopy", "moving_body",
-        "marangoni", "topology_opti", "aircon_model",
-        "msc_cosim", "bci_rom",
-    })
+    # scFLOW-only coupling analyses: scSTREAM .cab cannot carry their
+    # configuration (MSC CoSim / BCI-ROM are configured in scFLOW's
+    # project settings, not in the scSTREAM condition set).  Kept grey
+    # rather than writing unverified tags.
+    _ALWAYS_DISABLED = frozenset({"msc_cosim", "bci_rom"})
     _DISABLED_TIP = (
-        "Not supported in cabdecoding Condition Wizard "
-        "(no product page; left disabled rather than fake success)."
+        "scFLOW-only analysis (configured in scFLOW project settings); "
+        "not applicable to scSTREAM .cab projects."
     )
+    # Analysis types whose checkbox state lives outside the flat
+    # <analysis_set> tags (verified against STpre 2025.2 COM saves):
+    #   ("plant_canopy", "etc", "plant_resistance")  -> <analysis_etc>
+    #   ("marangoni",    "etc-section", "marangoni") -> <analysis_etc>
+    #   ("topology_opti","etc-section", "topology_optimize")
+    #   ("moving_body",  "aset", "moving_body")      -> flat, value 1|2
+    #   ("aircon_model", "aset", "aircon_model")     -> flat, value T|F
+    _SPECIAL_TAGS = {
+        "plant_canopy": ("etc", "plant_resistance"),
+        "moving_body": ("aset", "moving_body"),
+        "marangoni": ("etc_sec", "marangoni"),
+        "topology_opti": ("etc_sec", "topology_optimize"),
+        "aircon_model": ("aset", "aircon_model"),
+    }
 
     def __init__(self, model: StpreModel):
         super().__init__()
@@ -771,6 +788,40 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         v = self.model.analysis_set_value(tag, default).strip().lower()
         return v in ("1", "t", "true", "on")
 
+    def _special_flag(self, key: str) -> bool:
+        """Checkbox state of the STpre <analysis_etc>/special-stored types."""
+        kind, tag = self._SPECIAL_TAGS[key]
+        if kind == "etc":
+            return self.model.analysis_etc_value(tag, "0").strip() \
+                in ("1", "T", "t")
+        if kind == "etc_sec":
+            return self.model.analysis_etc_section(tag) is not None
+        v = self.model.analysis_set_value(tag, "0").strip().lower()
+        if key == "moving_body":
+            return v in ("1", "2")
+        return v in ("1", "t", "true", "on")
+
+    def _apply_special(self, key: str, on: bool) -> None:
+        """Write the STpre-canonical storage for the special analysis keys."""
+        kind, tag = self._SPECIAL_TAGS[key]
+        if kind == "etc":
+            self.model.set_analysis_etc_value(tag, "1" if on else "0")
+            return
+        if kind == "etc_sec":
+            if on:
+                # create the section when missing; never overwrite deeper
+                # parameters already written by the product page
+                self.model.ensure_analysis_etc_section(tag)
+            else:
+                self.model.remove_analysis_etc_section(tag)
+            return
+        if key == "moving_body":
+            self.model.set_analysis_set_value(tag, "1" if on else "0")
+            if on:
+                self.model.set_analysis_set_value("moving_body_file", "0")
+            return
+        self.model.set_analysis_set_value(tag, "T" if on else "F")
+
     def _load(self) -> None:
         typ = self.model.analysis_set_value("type", "incompressive").lower()
         self.comp.setChecked(typ.startswith("comp"))
@@ -786,14 +837,17 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
                 self.turb_model.setCurrentIndex(mi)
         except ValueError:
             pass
-        # heat uses 1/0; other flags may be 1/0 or T/F
+        # heat uses 1/0; other flags may be 1/0 or T/F.
+        # The five advanced types live in <analysis_etc> / special
+        # analysis_set tags (STpre COM round-trip verified).
         for key, cb in self.types.items():
-            tag = "heat" if key == "heat" else key
             if key == "heat":
                 cb.setChecked(
                     self.model.analysis_set_value("heat", "0") == "1")
+            elif key in self._SPECIAL_TAGS:
+                cb.setChecked(self._special_flag(key))
             else:
-                cb.setChecked(self._flag(tag))
+                cb.setChecked(self._flag(key))
         # Radiation element type → combo
         rad = self.type_combos.get("radiation_analysis")
         if rad is not None:
@@ -826,6 +880,9 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
             self.model.set_analysis_set_value("turbulence", "0")
         for key, cb in self.types.items():
             if key == "heat":
+                continue
+            if key in self._SPECIAL_TAGS:
+                self._apply_special(key, cb.isChecked())
                 continue
             self.model.set_analysis_set_value(
                 key, "1" if cb.isChecked() else "0")
@@ -3396,17 +3453,18 @@ class ConditionWizard(WizardBase):
         self._snapshot = model.doc.serialize()
 
         from cab_cwizard_pages import (
-            _CwAnalysisControlHubPage, _CwConditionListPage,
-            _CwConfirmPage, _CwControlOptionPage, _CwCurrentPage,
-            _CwDiffusionPage, _CwElectrostaticPage,
+            _CwAirconPage, _CwAnalysisControlHubPage,
+            _CwConditionListPage, _CwConfirmPage, _CwControlOptionPage,
+            _CwCurrentPage, _CwDiffusionPage, _CwElectrostaticPage,
             _CwFilePage, _CwFixedPage, _CwFusionPage,
-            _CwHumidityPage, _CwLampPage, _CwOutputFieldPage,
-            _CwOutputHeatPathPage,
+            _CwHumidityPage, _CwLampPage, _CwMarangoniPage,
+            _CwMovingBodyPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
             _CwOutputLFilePage, _CwOutputSeriesPage, _CwParticlePage,
-            _CwPcmPage, _CwPorousPage, _CwReactionPage,
-            _CwRadiationGroupingPage, _CwSolarPage, _CwSolverPage,
-            _CwSourcePage, _CwStabilizationPage, _CwSteadyPage,
-            _CwThermoregulationPage, _CwVentilationPage,
+            _CwPcmPage, _CwPlantCanopyPage, _CwPorousPage,
+            _CwReactionPage, _CwRadiationGroupingPage, _CwSolarPage,
+            _CwSolverPage, _CwSourcePage, _CwStabilizationPage,
+            _CwSteadyPage, _CwThermoregulationPage,
+            _CwTopologyOptiPage, _CwVentilationPage,
         )
 
         self.p_analysis = _CwAnalysisTypesPage(model)
@@ -3427,6 +3485,11 @@ class ConditionWizard(WizardBase):
         self.p_fusion = _CwFusionPage(model)
         self.p_lamp = _CwLampPage(model)
         self.p_pcm = _CwPcmPage(model)
+        self.p_plant = _CwPlantCanopyPage(model)
+        self.p_movebody = _CwMovingBodyPage(model)
+        self.p_marangoni = _CwMarangoniPage(model)
+        self.p_topopt = _CwTopologyOptiPage(model)
+        self.p_aircon = _CwAirconPage(model)
         self.p_initial = _CwInitialPage(model)
         self.p_bc_flow = _CwFlowBoundaryPage(model)
         self.p_bc_wall = _CwWallBoundaryPage(model)
@@ -3461,6 +3524,11 @@ class ConditionWizard(WizardBase):
             "ventilation": self.p_ventilation,
             "reaction": self.p_reaction, "fusion": self.p_fusion,
             "artificial_light": self.p_lamp, "pcm": self.p_pcm,
+            "plant_canopy": self.p_plant,
+            "moving_body": self.p_movebody,
+            "marangoni": self.p_marangoni,
+            "topology_opti": self.p_topopt,
+            "aircon_model": self.p_aircon,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,

@@ -15,9 +15,9 @@
   （原 part-kinds 清单失败已随 P2-⑦ 修复。）
 - **代码规模**：35 个 Python 模块 ≈1.4 MB，GUI 主壳 `cab_gui.py`(225KB)、
   Condition Wizard `cab_cwizard_pages.py`(269KB)、wizard `cab_wizards.py`(148KB)。
-- **总体覆盖度估计**：**≈68%**。几何/部件/网格/编辑/导入导出已近完整；最大缺口是
-  **Condition Wizard 的高级物理**（16/25 分析类型禁用，Solar 已启用）与
-  **部分编辑算子的深度**（mesh→B-rep、Edit Solid 全量）。
+- **总体覆盖度估计**：**≈70%**。几何/部件/网格/编辑/导入导出已近完整；
+  **Condition Wizard 的高级物理已达 22/25 支持**（2 项 scFLOW-only 诚实禁用）；
+  最大缺口转为 all 顶点检测精确计数与部分编辑算子的深度（Edit Solid 全量）。
 - **三支柱**：
   1. **原生实现**：cab 容器/XML 模型 + 网格/网格化算法 + VTK 显示（不依赖 STpre）。
   2. **pskernel 直调**（Parasolid V37 逆向）：B-rep 真实算子（布尔/切割/变换/包裹）。
@@ -83,19 +83,27 @@
 - **差距**：`all` 模式精确计数需复刻 STpre 显示 tessellation；圆柱/轴向域网格为
   笛卡尔 AABB 近似；Element cross-section / Checking S-File 为浅实现。
 
-### 5. Condition Wizard — ✅ 中-高（~75%）
+### 5. Condition Wizard — ✅ 高（~85%）
 
-- 26 页框架 + Analysis Types 25 项。**支持 17**（Flow/Heat/Humidity/Porous/
+- 26 页框架 + Analysis Types 25 项。**支持 22**（Flow/Heat/Humidity/Porous/
   Radiation/Free surface/Solar/Diffusion/Particle/Thermoregulation(JOS)/
-  Electric current/Electrostatic/Ventilation/Reaction/Solidification/Lamp/PCM；
+  Electric current/Electrostatic/Ventilation/Reaction/Solidification/Lamp/PCM/
+  Plant canopy/Moving object/Marangoni/Topology optimization/Air conditioner；
   各页均含产品页 + 分析标志 + 参数写回），**禁用待 FS 2**（Evaporation/Boil），
-  **禁用 7**（Plant/Moving/Marangoni/Topology/Aircon/MSC CoSim/BCI-ROM）。
+  **禁用(scFLOW-only) 2**（MSC CoSim/BCI-ROM，scFLOW 工程配置，scSTREAM .cab
+  不承载）。
+- 新增 5 页为 STpre COM 实证对齐（tools/probe_cw_types.py 实测
+  SetAnalysisType/SaveCabFile 写回）：Plant→analysis_etc/plant_resistance；
+  Marangoni→analysis_etc/marangoni/temp_coeff（+ marangoni 条件值）；
+  Topology→analysis_etc/topology_optimize 全 48 项 STpre 默认块 + 关键参数 UI；
+  Moving→analysis_set/moving_body=1|2 + moving_body_file/list_position/
+  gap_filling；Aircon→analysis_set/aircon_model T|F（官方模板 tag）。
 - 已实现深度写回：Source（Volumetric/Area/Perforated + 面创建/多选）、Humidity、
   Porous、Radiation Grouping、Initial、Boundary（Flow/Wall/Thermal/Symmetry/Humidity/
   Mass Transfer）、Analysis Control、Output、File、Condition List。
-- **差距**：16 个高级物理分析类型无产品页（诚实禁用 + tooltip，非伪成功）；
-  Source 条件 volumetric 已全量（新增 humidification/plant canopy/driver），
-  time series / 函数绑定仍未全覆盖。
+- **差距**：pcm/es_field 的 STpre 对齐存储（analysis_etc/phase_change_material、
+  analysis_etc/partcile_echarge，探针已实证）待迁移现有平铺标记；moving body
+  运动定义表（零件级）与 aircon 零件参数为后续深度项；函数/表达式 source 编辑器。
 
 ### 6. Wizard（Initial/Condition）— ✅ 中-高（Initial 高 / Condition 同上）
 
@@ -142,9 +150,11 @@
 2. **圆柱/轴向坐标域网格**：仍为笛卡尔 AABB 近似（`domain_coordinate` 仅存标志）。
 
 ### P1 — 高价值功能缺失
-3. **Condition Wizard 高级物理**（已完成 Solar/Diffusion/Particle/Thermoregulation/
-   Electric/Electrostatic/Ventilation/Reaction/Solidification/Lamp/PCM 产品页；
-   剩余 Moving/Marangoni/Topology/Aircon/MSC CoSim/BCI-ROM/Plant 7 项）。
+3. **Condition Wizard 高级物理**（2026-08-15 COM 探针对齐后 **22/25 支持**：
+   新增 Plant/Moving/Marangoni/Topology/Aircon 5 页——均按 SetAnalysisType 实测
+   写回 analysis_etc / analysis_set 真实 tag；剩余 MSC CoSim/BCI-ROM 为
+   scFLOW-only（scSTREAM .cab 不承载，诚实禁用 + 说明 tooltip）；Evaporation/
+   Boil 待 FS 解锁；pcm/es_field 对齐存储列为迁移项）。
 4. ~~**mesh→B-rep 出 x_t**~~ **已完成（2026-08-15 后）**：经典 PK 管线
    （plane/bcurve/spcurve 裁剪片体 + sew + make_solid_bodies），见 §3 与
    `cab_ps_ops.triangles_to_brep`。
@@ -173,7 +183,8 @@
 相对首评（§18）与专项审计（§39），本仓库已从「解析器 + 网格近似」推进到：
 **原生网格金标收敛（uniform 精确、minmax/rep x/y 精确）+ 圆柱/轴向极坐标网格 +
 pskernel V37 真实 B-rep 编辑 + SCTpre VBS/COM 全量桥接**多路并进。几何/部件/网格/
-编辑/导入导出近完整；**Condition Wizard 高级物理（16 类型）**仍是当前最集中的功能
-缺口，其次为 all 网格精确计数（已定位 STpreMesh MeshFineExecute）与 mesh→B-rep
-两个算法型硬项。整体完成度 **≈68%**，其中「可运行、可持久化、
-可导出求解」的 MVP 闭环已完整。
+编辑/导入导出近完整；**Condition Wizard 高级物理（22/25 支持，2 项 scFLOW-only）**
+已收敛；当前最集中的功能缺口转为 all 顶点检测精确计数（已定位 STpreMesh
+MeshFineExecute，STpre 显示 tess 与 pskernel facet_body 顶点集差异 2~34）与
+moving body 运动定义/aircon 零件参数等二级深度项。整体完成度 **≈70%**，
+其中「可运行、可持久化、可导出求解」的 MVP 闭环已完整。

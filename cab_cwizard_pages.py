@@ -6096,7 +6096,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "moisture_source", "smoke_source", "source_term",
         "humidification", "plant_canopy", "driver", "time_series",
         "area_pressure_loss", "area_heat_source",
-        "perforated_plate",
+        "perforated_plate", "marangoni",
     )
 
     _GROUP_LABELS = {
@@ -6120,6 +6120,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "area_pressure_loss": "Area pressure loss",
         "area_heat_source": "Area heat source",
         "perforated_plate": "Perforated plate",
+        "marangoni": "Marangoni convection",
     }
 
     _KIND_LABELS = {
@@ -7467,3 +7468,368 @@ class _CwPcmPage(QWidget if _HAS_GUI else object):
             "pcm", "PCM_default",
             [("melting_temp", f"{self.melting.value():g}", "C"),
              ("latent_heat", f"{self.latent.value():g}", "J/kg")])
+
+# ---------------------------------------------------------------------------
+# P1-3: analysis types with STpre <analysis_etc> storage (2025.2 COM probe)
+# ---------------------------------------------------------------------------
+class _CwPlantCanopyPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Plant canopy (vegetation resistance).
+
+    STpre keeps the flag in <analysis_etc><plant_resistance>
+    (SetAnalysisType "plant_resistance"); the canopy conditions
+    (leaf area density / drag coefficient) are plant_canopy source
+    conditions bound to regions from the Source Condition page.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Plant canopy analysis models the flow resistance and "
+            "transpiration of vegetation. Enable writes STpre's "
+            "plant_resistance analysis flag; the canopy conditions (leaf "
+            "area density, drag coefficient) are created in the Source "
+            "Condition page and bound to regions.", self))
+        g = QGroupBox("Plant canopy", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider plant canopy", g)
+        on = (model.analysis_etc_value("plant_resistance", "0")
+              or "0").strip()
+        if on in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("plant_canopy_enable", "F") == "T")
+        f.addRow(self.enable)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "plant_canopy_enable", "T" if on else "F")
+        self.model.set_analysis_etc_value(
+            "plant_resistance", "1" if on else "0")
+
+
+class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Moving object (STpre move_body analysis).
+
+    analysis_set tags verified against STpre 2025.2 COM:
+      moving_body = 1 (move_body) | 2 (move_body_t, with heat transfer)
+      moving_body_file = 0 (S file) | 1 (external file)
+      moving_body_option (SetMoveBodyOption serialization; kept "")
+      list_position  (>0: cycle interval of position list output, 0: off)
+      gap_filling    (1: consider gaps between objects)
+    Motion definitions (rotation/translation tables) are part-level
+    attributes edited in the model tree (Edit Solid) - documented.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Moving object analysis moves solid parts through the fluid "
+            "domain. Enable writes STpre's moving_body flag; per-part "
+            "motion definitions (rotation axis, velocity tables) are part "
+            "attributes set from the model tree.", self))
+        g = QGroupBox("Moving object", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider moving object", g)
+        mv = (model.analysis_set_value("moving_body", "0") or "0").strip()
+        self.enable.setChecked(mv in ("1", "2"))
+        self.with_heat = QCheckBox("With heat transfer (move_body_t)", g)
+        self.with_heat.setChecked(mv == "2")
+        self.enable.toggled.connect(self.with_heat.setEnabled)
+        self.with_heat.setEnabled(self.enable.isChecked())
+        self.list_pos = QSpinBox(g)
+        self.list_pos.setRange(0, 1000000)
+        try:
+            self.list_pos.setValue(int(float(
+                model.analysis_set_value("list_position", "0") or "0")))
+        except (TypeError, ValueError):
+            self.list_pos.setValue(0)
+        self.gap_fill = QCheckBox("Consider gaps between objects", g)
+        self.gap_fill.setChecked(
+            (model.analysis_set_value("gap_filling", "0")
+             or "0").strip() in ("1", "T"))
+        f.addRow(self.enable)
+        f.addRow("", self.with_heat)
+        f.addRow("Position list output cycle (0: off)", self.list_pos)
+        f.addRow("", self.gap_fill)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        mv = ("2" if on and self.with_heat.isChecked() else
+              "1" if on else "0")
+        self.model.set_analysis_set_value("moving_body", mv)
+        self.model.set_analysis_set_value("moving_body_file", "0")
+        if not (self.model.analysis_set_value(
+                "moving_body_option", "")):
+            self.model.set_analysis_set_value("moving_body_option", "")
+        self.model.set_analysis_set_value(
+            "list_position", str(int(self.list_pos.value())))
+        self.model.set_analysis_set_value(
+            "gap_filling", "1" if self.gap_fill.isChecked() else "0")
+
+
+class _CwMarangoniPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Marangoni convection.
+
+    STpre 2025.2 stores the analysis in
+    <analysis_etc><marangoni><temp_coeff> (SetAnalysisType
+    "marangoni" writes temp_coeff 0).  The MARANGONI condition value
+    carries the temperature coefficient multiplied by -1.0 (N/(m.K)).
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Marangoni convection analysis adds surface-tension driven "
+            "flow at fluid surfaces. Enable creates STpre's marangoni "
+            "analysis section; the temperature coefficient of surface "
+            "tension (N/(m.K)) is stored as temp_coeff and exported as a "
+            "marangoni condition.", self))
+        g = QGroupBox("Marangoni convection", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider Marangoni convection", g)
+        sec = model.analysis_etc_section("marangoni")
+        self.enable.setChecked(sec is not None)
+        self.coeff = QDoubleSpinBox(g)
+        self.coeff.setRange(-1.0, 1.0)
+        self.coeff.setDecimals(6)
+        self.coeff.setSingleStep(0.0001)
+        try:
+            self.coeff.setValue(float(model.analysis_etc_child(
+                "marangoni", "temp_coeff", "0") or "0"))
+        except (TypeError, ValueError):
+            self.coeff.setValue(0.0)
+        f.addRow(self.enable)
+        f.addRow("Temperature coefficient (N/(m.K))", self.coeff)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "marangoni_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "marangoni_temp_coeff", f"{self.coeff.value():g}")
+        if on:
+            self.model.set_analysis_etc_child(
+                "marangoni", "temp_coeff", f"{self.coeff.value():g}")
+            self.model.upsert_value(
+                "marangoni", "Marangoni_default",
+                [("temp_coeff", f"{self.coeff.value():g}", "N/(m.K)")])
+        else:
+            self.model.remove_analysis_etc_section("marangoni")
+
+
+# STpre default block written by SetAnalysisType("topopt", "T")
+_TOPOPT_DEFAULTS = (
+    ("penalty_type", "1", None),
+    ("penalty_lamda", "0", None),
+    ("solver_type", "1", None),
+    ("scale_factor", "100,100,100", None),
+    ("thermal_conductivity_type", "2", None),
+    ("thermal_conductivity_ratio", "0", None),
+    ("topo_opti_projection_flag", "F", None),
+    ("topo_opti_projection_type", "1", None),
+    ("topo_opti_proj_sharp", "0", None),
+    ("topo_opti_proj_sharp_updatetype", "0", None),
+    ("topo_opti_proj_sharp_increment", "0", None),
+    ("topo_opti_proj_sharp_interval", "0", None),
+    ("topo_opti_proj_sharp_final", "0", None),
+    ("topo_opti_proj_center", "0.5", None),
+    ("topo_opti_filter_flag", "F", None),
+    ("topo_opti_filter_type", "2", None),
+    ("topo_opti_filter_helm_rad_x", "0", "m"),
+    ("topo_opti_filter_helm_rad_y", "0", "m"),
+    ("topo_opti_filter_helm_rad_z", "0", "m"),
+    ("topo_opti_filter_convol_rad", "0", "m"),
+    ("topo_opti_filter_max_cycle", "0", None),
+    ("topo_opti_filter_error", "0", None),
+    ("topo_opti_material_interp_flag", "F", None),
+    ("topo_opti_material_interp_curv", "0", None),
+    ("topo_opti_material_interp_curv_updatetype", "0", None),
+    ("topo_opti_material_interp_curv_increment", "0", None),
+    ("topo_opti_material_interp_curv_interval", "0", None),
+    ("topo_opti_material_interp_curv_final", "0", None),
+    ("topo_opti_energy_interp_flag", "F", None),
+    ("topo_opti_energy_interp_type", "1", None),
+    ("topo_opti_energy_interp_convex", "3", None),
+    ("topo_opti_energy_interp_convex_updatetype", "1", None),
+    ("topo_opti_energy_interp_convex_increment", "1", None),
+    ("topo_opti_energy_interp_convex_interval", "100", None),
+    ("topo_opti_energy_interp_convex_final", "5", None),
+    ("topo_opti_harmonic_mean_cond_flag", "F", None),
+    ("topo_opti_harmonic_mean_cond_type", "0", None),
+    ("topo_opti_exclude_solid_conv_flag", "F", None),
+    ("topo_opti_exclude_solid_conv_type", "0", None),
+    ("topo_opti_krylov_flag", "F", None),
+    ("topo_opti_krylov_max_projection", "960", None),
+    ("topo_opti_krylov_max_restart", "10", None),
+    ("topo_opti_krylov_newton_error", "0.1", None),
+    ("topo_opti_krylov_newton_error_max", "0.999", None),
+    ("topo_opti_krylov_nonlinear_error", "0.0001", None),
+    ("topo_opti_krylov_nonlinear_max_iter", "10", None),
+)
+
+
+class _CwTopologyOptiPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Topology optimization (STpre topopt).
+
+    Enable writes the complete STpre default topology_optimize block
+    under <analysis_etc>; key settings (penalty, solver, thermal
+    conductivity, filter, Krylov) are exposed, the rest keep STpre
+    defaults (verified against a SetAnalysisType("topopt","T") save).
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Topology optimization (adjoint-based) removes low-relevance "
+            "solid cells to minimize an objective. Enable writes STpre's "
+            "topology_optimize analysis block with its defaults; the "
+            "optimization target and design region are set on the target "
+            "condition of the analysis.", self))
+        g = QGroupBox("Topology optimization", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider topology optimization", g)
+        sec = model.analysis_etc_section("topology_optimize")
+        self.enable.setChecked(sec is not None)
+
+        def child(tag, default=""):
+            return (model.analysis_etc_child(
+                "topology_optimize", tag, default) or default).strip()
+
+        self.penalty = QSpinBox(g)
+        self.penalty.setRange(1, 2)
+        self.solver = QSpinBox(g)
+        self.solver.setRange(1, 2)
+        self.tc_type = QSpinBox(g)
+        self.tc_type.setRange(1, 2)
+        self.tc_ratio = QDoubleSpinBox(g)
+        self.tc_ratio.setRange(0.0, 1e6)
+        self.tc_ratio.setDecimals(4)
+        self.filter_on = QCheckBox("Helmholtz density filter", g)
+        self.filter_type = QSpinBox(g)
+        self.filter_type.setRange(1, 2)
+        self.helm_rx = QDoubleSpinBox(g)
+        self.helm_rx.setRange(0.0, 1e3)
+        self.helm_rx.setDecimals(6)
+        self.helm_rx.setSuffix(" m")
+        self.helm_ry = QDoubleSpinBox(g)
+        self.helm_ry.setRange(0.0, 1e3)
+        self.helm_ry.setDecimals(6)
+        self.helm_ry.setSuffix(" m")
+        self.helm_rz = QDoubleSpinBox(g)
+        self.helm_rz.setRange(0.0, 1e3)
+        self.helm_rz.setDecimals(6)
+        self.helm_rz.setSuffix(" m")
+        self.krylov_on = QCheckBox("Krylov subspace solver", g)
+        defaults = {t: v for t, v, _u in _TOPOPT_DEFAULTS}
+        for w, tag, cast in (
+                (self.penalty, "penalty_type", int),
+                (self.solver, "solver_type", int),
+                (self.tc_type, "thermal_conductivity_type", int),
+                (self.tc_ratio, "thermal_conductivity_ratio", float),
+                (self.filter_type, "topo_opti_filter_type", int),
+                (self.helm_rx, "topo_opti_filter_helm_rad_x", float),
+                (self.helm_ry, "topo_opti_filter_helm_rad_y", float),
+                (self.helm_rz, "topo_opti_filter_helm_rad_z", float)):
+            try:
+                w.setValue(cast(child(tag, defaults.get(tag, "0"))))
+            except (TypeError, ValueError):
+                pass
+        self.filter_on.setChecked(child("topo_opti_filter_flag", "F")
+                                  in ("T", "1"))
+        self.krylov_on.setChecked(child("topo_opti_krylov_flag", "F")
+                                  in ("T", "1"))
+        f.addRow(self.enable)
+        f.addRow("Penalty type", self.penalty)
+        f.addRow("Solver type", self.solver)
+        f.addRow("Thermal conductivity model", self.tc_type)
+        f.addRow("Thermal conductivity ratio", self.tc_ratio)
+        f.addRow(self.filter_on)
+        f.addRow("Filter type", self.filter_type)
+        f.addRow("Filter radius X", self.helm_rx)
+        f.addRow("Filter radius Y", self.helm_ry)
+        f.addRow("Filter radius Z", self.helm_rz)
+        f.addRow(self.krylov_on)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "topology_opti_enable", "T" if on else "F")
+        if not on:
+            self.model.remove_analysis_etc_section("topology_optimize")
+            return
+        for tag, text, unit in _TOPOPT_DEFAULTS:
+            if self.model.analysis_etc_child(
+                    "topology_optimize", tag, "!") == "!":
+                self.model.set_analysis_etc_child(
+                    "topology_optimize", tag, text, unit=unit)
+        overrides = (
+            ("penalty_type", str(self.penalty.value())),
+            ("solver_type", str(self.solver.value())),
+            ("thermal_conductivity_type", str(self.tc_type.value())),
+            ("thermal_conductivity_ratio", f"{self.tc_ratio.value():g}"),
+            ("topo_opti_filter_flag",
+             "T" if self.filter_on.isChecked() else "F"),
+            ("topo_opti_filter_type", str(self.filter_type.value())),
+            ("topo_opti_filter_helm_rad_x", f"{self.helm_rx.value():g}"),
+            ("topo_opti_filter_helm_rad_y", f"{self.helm_ry.value():g}"),
+            ("topo_opti_filter_helm_rad_z", f"{self.helm_rz.value():g}"),
+            ("topo_opti_krylov_flag",
+             "T" if self.krylov_on.isChecked() else "F"),
+        )
+        for tag, text in overrides:
+            self.model.set_analysis_etc_child(
+                "topology_optimize", tag, text,
+                unit="m" if "helm_rad" in tag else None)
+
+
+class _CwAirconPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Air conditioner unit (STpre aircon analysis).
+
+    The analysis flag lives in analysis_set/aircon_model (T/F, as in the
+    official template).  Air conditioner unit models themselves are parts
+    (CreateAirconModel equivalent); capacity / air flow / COP are
+    parameters of those parts.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Air conditioner unit analysis couples the AC unit models "
+            "(parts) with the room airflow. Enable writes the aircon_model "
+            "analysis flag; the AC unit capacity and air flow are set on "
+            "the air conditioner parts in the model tree.", self))
+        g = QGroupBox("Air conditioner unit", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider air conditioner unit", g)
+        v = (model.analysis_set_value("aircon_model", "F") or "F").strip()
+        self.enable.setChecked(v in ("1", "T", "t"))
+        f.addRow(self.enable)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_analysis_set_value(
+            "aircon_model", "T" if on else "F")
+        self.model.set_project_value(
+            "aircon_model_enable", "T" if on else "F")

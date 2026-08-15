@@ -341,3 +341,117 @@ def test_condition_wizard_reaction_fusion_lamp_pcm_pages(pieces):
         page.apply()
         assert model.analysis_set_value(tag) == "0"
     w.close()
+
+def test_condition_wizard_stpre_etc_analysis_pages(pieces):
+    """P1-3: Plant/Moving/Marangoni/Topology/Aircon pages round-trip with
+    the STpre-verified analysis_etc / analysis_set storage."""
+    import cab_wizards
+    from cab_cwizard_pages import _TOPOPT_DEFAULTS
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    for key in ("plant_canopy", "moving_body", "marangoni",
+                "topology_opti", "aircon_model"):
+        assert w.p_analysis.types[key].isEnabled()
+    for key in ("msc_cosim", "bci_rom"):
+        assert not w.p_analysis.types[key].isEnabled()
+    # Plant canopy -> analysis_etc/plant_resistance
+    w.p_plant.enable.setChecked(True)
+    w.p_plant.apply()
+    assert model.analysis_etc_value("plant_resistance") == "1"
+    w.p_plant.enable.setChecked(False)
+    w.p_plant.apply()
+    assert model.analysis_etc_value("plant_resistance") == "0"
+    # Moving object -> analysis_set moving_body 1|2 + siblings
+    w.p_movebody.enable.setChecked(True)
+    w.p_movebody.apply()
+    assert model.analysis_set_value("moving_body") == "1"
+    assert model.analysis_set_value("moving_body_file") == "0"
+    w.p_movebody.with_heat.setChecked(True)
+    w.p_movebody.list_pos.setValue(25)
+    w.p_movebody.gap_fill.setChecked(True)
+    w.p_movebody.apply()
+    assert model.analysis_set_value("moving_body") == "2"
+    assert model.analysis_set_value("list_position") == "25"
+    assert model.analysis_set_value("gap_filling") == "1"
+    w.p_movebody.enable.setChecked(False)
+    w.p_movebody.apply()
+    assert model.analysis_set_value("moving_body") == "0"
+    # Marangoni -> analysis_etc/marangoni/temp_coeff + condition value
+    w.p_marangoni.enable.setChecked(True)
+    w.p_marangoni.coeff.setValue(0.00015)
+    w.p_marangoni.apply()
+    assert abs(float(model.analysis_etc_child(
+        "marangoni", "temp_coeff", "0")) - 0.00015) < 1e-9
+    assert any(v.attrib.get("type") == "marangoni"
+               for v in model.values())
+    w.p_marangoni.enable.setChecked(False)
+    w.p_marangoni.apply()
+    assert model.analysis_etc_section("marangoni") is None
+    # Topology optimization -> full STpre default block + overrides
+    w.p_topopt.enable.setChecked(True)
+    w.p_topopt.penalty.setValue(2)
+    w.p_topopt.filter_on.setChecked(True)
+    w.p_topopt.helm_rx.setValue(0.002)
+    w.p_topopt.apply()
+    sec = model.analysis_etc_section("topology_optimize")
+    assert sec is not None
+    import cabxml
+    children = {c.tag: (c.text or "").strip() for c in list(sec)}
+    for tag, text, _unit in _TOPOPT_DEFAULTS:
+        assert tag in children, f"missing topopt default {tag}"
+        if tag not in ("penalty_type", "topo_opti_filter_flag",
+                       "topo_opti_filter_helm_rad_x"):
+            assert children[tag] == text, f"{tag} = {children[tag]}"
+    assert children["penalty_type"] == "2"
+    assert children["topo_opti_filter_flag"] == "T"
+    assert children["topo_opti_filter_helm_rad_x"] == "0.002"
+    assert sec.find("topo_opti_filter_helm_rad_x").attrib["unit"] == "m"
+    w.p_topopt.enable.setChecked(False)
+    w.p_topopt.apply()
+    assert model.analysis_etc_section("topology_optimize") is None
+    # Air conditioner -> analysis_set/aircon_model
+    w.p_aircon.enable.setChecked(True)
+    w.p_aircon.apply()
+    assert model.analysis_set_value("aircon_model") == "T"
+    w.p_aircon.enable.setChecked(False)
+    w.p_aircon.apply()
+    assert model.analysis_set_value("aircon_model") == "F"
+    w.close()
+
+
+def test_analysis_types_page_special_tags(pieces):
+    """P1-3: Analysis Types checkboxes write the STpre-canonical storage."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    cb = w.p_analysis.types
+    cb["marangoni"].setChecked(True)
+    cb["plant_canopy"].setChecked(True)
+    cb["moving_body"].setChecked(True)
+    cb["aircon_model"].setChecked(True)
+    w.p_analysis.apply()
+    assert model.analysis_etc_section("marangoni") is not None
+    assert model.analysis_etc_value("plant_resistance") == "1"
+    assert model.analysis_set_value("moving_body") == "1"
+    assert model.analysis_set_value("aircon_model") == "T"
+    # deep params written by the product page survive the flag apply
+    w.p_marangoni.enable.setChecked(True)
+    w.p_marangoni.coeff.setValue(0.0002)
+    w.p_marangoni.apply()
+    w.p_analysis.apply()
+    assert abs(float(model.analysis_etc_child(
+        "marangoni", "temp_coeff", "0")) - 0.0002) < 1e-9
+    cb["marangoni"].setChecked(False)
+    cb["plant_canopy"].setChecked(False)
+    cb["moving_body"].setChecked(False)
+    cb["aircon_model"].setChecked(False)
+    w.p_analysis.apply()
+    assert model.analysis_etc_section("marangoni") is None
+    assert model.analysis_etc_value("plant_resistance") == "0"
+    assert model.analysis_set_value("moving_body") == "0"
+    assert model.analysis_set_value("aircon_model") == "F"
+    # reload reflects canonical state
+    w2 = cab_wizards._CwAnalysisTypesPage(model)
+    assert not w2.types["marangoni"].isChecked()
+    assert not w2.types["moving_body"].isChecked()
+    w.close()

@@ -14,3 +14,4 @@ cases/*
 session-*.md
 .pytest_tmp/
 .pytest_tmp*/
+tools/probe_work/
