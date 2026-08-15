@@ -555,6 +555,9 @@ _CW_PAGES = [
     ("diffusion", "Diffusion", None),
     ("particle", "Particle", None),
     ("jos_model", "Thermoregulation Model", None),
+    ("current", "Electric Current", None),
+    ("electrostatic", "Electrostatic Field", None),
+    ("ventilation", "Ventilation Efficiency", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -628,9 +631,9 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
     # with honesty tooltip (analysis_set flag-only would be silent chrome).
     _ALWAYS_DISABLED = frozenset({
         "plant_canopy", "moving_body",
-        "artificial_light", "reaction", "ventilation", "fusion",
+        "artificial_light", "reaction", "fusion",
         "marangoni", "topology_opti", "aircon_model",
-        "current", "electrostatic", "pcm", "msc_cosim", "bci_rom",
+        "pcm", "msc_cosim", "bci_rom",
     })
     _DISABLED_TIP = (
         "Not supported in cabdecoding Condition Wizard "
@@ -3391,14 +3394,15 @@ class ConditionWizard(WizardBase):
 
         from cab_cwizard_pages import (
             _CwAnalysisControlHubPage, _CwConditionListPage,
-            _CwConfirmPage, _CwControlOptionPage, _CwDiffusionPage,
+            _CwConfirmPage, _CwControlOptionPage, _CwCurrentPage,
+            _CwDiffusionPage, _CwElectrostaticPage,
             _CwFilePage, _CwFixedPage,
             _CwHumidityPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
             _CwOutputLFilePage, _CwOutputSeriesPage, _CwParticlePage,
             _CwPorousPage,
             _CwRadiationGroupingPage, _CwSolarPage, _CwSolverPage,
             _CwSourcePage, _CwStabilizationPage, _CwSteadyPage,
-            _CwThermoregulationPage,
+            _CwThermoregulationPage, _CwVentilationPage,
         )
 
         self.p_analysis = _CwAnalysisTypesPage(model)
@@ -3412,6 +3416,9 @@ class ConditionWizard(WizardBase):
         self.p_diffusion = _CwDiffusionPage(model)
         self.p_particle = _CwParticlePage(model)
         self.p_jos = _CwThermoregulationPage(model)
+        self.p_current = _CwCurrentPage(model)
+        self.p_electrostatic = _CwElectrostaticPage(model)
+        self.p_ventilation = _CwVentilationPage(model)
         self.p_initial = _CwInitialPage(model)
         self.p_bc_flow = _CwFlowBoundaryPage(model)
         self.p_bc_wall = _CwWallBoundaryPage(model)
@@ -3441,7 +3448,9 @@ class ConditionWizard(WizardBase):
             "humidity": self.p_humidity, "solar": self.p_solar,
             "porous": self.p_porous,
             "diffusion": self.p_diffusion, "particle": self.p_particle,
-            "jos_model": self.p_jos,
+            "jos_model": self.p_jos, "current": self.p_current,
+            "electrostatic": self.p_electrostatic,
+            "ventilation": self.p_ventilation,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,

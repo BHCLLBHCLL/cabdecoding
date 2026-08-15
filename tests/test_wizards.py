@@ -265,3 +265,37 @@ def test_condition_wizard_diffusion_particle_jos_pages(pieces):
         page.apply()
         assert model.analysis_set_value(tag) == "0"
     w.close()
+
+
+def test_condition_wizard_current_electrostatic_ventilation_pages(pieces):
+    """P1-③: Electric / Electrostatic / Ventilation pages round-trip."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    for key in ("current", "electrostatic", "ventilation"):
+        assert w.p_analysis.types[key].isEnabled()
+    w.p_current.enable.setChecked(True)
+    w.p_current.conductivity.setValue(3.5e7)
+    w.p_current.apply()
+    assert model.analysis_set_value("current") == "1"
+    assert abs(float(model.project_value(
+        "current_conductivity", "0")) - 3.5e7) < 1.0
+    w.p_electrostatic.enable.setChecked(True)
+    w.p_electrostatic.permittivity.setValue(4.2)
+    w.p_electrostatic.apply()
+    assert model.analysis_set_value("electrostatic") == "1"
+    assert abs(float(model.project_value(
+        "electrostatic_permittivity", "0")) - 4.2) < 1e-9
+    w.p_ventilation.enable.setChecked(True)
+    w.p_ventilation.method.setCurrentIndex(2)
+    w.p_ventilation.apply()
+    assert model.analysis_set_value("ventilation") == "1"
+    assert model.project_value("ventilation_method", "") == \
+        "Contaminant removal efficiency"
+    for page, tag in ((w.p_current, "current"),
+                      (w.p_electrostatic, "electrostatic"),
+                      (w.p_ventilation, "ventilation")):
+        page.enable.setChecked(False)
+        page.apply()
+        assert model.analysis_set_value(tag) == "0"
+    w.close()

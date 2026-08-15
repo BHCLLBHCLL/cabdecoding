@@ -7034,3 +7034,140 @@ class _CwThermoregulationPage(QWidget if _HAS_GUI else object):
             "jos_model", "JOS_default",
             [("metabolic_rate", f"{self.metabolic.value():g}", "met"),
              ("clothing", f"{self.clothing.value():g}", "clo")])
+
+
+class _CwCurrentPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Electric current (Joule heating)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Electric current analysis (Joule heating). Enable syncs the "
+            "Analysis Types flag; the electrical conductivity is stored "
+            "as an analysis setting.", self))
+        g = QGroupBox("Electric current", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider electric current", g)
+        aset = (model.analysis_set_value("current", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("current_enable", "F") == "T")
+        self.conductivity = QDoubleSpinBox(g)
+        self.conductivity.setRange(1e-12, 1e9)
+        self.conductivity.setDecimals(6)
+        try:
+            self.conductivity.setValue(float(
+                model.project_value("current_conductivity", "5.8e7")))
+        except (TypeError, ValueError):
+            self.conductivity.setValue(5.8e7)
+        f.addRow(self.enable)
+        f.addRow("Electrical conductivity (S/m)", self.conductivity)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "current_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "current_conductivity", f"{self.conductivity.value():g}")
+        self.model.set_analysis_set_value("current", "1" if on else "0")
+        self.model.upsert_value(
+            "current", "Current_default",
+            [("conductivity", f"{self.conductivity.value():g}", "S/m")])
+
+
+class _CwElectrostaticPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Electrostatic field."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Electrostatic field analysis. Enable syncs the Analysis "
+            "Types flag; the relative permittivity is stored as an "
+            "analysis setting.", self))
+        g = QGroupBox("Electrostatic field", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider electrostatic field", g)
+        aset = (model.analysis_set_value("electrostatic", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("electrostatic_enable", "F") == "T")
+        self.permittivity = QDoubleSpinBox(g)
+        self.permittivity.setRange(1.0, 1e6)
+        self.permittivity.setDecimals(3)
+        try:
+            self.permittivity.setValue(float(
+                model.project_value("electrostatic_permittivity", "1.0")))
+        except (TypeError, ValueError):
+            self.permittivity.setValue(1.0)
+        f.addRow(self.enable)
+        f.addRow("Relative permittivity", self.permittivity)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "electrostatic_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "electrostatic_permittivity", f"{self.permittivity.value():g}")
+        self.model.set_analysis_set_value(
+            "electrostatic", "1" if on else "0")
+        self.model.upsert_value(
+            "electrostatic", "Electrostatic_default",
+            [("permittivity", f"{self.permittivity.value():g}", None)])
+
+
+class _CwVentilationPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Ventilation efficiency."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Ventilation efficiency analysis. Enable syncs the Analysis "
+            "Types flag; the evaluation method is stored as an analysis "
+            "setting.", self))
+        g = QGroupBox("Ventilation efficiency", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider ventilation efficiency", g)
+        aset = (model.analysis_set_value("ventilation", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("ventilation_enable", "F") == "T")
+        self.method = QComboBox(g)
+        self.method.addItems([
+            "Age of air", "Local air exchange efficiency",
+            "Contaminant removal efficiency"])
+        cur = model.project_value("ventilation_method", "Age of air")
+        i = self.method.findText(cur)
+        if i >= 0:
+            self.method.setCurrentIndex(i)
+        f.addRow(self.enable)
+        f.addRow("Evaluation method", self.method)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        method = self.method.currentText()
+        self.model.set_project_value(
+            "ventilation_enable", "T" if on else "F")
+        self.model.set_project_value("ventilation_method", method)
+        self.model.set_analysis_set_value(
+            "ventilation", "1" if on else "0")
+        self.model.upsert_value(
+            "ventilation", "Ventilation_default",
+            [("method", method, None)])
