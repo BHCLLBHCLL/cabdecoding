@@ -1801,6 +1801,29 @@ tessellation，属独立长期项。
   外区 [10,50] 几何级数、占用盒横跨全 θ。新增 `test_cylindrical_axes_radial_*` +
   `test_cylindrical_domain_radial_axes_and_full_theta_occupancy`（23 网格/占用测试绿）。
 
+**⑫ P1–P3 续（round 1–2，2026-08-15）**：
+
+- **P1-③ CW Solar radiation（启用，提交 `f4eae86`）**：新增 `_CwSolarPage`
+  （Location 纬度/经度/时区 + Date-Time + Absorptance），Analysis Types 勾选
+  解除禁用；CW 支持 7/25（禁用 16）。
+- **P2-⑥ Source volumetric 全量（`709f9a1`）**：新增 humidification / plant canopy /
+  driver(LES) 三种源条件，volumetric 集合与 STpre 对齐。
+- **P2-⑦ AC 单元类型变体 + diffuser 类型（`d2f2dcb`）**：AC 5 朝向 + diffuser
+  Anemostat/Linear 参数化；修复既有 `test_menus_other` part-kinds 失败。
+- **P2-⑧ Thermal Characteristics + Parametric Study 对话框（`4d753af`）**：
+  默认发射率 + 逐部件覆盖表（`default_rad_coefficient` / 部件 `emissivity`）；
+  参数名/值矩阵（`param_study_enable/param_names/param_values`）；挂进 Option 菜单。
+- **P3 S-File 结构校验（`4d753af`）**：`s_export.validate_sfile`（节存在性 /
+  SDAT 头计数 vs CXYZ 轴点数 / PARTS 盒越界 / GOGO）+ `SFileCheckDialog` 诊断面板；
+  `test_sfile_validate.py` 4 项。
+- **P1-⑤ FEM Conversion 深度（`453d6bd`）**：leave-edges / contact part 持久化
+  （`fem_leave_edges`/`fem_contact`）+ 打开回填；`test_fem_conversion_dialog`。
+- **P1-④ mesh→solid ABI 探测（`453d6bd`）**：`PK_MESH_create_from_facets` 实测
+  o_t_version=1/2 通过转换（0/3/4/5 → 5022），但回调未被调用、rc=5237——回调签名
+  或选项枚举仍需校准（V35 章 85.4 的 index-mesh 格式 + pskernel 0x369270 反汇编）；
+  `tools/mesh_probe*.py` 保留为下轮起点。
+- 全仓 **389 passed**（+7），1 失败 8 错误均为既有。
+
 ---
 
 ## 7. 关键接口设计（草案）
