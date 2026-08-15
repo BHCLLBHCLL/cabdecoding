@@ -95,6 +95,11 @@ def _clip_dedupe(vals: list[float], lo: float, hi: float,
         if v < lo - tol or v > hi + tol:
             continue
         vv = min(max(v, lo), hi)
+        # Snap to nanometre precision to absorb the ~1e-13 mm floating point
+        # noise a part transform (metres -> mm) leaves on vertex coordinates;
+        # without this, a nominal 2.5 mm segment becomes 2.49999999999998 and
+        # _trunc_round flips 3 -> 2 (off-by-one grid line vs STpre).
+        vv = round(vv, 9)
         if not out or vv - out[-1] > tol:
             out.append(vv)
     if not out or out[0] > lo + 1e-9:
@@ -136,7 +141,17 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
                 col = arr[:, ax_i]
                 vals.append(float(col.min()))
                 vals.append(float(col.max()))
-        if spec.vertex_detection in ("all", "representative"):
+        if spec.vertex_detection == "all":
+            # STpre "All vertices": every vertex of the triangle patches used
+            # for drawing (the tessellation), NOT the B-rep topology vertices.
+            # tr03 proves the distinction: the curved impeller's display mesh
+            # carries ~194 y / ~240 z distinct projections, far more than the
+            # 64/59 B-rep vertices, and only those reproduce STpre's counts.
+            for arr in part_points.values():
+                if arr is None or len(arr) == 0:
+                    continue
+                vals.extend(float(v) for v in arr[:, ax_i])
+        elif spec.vertex_detection == "representative":
             sources = vertices or part_points
             for arr in sources.values():
                 if arr is None or len(arr) == 0:
@@ -236,7 +251,8 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
                     part_side = b
                 axis_pts.extend(_stpre_external(
                     a, b, part_side, stds[i], r_ex[i], thrs[i]))
-        out[ax] = _clip_dedupe(axis_pts, rough[ax][0], rough[ax][-1])
+        out[ax] = _clip_dedupe(
+            axis_pts, rough[ax][0], rough[ax][-1], tol=max(thrs[i], 1e-9))
     return out
 
 
@@ -437,7 +453,14 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
     if getattr(spec, "domain_coordinate", "cartesian") == "cylindrical":
         return rough, _build_cylindrical_axes(
             rough, spec, part_bounds=part_bounds)
-    detailed = refine_grids(rough, spec, part_bounds=part_bounds)
+    if spec.vertex_detection == "uniform":
+        # STpre "uniform" ignores the part entirely: the whole domain is
+        # divided by the standard length (no internal/external split, no
+        # geometric ratio).  Pass no part_bounds so refine_grids treats
+        # every interval as internal.
+        detailed = refine_grids(rough, spec, part_bounds=None)
+    else:
+        detailed = refine_grids(rough, spec, part_bounds=part_bounds)
     return rough, detailed
 
 

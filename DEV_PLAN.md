@@ -1702,6 +1702,37 @@ arg2(RDX) 被用作循环计数（`sub rdx,1; jne` 复制 0x80 字节块），�
   `all` 顶点检测 refine 并非「内部等分 + 外部几何」的简单模型，z 轴碰巧对齐
   （121），x/y 差 7 需进一步反汇编 STpre 的 `all` 分支。当前已修丢线 bug，
   z 精确。
+
+**⑧ B5 根因再定位（2026-08-15，transform + 顶点来源 + uniform）**：
+
+- **transform 才是关键**：tr03 叶轮在 `tr03.xml` 里带
+  `<transform unit="m"> -0.0225,-0.0475,-0.0475 </transform>`，把局部几何
+  `[0,45]×[0,95]×[0.02,95]`（mm）平移到世界 `[-22.5,22.5]×[-47.5,47.5]×[-47.5,47.5]`。
+  此前对拍用**局部坐标**（part 在 `[0,45]`），得出「内部/外部边界在 22.5/43」等
+  错误结论；套 transform 后 STpre 的「右外区几何级数从 part max 起、左外区因
+  part 越界被 domain 裁剪掉」的简单模型**完全成立**（22.5=世界 part max、
+  47.5=世界 part max）。
+- **`all` 用三角形顶点、`representative` 用 B-rep 拓扑顶点**：手册
+  「All vertices (All vertices of triangle division for drawing)」即显示三角面片
+  顶点，**不是** B-rep 顶点。原 `rough_grids` 把两者都当成 B-rep 顶点，导致
+  `all` 网格线偏少。修复后 `all` 改走 `part_points`（tess）、`rep` 走
+  `part_vertices`（B-rep）。
+- **uniform 忽略部件**：`build_axes` 给 `uniform` 传 `part_bounds=None`，
+  否则单段被当成外部几何级数，x 轴只剩 18 点而非 91。修复后 uniform
+  `91×141×141` **精确对齐**。
+- **浮点噪声 snap**：米→毫米 transform 在顶点坐标上留 ~1e-13 噪声，使
+  名义 2.5mm 段变成 2.49999999999998，`_trunc_round(2.5)` 从 3 翻成 2。
+  `_clip_dedupe` 现 snap 到 9 位小数（nm），消除该 off-by-one。
+- **细化去重按 threshold**：`refine_grids` 末步 `_clip_dedupe` 之前用
+  tol=1e-9（不合并相邻<threshold 的顶点线），现改为 `tol=threshold`。
+
+对拍（套 transform 后，native vs STpre）：uniform `91×141×141` **精确**；
+minmax/axis_plane/not_considered `57×85×84 vs 57×85×85`（x/y 精确，z 差 1）；
+representative `57×91×88 vs 57×91×92`（x/y 精确，z 差 4）；`all`
+`57×133×144 vs 59×118×121`。剩余 z 差源于 STpre **内部显示 tess** 的 z 范围
+（47.465）与 pskernel `facet_body`（47.4756）约 0.01mm 的差异、以及 STpre 显示
+三角面顶点集与 pskernel facet_body 顶点集不同——`all` 精确计数需复刻 STpre 显示
+tessellation，属独立长期项。
 - **Simplify 出 x_t**：mesh→B-rep 是硬问题；`PK_BODY_make_facet_body` 是
   「body→facet」反向（非三角形→实体）；需逐三角形建平面 face + `PK_FACE_make_solid_bodies`
   + `PK_BODY_sew_bodies`（长期项）。Simplify 暂走 STL + 凸包兜底。

@@ -227,6 +227,38 @@ def test_inner_symmetric_ratio_matches_probe():
     assert g[1] > g[0] and g[2] > g[1]
 
 
+def test_uniform_mode_ignores_part_bounds():
+    """STpre \"uniform\" divides the whole domain by std and ignores the part.
+
+    part_bounds must NOT turn the single interval into an external geometric
+    region (which used to collapse the axis to ~18 points instead of 91).
+    """
+    spec = _spec(
+        domain_min=(-20.0, -20.0, -20.0), domain_max=(70.0, 120.0, 120.0),
+        vertex_detection="uniform", method="rough_and_detail",
+        standard_length=1.0, threshold_length=0.1,
+        geometric_ratio=1.0, geometric_ratio_external=1.2)
+    pts = {"p": np.array([[0., 0., 0.], [22.5, 47.5, 47.5]])}
+    lo = np.array([-22.5, -47.5, -47.5])
+    hi = np.array([22.5, 47.5, 47.5])
+    _, d = cab_grid.build_axes(pts, spec, part_bounds=(lo, hi))
+    assert len(d["x"]) == 91        # 90 cells
+    assert len(d["y"]) == 141       # 140 cells
+    assert len(d["z"]) == 141
+    np.testing.assert_allclose(np.diff(d["x"]), 1.0)
+
+
+def test_clip_dedupe_snaps_transform_noise():
+    """A metres->mm part transform leaves ~1e-13 FP noise; the snap keeps a
+    nominal 2.5 mm segment from flipping _trunc_round(2.5) 3 -> 2."""
+    vals = [-20.0, 20.000000000000004, 22.49999999999999, 70.0]
+    out = cab_grid._clip_dedupe(vals, -20.0, 70.0, tol=0.1)
+    assert 20.0 in out and 22.5 in out
+    # the snapped segment length is exactly 2.5 -> 3 intervals
+    import stpre_rules
+    assert stpre_rules._trunc_round(22.5 - 20.0) == 3
+
+
 def test_cylindrical_axes_layout():
     """P2: cylindrical domain stores x=R / y=theta / z=Z tables."""
     rough = {"x": [0.0, 50.0], "y": [0.0, 360.0], "z": [0.0, 100.0]}
@@ -247,16 +279,29 @@ def test_cylindrical_axes_layout():
     assert d["z"][0] == 0.0 and d["z"][-1] == 100.0
 
 
-def test_rough_grids_use_real_vertices():
+def test_rough_grids_representative_uses_real_vertices():
     pts = {"p": np.array([[0., 0., 0.], [10., 10., 10.]])}
     verts = {"p": np.array([[-5., 2., 3.], [7., 8., 9.]])}
-    spec = _spec(vertex_detection="all")
+    spec = _spec(vertex_detection="representative")
     rough = cab_grid.rough_grids(pts, spec, part_vertices=verts)
-    # vertices must appear even though the tessellation points do not contain
-    # the -5 / 7 coordinates
+    # B-rep topology vertices must appear even though the tessellation points
+    # do not contain the -5 / 7 coordinates.
     assert -5.0 in rough["x"]
     assert 7.0 in rough["x"]
     assert 2.0 in rough["y"] and 8.0 in rough["y"]
+
+
+def test_rough_grids_all_uses_tess_not_vertices():
+    # STpre "All vertices" = every triangle-patch vertex (the display mesh),
+    # NOT the B-rep topology vertices.  The B-rep vertex at -5 must be
+    # ignored by "all" while the tess point at 5 is kept.
+    pts = {"p": np.array([[0., 0., 0.], [5., 5., 5.], [10., 10., 10.]])}
+    verts = {"p": np.array([[-5., 2., 3.], [7., 8., 9.]])}
+    spec = _spec(vertex_detection="all")
+    rough = cab_grid.rough_grids(pts, spec, part_vertices=verts)
+    assert 5.0 in rough["x"]
+    assert -5.0 not in rough["x"]
+    assert 7.0 not in rough["x"]
 
 
 @pytest.fixture(scope="module")
