@@ -1645,6 +1645,21 @@ arg2(RDX) 被用作循环计数（`sub rdx,1; jne` 复制 0x80 字节块），�
 
 ---
 
+
+**④ 深入结论（第二轮）**：
+- Transform：反汇编确认签名 `(body, count, tolerance, options, transf, tracking)`
+  （arg2=count、arg3=XMM2 double、arg4=R9 ptr、arg5/arg6=stack ptr）。
+  置换探测：options 在 arg4 时版本被接受（5022→963），但 transf 在 arg5/arg6
+  均报 `PK_ERROR_bad_component`（perspective）——**即使单位阵也报**，说明矩阵读取
+  偏移/布局仍错，需反汇编函数体定位 transf 的 `movsd xmm,[reg+off]` 读取点。
+- Wrap/Simplify 出 x_t：`PK_FACE_make_solid_bodies` 接收的是**拓扑面 PK_FACE_t**（非三角形），
+  需逐三角形建平面 face（`PK_FACE_make_plane_face` 类）再 stitch/sew，是 mesh→B-rep 硬问题，
+  非单函数可解。
+- A4 模板 x_t 路径**不可行**：内核无 `PK_PART_add_bodies`/`PK_PART_set_bodies`，
+  `PK_PART_add_geoms` 仅构造几何；`PK_PART_receive` 造出的 part 无法挂载 body。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
