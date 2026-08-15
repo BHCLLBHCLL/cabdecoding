@@ -16,6 +16,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from cab_edit_ops import _ear_clip
+from cab_import import ImportedBody
 
 _PRODUCTS = {
     'IFCWALL', 'IFCWALLSTANDARDCASE', 'IFCSLAB', 'IFCCOLUMN', 'IFCBEAM',
@@ -34,7 +36,8 @@ class IfcSolid:
     matrix: tuple
     global_id: str = ''
     radius: float = 0.0      # circle-profile extrusions (mm)
-    kind: str = 'cube'       # cube | cylinder
+    kind: str = 'cube'       # cube | cylinder | polygon
+    points: tuple = ()       # polygon-profile footprint (mm, xy pairs)
 
 
 def _split_args(s: str) -> list:
@@ -256,6 +259,28 @@ def _extruded_boxes(stmts, repr_ids) -> list:
                     boxes.append({'kind': 'circle', 'radius': radius,
                                   'depth': depth, 'solid': sm})
                     continue
+                if pent == 'IFCARBITRARYCLOSEDPROFILEDEF' and pargs:
+                    # IFC2X3: (ProfileType, ProfileName, OuterCurve)
+                    cur_id = _ref_id(pargs[2] if len(pargs) > 2 else None)
+                    if cur_id is None:
+                        continue
+                    cent, cargs = stmts.get(cur_id, ('', []))
+                    if cent != 'IFCPOLYLINE' or not cargs:
+                        continue
+                    fp = []
+                    for pref in _iter_args(cargs[0]):
+                        pid2 = _ref_id(pref)
+                        if pid2 is None:
+                            continue
+                        _, ppargs = stmts.get(pid2, ('', []))
+                        if not ppargs:
+                            continue
+                        pt = _point_args(stmts, ppargs[0])
+                        fp.append((float(pt[0]), float(pt[1])))
+                    if len(fp) >= 3:
+                        boxes.append({'kind': 'polygon', 'points': fp,
+                                      'depth': depth, 'solid': sm})
+                    continue
                 if pent != 'IFCRECTANGLEPROFILEDEF' or len(pargs) < 5:
                     continue
                 px = py = 0.0
@@ -293,6 +318,20 @@ def parse_ifc(text: str) -> list:
             nm = name or (ent + str(pid))
             if len(boxes) > 1:
                 nm = nm + '_' + str(bi + 1)
+            if box.get('kind') == 'polygon':
+                fp_mm = [(x * 1000.0, y * 1000.0) for x, y in
+                         box['points']]
+                d = box['depth'] * 1000.0
+                xs = [x for x, _y in fp_mm]
+                ys = [_y for _x, _y in fp_mm]
+                o = m @ np.array([0.0, 0.0, 0.0, 1.0])
+                base = tuple(float(v) * 1000.0 for v in o[:3])
+                out.append(IfcSolid(
+                    name=nm, entity=ent, base=base,
+                    size=(max(xs) - min(xs), max(ys) - min(ys), d),
+                    matrix=mat, kind='polygon',
+                    points=tuple(fp_mm)))
+                continue
             if box.get('kind') == 'circle':
                 r = box['radius'] * 1000.0
                 d = box['depth'] * 1000.0
@@ -317,7 +356,42 @@ def import_ifc_path(path) -> list:
                                           errors='replace'))
 
 
-def register_ifc_parts(model, solids, kind_map=None) -> list:
+def _prism_stl_bytes(points_mm, depth_mm) -> bytes:
+    """Polyline footprint + depth -> text STL bytes (metres).
+
+    Ear-clips the footprint polygon and extrudes it into a closed
+    triangular prism (bottom + top fans + side quads).
+    """
+    fp = [np.array([x / 1000.0, y / 1000.0, 0.0]) for x, y in points_mm]
+    d = depth_mm / 1000.0
+    n = len(fp)
+    u = np.array([1.0, 0.0, 0.0])
+    v = np.array([0.0, 1.0, 0.0])
+    tris = _ear_clip(fp, u, v)
+    if not tris:
+        return b''
+    def facet(a, b, c):
+        return ('facet normal 0 0 0\n outer loop\n'
+                + ''.join(f'  vertex {q[0]:.12g} {q[1]:.12g} {q[2]:.12g}\n'
+                          for q in (a, b, c))
+                + ' endloop\nendfacet\n')
+    out = ['solid profile']
+    for i, j, k in tris:
+        out.append(facet(fp[i], fp[j], fp[k]))
+    for i, j, k in tris:
+        top = [np.array([q[0], q[1], d]) for q in fp]
+        out.append(facet(top[i], top[k], top[j]))
+    for i in range(n):
+        j = (i + 1) % n
+        a, b = fp[i], fp[j]
+        c, dd = np.array([a[0], a[1], d]), np.array([b[0], b[1], d])
+        out.append(facet(a, b, dd))
+        out.append(facet(a, dd, c))
+    out.append('endsolid profile')
+    return ('\n'.join(out) + '\n').encode('ascii')
+
+
+def register_ifc_parts(model, solids, kind_map=None, archive=None) -> list:
     from cab_parts import register_primitive
     km = kind_map or {}
     names = []
@@ -328,6 +402,28 @@ def register_ifc_parts(model, solids, kind_map=None) -> list:
         while model.find_part(name) is not None:
             name = s.name + '_' + str(i)
             i += 1
+        if s.kind == 'polygon' and archive is not None:
+            from cab_import import add_stl_member, register_parts
+            raw = _prism_stl_bytes(s.points, s.size[2])
+            if not raw:
+                continue
+            member = f'{name}.stl'
+            add_stl_member(archive, raw, name=member)
+            register_parts(model, [ImportedBody(name=name, tag=0,
+                                            tess=None)],
+                           kind='polygon',
+                           transform=tuple(float(v) for v in s.matrix))
+            from cabxml import _first, set_text
+            el = model.find_part(name)
+            if el is not None:
+                f = _first(el, 'file')
+                if f is None:
+                    import xml.etree.ElementTree as ET
+                    f = ET.SubElement(el, 'file')
+                    f.tail = '\n         '
+                set_text(f, member)
+            names.append(name)
+            continue
         params = {'base': s.base, 'size': s.size}
         if s.kind == 'cylinder':
             params = {'center': s.base, 'radius': s.radius,

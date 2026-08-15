@@ -4178,7 +4178,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 QMessageBox.warning(self, "Import",
                                     f"IFC parse failed: {exc}")
                 return
-            names = cab_ifc.register_ifc_parts(self.model, solids)
+            names = cab_ifc.register_ifc_parts(
+                self.model, solids, archive=self.archive)
             what = "IFC solid"
         else:
             import ecxml

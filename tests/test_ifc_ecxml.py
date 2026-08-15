@@ -270,3 +270,57 @@ def test_ifc_circle_profile_column():
     assert (_first(p, "radius").text or "").strip() == "500"
     assert (_first(p, "height").text or "").strip() == "3000"
     assert (_first(p, "direction").text or "").strip() == "+Z"
+
+
+SAMPLE_IFC_POLYGON = '''ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('p.ifc','2026-01-01T00:00:00',(''),(''),'x','x','');
+FILE_SCHEMA(('IFC2X3'));
+ENDSEC;
+DATA;
+#1=IFCCARTESIANPOINT((0.,0.,0.));
+#2=IFCDIRECTION((0.,0.,1.));
+#3=IFCDIRECTION((1.,0.,0.));
+#4=IFCAXIS2PLACEMENT3D(#1,#2,#3);
+#5=IFCLOCALPLACEMENT($,#4);
+#10=IFCCARTESIANPOINT((0.,0.));
+#11=IFCCARTESIANPOINT((2.,0.));
+#12=IFCCARTESIANPOINT((2.,1.));
+#13=IFCCARTESIANPOINT((1.,1.5));
+#14=IFCCARTESIANPOINT((0.,1.));
+#15=IFCPOLYLINE((#10,#11,#12,#13,#14));
+#16=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#15);
+#17=IFCEXTRUDEDAREASOLID(#16,#4,#2,0.5);
+#18=IFCSHAPEREPRESENTATION($,'Body','SweptSolid',(#17));
+#19=IFCPRODUCTDEFINITIONSHAPE($,$,(#18));
+#20=IFCSLAB('2O2Fr$t4X7Zf8NOew3FLOHV','Slab-Poly',$,#19,$,$,$,$,$);
+ENDSEC;
+END-ISO-10303-21;'''
+
+
+def test_ifc_polygon_profile_prism():
+    """P2-9: IFC arbitrary closed profile -> STL polygon prism part."""
+    from cab_container import CabArchive
+    solids = cab_ifc.parse_ifc(SAMPLE_IFC_POLYGON)
+    assert len(solids) == 1
+    s = solids[0]
+    assert s.kind == "polygon"
+    assert s.size[2] == pytest.approx(500.0)
+    m = _model()
+    arch = CabArchive()
+    names = cab_ifc.register_ifc_parts(m, solids, archive=arch)
+    assert names == ["Slab-Poly"]
+    from cabxml import _first
+    p = m.find_part("Slab-Poly")
+    assert p is not None
+    assert (p.attrib.get("type") or "") == "polygon" or         (_first(p, "file") is not None
+         and "Slab-Poly.stl" in (_first(p, "file").text or ""))
+    members = [mm.name for mm in arch.members]
+    assert "Slab-Poly.stl" in members
+    raw = next(mm.data for mm in arch.members
+               if mm.name == "Slab-Poly.stl")
+    txt = raw.decode("ascii", errors="replace")
+    assert "facet normal" in txt
+    assert sum(1 for ln in txt.splitlines()
+               if "facet normal" in ln) >= 6

@@ -37,8 +37,10 @@
 - 导出：`s_export.py`（S 文件）、`xemt_export.py`、MDL/DXF/OBJ（`cab_import._tris_to_*`）、
   **IFC2X3（墙/板/代理 + 相对布局）、ECXML**。
 - 差距：3DfindIT 为占位；IFC 圆形轮廓已支持（IFCCIRCLEPROFILEDEF →
-    cylinder 件：半径/高度/方向写回 + 变换矩阵，10 项测试）；多段线型材
-    （IFCARBITRARYCLOSEDPROFILEDEF）与 IFC4 进阶实体仍为简化路径。
+    cylinder 件：半径/高度/方向写回 + 变换矩阵）；多段线型材已支持
+    （IFCARBITRARYCLOSEDPROFILEDEF/IFCPOLYLINE → ear-clip 三角化棱柱 →
+    STL polygon 件 + 成员写回，凹多边形亦正确）；IFC4 进阶实体仍为
+    简化路径。
 
 ### 2. Part 创建 — ✅ 高（~90% 几何 / ~60% 专用件参数）
 
