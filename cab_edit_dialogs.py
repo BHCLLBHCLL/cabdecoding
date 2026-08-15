@@ -1439,25 +1439,69 @@ class FEMConversionDialog(_EditDlg):
         self.contact.addItems(_part_names(model))
         cl.addWidget(QLabel("Contacting Part", contact))
         cl.addWidget(self.contact, 1)
-        cl.addWidget(QPushButton("Execute", contact))
+        btn = QPushButton("Execute", contact)
+        btn.clicked.connect(self._contact_edges)
+        cl.addWidget(btn)
         self.body.addWidget(contact)
         self._root.addLayout(_bottom_buttons(self, (
             ("Execute", self._exec),
             ("Close", self.accept),
         )))
+        self._load()
+
+    def _load(self) -> None:
+        el = self.model.find_part(self.target.currentText())
+        if el is None:
+            return
+        try:
+            fes = _first(el, "fem_element_size")
+            self.elem_size.setValue(float(
+                (fes.text or "5").strip() if fes is not None else "5"))
+        except (AttributeError, TypeError, ValueError):
+            self.elem_size.setValue(5.0)
+        le = _first(el, "fem_leave_edges")
+        self.leave.setChecked(
+            le is not None and (le.text or "").strip().upper() in ("T", "1"))
+        ce = _first(el, "fem_contact")
+        if ce is not None and (ce.text or "").strip():
+            i = self.contact.findText(ce.text.strip())
+            if i >= 0:
+                self.contact.setCurrentIndex(i)
+
+    def _store_el(self, el, tag: str, value: str) -> None:
+        from cabxml import set_text
+        from xml.etree.ElementTree import SubElement
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = "\n         "
+        set_text(c, value)
+
+    def _contact_edges(self) -> None:
+        """Create edges where the target contacts the selected part."""
+        el = self.model.find_part(self.target.currentText())
+        if el is None:
+            return
+        other = self.contact.currentText()
+        if not other or other == self.target.currentText():
+            QMessageBox.warning(
+                self, "FEM Conversion", "Select a different contacting part.")
+            return
+        self._store_el(el, "fem_contact", other)
+        self.applied = True
+        QMessageBox.information(
+            self, "FEM Conversion",
+            "Contact edges registered: " + self.target.currentText()
+            + " <-> " + other + ".")
 
     def _exec(self) -> None:
         el = self.model.find_part(self.target.currentText())
         if el is None:
             return
         el.attrib["type"] = "fem"
-        from cabxml import set_text
-        from xml.etree.ElementTree import SubElement
-        c = _first(el, "fem_element_size")
-        if c is None:
-            c = SubElement(el, "fem_element_size")
-            c.tail = "\n         "
-        set_text(c, f"{self.elem_size.value():g}")
+        self._store_el(el, "fem_element_size", f"{self.elem_size.value():g}")
+        self._store_el(el, "fem_leave_edges",
+                       "T" if self.leave.isChecked() else "F")
         self.applied = True
         QMessageBox.information(self, "FEM Conversion",
                                 "FEM conversion finished.")

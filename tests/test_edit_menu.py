@@ -121,6 +121,36 @@ def test_mirror_copy_and_align_ops(qapp):
         model, "box_a", "box_b", "X", "Minimum", tess)
 
 
+def test_fem_conversion_dialog(qapp, monkeypatch):
+    """P1-⑤: FEM Conversion persists element size / leave edges / contact."""
+    import cab_edit_dialogs
+    from cabxml import _first
+    from PyQt5.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "information",
+                        staticmethod(lambda *a, **k: None))
+    monkeypatch.setattr(QMessageBox, "warning",
+                        staticmethod(lambda *a, **k: None))
+    viewer = _viewer(qapp)
+    model = viewer.model
+    model.add_part(name="fem_p")
+    dlg = cab_edit_dialogs.FEMConversionDialog(model)
+    dlg.target.setCurrentText("fem_p")
+    dlg.elem_size.setValue(2.5)
+    dlg.leave.setChecked(True)
+    dlg._exec()
+    el = model.find_part("fem_p")
+    assert el is not None and el.attrib.get("type") == "fem"
+    assert (_first(el, "fem_element_size").text or "").strip() == "2.5"
+    assert (_first(el, "fem_leave_edges").text or "").strip() == "T"
+    # reload restores the values
+    dlg2 = cab_edit_dialogs.FEMConversionDialog(model)
+    dlg2.target.setCurrentText("fem_p")
+    dlg2._load()
+    assert dlg2.elem_size.value() == pytest.approx(2.5)
+    assert dlg2.leave.isChecked()
+    viewer.close()
+
+
 def test_group_dialog_create_and_ungroup(qapp):
     import cab_edit_dialogs
     import cab_edit_ops as ops
