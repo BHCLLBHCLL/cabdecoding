@@ -143,6 +143,21 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
   "FacetParam::Get(0x36160) + ParasolidGW PKFaces_RenderV3 选项派生，"
   "拿到 STpre 精确 facet 参数（推测含 facet_plane_tol/min_facet_width/"
   "max_facet_width 组合，x=±20/3 平面正是宽度约束产物）。
+- MakeFacetParam(0x293C20) 解码（本轮）：new(0x30) + 从入参 6 double
+  结构拷贝 6 个容差，每个 ≤0 则钳为 -1.0（0xbff0000000000000，表示"默认/
+  自动"）；MakeFacet(0x293A20 包装 / 0x293D00 主体) 构建 PreBody——
+  PreFace(get_plane_type/get_facet/IndexedFaceSet::Mirror)、PreEdge(
+  PrePolyLine::MirrorLine)、PreVertex(TransformVector + Set)——即显示模型
+  由 面/边/顶点 三个 Pre 对象表组成，facet 网格本身来自 PreFace::
+  get_facet 的 IndexedFaceSet（导入时生成）。
+- 显示网格与工程设置无关（本轮实测）：project/precision 0..4 下
+  SaveStlFile 恒为 2206 三角、同样的 7 个 x 平面——网格在导入时一次性
+  生成，容差来源仍待追（MakeFacetParam 入参 6 double 的调用方）。
+- x=±6.667=±20/3 平面的几何签名：6.667/20=1/3=cos(70.53°)——四面体角！
+  叶片圆弧边按等参数采样且恰好含 ±70.53°（cos=±1/3），与 0°/±60° 系
+  （cos=±1/2 → x=±10，STpre 网格中无 x=±10 线）互斥 → STpre 曲线采样
+  规则为下一步突破口（反汇编 PreFace facet 生成 / IndexedFaceSet 构造
+  或 ParasolidGW 的曲线 tess 调用）。
 ### 2.4 内区划分
 
 - 相邻“特征平面”（顶点投影线或 AABB min/max）之间的区间按
