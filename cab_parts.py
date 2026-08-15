@@ -839,7 +839,8 @@ def _write_part_condition_xml(el, params: dict) -> None:
             "T" if params["output_only_shape"] else "F")
     # Thermal specialty
     for key in ("enclosure_mode", "peltier_current", "peltier_delta_t",
-                "peltier_hot_face", "rjc", "rjb", "package_power"):
+                "peltier_hot_face", "rjc", "rjb", "package_power",
+                "ac_type", "diffuser_type"):
         if key in params and params[key] not in (None, ""):
             val = params[key]
             if isinstance(val, (int, float)):
@@ -1465,6 +1466,26 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                               for a in "xyz"}
             self.cube_size = {f"size_{a}": self._spins[f"Size_{a}"]
                               for a in "xyz"}
+            if kind == "ac_unit":
+                trow = QFormLayout()
+                self.ac_type = QComboBox(self)
+                self.ac_type.addItems([
+                    "Ceiling cassette (4 directions)",
+                    "Ceiling cassette (2 directions)",
+                    "Wall-mount unit",
+                    "Portable unit",
+                    "Outdoor unit",
+                ])
+                trow.addRow("AC unit type", self.ac_type)
+                lay.addLayout(trow)
+            elif kind == "diffuser":
+                trow = QFormLayout()
+                self.diffuser_type = QComboBox(self)
+                self.diffuser_type.addItems([
+                    "Anemostat", "Linear diffuser",
+                ])
+                trow.addRow("Diffuser type", self.diffuser_type)
+                lay.addLayout(trow)
             if kind == "plate_fin":
                 self.fin_count = QSpinBox(self)
                 self.fin_count.setRange(1, 200)
@@ -1996,6 +2017,10 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                     params["pin_radius"] = self.pin_radius.value()
             if kind == "enclosure" and hasattr(self, "enclosure_mode"):
                 params["enclosure_mode"] = self.enclosure_mode.currentText()
+            if kind == "ac_unit" and hasattr(self, "ac_type"):
+                params["ac_type"] = self.ac_type.currentText()
+            if kind == "diffuser" and hasattr(self, "diffuser_type"):
+                params["diffuser_type"] = self.diffuser_type.currentText()
             if kind == "peltier":
                 if hasattr(self, "peltier_current"):
                     params["peltier_current"] = self.peltier_current.value()
