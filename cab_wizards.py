@@ -550,6 +550,7 @@ _CW_PAGES = [
     ("flow", "Flow", None),
     ("heat", "Heat", None),
     ("humidity", "Humidity", None),
+    ("solar", "Solar Radiation", None),
     ("porous", "Porous Media", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
@@ -623,7 +624,7 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
     # No dedicated Condition Wizard product page in cabdecoding — disabled
     # with honesty tooltip (analysis_set flag-only would be silent chrome).
     _ALWAYS_DISABLED = frozenset({
-        "jos_model", "plant_canopy", "moving_body", "sun_light",
+        "jos_model", "plant_canopy", "moving_body",
         "artificial_light", "reaction", "ventilation", "fusion",
         "marangoni", "topology_opti", "particle", "aircon_model",
         "current", "electrostatic", "pcm", "msc_cosim", "bci_rom",
@@ -3391,8 +3392,8 @@ class ConditionWizard(WizardBase):
             _CwConfirmPage, _CwControlOptionPage, _CwFilePage, _CwFixedPage,
             _CwHumidityPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
             _CwOutputLFilePage, _CwOutputSeriesPage, _CwPorousPage,
-            _CwRadiationGroupingPage, _CwSolverPage, _CwSourcePage,
-            _CwStabilizationPage, _CwSteadyPage,
+            _CwRadiationGroupingPage, _CwSolarPage, _CwSolverPage,
+            _CwSourcePage, _CwStabilizationPage, _CwSteadyPage,
         )
 
         self.p_analysis = _CwAnalysisTypesPage(model)
@@ -3401,6 +3402,7 @@ class ConditionWizard(WizardBase):
         self.p_flow = _CwFlowPage(model)
         self.p_heat = _CwHeatPage(model)
         self.p_humidity = _CwHumidityPage(model)
+        self.p_solar = _CwSolarPage(model)
         self.p_porous = _CwPorousPage(model)
         self.p_initial = _CwInitialPage(model)
         self.p_bc_flow = _CwFlowBoundaryPage(model)
@@ -3428,7 +3430,8 @@ class ConditionWizard(WizardBase):
             "analysis": self.p_analysis, "basic": self.p_basic,
             "fluid": self.p_fluid, "flow": self.p_flow,
             "heat": self.p_heat,
-            "humidity": self.p_humidity, "porous": self.p_porous,
+            "humidity": self.p_humidity, "solar": self.p_solar,
+            "porous": self.p_porous,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,

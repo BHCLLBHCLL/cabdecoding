@@ -176,6 +176,40 @@ def test_condition_wizard_bc_dialogs(pieces):
     w.close()
 
 
+def test_condition_wizard_solar_page(pieces):
+    """P1-③: Solar radiation page enables the analysis flag and stores
+    location / date-time / absorptance."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    assert "solar" in w._items
+    # the Analysis Types checkbox is no longer disabled
+    assert w.p_analysis.types["sun_light"].isEnabled()
+    w.p_analysis.types["sun_light"].setChecked(True)
+    w.p_solar.enable.setChecked(True)
+    w.p_solar.lat.setValue(35.5)
+    w.p_solar.lon.setValue(139.7)
+    w.p_solar.tz.setValue(9)
+    w.p_solar.month.setValue(8)
+    w.p_solar.day.setValue(15)
+    w.p_solar.hour.setValue(13)
+    w.p_solar.absorptance.setValue(0.75)
+    w.p_solar.apply()
+    assert model.analysis_set_value("solar") == "1"
+    assert model.analysis_set_value("solar_latitude") == "35.5"
+    assert model.analysis_set_value("solar_longitude") == "139.7"
+    assert model.analysis_set_value("solar_timezone") == "9"
+    assert model.analysis_set_value("solar_month") == "8"
+    assert model.analysis_set_value("solar_day") == "15"
+    assert model.analysis_set_value("solar_hour") == "13"
+    assert model.analysis_set_value("solar_absorptance") == "0.75"
+    # disabling clears the flag
+    w.p_solar.enable.setChecked(False)
+    w.p_solar.apply()
+    assert model.analysis_set_value("solar") == "0"
+    w.close()
+
+
 def test_condition_wizard_cancel_restores(pieces):
     import cab_wizards
     archive, model, props, viewer = pieces

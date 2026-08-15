@@ -6326,6 +6326,111 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
             walk(self.tree.topLevelItem(i))
         return names
 
+class _CwSolarPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard — Solar Radiation (Location / Date-Time / Absorptance).
+
+    Enables the Analysis Types "Solar radiation" flag and stores the
+    location (latitude/longitude/timezone), date-time and the default
+    absorptance (emissivity) as analysis_set values so they persist in
+    the cab and round-trip.
+    """
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Solar radiation analysis options. Enable syncs the Analysis "
+            "Types flag; the location, date/time and absorptance are "
+            "stored as analysis settings.", self))
+        g = QGroupBox("Solar radiation", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider solar radiation", g)
+        aset = (model.analysis_set_value("solar", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(False)
+        f.addRow(self.enable)
+        loc = QGroupBox("Location", g)
+        locl = QFormLayout(loc)
+        self.lat = QDoubleSpinBox(loc)
+        self.lat.setRange(-90.0, 90.0)
+        self.lat.setDecimals(4)
+        self.lon = QDoubleSpinBox(loc)
+        self.lon.setRange(-180.0, 180.0)
+        self.lon.setDecimals(4)
+        self.tz = QSpinBox(loc)
+        self.tz.setRange(-12, 14)
+        for name, w, default in (
+                ("solar_latitude", self.lat, 35.0),
+                ("solar_longitude", self.lon, 135.0),
+                ("solar_timezone", self.tz, 9)):
+            try:
+                w.setValue(float(model.analysis_set_value(
+                    name, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        locl.addRow("Latitude (deg)", self.lat)
+        locl.addRow("Longitude (deg)", self.lon)
+        locl.addRow("Time zone (UTC offset)", self.tz)
+        f.addRow(loc)
+        dt = QGroupBox("Date and time", g)
+        dtl = QHBoxLayout(dt)
+        self.month = QSpinBox(dt)
+        self.month.setRange(1, 12)
+        self.day = QSpinBox(dt)
+        self.day.setRange(1, 31)
+        self.hour = QSpinBox(dt)
+        self.hour.setRange(0, 23)
+        for name, w, default in (
+                ("solar_month", self.month, 8),
+                ("solar_day", self.day, 1),
+                ("solar_hour", self.hour, 12)):
+            try:
+                w.setValue(int(float(model.analysis_set_value(
+                    name, str(default)))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        dtl.addWidget(QLabel("Month", dt))
+        dtl.addWidget(self.month)
+        dtl.addWidget(QLabel("Day", dt))
+        dtl.addWidget(self.day)
+        dtl.addWidget(QLabel("Hour", dt))
+        dtl.addWidget(self.hour)
+        dtl.addStretch(1)
+        f.addRow(dt)
+        self.absorptance = QDoubleSpinBox(g)
+        self.absorptance.setRange(0.0, 1.0)
+        self.absorptance.setDecimals(3)
+        try:
+            self.absorptance.setValue(float(model.analysis_set_value(
+                "solar_absorptance", "0.8")))
+        except (TypeError, ValueError):
+            self.absorptance.setValue(0.8)
+        f.addRow("Default absorptance", self.absorptance)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_analysis_set_value("solar", "1" if on else "0")
+        if on:
+            self.model.set_analysis_set_value(
+                "solar_latitude", f"{self.lat.value():g}")
+            self.model.set_analysis_set_value(
+                "solar_longitude", f"{self.lon.value():g}")
+            self.model.set_analysis_set_value(
+                "solar_timezone", str(self.tz.value()))
+            self.model.set_analysis_set_value(
+                "solar_month", str(self.month.value()))
+            self.model.set_analysis_set_value(
+                "solar_day", str(self.day.value()))
+            self.model.set_analysis_set_value(
+                "solar_hour", str(self.hour.value()))
+            self.model.set_analysis_set_value(
+                "solar_absorptance", f"{self.absorptance.value():g}")
+
     def _file_save(self) -> None:
         import xml.etree.ElementTree as ET
         names = self._checked_value_names()

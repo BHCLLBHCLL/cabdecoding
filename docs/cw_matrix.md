@@ -22,7 +22,7 @@
 | Plant canopy | plant_canopy | 禁用 | 无产品页 |
 | Moving object | moving_body | 禁用 | 无产品页 |
 | Thermoregulation model | jos_model | 禁用 | 无产品页 |
-| Solar radiation | sun_light | 禁用 | 无产品页 |
+| Solar radiation | sun_light | 支持 | 2026-08-15 新增产品页（Location/Date-Time/Absorptance） |
 | Lamp | artificial_light | 禁用 | 无产品页 |
 | Reaction | reaction | 禁用 | 无产品页 |
 | Ventilation efficiency | ventilation | 禁用 | 无产品页 |
@@ -37,7 +37,7 @@
 | MSC CoSim | msc_cosim | 禁用 | 无产品页 |
 | BCI-ROM | bci_rom | 禁用 | 无产品页 |
 
-统计：支持 6（含 Flow）/ 禁用(待 FS) 2 / 禁用 18。
+统计：支持 7（含 Flow）/ 禁用(待 FS) 2 / 禁用 17。
 
 ## 2. Source Condition 值类型（子集）
 
