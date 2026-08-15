@@ -83,8 +83,20 @@ def test_boolean_mesh_parts_real_xt_bodies():
         archive=arch)
     assert out is not None and out[1] == "pk"
     assert any(p.name == out[0] for p in model.parts())
-    # pskernel here cannot PK_PART_transmit -> faceted result persists as STL
-    assert any(m.name == f"{out[0]}.stl" for m in arch.members)
+    # The boolean product persists as a real x_t member when
+    # PK_PART_transmit succeeds (classic pipeline); the faceted STL
+    # fallback is accepted for bodies the kernel refuses to transmit.
+    assert any(m.name in (f"{out[0]}.x_t", f"{out[0]}.stl")
+               for m in arch.members)
+    # The new part references its geometry member and body_files lists it.
+    from cabxml import _first
+    part = next(p for p in model.parts() if p.name == out[0])
+    f = _first(part.elem, "file")
+    assert f is not None and (f.text or "").strip()
+    ref = (f.text or "").strip()
+    assert any(m.name == ref for m in arch.members)
+    if ref.endswith(".x_t"):
+        assert ref in model.body_files()
 
 
 def test_boolean_mesh_parts_prefers_pk():

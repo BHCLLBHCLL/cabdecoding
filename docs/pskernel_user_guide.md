@@ -283,6 +283,17 @@ facet2 失败（无表）时走 GO 路径：PK_TOPOL_render_facet 通过 GOSGMT 
 面数 >200 时退回普通 facet_2 防崩溃。
 ---
 
+## 6.9 Blend（倒圆/倒角）ABI 未解（2026-08-15 实测记录）
+
+PK_EDGE_set_blend_constant / PK_EDGE_set_blend_chamfer（pskernel V37，
+Cradle 2025.2）在 box body 上以全部尝试签名调用均访问违例：
+- (edge, double)、(edge, PK_BLEND_radius_t*{double})、(edge, double*)、
+  (PK_EDGE_t*, double)——均读 0xFFFFFFFFFFFFFFFF（chamfer 读 0x50），
+  疑似 V37 改用选项结构或需要 blend 会话配置；
+- 会话 check_arguments 关闭后依旧硬崩溃（非参数校验报错）。
+下一步：V37 blend 选项结构布局（PK_EDGE_set_blends / blend_o_t）或改用
+PK_FACE_make_blend 路径；blend 家族暂列"可挖未封装"。
+
 ## 7. 可挖掘函数清单（1204 个 PK_* 导出按类别）
 
 > 加粗 = 本仓已封装/使用；其余为可继续挖掘的候选。完整清单见
