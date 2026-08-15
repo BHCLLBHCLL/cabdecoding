@@ -299,3 +299,45 @@ def test_condition_wizard_current_electrostatic_ventilation_pages(pieces):
         page.apply()
         assert model.analysis_set_value(tag) == "0"
     w.close()
+
+
+def test_condition_wizard_reaction_fusion_lamp_pcm_pages(pieces):
+    """P1-③: Reaction / Solidification / Lamp / PCM pages round-trip."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    for key in ("reaction", "fusion", "artificial_light", "pcm"):
+        assert w.p_analysis.types[key].isEnabled()
+    w.p_reaction.enable.setChecked(True)
+    w.p_reaction.mode.setCurrentIndex(1)
+    w.p_reaction.rate.setValue(0.5)
+    w.p_reaction.apply()
+    assert model.analysis_set_value("reaction") == "1"
+    assert model.project_value("reaction_mode", "") == "Multi-step reaction"
+    w.p_fusion.enable.setChecked(True)
+    w.p_fusion.solidus.setValue(-0.5)
+    w.p_fusion.liquidus.setValue(0.5)
+    w.p_fusion.latent.setValue(334000.0)
+    w.p_fusion.apply()
+    assert model.analysis_set_value("fusion") == "1"
+    assert abs(float(model.project_value(
+        "fusion_latent_heat", "0")) - 334000.0) < 1.0
+    w.p_lamp.enable.setChecked(True)
+    w.p_lamp.model_type.setCurrentIndex(2)
+    w.p_lamp.flux.setValue(1500.0)
+    w.p_lamp.apply()
+    assert model.analysis_set_value("artificial_light") == "1"
+    assert model.project_value("lamp_model", "") == "Area source"
+    w.p_pcm.enable.setChecked(True)
+    w.p_pcm.melting.setValue(28.0)
+    w.p_pcm.latent.setValue(200000.0)
+    w.p_pcm.apply()
+    assert model.analysis_set_value("pcm") == "1"
+    assert abs(float(model.project_value(
+        "pcm_latent_heat", "0")) - 200000.0) < 1.0
+    for page, tag in ((w.p_reaction, "reaction"), (w.p_fusion, "fusion"),
+                      (w.p_lamp, "artificial_light"), (w.p_pcm, "pcm")):
+        page.enable.setChecked(False)
+        page.apply()
+        assert model.analysis_set_value(tag) == "0"
+    w.close()

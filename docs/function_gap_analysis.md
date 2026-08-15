@@ -83,14 +83,13 @@
 - **差距**：`all` 模式精确计数需复刻 STpre 显示 tessellation；圆柱/轴向域网格为
   笛卡尔 AABB 近似；Element cross-section / Checking S-File 为浅实现。
 
-### 5. Condition Wizard — ⚠️ 中-高（~65%）
+### 5. Condition Wizard — ✅ 中-高（~75%）
 
-- 26 页框架 + Analysis Types 25 项。**支持 13**（Flow/Heat/Humidity/Porous/
+- 26 页框架 + Analysis Types 25 项。**支持 17**（Flow/Heat/Humidity/Porous/
   Radiation/Free surface/Solar/Diffusion/Particle/Thermoregulation(JOS)/
-  Electric current/Electrostatic/Ventilation efficiency；
+  Electric current/Electrostatic/Ventilation/Reaction/Solidification/Lamp/PCM；
   各页均含产品页 + 分析标志 + 参数写回），**禁用待 FS 2**（Evaporation/Boil），
-  **禁用 11**（Plant/Moving/Lamp/Reaction/Solidification/Marangoni/Topology/
-  Aircon/PCM/MSC CoSim/BCI-ROM）。
+  **禁用 7**（Plant/Moving/Marangoni/Topology/Aircon/MSC CoSim/BCI-ROM）。
 - 已实现深度写回：Source（Volumetric/Area/Perforated + 面创建/多选）、Humidity、
   Porous、Radiation Grouping、Initial、Boundary（Flow/Wall/Thermal/Symmetry/Humidity/
   Mass Transfer）、Analysis Control、Output、File、Condition List。
@@ -144,8 +143,8 @@
 
 ### P1 — 高价值功能缺失
 3. **Condition Wizard 高级物理**（已完成 Solar/Diffusion/Particle/Thermoregulation/
-   Electric/Electrostatic/Ventilation 产品页；剩余 Reaction/Moving/Solidification/
-   MSC CoSim/BCI-ROM/Topology/PCM/Aircon/Lamp/Marangoni/Plant 11 项）。
+   Electric/Electrostatic/Ventilation/Reaction/Solidification/Lamp/PCM 产品页；
+   剩余 Moving/Marangoni/Topology/Aircon/MSC CoSim/BCI-ROM/Plant 7 项）。
 4. ~~**mesh→B-rep 出 x_t**~~ **已完成（2026-08-15 后）**：经典 PK 管线
    （plane/bcurve/spcurve 裁剪片体 + sew + make_solid_bodies），见 §3 与
    `cab_ps_ops.triangles_to_brep`。

@@ -558,6 +558,10 @@ _CW_PAGES = [
     ("current", "Electric Current", None),
     ("electrostatic", "Electrostatic Field", None),
     ("ventilation", "Ventilation Efficiency", None),
+    ("reaction", "Reaction", None),
+    ("fusion", "Solidification/Melting", None),
+    ("artificial_light", "Lamp", None),
+    ("pcm", "Phase Change Material", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -631,9 +635,8 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
     # with honesty tooltip (analysis_set flag-only would be silent chrome).
     _ALWAYS_DISABLED = frozenset({
         "plant_canopy", "moving_body",
-        "artificial_light", "reaction", "fusion",
         "marangoni", "topology_opti", "aircon_model",
-        "pcm", "msc_cosim", "bci_rom",
+        "msc_cosim", "bci_rom",
     })
     _DISABLED_TIP = (
         "Not supported in cabdecoding Condition Wizard "
@@ -3396,10 +3399,11 @@ class ConditionWizard(WizardBase):
             _CwAnalysisControlHubPage, _CwConditionListPage,
             _CwConfirmPage, _CwControlOptionPage, _CwCurrentPage,
             _CwDiffusionPage, _CwElectrostaticPage,
-            _CwFilePage, _CwFixedPage,
-            _CwHumidityPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
+            _CwFilePage, _CwFixedPage, _CwFusionPage,
+            _CwHumidityPage, _CwLampPage, _CwOutputFieldPage,
+            _CwOutputHeatPathPage,
             _CwOutputLFilePage, _CwOutputSeriesPage, _CwParticlePage,
-            _CwPorousPage,
+            _CwPcmPage, _CwPorousPage, _CwReactionPage,
             _CwRadiationGroupingPage, _CwSolarPage, _CwSolverPage,
             _CwSourcePage, _CwStabilizationPage, _CwSteadyPage,
             _CwThermoregulationPage, _CwVentilationPage,
@@ -3419,6 +3423,10 @@ class ConditionWizard(WizardBase):
         self.p_current = _CwCurrentPage(model)
         self.p_electrostatic = _CwElectrostaticPage(model)
         self.p_ventilation = _CwVentilationPage(model)
+        self.p_reaction = _CwReactionPage(model)
+        self.p_fusion = _CwFusionPage(model)
+        self.p_lamp = _CwLampPage(model)
+        self.p_pcm = _CwPcmPage(model)
         self.p_initial = _CwInitialPage(model)
         self.p_bc_flow = _CwFlowBoundaryPage(model)
         self.p_bc_wall = _CwWallBoundaryPage(model)
@@ -3451,6 +3459,8 @@ class ConditionWizard(WizardBase):
             "jos_model": self.p_jos, "current": self.p_current,
             "electrostatic": self.p_electrostatic,
             "ventilation": self.p_ventilation,
+            "reaction": self.p_reaction, "fusion": self.p_fusion,
+            "artificial_light": self.p_lamp, "pcm": self.p_pcm,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,

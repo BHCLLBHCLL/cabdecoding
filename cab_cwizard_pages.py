@@ -7171,3 +7171,229 @@ class _CwVentilationPage(QWidget if _HAS_GUI else object):
         self.model.upsert_value(
             "ventilation", "Ventilation_default",
             [("method", method, None)])
+
+
+class _CwReactionPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Reaction (chemical species reaction)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Reaction analysis. Enable syncs the Analysis Types flag; "
+            "the reaction mode and rate are stored as analysis settings.",
+            self))
+        g = QGroupBox("Reaction", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider reaction", g)
+        aset = (model.analysis_set_value("reaction", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("reaction_enable", "F") == "T")
+        self.mode = QComboBox(g)
+        self.mode.addItems(["Single-step reaction", "Multi-step reaction"])
+        cur = model.project_value("reaction_mode", "Single-step reaction")
+        i = self.mode.findText(cur)
+        if i >= 0:
+            self.mode.setCurrentIndex(i)
+        self.rate = QDoubleSpinBox(g)
+        self.rate.setRange(0.0, 1e12)
+        self.rate.setDecimals(6)
+        try:
+            self.rate.setValue(float(model.project_value("reaction_rate", "0")))
+        except (TypeError, ValueError):
+            self.rate.setValue(0.0)
+        f.addRow(self.enable)
+        f.addRow("Reaction mode", self.mode)
+        f.addRow("Reaction rate (1/s)", self.rate)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        mode = self.mode.currentText()
+        self.model.set_project_value(
+            "reaction_enable", "T" if on else "F")
+        self.model.set_project_value("reaction_mode", mode)
+        self.model.set_project_value(
+            "reaction_rate", f"{self.rate.value():g}")
+        self.model.set_analysis_set_value("reaction", "1" if on else "0")
+        self.model.upsert_value(
+            "reaction", "Reaction_default",
+            [("reaction_mode", mode, None),
+             ("reaction_rate", f"{self.rate.value():g}", "1/s")])
+
+
+class _CwFusionPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Solidification/melting."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Solidification/melting analysis. Enable syncs the Analysis "
+            "Types flag; solidus/liquidus temperature and latent heat are "
+            "stored as analysis settings.", self))
+        g = QGroupBox("Solidification/melting", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider solidification/melting", g)
+        aset = (model.analysis_set_value("fusion", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("fusion_enable", "F") == "T")
+        self.solidus = QDoubleSpinBox(g)
+        self.solidus.setRange(-273.15, 10000.0)
+        self.solidus.setDecimals(2)
+        self.liquidus = QDoubleSpinBox(g)
+        self.liquidus.setRange(-273.15, 10000.0)
+        self.liquidus.setDecimals(2)
+        self.latent = QDoubleSpinBox(g)
+        self.latent.setRange(0.0, 1e9)
+        self.latent.setDecimals(2)
+        for name, w, default in (
+                ("fusion_solidus", self.solidus, 0.0),
+                ("fusion_liquidus", self.liquidus, 0.0),
+                ("fusion_latent_heat", self.latent, 334000.0)):
+            try:
+                w.setValue(float(model.project_value(name, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        f.addRow(self.enable)
+        f.addRow("Solidus temperature (C)", self.solidus)
+        f.addRow("Liquidus temperature (C)", self.liquidus)
+        f.addRow("Latent heat (J/kg)", self.latent)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "fusion_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "fusion_solidus", f"{self.solidus.value():g}")
+        self.model.set_project_value(
+            "fusion_liquidus", f"{self.liquidus.value():g}")
+        self.model.set_project_value(
+            "fusion_latent_heat", f"{self.latent.value():g}")
+        self.model.set_analysis_set_value("fusion", "1" if on else "0")
+        self.model.upsert_value(
+            "fusion", "Fusion_default",
+            [("solidus", f"{self.solidus.value():g}", "C"),
+             ("liquidus", f"{self.liquidus.value():g}", "C"),
+             ("latent_heat", f"{self.latent.value():g}", "J/kg")])
+
+
+class _CwLampPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Lamp (artificial light heat source)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Lamp (artificial light) analysis. Enable syncs the Analysis "
+            "Types flag; the lamp model and luminous flux are stored as "
+            "analysis settings.", self))
+        g = QGroupBox("Lamp", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider lamp", g)
+        aset = (model.analysis_set_value("artificial_light", "")
+                or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("lamp_enable", "F") == "T")
+        self.model_type = QComboBox(g)
+        self.model_type.addItems([
+            "Point source", "Line source", "Area source"])
+        cur = model.project_value("lamp_model", "Point source")
+        i = self.model_type.findText(cur)
+        if i >= 0:
+            self.model_type.setCurrentIndex(i)
+        self.flux = QDoubleSpinBox(g)
+        self.flux.setRange(0.0, 1e9)
+        self.flux.setDecimals(2)
+        try:
+            self.flux.setValue(float(model.project_value("lamp_flux", "0")))
+        except (TypeError, ValueError):
+            self.flux.setValue(0.0)
+        f.addRow(self.enable)
+        f.addRow("Lamp model", self.model_type)
+        f.addRow("Luminous flux (lm)", self.flux)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        mtype = self.model_type.currentText()
+        self.model.set_project_value(
+            "lamp_enable", "T" if on else "F")
+        self.model.set_project_value("lamp_model", mtype)
+        self.model.set_project_value("lamp_flux", f"{self.flux.value():g}")
+        self.model.set_analysis_set_value(
+            "artificial_light", "1" if on else "0")
+        self.model.upsert_value(
+            "artificial_light", "Lamp_default",
+            [("lamp_model", mtype, None),
+             ("lamp_flux", f"{self.flux.value():g}", "lm")])
+
+
+class _CwPcmPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Phase change material."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Phase change material analysis. Enable syncs the Analysis "
+            "Types flag; the melting temperature and latent heat are "
+            "stored as analysis settings.", self))
+        g = QGroupBox("Phase change material", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider phase change material", g)
+        aset = (model.analysis_set_value("pcm", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("pcm_enable", "F") == "T")
+        self.melting = QDoubleSpinBox(g)
+        self.melting.setRange(-273.15, 10000.0)
+        self.melting.setDecimals(2)
+        self.latent = QDoubleSpinBox(g)
+        self.latent.setRange(0.0, 1e9)
+        self.latent.setDecimals(2)
+        for name, w, default in (
+                ("pcm_melting_temp", self.melting, 28.0),
+                ("pcm_latent_heat", self.latent, 200000.0)):
+            try:
+                w.setValue(float(model.project_value(name, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        f.addRow(self.enable)
+        f.addRow("Melting temperature (C)", self.melting)
+        f.addRow("Latent heat (J/kg)", self.latent)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "pcm_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "pcm_melting_temp", f"{self.melting.value():g}")
+        self.model.set_project_value(
+            "pcm_latent_heat", f"{self.latent.value():g}")
+        self.model.set_analysis_set_value("pcm", "1" if on else "0")
+        self.model.upsert_value(
+            "pcm", "PCM_default",
+            [("melting_temp", f"{self.melting.value():g}", "C"),
+             ("latent_heat", f"{self.latent.value():g}", "J/kg")])
