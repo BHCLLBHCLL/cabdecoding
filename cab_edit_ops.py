@@ -1386,13 +1386,13 @@ def cut_part_by_plane_pk(model: StpreModel, archive, cad_meshes, name: str,
     """A3/A4: PK-level plane cut of a part, registered as two new parts.
 
     ``origin_m``/``normal`` are in the body's **local** coordinates.  The two
-    halves are real B-rep bodies (``PK_BODY_boolean_2``) and are registered via
-    ``register_tess_part`` (STL member + polygon part) because this kernel
-    cannot x_t-transmit standalone boolean bodies (see
-    ``cab_ps_ops.transmit_parts``).  Returns the two new part names.
+    halves are real B-rep bodies (``PK_BODY_boolean_2``) and are transmitted to
+    real ``.x_t`` members (``PK_PART_transmit``), falling back to the STL +
+    polygon-part path only when transmit fails.  Returns the two new names.
     """
     import cab_ps_ops
     import ps_facet2_nodes as _ps
+    from xml.etree.ElementTree import SubElement
     if archive is None or not cab_ps_ops.available():
         return None
     tag, _ = _find_body_tags(model, archive, name, "")
@@ -1409,8 +1409,38 @@ def cut_part_by_plane_pk(model: StpreModel, archive, cad_meshes, name: str,
         if tess is None or not getattr(tess, "triangles", None).size:
             continue
         new_name = unique_part_name(model, f"{base}_{prefix}")
-        if register_tess_part(model, cad_meshes, archive, new_name, tess):
-            created.append(new_name)
+        try:
+            xt = cab_ps_ops.transmit_parts([btag])
+        except Exception:
+            xt = None
+        if xt:
+            el = model.add_part(name=new_name, kind="body",
+                                attribute="solid", file_ref="x_t")
+            if el is not None:
+                tess.name = new_name
+                pts = np.asarray(tess.points, dtype=np.float64)
+                lo, hi = pts.min(0) * 1000.0, pts.max(0) * 1000.0
+                for t, v in (("base", ",".join(f"{x:.17g}" for x in lo)),
+                             ("size", ",".join(f"{x:.17g}" for x in (hi - lo))),
+                             ):
+                    c = _first(el, t)
+                    if c is None:
+                        c = SubElement(el, t)
+                        c.tail = "\n         "
+                    set_text(c, v)
+                import cab_import
+                member_name = f"{new_name}.x_t"
+                cab_import.add_xt_member(archive, xt, name=member_name)
+                model.add_body_file(member_name, unit="m")
+                f_el = _first(el, "file")
+                if f_el is not None:
+                    set_text(f_el, member_name)
+                if cad_meshes is not None:
+                    cad_meshes.append(tess)
+                created.append(new_name)
+        else:
+            if register_tess_part(model, cad_meshes, archive, new_name, tess):
+                created.append(new_name)
     if created:
         model.delete_part(name)
     return created or None
