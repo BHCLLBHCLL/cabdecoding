@@ -611,10 +611,12 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         self.refresh()
 
     def _new_vol_heat(self) -> None:
+        # STpre SetHeatSource unit set (Doc class manual): W, W/m3,
+        # Kcal/h, Kcal/h/m3, W/m2.
         res = self._dlg_name_value(
             "Condition (Volumetric Heat Source)", "HeatSource1",
             [("Heat source", "W", 0.0, "q")],
-            unit_choices=["W", "W/m3"])
+            unit_choices=["W", "W/m3", "Kcal/h", "Kcal/h/m3", "W/m2"])
         if res is None:
             return
         name, vals, unit = res
