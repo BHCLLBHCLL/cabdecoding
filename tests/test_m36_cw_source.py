@@ -118,3 +118,35 @@ def test_source_writeback_s_export_consistency(qapp):
     text = s_export.build_sdat(m, props)
     assert "HeatSource1" in text
     assert "source" in text.lower()
+
+
+def test_source_time_series_roundtrip(qapp):
+    """P2: time-series volumetric source persists and lists under its group."""
+    from cab_cwizard_pages import _CwConditionListPage
+    m = _model()
+    m.upsert_value("time_series", "TS1", [
+        ("data", "0:0;1:5;2:10", None),
+    ])
+    m.bind_condition("analysis", m.domain_name() or "Domain(cuboid)",
+                     "TS1")
+    v = m.find_value("TS1")
+    assert v is not None and v.attrib.get("type") == "time_series"
+    from cabxml import _first
+    assert (_first(v, "data").text or "").strip() == "0:0;1:5;2:10"
+    # serialize round-trip keeps the pairs
+    from cabxml import StpreModel, parse_stpre
+    again = StpreModel(parse_stpre(m.doc.serialize()))
+    v2 = again.find_value("TS1")
+    assert v2 is not None
+    assert (_first(v2, "data").text or "").strip() == "0:0;1:5;2:10"
+    # condition list groups it under Time series
+    page = _CwConditionListPage(again)
+    page.refresh()
+    texts = []
+    def _walk(item):
+        texts.append(item.text(0))
+        for i in range(item.childCount()):
+            _walk(item.child(i))
+    _walk(page.tree.topLevelItem(0))
+    assert "TS1" in texts
+    assert "Time series" in texts

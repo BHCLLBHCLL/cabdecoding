@@ -53,7 +53,7 @@ def _pair(lay, label: str, widget, unit: str = "") -> None:
 _SRC_VOL_TYPES = frozenset({
     "volumetric_force", "volumetric_pressure_loss", "heat_source",
     "source_term", "moisture_source", "smoke_source", "humidification",
-    "plant_canopy", "driver",
+    "plant_canopy", "driver", "time_series",
 })
 _SRC_AREA_TYPES = frozenset({
     "area_pressure_loss", "area_heat_source",
@@ -85,6 +85,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
                 ("Smoke source", self._new_vol_smoke),
                 ("Plant canopy", self._new_vol_canopy),
                 ("Driver", self._new_vol_driver),
+                ("Time series", self._new_vol_time_series),
                 ("Generalized source term", self._new_vol_term),
             ),
             face_buttons=False,
@@ -752,6 +753,74 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: LES driver '{name}' "
                   f"(amplitude {vals[0]:g} m/s)")
+        self.refresh()
+
+    def _new_vol_time_series(self) -> None:
+        """P2: time-series volumetric source (table of time/value pairs)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Condition (Time Series)")
+        lay = QVBoxLayout(dlg)
+        name_ed = QLineEdit("TimeSeries1", dlg)
+        _pair(lay, "Condition name", name_ed)
+        table = QTableWidget(0, 2, dlg)
+        table.setHorizontalHeaderLabels(["Time (s)", "Value"])
+        table.horizontalHeader().setStretchLastSection(True)
+        for t, v in ((0.0, 0.0), (1.0, 1.0)):
+            table.insertRow(table.rowCount())
+            table.setItem(table.rowCount() - 1, 0, QTableWidgetItem(f"{t:g}"))
+            table.setItem(table.rowCount() - 1, 1, QTableWidgetItem(f"{v:g}"))
+        lay.addWidget(table)
+        row = QHBoxLayout()
+        add_btn = QPushButton("Add row", dlg)
+        del_btn = QPushButton("Remove row", dlg)
+        add_btn.clicked.connect(lambda: (
+            table.insertRow(table.rowCount()),
+            table.setItem(table.rowCount() - 1, 0,
+                          QTableWidgetItem("0")),
+            table.setItem(table.rowCount() - 1, 1,
+                          QTableWidgetItem("0"))))
+        del_btn.clicked.connect(
+            lambda: table.removeRow(table.currentRow())
+            if table.currentRow() >= 0 else None)
+        row.addWidget(add_btn)
+        row.addWidget(del_btn)
+        row.addStretch(1)
+        lay.addLayout(row)
+        btns = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        btns.addStretch(1)
+        btns.addWidget(ok)
+        btns.addWidget(cancel)
+        lay.addLayout(btns)
+        if not dlg.exec_():
+            return
+        name = name_ed.text().strip() or "TimeSeries1"
+        pairs = []
+        for r in range(table.rowCount()):
+            it_t = table.item(r, 0)
+            it_v = table.item(r, 1)
+            if it_t is None or it_v is None:
+                continue
+            try:
+                t = float(it_t.text().strip())
+                v = float(it_v.text().strip())
+            except ValueError:
+                continue
+            pairs.append(f"{t:g}:{v:g}")
+        if not pairs:
+            return
+        self.model.upsert_value("time_series", name, [
+            ("data", ";".join(pairs), None),
+        ])
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: time series '{name}' ({len(pairs)} pairs)")
         self.refresh()
 
     def _new_area_ploss(self) -> None:
@@ -6025,7 +6094,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "fixed_temperature", "fixed_velocity",
         "volumetric_force", "volumetric_pressure_loss", "heat_source",
         "moisture_source", "smoke_source", "source_term",
-        "humidification", "plant_canopy", "driver",
+        "humidification", "plant_canopy", "driver", "time_series",
         "area_pressure_loss", "area_heat_source",
         "perforated_plate",
     )
@@ -6047,6 +6116,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "humidification": "Humidification",
         "plant_canopy": "Plant canopy",
         "driver": "Driver (LES)",
+        "time_series": "Time series",
         "area_pressure_loss": "Area pressure loss",
         "area_heat_source": "Area heat source",
         "perforated_plate": "Perforated plate",

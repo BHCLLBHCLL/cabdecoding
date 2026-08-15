@@ -151,7 +151,8 @@
 5. **完整 Edit Solid / FEM Conversion 深度**。
 
 ### P2 — 深度不足
-6. Source 条件非全量（time series / 函数 / diffusion source）。
+6. Source 条件（已新增 **time series** 体积源：成对时间/数值表 + 条件列表分组 +
+   往返持久化；剩余 函数表达式 source 与 diffusion source 专属编辑器）。
 7. 专用件参数面（AC 朝向、线性 diffuser、热回路节点）子集。
 8. Parametric Study / Printer paper-feeding / Thermal Characteristics 占位。
 9. ~~IFC / ECXML 导入导出~~ **已完成（2026-08-15 后）**：`cab_ifc.py`（IFC-SPF
