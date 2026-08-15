@@ -439,8 +439,11 @@ PK_MESH_create_from_facets(facet_reader, context, options, mesh)
   `PK_VERTEX_ask_point(vertex, PK_POINT_t *point)` 返回 **点实体 tag**（不是
   double[3]，读坐标需再接 `PK_POINT_ask`）；`PK_VERTEX_ask_oriented_edges`
   是 **4 参**（vertex, &n, &edges, &orients），2/3 参调用会访问违例；
-  `PK_EDGE_ask_convexity(edge, PK_EDGE_convexity_t *)` 2 参出参式，本内核
-  返回值仍未确认（smooth=3 判据待定）。
+  `PK_EDGE_ask_convexity` 是 **3 参**（edge, PK_EDGE_ask_convexity_o_t
+  options{version, uchar have_angular_tolerance, double angular_tolerance},
+  PK_EDGE_convexity_t *out），实测返回 token 0x5C2D/0x5C2E（tr03 叶轮全为
+  凸/凹面边）；`PK_ENTITY_ask_class` 是出参式（entity, &class），实测
+  平面=4001、圆柱=4002。
 * 单三角形片体可直接 `transmit_parts`（15KB x_t）；再 `PK_PART_receive` 后
   `PK_BODY_ask_faces`=12 面（立方体）。
 

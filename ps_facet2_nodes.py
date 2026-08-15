@@ -111,7 +111,8 @@ import struct
 import tempfile
 from ctypes import (
     CFUNCTYPE, POINTER, Structure, byref, c_byte, c_char, c_char_p,
-    c_double, c_int, c_void_p, cast, memmove, memset, sizeof, string_at,
+    c_double, c_int, c_ubyte, c_void_p, cast, memmove, memset, sizeof,
+    string_at,
 )
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -349,6 +350,15 @@ def _temp_dir(prefix: str) -> Path:
     base = Path(tempfile.gettempdir()) / f"{prefix}{uuid.uuid4().hex}"
     os.makedirs(base, exist_ok=False)
     return base
+
+
+class _ConvexityOpts(Structure):
+    """PK_EDGE_ask_convexity_o_t (PK_LOGICAL_t = unsigned char)."""
+    _fields_ = [
+        ("o_t_version", c_int),
+        ("have_angular_tolerance", c_ubyte),
+        ("angular_tolerance", c_double),
+    ]
 
 
 class _PsSession:
@@ -943,59 +953,18 @@ class _PsSession:
         return np.asarray(pts, dtype=np.float64)
 
     def representative_vertices(self, tag: int) -> Optional[np.ndarray]:
-        """B-rep vertices on at least one *sharp* edge (STpre Representative).
+        """B-rep vertex subset used by STpre "Representative" detection.
 
-        Empirically matched to STpre's "Representative" vertex detection on
-        the tr03 impeller: every vertex whose incident edges are all
-        G1-smooth (PK_EDGE_convexity_smooth_c = 3) is excluded, and only
-        vertices touching a convex/concave edge are gridded.
+        The exact subset rule is still under reverse engineering (tr03
+        probes show STpre keeps 25 of 59 in-domain vertices: the edge
+        sharp/smooth convexity hypothesis was tested with the correct
+        PK_EDGE_ask_convexity(edge, options, &convexity) ABI and refuted —
+        kept and dropped vertices show identical convexity patterns, and
+        surface classes (plane 4001 / cylinder 4002) do not split them
+        either).  Until the rule is found this returns the full vertex set
+        (behaviour-neutral); see STPRE_GRID_RULES 2.3.1.
         """
-        pk = self.pk
-        pk.PK_SESSION_set_check_arguments(0)
-        pk.PK_BODY_ask_vertices.restype = c_int
-        pk.PK_BODY_ask_vertices.argtypes = [
-            c_int, POINTER(c_int), POINTER(c_void_p)]
-        pk.PK_VERTEX_ask_oriented_edges.restype = c_int
-        pk.PK_VERTEX_ask_oriented_edges.argtypes = [
-            c_int, POINTER(c_int), POINTER(c_void_p), POINTER(c_void_p)]
-        pk.PK_EDGE_ask_convexity.restype = c_int
-        pk.PK_EDGE_ask_convexity.argtypes = [c_int, POINTER(c_int)]
-        n = c_int(0)
-        arr = c_void_p()
-        if pk.PK_BODY_ask_vertices(int(tag), byref(n), byref(arr)) != 0:
-            return None
-        if n.value <= 0 or not arr:
-            return None
-        pts: list[np.ndarray] = []
-        for vt in cast(arr, POINTER(c_int * n.value)).contents:
-            # V35 ABI: PK_VERTEX_ask_oriented_edges(vertex, &n, &edges,
-            # &orients); PK_VERTEX_ask_point returns a PK_POINT_t tag.
-            ne = c_int(0)
-            ep = c_void_p()
-            op = c_void_p()
-            if pk.PK_VERTEX_ask_oriented_edges(vt, byref(ne), byref(ep),
-                                               byref(op)) != 0:
-                continue
-            edges = list(cast(ep, POINTER(c_int * max(ne.value, 1))).contents) \
-                if ne.value > 0 and ep else []
-            sharp = False
-            for e in edges:
-                cv = c_int(-1)
-                if pk.PK_EDGE_ask_convexity(e, byref(cv)) != 0:
-                    # convexity unknown (ABI/state) -> keep vertex (safe)
-                    sharp = True
-                    break
-                if cv.value != 3:  # 3 = PK_EDGE_convexity_smooth_c
-                    sharp = True
-                    break
-            if not sharp and edges:
-                continue
-            p = self.vertex_point(vt)
-            if p is not None:
-                pts.append(p)
-        if not pts:
-            return None
-        return np.asarray(pts, dtype=np.float64)
+        return self.body_vertices(tag)
 
     def face_plane(self, tag: int, *,
                     facet_tol: float = DEFAULT_FACET_TOL,
