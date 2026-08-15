@@ -1538,6 +1538,87 @@ F 视解冻。每个子项完成即：pytest → 回填本节状态 → commit/p
 
 ---
 
+## 21. Parasolid 编辑 / SCTpre VBS 写回调研与补全策略（2026-08-14）
+
+> 结论先行：**三条路径都可行**，优先级「pskernel 直接逆向 > SCTpre VBS/COM >
+> 网络 V35 文档」。pskernel 是完整 Parasolid 内核（1204 个 `PK_*` 导出），
+> 之前 A4/B5 的阻塞是因为**没枚举全导出**——`PK_PART_add_geoms`、`PK_EDGE_ask_geometry`、
+> `PK_BODY_transform_2`、`PK_FACE_make_solid_bodies`、`PK_BODY_sew_bodies` 都在。
+
+### 21.1 调研证据
+
+1. **pskernel.dll（72 MB，lief 枚举 1454 导出 / 1204 个 `PK_*`）**，关键家族：
+   - Transform：`PK_BODY_transform(_2)`、`PK_GEOM_transform(_2)`、`PK_FACE_transform(_2)`、
+     `PK_TRANSF_transform(_2)`、`PK_INSTANCE_transform`；
+   - 布尔/实体：`PK_BODY_boolean(_2)`、`PK_FACE_boolean(_2)`；
+   - 建体：`PK_BODY_create_solid_{block,cyl,cone,sphere,torus,prism,topology}`；
+   - 网格→实体：`PK_FACE_make_solid_bodies`、`PK_FACE_make_sheet_body(s)`、
+     `PK_SURF_make_sheet_body`、`PK_REGION_make_solid`、`PK_BODY_sew_bodies`；
+   - 传输：`PK_PART_transmit(_b/_u)`、`PK_SESSION_transmit`、`PK_PART_receive(_b/_u)`、
+     `PK_PARTITION_transmit/receive`；
+   - 拓扑/几何查询：`PK_BODY_ask_{faces,edges,vertices}`、`PK_EDGE_ask_geometry`、
+     `PK_LROD_ask_geometry`（线端点=顶点）、`PK_EDGE_ask_vertices`；
+   - 部件归属：`PK_PART_add_geoms`、`PK_PART_remove_geoms`、`PK_SESSION_ask_parts`；
+   - 内存：`PK_ENTITY_delete`、`PK_MEMORY_free`。
+   - **缺失**：`PK_BODY_export`、`PK_PART_new`、`PK_ENTITY_set_part`、`PK_ENTITY_ask_part`
+     ——但 `PK_PART_add_geoms` 可替代「建 part 包 body」。
+   导出清单已入库：`docs/pskernel_exports.txt`。
+
+2. **SCTpre VBS/COM（headless 自动化，本地手册 `VB_Interface_eng`）**：
+   - ProgID：`STpre_Bx64net.Application.2025`（`CreateObject`/`GetObject`）。
+   - 类：Application / Doc / Model / Mesher / MeshBlock / Sketch / Table /
+     Property / Value / AirconModel / Reaction / GerberModel / UserFunction /
+     Expression / DrawWnd / Script / UserData。
+   - Doc 类有 `Create*Model`（全部件类型）、`ContactParts`、Save/Export 等；
+     Value 类读写条件；Mesher/MeshBlock 做网格；**可写回全部前处理结果**。
+   - 约束：需本机 STpre 许可 + 启动 STpre；当前安全策略「检测到 STpre 进程即拒绝 attach」。
+
+3. **网络资源（Parasolid V35 公开文档，q-solid.com）**：
+   - `q-solid.com/Parasolid_Docs_V35/headers/pk_*.html`：每个 `PK_*` 的精确
+     `_o_t` 结构体布局与签名；
+   - `chapters/fd_chap.*.html`、`pdf/fd.pdf`：Function Description；
+   - `chapters/xt_chap.02.html`：x_t 传输流格式。
+   - 注意：Cradle 2025.2 内核可能高于 V35，结构体需以黑盒探针校准
+     （本项目已对 `PK_BODY_boolean_2` o_t=2、`PK_TOPOL_facet_2` v5 这样做）。
+
+### 21.2 三条补全路径
+
+| 路径 | 手段 | 覆盖 | 前置 | 风险 |
+|---|---|---|---|---|
+| **A（首选）** | ctypes 直调 pskernel | B-rep 编辑/网格→实体/x_t 写回/顶点 | pskernel.dll + V35 文档校准 | 低→中 |
+| **B（兜底）** | SCTpre VBS/COM headless | **全量**（含 panel/V8 语义、CW 长尾） | STpre 许可 + 解冻 attach 策略 | 低 |
+| **C（辅助）** | 网络 V35 文档 | 精确 ABI 结构体 | 联网 | 无 |
+
+### 21.3 未完整功能 → 策略映射
+
+| 功能 | 现状阻塞 | 补全策略 |
+|---|---|---|
+| A4 x_t 写回（布尔/切割产物） | `PK_PART_transmit` 需 PART，产物无 PART | **A**：`PK_PART_add_geoms(part, [body])` 后 `PK_PART_transmit`；或 `PK_SESSION_transmit` |
+| B5 顶点坐标（tr03 偏差根因） | `PK_VERTEX_ask_point` 返回垃圾 | **A**：`PK_EDGE_ask_geometry`/`PK_LROD_ask_geometry` 取边端点；或 **C** 查 `pk_vertex_ask_point.html` 校准 ABI |
+| Transform 编辑（Mirror/Align/Place/Scale/Rotate 出真实 body） | 现为 XML 变换 | **A**：`PK_BODY_transform_2` + `PK_BODY_transform_o_t`（V35 头） |
+| Wrap/Simplify 出 x_t body | 现为 STL/tess | **A**：`PK_FACE_make_solid_bodies`（三角面→面→体）+`PK_BODY_sew_bodies` 缝合 |
+| 专用件真几何（D3） | cuboid/conical 代理 | **A**：`PK_BODY_create_solid_{cyl,cone,sphere,torus,prism}`；热属性为 XML |
+| 拓扑拾取（face/edge/vertex tag） | cell 拾取 | **A**：`PK_BODY_ask_faces/edges/vertices` + `PK_EDGE_ask_geometry` 空间匹配（已有 A1 基础） |
+| B1/B2/B3 panel/V8 scheme | 需 STpre 网格语义（非 Parasolid） | **B**：解冻后用 VBS 黑盒探测 speaker/开放面 + V8 开关 |
+| C1/C3 CW 深度 | 18 禁用物理类型 | 纯 XML（cabxml.py 已懂格式）；语义取自本地 Pre_eng 手册 + **B** 可选回读 |
+| F STpre API 深度 | 冻结 | **B**（解冻后按 §19.7 F1–F5） |
+
+### 21.4 推荐执行顺序
+
+1. **A4 解阻（低风险，收益最高）**：验证 `PK_PART_add_geoms` + `PK_PART_transmit`，
+   把布尔/切割产物写回真实 `.x_t` 成员（替代 STL 回退）。
+2. **B5 解阻**：`PK_EDGE_ask_geometry` 取顶点坐标，替换 `body_vertices` 的
+   `PK_VERTEX_ask_point` 路径，重新对拍 tr03 网格线数。
+3. **Transform 出真实 body**：`PK_BODY_transform_2`（Mirror/Align/Place/Scale）。
+4. **Wrap/Simplify 出 x_t**：`PK_FACE_make_solid_bodies` + `PK_BODY_sew_bodies`。
+5. **解冻 SCTpre VBS**（若用户授权）：先做 B1/B2/B3 黑盒探测，再做 F1–F5 参数中继。
+   注意：SCTpre VBS 与 pskernel 直调可**互补**——VBS 负责网格/条件语义，pskernel 负责几何。
+
+> 每个子项仍遵循 §19 流程：实现 → pytest → commit/push；结构体签名先以 V35
+> 文档为起点、再黑盒校准（与 `PK_BODY_boolean_2` 先例一致）。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
