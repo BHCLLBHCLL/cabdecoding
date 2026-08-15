@@ -156,3 +156,31 @@ def test_source_time_series_roundtrip(qapp):
     _walk(page.tree.topLevelItem(0))
     assert "TS1" in texts
     assert "Time series" in texts
+
+
+def test_expression_source_writeback(qapp):
+    """P2: expression (computing-function) heat source write + round-trip."""
+    from cab_cwizard_pages import _CwSourcePage
+    m = _model()
+    page = _CwSourcePage(m)
+    page._write_expression_source("ExprSource1", "ExprSource1_f",
+                                  "1000*sin(2*pi*t)", "W/m3")
+    v = m.find_value("ExprSource1")
+    src = _first(v, "source")
+    assert src.attrib.get("type") == "express"
+    assert (src.text or "").strip() == "ExprSource1_f"
+    assert src.attrib.get("unit") == "W/m3"
+    exprs = m.express_list()
+    assert exprs == [("ExprSource1_f", "VENT_source", "1000*sin(2*pi*t)")]
+    # serialization round-trip keeps <express> and the value reference
+    m2 = StpreModel(parse_stpre(m.doc.serialize()))
+    assert m2.express_list() == exprs
+    v2 = m2.find_value("ExprSource1")
+    src2 = _first(v2, "source")
+    assert src2.attrib.get("type") == "express"
+    assert (src2.text or "").strip() == "ExprSource1_f"
+    # idempotent upsert keeps a single express element
+    page._write_expression_source("ExprSource1", "ExprSource1_f",
+                                  "500*t", "W")
+    assert len(m.express_list()) == 1
+    assert m.express_list()[0][2] == "500*t"

@@ -916,6 +916,67 @@ class StpreModel:
                 c.attrib["unit"] = unit
         return True
 
+    def upsert_express(self, name: str, kind: str, text: str) -> bool:
+        """Create/update an <express> computing function (STpre format).
+
+        COM-probed 2026-08-15: CreateExpression(name, 'script') + SetText
+        + value.SetExpression(key, name) saves as:
+
+            <express>
+               <name> E1 </name>
+               <kind> VENT_source </kind>
+               <text line="1"> "1000*sin(2*pi*t)" </text>
+            </express>
+
+        with the value referencing it via <source type="express"> E1
+        </source>.  One <express> per function (siblings).
+        """
+        if not name or not text:
+            return False
+        el = None
+        for e in self.root.findall('express'):
+            n = _first(e, 'name')
+            if n is not None and (n.text or '').strip() == name:
+                el = e
+                break
+        if el is None:
+            el = ET.Element('express')
+            el.tail = '\n   '
+            aset = _first(self.root, 'analysis_set')
+            if aset is not None:
+                children = list(self.root)
+                self.root.insert(children.index(aset), el)
+            else:
+                self.root.append(el)
+        for tag, value in (('name', name), ('kind', kind)):
+            c = _first(el, tag)
+            if c is None:
+                c = ET.SubElement(el, tag)
+                c.tail = '\n      '
+            set_text(c, value)
+        t = _first(el, 'text')
+        if t is None:
+            t = ET.SubElement(el, 'text')
+            t.tail = '\n   '
+        t.attrib['line'] = '1'
+        set_text(t, ' "' + text + '" ')
+        return True
+
+    def express_list(self) -> list[tuple[str, str, str]]:
+        """All <express> functions as (name, kind, formula)."""
+        out = []
+        for e in self.root.findall('express'):
+            n = _first(e, 'name')
+            k = _first(e, 'kind')
+            t = _first(e, 'text')
+            name = (n.text or '').strip() if n is not None else ''
+            kind = (k.text or '').strip() if k is not None else ''
+            formula = (t.text or '').strip().strip('"') \
+                if t is not None else ''
+            if name:
+                out.append((name, kind, formula))
+        return out
+
     def bind_condition(self, target_kind: str, target: str,
                        value_name: str) -> bool:
         """Append a ``<condition>`` binding a value to a region/parts/analysis.

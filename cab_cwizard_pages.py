@@ -86,6 +86,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
                 ("Plant canopy", self._new_vol_canopy),
                 ("Driver", self._new_vol_driver),
                 ("Time series", self._new_vol_time_series),
+                ("Expression", self._new_vol_expression),
                 ("Generalized source term", self._new_vol_term),
             ),
             face_buttons=False,
@@ -823,6 +824,63 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         for region, rtype in regions:
             self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: time series '{name}' ({len(pairs)} pairs)")
+        self.refresh()
+
+    def _write_expression_source(self, name: str, expr_name: str,
+                                 formula: str, unit: str) -> None:
+        """P2: expression (computing-function) heat source.
+
+        STpre COM-probed shape (2026-08-15): <express> computing function
+        + <value type="heat_source"><source type="express" unit>
+        expr_name </source></value>.
+        """
+        self.model.upsert_express(expr_name, "VENT_source", formula)
+        self.model.upsert_value("heat_source", name, [
+            ("source", expr_name, unit),
+            ("kind", "volumetric", None),
+        ])
+        from cabxml import _first
+        v = self.model.find_value(name)
+        src_el = _first(v, "source") if v is not None else None
+        if src_el is not None:
+            src_el.attrib["type"] = "express"
+
+    def _new_vol_expression(self) -> None:
+        """P2: expression source (STpre computing-function heat source)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Condition (Expression)")
+        lay = QVBoxLayout(dlg)
+        name_ed = QLineEdit("ExprSource1", dlg)
+        _pair(lay, "Condition name", name_ed)
+        expr_ed = QLineEdit("ExprSource1_f", dlg)
+        _pair(lay, "Function name", expr_ed)
+        formula_ed = QLineEdit("1000*sin(2*pi*t)", dlg)
+        _pair(lay, "Formula (t = time)", formula_ed)
+        unit_cb = QComboBox(dlg)
+        unit_cb.addItems(["W/m3", "W", "W/m2", "Kcal/h", "Kcal/h/m3"])
+        _pair(lay, "Unit", unit_cb)
+        row = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel.clicked.connect(dlg.reject)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+        if not dlg.exec_():
+            return
+        name = name_ed.text().strip() or "ExprSource1"
+        expr_name = expr_ed.text().strip() or f"{name}_f"
+        formula = formula_ed.text().strip() or "0"
+        unit = unit_cb.currentText()
+        self._write_expression_source(name, expr_name, formula, unit)
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: expression '{name}' -> {expr_name}")
         self.refresh()
 
     def _new_area_ploss(self) -> None:
