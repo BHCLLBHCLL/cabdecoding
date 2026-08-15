@@ -52,7 +52,8 @@ def _pair(lay, label: str, widget, unit: str = "") -> None:
 # volumetric set with humidity/diffusion sources).
 _SRC_VOL_TYPES = frozenset({
     "volumetric_force", "volumetric_pressure_loss", "heat_source",
-    "source_term", "moisture_source", "smoke_source",
+    "source_term", "moisture_source", "smoke_source", "humidification",
+    "plant_canopy", "driver",
 })
 _SRC_AREA_TYPES = frozenset({
     "area_pressure_loss", "area_heat_source",
@@ -80,7 +81,10 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
                 ("Volumetric pressure loss", self._new_vol_ploss),
                 ("Volumetric heat source", self._new_vol_heat),
                 ("Moisture source", self._new_vol_moisture),
+                ("Humidification", self._new_vol_humidification),
                 ("Smoke source", self._new_vol_smoke),
+                ("Plant canopy", self._new_vol_canopy),
+                ("Driver", self._new_vol_driver),
                 ("Generalized source term", self._new_vol_term),
             ),
             face_buttons=False,
@@ -684,6 +688,70 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
             self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: smoke source '{name}' "
                   f"({vals[0]:g} {unit or 'kg/s'})")
+        self.refresh()
+
+    def _new_vol_humidification(self) -> None:
+        """P2: humidification source (STpre [Humidification], humidity)."""
+        res = self._dlg_name_value(
+            "Condition (Humidification)", "Humidify1",
+            [("Humidification", "kg/s", 0.0, "q")])
+        if res is None:
+            return
+        name, vals, unit = res
+        self.model.upsert_value("humidification", name, [
+            ("source", f"{vals[0]:g}", unit or "kg/s"),
+        ])
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: humidification '{name}' "
+                  f"({vals[0]:g} {unit or 'kg/s'})")
+        self.refresh()
+
+    def _new_vol_canopy(self) -> None:
+        """P2: plant canopy source (STpre [Plant Canopy], drag/transpiration)."""
+        res = self._dlg_name_value(
+            "Condition (Plant Canopy)", "Canopy1",
+            [("Leaf area density", "1/m", 0.0, "a"),
+             ("Drag coefficient", "", 0.2, "c")])
+        if res is None:
+            return
+        name, vals, unit = res
+        self.model.upsert_value("plant_canopy", name, [
+            ("leaf_area_density", f"{vals[0]:g}", unit or "1/m"),
+            ("drag_coefficient", f"{vals[1]:g}", ""),
+        ])
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: plant canopy '{name}' "
+                  f"(LAD {vals[0]:g} 1/m)")
+        self.refresh()
+
+    def _new_vol_driver(self) -> None:
+        """P2: LES driver source (STpre [Driver], velocity fluctuation)."""
+        res = self._dlg_name_value(
+            "Condition (Driver)", "Driver1",
+            [("Velocity amplitude", "m/s", 0.0, "v"),
+             ("Frequency", "Hz", 1.0, "f")])
+        if res is None:
+            return
+        name, vals, unit = res
+        self.model.upsert_value("driver", name, [
+            ("velocity", f"{vals[0]:g}", unit or "m/s"),
+            ("frequency", f"{vals[1]:g}", "Hz"),
+        ])
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: LES driver '{name}' "
+                  f"(amplitude {vals[0]:g} m/s)")
         self.refresh()
 
     def _new_area_ploss(self) -> None:
@@ -5957,6 +6025,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "fixed_temperature", "fixed_velocity",
         "volumetric_force", "volumetric_pressure_loss", "heat_source",
         "moisture_source", "smoke_source", "source_term",
+        "humidification", "plant_canopy", "driver",
         "area_pressure_loss", "area_heat_source",
         "perforated_plate",
     )
@@ -5975,6 +6044,9 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "moisture_source": "Moisture source",
         "smoke_source": "Smoke source",
         "source_term": "Generalized source term",
+        "humidification": "Humidification",
+        "plant_canopy": "Plant canopy",
+        "driver": "Driver (LES)",
         "area_pressure_loss": "Area pressure loss",
         "area_heat_source": "Area heat source",
         "perforated_plate": "Perforated plate",
