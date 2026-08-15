@@ -25,6 +25,51 @@ def _box_tess():
     return cab_import.import_xt_file(BOX_XT)[0].tess
 
 
+def test_cylindrical_domain_radial_axes_and_full_theta_occupancy():
+    """P0-②: cylindrical domain grids R with internal/external split and
+    classifies a centred cylinder across the FULL theta span."""
+    import cab_grid
+    from cab_parts import PrimitivePart
+    spec = cab_grid.GridSpec(
+        unit="mm", domain_min=(0.0, 0.0, 0.0),
+        domain_max=(50.0, 360.0, 100.0),
+        domain_coordinate="cylindrical", vertex_detection="minmax",
+        method="rough_and_detail", standard_length=5.0,
+        threshold_length=0.1, geometric_ratio=1.0,
+        geometric_ratio_external=1.2)
+    nlon = 32
+    th = np.linspace(0, 2 * np.pi, nlon, endpoint=False)
+    pts = []
+    for z in (20.0, 80.0):
+        for t in th:
+            pts.append([10 * np.cos(t), 10 * np.sin(t), z])
+    tris = []
+    for i in range(nlon):
+        j = (i + 1) % nlon
+        tris.append([i, j, nlon + i])
+        tris.append([j, nlon + j, nlon + i])
+    tess = PrimitivePart("cyl", np.array(pts, float) / 1000.0,
+                         np.array(tris, int))
+    _, axes = cab_grid.build_axes({"cyl": np.array(pts, float)}, spec)
+    # R: internal [0,10] = 3 points, external [10,50] geometric
+    x = np.asarray(axes["x"])
+    assert x[0] == 0.0 and x[-1] == 50.0
+    np.testing.assert_allclose(x[x <= 10.0 + 1e-9], [0.0, 5.0, 10.0])
+    gaps = np.diff(x[x >= 10.0 - 1e-9])
+    assert gaps[0] == pytest.approx(5.0, abs=1e-6)
+    assert gaps[-1] > gaps[0]
+    # Z: internal [20,80] equal split
+    z = np.asarray(axes["z"])
+    np.testing.assert_allclose(z[(z >= 20.0 - 1e-9) & (z <= 80.0 + 1e-9)],
+                               np.arange(20.0, 80.0 + 1e-9, 5.0))
+    # occupancy spans the FULL theta (j) range
+    _analysis, boxes = cab_mesh.classify_cells(
+        axes, [tess], coordinate="cylindrical")
+    assert "cyl" in boxes and len(boxes["cyl"]) == 1
+    b = boxes["cyl"][0]
+    assert b[2] == 1 and b[3] == len(axes["y"]) - 1   # all theta cells
+
+
 def test_classify_box_full_domain():
     tess = _box_tess()
     axes = {ax: [i * 1.0 for i in range(11)] for ax in "xyz"}  # 0..10 mm

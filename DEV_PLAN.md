@@ -1780,6 +1780,27 @@ tessellation，属独立长期项。
 - 验收：`test_stpre_com_wrappers.py`（4）+ `test_stpre_session_guard.py` 改 attach
   语义（拒绝→挂接/owned 守卫）全绿；全仓 375 通过（+5），无回归。
 
+**⑪ P0→P3 继续改进（2026-08-15）**：
+
+- **P0-① `all` 精确计数（定位 + 路线图）**：
+  * 排除法：all 轴 ≠ rep+顶点、≠ minmax+面（逐点对比：all/rep 仅 43 点重合）；
+    tess 容差扫描（1e-6~0.1）x 投影恒为 4 值、y/z 下界 ~160 去重值——容差无关；
+  * **真身定位**：网格编排在 `STpreMesh_Bx64.dll` 的 `MeshFineDivide`(0x25570)→
+    `MeshFineExecute`(0x25690)（`InnerRegionGrid`/`OuterRegionGrid`/`ExecDivide`
+    符号也在该 DLL，STpreBase 中的同名为 0 引用）。
+  * **显示 tess 公式**（ParasolidGW `PKFaces_RenderV3` 0x141850 实测）：
+    `surface_plane_tol = chord_tol×0.001/body_size`、`surface_plane_ang = ang×π/180`、
+    `min_facet_width = chord_tol/10/body_size`、`max_facet_width = chord_tol×1e-4/body_size`
+    ——即本仓 `facet_body` 默认 1e-4/12° 已对齐 STpre 显示参数，计数差非容差所致。
+  * 结论：需继续反汇编 `MeshFineExecute` 的顶点检测分支（0x25690 起），已登记为
+    长期项；当前 all 计数 57×133×144 vs 金标 59×118×121。
+- **P0-② 圆柱/轴向域真实径向网格（完成）**：`_build_cylindrical_axes` 重写——
+  R 轴改用部件**径向**边界（`r=√(x²+y²)`）做内/外区划分（修掉此前用笛卡尔 x 界的
+  错误）、径向投影构成 rough、θ 均匀 0..360°（外半径弧长≈std）；`build_axes` 对
+  `axial` 同样走此路径。端到端验证：圆心柱 r=10 在 R=0..50 域 → 内区 [0,10]×std、
+  外区 [10,50] 几何级数、占用盒横跨全 θ。新增 `test_cylindrical_axes_radial_*` +
+  `test_cylindrical_domain_radial_axes_and_full_theta_occupancy`（23 网格/占用测试绿）。
+
 ---
 
 ## 7. 关键接口设计（草案）

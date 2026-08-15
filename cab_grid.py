@@ -450,9 +450,10 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
     rough = rough_grids(part_points, spec, part_vertices=part_vertices)
     if spec.method == "rough_only":
         return rough, {ax: list(v) for ax, v in rough.items()}
-    if getattr(spec, "domain_coordinate", "cartesian") == "cylindrical":
+    coord = getattr(spec, "domain_coordinate", "cartesian")
+    if coord in ("cylindrical", "axial"):
         return rough, _build_cylindrical_axes(
-            rough, spec, part_bounds=part_bounds)
+            rough, spec, part_points=part_points, part_bounds=part_bounds)
     if spec.vertex_detection == "uniform":
         # STpre "uniform" ignores the part entirely: the whole domain is
         # divided by the standard length (no internal/external split, no
@@ -465,27 +466,53 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
 
 
 def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
+                            *, part_points=None,
                             part_bounds=None) -> dict[str, list[float]]:
-    """Approximate cylindrical layout: x=R, y=theta, z=Z.
+    """Cylindrical / axial layout: x=R, y=theta, z=Z.
 
     STpre stores R / theta / Z in the mesh_block tables for a cylindrical
-    domain.  R and Z reuse the cartesian refine path (with part bounds);
-    theta is a uniform 0..360 deg axis sized from the mean radius and the
-    standard length.  Element classification remains cartesian (honest
-    limitation pending STpre golden data).
+    domain.  R and Z run the real internal/external refine path with the
+    **radial** part extent (``sqrt(x^2+y^2)`` of the tessellation) instead
+    of the cartesian x bounds, so a part centred on the axis grids its
+    inner region [0, r_out] and its outer region [r_out, r_max] correctly.
+    Theta is a uniform 0..360 deg axis sized so the arc length at the outer
+    radius equals the standard length.
     """
     std = _as3(spec.standard_length)[0] or 1.0
     dmin = np.asarray(spec.domain_min, float)
     dmax = np.asarray(spec.domain_max, float)
-    rmax = max(dmax[0] - dmin[0], 1e-9)
-    n_theta = max(8, int(round(2.0 * np.pi * rmax / 2.0 / std)))
+    rmin = float(dmin[0])
+    rmax = float(dmax[0])
+    thrs = _as3(spec.threshold_length)
+    # -- radial part extent from the tessellation (r = sqrt(x^2+y^2)) ------
+    r_proj: list[float] = []
+    z_vals: list[float] = []
+    for arr in (part_points or {}).values():
+        arr = np.asarray(arr, dtype=np.float64)
+        if len(arr) == 0:
+            continue
+        r = np.hypot(arr[:, 0], arr[:, 1])
+        r_proj.extend(float(v) for v in r)
+        z_vals.append(float(arr[:, 2].min()))
+        z_vals.append(float(arr[:, 2].max()))
+    r_lo = min(r_proj) if r_proj else rmin
+    r_hi = max(r_proj) if r_proj else rmax
+    z_lo = min(z_vals) if z_vals else float(dmin[2])
+    z_hi = max(z_vals) if z_vals else float(dmax[2])
+    # -- R axis: rough radial lines (part min/max + vertex projections) ----
+    r_rough: list[float] = [rmin, rmax, r_lo, r_hi]
+    if spec.vertex_detection in ("all", "representative"):
+        r_rough.extend(r_proj)
+    r_rough = _clip_dedupe(r_rough, rmin, rmax, tol=max(thrs[0], 1e-9))
+    r_bounds = (np.array([r_lo, 0.0, z_lo]), np.array([r_hi, 0.0, z_hi]))
+    r_axis = refine_grids({"x": r_rough}, spec, part_bounds=r_bounds)["x"]
+    # -- Z axis: cartesian z bounds are already axial ----------------------
+    z_bounds = (np.array([r_lo, 0.0, z_lo]), np.array([r_hi, 0.0, z_hi]))
+    z_axis = refine_grids({"z": list(rough["z"])}, spec,
+                          part_bounds=z_bounds)["z"]
+    # -- theta: uniform 0..360, arc length at outer radius == std ----------
+    n_theta = max(8, int(round(2.0 * np.pi * rmax / max(std, 1e-9))))
     theta = list(np.linspace(0.0, 360.0, n_theta + 1))
-    x_only = {"x": rough["x"]}
-    z_only = {"z": rough["z"]}
-    r_axis = refine_grids(
-        x_only, spec, part_bounds=part_bounds)["x"]
-    z_axis = refine_grids(
-        z_only, spec, part_bounds=part_bounds)["z"]
     return {"x": r_axis, "y": theta, "z": z_axis}
 
 

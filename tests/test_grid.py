@@ -279,6 +279,36 @@ def test_cylindrical_axes_layout():
     assert d["z"][0] == 0.0 and d["z"][-1] == 100.0
 
 
+def test_cylindrical_axes_radial_internal_external_split():
+    """P0-②: a part centred on the axis grids r=[0,r_out] internal and
+    r=[r_out,r_max] external (geometric), NOT the cartesian x bounds."""
+    spec = _spec(
+        domain_min=(0.0, 0.0, 0.0), domain_max=(50.0, 360.0, 100.0),
+        domain_coordinate="cylindrical",
+        standard_length=5.0, threshold_length=0.1,
+        geometric_ratio=1.0, geometric_ratio_external=1.2)
+    # a ring of points at r=10 (centred on the axis: x^2+y^2=100)
+    th = np.linspace(0.0, 2.0 * np.pi, 16, endpoint=False)
+    pts = np.stack([10.0 * np.cos(th), 10.0 * np.sin(th),
+                    np.full_like(th, 5.0)], axis=1)
+    _, d = cab_grid.build_axes({"p": pts}, spec)
+    x = np.asarray(d["x"])
+    assert x[0] == 0.0 and x[-1] == 50.0
+    # internal region [0, 10]: equal split by std=5 -> 3 points
+    inner = x[x <= 10.0 + 1e-9]
+    assert len(inner) == 3
+    np.testing.assert_allclose(inner, [0.0, 5.0, 10.0])
+    # external region [10, 50]: geometric, dense at the part side
+    outer = x[x >= 10.0 - 1e-9]
+    gaps = np.diff(outer)
+    assert gaps[0] == pytest.approx(5.0, abs=1e-6)   # adjacent = std
+    assert gaps[-1] > gaps[0]
+    # theta is uniform over 0..360
+    y = np.asarray(d["y"])
+    assert y[0] == 0.0 and y[-1] == 360.0
+    np.testing.assert_allclose(np.diff(y), 360.0 / (len(y) - 1))
+
+
 def test_rough_grids_representative_uses_real_vertices():
     pts = {"p": np.array([[0., 0., 0.], [10., 10., 10.]])}
     verts = {"p": np.array([[-5., 2., 3.], [7., 8., 9.]])}
