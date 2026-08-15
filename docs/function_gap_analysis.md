@@ -184,7 +184,9 @@
    序列化往返测试；**diffusion source 亦已完成**——COM 探针实证
    SetDiffusionCondition(name, no, 'source', amount, 0) 写
    value type="diffusion" + kind source + no + diff_source(unit)，
-   Source 页新增 Diffusion source 创建器 + 条件列表 diffusion 分组）。
+   Source 页新增 Diffusion source 创建器 + 条件列表 diffusion 分组；
+   Boundary 新增 **Diffusion Boundary 页**（浓度/传质系数两类，
+   SetDiffusionCondition "diffusion"/"transfer" 探针格式写回）。
 7. 专用件参数面（AC 朝向、线性 diffuser、热回路节点）子集。
 8. Parametric Study / Printer paper-feeding / Thermal Characteristics 占位。
 9. ~~IFC / ECXML 导入导出~~ **已完成（2026-08-15 后）**：`cab_ifc.py`（IFC-SPF

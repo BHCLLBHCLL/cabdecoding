@@ -112,7 +112,7 @@ def test_condition_wizard_tree_and_apply(pieces):
     assert w.windowTitle() == "Condition Wizard"
     # nav groups: Boundary / Analysis Control / Output
     bc = w._items.get("bc")
-    assert bc is not None and bc.childCount() == 5
+    assert bc is not None and bc.childCount() == 6  # + Diffusion Boundary
     ctrl = w._items.get("control")
     assert ctrl is not None and ctrl.childCount() == 4
     out = w._items.get("output")
@@ -461,4 +461,25 @@ def test_analysis_types_page_special_tags(pieces):
     w2 = cab_wizards._CwAnalysisTypesPage(model)
     assert not w2.types["marangoni"].isChecked()
     assert not w2.types["moving_body"].isChecked()
+    w.close()
+
+
+def test_diffusion_boundary_page_present(pieces):
+    """P2: Diffusion Boundary page (STpre SetDiffusionCondition shapes)."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    page = w.p_bc_diffusion
+    assert page is not None
+    assert page.value_type == "diffusion"
+    # write the probed shapes without dialogs
+    from cabxml import _first
+    page.model.upsert_value("diffusion", "DiffBound_Xmin", [
+        ("kind", "boundary", None), ("no", "1", None),
+        ("diff_param1", "-1", None), ("diff_param2", "0.25", None)])
+    page.model.bind_condition("region", "Xmin", "DiffBound_Xmin")
+    page.refresh()
+    v = model.find_value("DiffBound_Xmin")
+    assert (_first(v, "kind").text or "").strip() == "boundary"
+    assert (_first(v, "diff_param2").text or "").strip() == "0.25"
     w.close()

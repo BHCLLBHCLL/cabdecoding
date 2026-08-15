@@ -574,6 +574,7 @@ _CW_PAGES = [
     ("bc_thermal", "Thermal Boundary", "bc"),
     ("bc_symm", "Symmetrical Boundary", "bc"),
     ("bc_radiation", "Radiation Grouping", "bc"),
+    ("bc_diffusion", "Diffusion Boundary", "bc"),
     ("source", "Source Condition", None),
     ("fixed", "Fixed Condition", None),
     ("control", "Analysis Control", None),
@@ -2645,6 +2646,98 @@ class _CwWallBoundaryPage(_BoundaryPageBase):
         self.refresh()
 
 
+class _CwDiffusionBoundaryPage(_BoundaryPageBase):
+    """Diffusion Boundary Condition (STpre SetDiffusionCondition shapes)."""
+    page_title = 'Diffusion Boundary Condition'
+    blurb = ('Sets the diffusion boundary conditions (mass transfer by '
+             'diffusion / diffusion transfer coefficient).')
+    value_type = 'diffusion'
+
+    def __init__(self, model: StpreModel):
+        super().__init__(model, 'diffusion')
+
+    def _populate_new_actions(self, lay: QVBoxLayout) -> None:
+        for label, kind, slot in (
+                ('Diffusion (concentration)', 'diffusion',
+                 self._new_diffusion),
+                ('Transfer coefficient', 'transfer',
+                 self._new_transfer)):
+            lay.addWidget(icon_action_button(
+                self.new_box, label, kind, slot))
+
+    def _new(self) -> None:
+        self._new_diffusion()
+
+    def _build_dialog(self, with_coeff: bool) -> QDialog:
+        dlg = QDialog(self)
+        title = ('Transfer' if with_coeff else 'Diffusion')
+        dlg.setWindowTitle(f'Condition ({title}) on {self._current_face()}')
+        lay = QVBoxLayout(dlg)
+        self._cname = QLineEdit(dlg)
+        _row(lay, 'Condition name', self._cname)
+        self._no = QSpinBox(dlg)
+        self._no.setRange(1, 100)
+        _row(lay, 'Species number', self._no)
+        self._conc = QDoubleSpinBox(dlg)
+        self._conc.setRange(-1.0e12, 1.0e12)
+        self._conc.setDecimals(6)
+        _row(lay, 'Boundary concentration', self._conc)
+        self._coeff = None
+        if with_coeff:
+            self._coeff = QDoubleSpinBox(dlg)
+            self._coeff.setRange(0.0, 1.0e9)
+            self._coeff.setDecimals(6)
+            _row(lay, 'Diffusion transfer coefficient', self._coeff)
+        b = QHBoxLayout()
+        b.addStretch(1)
+        ok = QPushButton('OK', dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton('Cancel', dlg)
+        cancel.clicked.connect(dlg.reject)
+        b.addWidget(ok)
+        b.addWidget(cancel)
+        lay.addLayout(b)
+        return dlg
+
+    def _new_diffusion(self) -> None:
+        dlg = self._build_dialog(with_coeff=False)
+        if not dlg.exec_():
+            return
+        face = self._current_face()
+        name = self._cname.text().strip() or f'DiffBound_{face}'
+        # probed: diffusion type -> kind boundary, diff_param1=-1,
+        # diff_param2 = boundary concentration
+        self.model.upsert_value('diffusion', name, [
+            ('kind', 'boundary', None),
+            ('no', str(self._no.value()), None),
+            ('diff_param1', '-1', None),
+            ('diff_param2', f'{self._conc.value():g}', None),
+        ])
+        self.model.bind_condition('region', face, name)
+        self._log(f'Diffusion Boundary: {face} <- {name!r} '
+                  f'(concentration {self._conc.value():g})')
+        self.refresh()
+
+    def _new_transfer(self) -> None:
+        dlg = self._build_dialog(with_coeff=True)
+        if not dlg.exec_():
+            return
+        face = self._current_face()
+        name = self._cname.text().strip() or f'DiffTrans_{face}'
+        # probed: transfer type -> kind boundary, diff_param1 = transfer
+        # coefficient, diff_param2 = boundary concentration
+        self.model.upsert_value('diffusion', name, [
+            ('kind', 'boundary', None),
+            ('no', str(self._no.value()), None),
+            ('diff_param1', f'{self._coeff.value():g}', None),
+            ('diff_param2', f'{self._conc.value():g}', None),
+        ])
+        self.model.bind_condition('region', face, name)
+        self._log(f'Diffusion Boundary: {face} <- {name!r} '
+                  f'(transfer {self._coeff.value():g})')
+        self.refresh()
+
+
 class _CwThermalBoundaryPage(_BoundaryPageBase):
     page_title = "Thermal Boundary Condition"
     blurb = "Sets the thermal boundary conditions."
@@ -3505,6 +3598,7 @@ class ConditionWizard(WizardBase):
         self.p_bc_thermal = _CwThermalBoundaryPage(model)
         self.p_bc_symm = _CwSymmetricalPage(model)
         self.p_bc_radiation = _CwRadiationGroupingPage(model)
+        self.p_bc_diffusion = _CwDiffusionBoundaryPage(model)
         self.p_source = _CwSourcePage(model)
         self.p_fixed = _CwFixedPage(model)
         self.p_control = _CwAnalysisControlHubPage(
@@ -3543,6 +3637,7 @@ class ConditionWizard(WizardBase):
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,
             "bc_thermal": self.p_bc_thermal, "bc_symm": self.p_bc_symm,
             "bc_radiation": self.p_bc_radiation,
+            "bc_diffusion": self.p_bc_diffusion,
             "source": self.p_source, "fixed": self.p_fixed,
             "control": self.p_control,
             "ctrl_steady": self.p_ctrl_steady,

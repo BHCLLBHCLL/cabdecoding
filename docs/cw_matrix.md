@@ -62,8 +62,9 @@
 > VENT_source）+ value/source@type=express 引用；diffusion source =
 > SetDiffusionCondition(name, no, "source", amount, 0) →
 > <value type="diffusion"><kind>source</kind><no>N</no><diff_source unit>。
-> diffusion 边界条件（"diffusion"/"transfer" → kind boundary +
-> diff_param1/diff_param2）已探明，编辑器为后续项。
+> diffusion 边界条件已探明并实现：Boundary Condition 新增 Diffusion
+> Boundary 页——"diffusion"（浓度，diff_param1=-1）与 "transfer"
+> （传质系数+浓度）均写 kind=boundary + diff_param1/diff_param2。
 
 > 完整 STpre Source 类型（含 time series / 函数 / diffusion source 等）待 C2 补齐。
 
