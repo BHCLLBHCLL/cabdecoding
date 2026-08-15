@@ -10,13 +10,14 @@
 
 ## 一、总体判断
 
-- **测试**：全仓 **375 passed / 2 failed / 4 skipped / 8 errors**。2 失败与 8 错误
-  均为既有（`test_menus_other` part-kinds 清单、`test_m33` boolean STL 持久化、
-  `tempfile.mkdtemp` 沙箱权限），非本次引入。
+- **测试**：全仓 **382 passed / 1 failed / 4 skipped / 8 errors**。1 失败与 8 错误
+  均为既有（boolean STL 持久化、tempfile 沙箱权限），非本次引入。
+  （原 part-kinds 清单失败已随 P2-⑦ 修复。）
 - **代码规模**：35 个 Python 模块 ≈1.4 MB，GUI 主壳 `cab_gui.py`(225KB)、
   Condition Wizard `cab_cwizard_pages.py`(269KB)、wizard `cab_wizards.py`(148KB)。
-- **总体覆盖度估计**：**≈65%**。几何/部件/网格/编辑/导入导出已近完整；最大缺口是
-  **Condition Wizard 的高级物理**（18/25 分析类型禁用）与**部分编辑算子的深度**。
+- **总体覆盖度估计**：**≈68%**。几何/部件/网格/编辑/导入导出已近完整；最大缺口是
+  **Condition Wizard 的高级物理**（16/25 分析类型禁用，Solar 已启用）与
+  **部分编辑算子的深度**（mesh→B-rep、Edit Solid 全量）。
 - **三支柱**：
   1. **原生实现**：cab 容器/XML 模型 + 网格/网格化算法 + VTK 显示（不依赖 STpre）。
   2. **pskernel 直调**（Parasolid V37 逆向）：B-rep 真实算子（布尔/切割/变换/包裹）。
@@ -56,7 +57,10 @@
   （非完整 solid 编辑）；Part Face Paneling/Sweep Part Face 为 tess 近似；
   Simplification「mesh→B-rep 出 x_t」仍是长期项（依赖 `PK_FACE_make_solid_bodies`）。
 
-### 4. Mesh / Gridding — ✅ 中-高（~80%，金标收敛推进）
+### 4. Mesh / Gridding — ✅ 中-高（~85%，金标收敛 + 极坐标网格）
+
+- P0-② 圆柱/轴向真实径向网格（2026-08-15）：R 轴按部件径向边界（r=√(x²+y²)）
+  划分内/外区、θ 均匀 0..360°、Z 轴向边界，占用分类走 R/θ/Z 射线法（全 θ 跨盒）。
 
 - 原生网格算法 `cab_grid.py`（粗/细网格、auto1/auto3、几何比、阈值合并、多块）。
 - 金标对拍（tr03 叶轮，套 transform 后）：**uniform `91×141×141` 精确**；
@@ -69,15 +73,17 @@
 
 ### 5. Condition Wizard — ⚠️ 中（~45%，最大缺口）
 
-- 26 页框架 + Analysis Types 25 项。**支持 6**（Flow/Heat/Humidity/Porous/Radiation/
-  Free surface），**禁用待 FS 2**（Evaporation/Boil），**禁用 18**（Diffusion/Plant/
+- 26 页框架 + Analysis Types 25 项。**支持 7**（Flow/Heat/Humidity/Porous/Radiation/
+  Free surface/Solar radiation，Solar 含 Location/Date-Time/Absorptance 产品页），
+  **禁用待 FS 2**（Evaporation/Boil），**禁用 16**（Diffusion/Plant/
   Moving/Thermoregulation/Solar/Lamp/Reaction/Ventilation/Solidification/Marangoni/
   Topology/Particle/Aircon/Current/Electrostatic/PCM/MSC CoSim/BCI-ROM）。
 - 已实现深度写回：Source（Volumetric/Area/Perforated + 面创建/多选）、Humidity、
   Porous、Radiation Grouping、Initial、Boundary（Flow/Wall/Thermal/Symmetry/Humidity/
   Mass Transfer）、Analysis Control、Output、File、Condition List。
-- **差距**：18 个高级物理分析类型无产品页（诚实禁用 + tooltip，非伪成功）；
-  Source 条件仍为 STpre 子集（time series / 函数 / diffusion source 未全覆盖）。
+- **差距**：16 个高级物理分析类型无产品页（诚实禁用 + tooltip，非伪成功）；
+  Source 条件 volumetric 已全量（新增 humidification/plant canopy/driver），
+  time series / 函数绑定仍未全覆盖。
 
 ### 6. Wizard（Initial/Condition）— ✅ 中-高（Initial 高 / Condition 同上）
 
@@ -146,8 +152,9 @@
 ## 五、结论
 
 相对首评（§18）与专项审计（§39），本仓库已从「解析器 + 网格近似」推进到：
-**原生网格金标收敛（uniform 精确、minmax/rep x/y 精确）+ pskernel V37 真实 B-rep
-编辑 + SCTpre VBS/COM 全量桥接**三路并进。几何/部件/网格/编辑/导入导出近完整；
-**Condition Wizard 高级物理（18 类型）**是当前最集中的功能缺口，其次为 `all` 网格
-精确计数与 mesh→B-rep 两个算法型硬项。整体完成度 **≈65%**，其中「可运行、可持久化、
+**原生网格金标收敛（uniform 精确、minmax/rep x/y 精确）+ 圆柱/轴向极坐标网格 +
+pskernel V37 真实 B-rep 编辑 + SCTpre VBS/COM 全量桥接**多路并进。几何/部件/网格/
+编辑/导入导出近完整；**Condition Wizard 高级物理（16 类型）**仍是当前最集中的功能
+缺口，其次为 all 网格精确计数（已定位 STpreMesh MeshFineExecute）与 mesh→B-rep
+两个算法型硬项。整体完成度 **≈68%**，其中「可运行、可持久化、
 可导出求解」的 MVP 闭环已完整。
