@@ -1221,10 +1221,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 if ps_facet2_nodes.available():
                     for xt_name in xt_names:
                         try:
-                            added = ps_facet2_nodes.tessellate_xt(
-                                members[xt_name], adaptive=True,
-                                facet_tol=facet_tol,
-                                facet_angle_deg=facet_angle)
+                            # STpre display-mesh recipe (facet_kind=2 branch,
+                            # bbox-diagonal tolerances) -- matches STpre
+                            # SaveStlFile output exactly.
+                            added = ps_facet2_nodes.tessellate_xt_stpre(
+                                members[xt_name])
+                            if not added:
+                                added = ps_facet2_nodes.tessellate_xt(
+                                    members[xt_name], adaptive=True,
+                                    facet_tol=facet_tol,
+                                    facet_angle_deg=facet_angle)
                             out += added
                             out_src += [xt_name] * len(added)
                         except Exception as exc:

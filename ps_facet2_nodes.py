@@ -172,6 +172,38 @@ DEFAULT_MIN_FACE_FACETS = 8     # skip trivial faces with fewer facets
 # crash-prone on large CAD).  Plain facet_2 is used instead.
 ADAPTIVE_MAX_FACES = 200
 
+# -- STpre display-mesh recipe (decoded 2026-08-16, STPRE_GRID_RULES.md
+#    2.3.3): the STpre faceter is PK_TOPOL_facet_2 itself, fed with six
+#    tolerances derived from the body bbox diagonal D and the GetEnvironment
+#    fields.  Untouched STpre defaults (env <= 0) reduce to the constants
+#    below; the angle branch is the part facet_kind (2 -> 10 deg).  The
+#    recipe reproduces the STpre SaveStlFile mesh exactly (tr03: 2206 tris,
+#    all 7 x-lines {-22.5, -20, +-6.667, 0, 20, 22.5} mm match).
+STPRE_RECIPE = dict(
+    angle_deg=10.0,       # curve/surface plane angle (facet_kind=2 branch)
+    ccm=0.1,              # curve_chord_max   = D * (env[0x29B8] | 0.1)
+    mfw=0.2,              # max_facet_width   = D * (env[0x29B8] | 0.2)
+    cct=0.001,            # curve_chord_tol   = D * (env[0x29C0] | 0.001)
+    spt=0.001,            # surface_plane_tol = D * (env[0x29C8] | 0.001)
+)
+
+
+def stpre_recipe(D: float, *, angle_deg: float = 10.0, ccm: float = 0.1,
+                 mfw: float = 0.2, cct: float = 0.001,
+                 spt: float = 0.001) -> dict:
+    """STpre's six PK_TOPOL_facet_2 tolerance values for a body of bbox
+    diagonal ``D`` (STpreBase 0x1b5620 fill logic, pure math)."""
+    D = max(float(D), 0.0)
+    ang = max(float(angle_deg), 1e-6) * 0.017453292519943295
+    return {
+        "max_facet_width": max(D * mfw, 1e-8),
+        "curve_chord_tol": max(D * cct, 1e-8),
+        "curve_chord_max": max(D * ccm, 1e-8),
+        "curve_chord_ang": ang,
+        "surface_plane_tol": max(D * spt, 1e-8),
+        "surface_plane_ang": ang,
+    }
+
 # Parasolid entity class codes observed on Cradle pskernel 2025.2
 PK_CLASS_body = 5006
 PK_CLASS_instance = 5007
@@ -930,8 +962,9 @@ class _PsSession:
     def body_vertices(self, tag: int) -> Optional[np.ndarray]:
         """Real B-rep vertex coordinates of a body (``PK_BODY_ask_vertices``).
 
-        Used by the gridding "All / Representative" vertex detection:
-        STpre reads the Parasolid vertices, not the display mesh points.
+        Used by the gridding "Representative" vertex detection.  STpre's
+        "All" mode instead projects the *display mesh* vertices (proved
+        2026-08-15 via SaveStlFile); those come from ``facet_body_stpre``.
         """
         pk = self.pk
         pk.PK_BODY_ask_vertices.restype = c_int
@@ -1257,6 +1290,69 @@ class _PsSession:
             part = self.facet_go(tag, **kw)
         return part
 
+    # -- STpre display-mesh recipe (see STPRE_RECIPE / stpre_recipe) --------
+    def body_box(self, tag: int) -> Optional[tuple[float, float, float,
+                                                   float, float, float]]:
+        """Bounding box of a body via ``PK_BODY_ask_boxes`` (metres)."""
+        pk = self.pk
+        try:
+            fn = pk.PK_BODY_ask_boxes
+        except AttributeError:
+            return None
+        fn.restype = c_int
+        fn.argtypes = [c_int, POINTER(c_double * 6)]
+        box = (c_double * 6)()
+        if fn(int(tag), byref(box)) != 0:
+            return None
+        return tuple(float(box[i]) for i in range(6))
+
+    def facet_body_stpre(self, tag: int, *,
+                         angle_deg: Optional[float] = None) \
+            -> Optional[TessPart]:
+        """Facet a body exactly like STpre's display mesh (recipe in
+        STPRE_GRID_RULES.md 2.3.3): six tolerances from the body bbox
+        diagonal.  Reproduces SaveStlFile output (tr03 golden verified)."""
+        D = None
+        box = self.body_box(tag)
+        if box is not None:
+            D = sum((box[i + 3] - box[i]) ** 2 for i in range(3)) ** 0.5
+        if not D or D <= 0:
+            # fallback: facet once with defaults to derive the box
+            probe = self.facet2(tag, facet_tol=1e-4, facet_angle_deg=12.0)
+            if probe is None or not len(probe.points):
+                return None
+            lo = probe.points.min(0)
+            hi = probe.points.max(0)
+            D = float(((hi - lo) ** 2).sum() ** 0.5)
+        kw = stpre_recipe(
+            D, angle_deg=angle_deg if angle_deg is not None
+            else STPRE_RECIPE["angle_deg"],
+            ccm=STPRE_RECIPE["ccm"], mfw=STPRE_RECIPE["mfw"],
+            cct=STPRE_RECIPE["cct"], spt=STPRE_RECIPE["spt"])
+        pk = self.pk
+        pk.PK_TOPOL_facet_2.restype = c_int
+        pk.PK_TOPOL_facet_2.argtypes = [
+            c_int, POINTER(c_int), c_void_p, POINTER(_Facet2OptionsV5),
+            POINTER(_Facet2Result)]
+        opts = _Facet2OptionsV5()
+        memset(byref(opts), 0, sizeof(opts))
+        opts.control.o_t_version = 5
+        opts.control.max_facet_sides = 3
+        for key, val in kw.items():
+            setattr(opts.control, "is_" + key, 1)
+            setattr(opts.control, key, float(val))
+        opts.facet_fin = 1
+        opts.fin_data = 1
+        opts.data_point_idx = 1
+        opts.point_vec = 1
+        result = _Facet2Result()
+        memset(byref(result), 0, sizeof(result))
+        rc = pk.PK_TOPOL_facet_2(
+            1, (c_int * 1)(int(tag)), None, byref(opts), byref(result))
+        if rc != 0 or result.number_of_tables <= 0 or not result.tables:
+            return None
+        return self._decode_result(result, int(tag), self.body_name(tag))
+
 
 def _get_session() -> _PsSession:
     global _session
@@ -1272,6 +1368,23 @@ def _get_session() -> _PsSession:
 
 def tessellate_xt_file(path: str | Path, **kw) -> list[TessPart]:
     return tessellate_xt(Path(path).read_bytes(), **kw)
+
+
+def tessellate_xt_stpre(xt_bytes: bytes, *, angle_deg: Optional[float] = None
+                        ) -> list[TessPart]:
+    """Tessellate every body with the STpre display-mesh recipe (facet_kind
+    2 / 10 deg branch), reproducing STpre's SaveStlFile meshes."""
+    sess = _get_session()
+    tags = sess.expand_to_bodies(sess.receive_xt(xt_bytes))
+    out: list[TessPart] = []
+    for tag in tags:
+        try:
+            part = sess.facet_body_stpre(tag, angle_deg=angle_deg)
+        except OSError:
+            part = None
+        if part is not None and part.triangles.size:
+            out.append(part)
+    return out
 
 
 def tessellate_xt(xt_bytes: bytes, *, adaptive: bool = False,

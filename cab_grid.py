@@ -160,8 +160,11 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
             # "all" in STpre adds ONLY display-mesh vertex projections
             # (proved via SaveStlFile 2026-08-15: every tr03 vd_0 S-line
             # is an STL-vertex projection); the AABB lines coincide with
-            # mesh extremes there.  We keep the min/max lines until our
-            # display mesh reproduces STpre's facet planes (x=+-6.667, 0).
+            # mesh extremes there.  Our display mesh now uses the decoded
+            # STpre recipe (ps_facet2_nodes.stpre_recipe, bbox diagonal x
+            # tolerances + 10 deg facet_kind=2 branch) and reproduces the
+            # STpre facet planes exactly (tr03: 2206 tris, all 7 x-lines
+            # incl. +-6.667 and 0).
             vals.append(float(col.min()))
             vals.append(float(col.max()))
             if mode == "all":
