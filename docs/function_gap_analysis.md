@@ -55,7 +55,12 @@
   Mirror/Align/Place 出真实 body、x_t 写回（frustrum 写回调）。
 - **差距**：FEM Conversion / Part Simplification 仍为元数据级；Edit Solid 仅面删除
   （非完整 solid 编辑）；Part Face Paneling/Sweep Part Face 为 tess 近似；
-  Simplification「mesh→B-rep 出 x_t」仍是长期项（依赖 `PK_FACE_make_solid_bodies`）。
+  Simplification「mesh→B-rep 出 x_t」仍在推进：`PK_MESH_create_from_facets` V37
+  ABI 已全部破解并实测（facet_geometry token 0x64E7、create_now/later = 0x6784/0x6785、
+  回调 status token 0x187a4/0x187a6、facet_type 5=index/6=vector；create_later 已能返回
+  合法 mesh tag），剩余一步：create_now finalize 返回 5241（无有效 facet）待解，
+  详见 `docs/pskernel_user_guide.md` §7.8.1 与 `tools/mesh_create_probe.py`；
+  之后接 `PK_MESH_make_bodies`（或 `PK_FACE_make_solid_bodies`）出 body 再写 x_t。
 
 ### 4. Mesh / Gridding — ✅ 中-高（~85%，金标收敛 + 极坐标网格）
 

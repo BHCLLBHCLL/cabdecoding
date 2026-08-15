@@ -351,6 +351,47 @@ facet2 失败（无表）时走 GO 路径：PK_TOPOL_render_facet 通过 GOSGMT 
   PK_MFACET_ask_positions/ask_normal、PK_MFIN_ask_mfacet、PK_MVERTEX_ask_position。
 - 推荐：PK_MESH_make_bodies 与 PK_FACE_make_solid_bodies 是 Simplify/STL->x_t 的两条候选路线。
 
+#### 7.8.1 PK_MESH_create_from_facets V37 实测 ABI（disasm 0x369270/0x368670 + V35 文档交叉验证）
+
+本内核（Cradle 2025.2 pskernel = Parasolid V37）的 mesh 创建 ABI 与 V35 头文件
+基本一致，但多个枚举值是 token 而非 0/1，全部通过探针实测：
+
+```c
+PK_MESH_create_from_facets(facet_reader, context, options, mesh)
+// rcx=回调, rdx=context, r8=options*, r9=mesh out（写 *mesh=0 起步）
+```
+
+- **前置**：`PK_SESSION_set_facet_geometry(0x64E7)` = PK_facet_geometry_all_c
+  （no_c=0x64E6；不设置则 create_from_facets 在 frustra 状态字节 +0x48 关卡处返回
+  **5237**，回调永不触发）。会话查询 `PK_SESSION_ask_facet_geometry` 返回当前 token。
+- **options V2 布局**：`{int o_t_version; int vertices_estimate; int facets_estimate;
+  void *facet_free; int create; int have_box; PK_BOX_t box; int thread_safe}`。
+  `create` 只接受 **0x6784 = PK_MESH_create_now_c / 0x6785 =
+  PK_MESH_create_later_c**（内核 0x368b78 处 `sub ecx,0x6784; je/cmp 1` 校验）。
+  o_t_version=1 时只读 +4/+8/+0x10 三字段，其余用默认值。
+- **回调签名**（3 参、void 返回）：
+  `void cb(void *context, PK_MESH_facet_t *facets, int *status)`；
+  facet 结构 = `{int facet_type; int pad; union{void*} }`。
+- **facet_type（V37 有 6 种，disasm 0x13ce262 起的 switch）**：
+  **5 = index 块**、6 = vector 块、1/2/3/4 = 其它块种（strip/fan 等）。
+  index 块布局（实测与 0x13ce26b 读取一致）：
+  `{int is_relative_index; int n_vertex_positions; PK_VECTOR_t *vertex_positions;
+    PK_VECTOR_t *vertex_normals; int n_facet_indices; int *facet_indices}`
+  （PK_VECTOR_t=24 字节，引擎 0x13ce2db 以 24 字节步长读顶点）。
+- **回调 status 是 token 不是 0/1**（disasm 0x13ce225 `test eax,0xfffffffd` 与
+  0x13ceb4c `cmp 0x187a6`）：**0x187a4 = continue、0x187a6 = stop、
+  0x187a8 = memory_full**；0x187a5 非法（会走失败出口）。
+- **引擎内部流程**（0x13ce100 状态机）：kernel 先把 reader/context/facet_free 存入
+  全局注册 trampoline（0x13c7720 → 全局 0x3191250/0x3191258），引擎经 trampoline
+  回调用户 reader；每块消费后调 facet_free；stop 后 0x13c69c0 finalize 建实体。
+- **当前状态**：create_later（0x6785）返回 rc=0 + 合法 mesh tag（实体只存
+  {reader,context,facet_free,预估} 供延迟加载）；create_now（0x6784）回调触发、
+  块被消费，但 finalize 返回 **5241（0x1479，引擎 status 3 = 无有效 facet）**——
+  这是下一步要解的最后一个点（候选：会话 mesh_angle 模式、finalize 的 arg3/法向
+  分支、或块数据一致性要求）。未物化的 lazy mesh 上 PK_MESH_make_bodies 返回 907，
+  PK_MESH_ask_n_mfacets 强制加载会崩溃（access violation），不要直接调用。
+- 完整可运行探针：`tools/mesh_create_probe.py`（含所有 struct/回调定义）。
+
 ### 7.9 其余类别（按数量）
 EDGE(67)、PARTITION(56)、CURVE(54)、TOPOL(42，含 PK_TOPOL_facet_2 已用)、LATTICE(41)、
 SURF(41)、ATTRIB(38，PK_ATTRIB_ask_string 已用)、BCURVE(30)、PART(28，PK_PART_receive/
