@@ -184,3 +184,23 @@ def test_expression_source_writeback(qapp):
                                   "500*t", "W")
     assert len(m.express_list()) == 1
     assert m.express_list()[0][2] == "500*t"
+
+
+def test_diffusion_source_writeback(qapp):
+    """P2: diffusion (mass diffusion) source condition round-trip."""
+    from cab_cwizard_pages import _CwSourcePage, _SRC_VOL_TYPES
+    assert "diffusion" in _SRC_VOL_TYPES
+    m = _model()
+    page = _CwSourcePage(m)
+    page._write_diffusion_source("DiffSource1", 2, 0.5, "mol/s")
+    v = m.find_value("DiffSource1")
+    assert v.attrib.get("type") == "diffusion"
+    assert (_first(v, "kind").text or "").strip() == "source"
+    assert (_first(v, "no").text or "").strip() == "2"
+    ds = _first(v, "diff_source")
+    assert (ds.text or "").strip() == "0.5"
+    assert ds.attrib.get("unit") == "mol/s"
+    m2 = StpreModel(parse_stpre(m.doc.serialize()))
+    v2 = m2.find_value("DiffSource1")
+    assert v2 is not None
+    assert (_first(v2, "no").text or "").strip() == "2"

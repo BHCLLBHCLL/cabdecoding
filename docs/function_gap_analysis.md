@@ -181,7 +181,10 @@
    COM 探针实证 STpre 存储格式 express/name + kind VENT_source +
    text line=1，value 内 source type=express 引用函数名；
    cabxml.upsert_express/express_list + Source 页 Expression 创建器 +
-   序列化往返测试；剩余 diffusion source 专属编辑器）。
+   序列化往返测试；**diffusion source 亦已完成**——COM 探针实证
+   SetDiffusionCondition(name, no, 'source', amount, 0) 写
+   value type="diffusion" + kind source + no + diff_source(unit)，
+   Source 页新增 Diffusion source 创建器 + 条件列表 diffusion 分组）。
 7. 专用件参数面（AC 朝向、线性 diffuser、热回路节点）子集。
 8. Parametric Study / Printer paper-feeding / Thermal Characteristics 占位。
 9. ~~IFC / ECXML 导入导出~~ **已完成（2026-08-15 后）**：`cab_ifc.py`（IFC-SPF

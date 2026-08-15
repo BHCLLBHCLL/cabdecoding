@@ -53,7 +53,7 @@ def _pair(lay, label: str, widget, unit: str = "") -> None:
 _SRC_VOL_TYPES = frozenset({
     "volumetric_force", "volumetric_pressure_loss", "heat_source",
     "source_term", "moisture_source", "smoke_source", "humidification",
-    "plant_canopy", "driver", "time_series",
+    "plant_canopy", "driver", "time_series", "diffusion",
 })
 _SRC_AREA_TYPES = frozenset({
     "area_pressure_loss", "area_heat_source",
@@ -87,6 +87,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
                 ("Driver", self._new_vol_driver),
                 ("Time series", self._new_vol_time_series),
                 ("Expression", self._new_vol_expression),
+                ("Diffusion source", self._new_vol_diffusion),
                 ("Generalized source term", self._new_vol_term),
             ),
             face_buttons=False,
@@ -881,6 +882,41 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         for region, rtype in regions:
             self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: expression '{name}' -> {expr_name}")
+        self.refresh()
+
+    def _write_diffusion_source(self, name: str, no: int, amount: float,
+                                unit: str) -> None:
+        """P2: diffusion (mass diffusion) source condition.
+
+        STpre COM-probed shape (2026-08-15, SetDiffusionCondition(name, no,
+        'source', amount, 0)): <value type="diffusion"><kind> source
+        </kind><no> N </no><diff_source unit> amount </diff_source></value>.
+        """
+        self.model.upsert_value("diffusion", name, [
+            ("kind", "source", None),
+            ("no", str(int(no)), None),
+            ("diff_source", f"{amount:g}", unit),
+        ])
+
+    def _new_vol_diffusion(self) -> None:
+        """P2: diffusion source (STpre SetDiffusionCondition 'source')."""
+        res = self._dlg_name_value(
+            "Condition (Diffusion Source)", "DiffSource1",
+            [("Species number", "", 1.0, "n"),
+             ("Amount", "mol/s", 0.0, "a")],
+            unit_choices=["mol/s", "kg/s", "1/s"])
+        if res is None:
+            return
+        name, vals, unit = res
+        self._write_diffusion_source(
+            name, int(vals[0]), vals[1], unit or "mol/s")
+        regions = self._selected_regions(self.vol_table, False)
+        if not regions:
+            regions = [(self._domain_name(), "Domain")]
+        for region, rtype in regions:
+            self._bind_target(region, rtype or "Domain", name)
+        self._log(f"Source: diffusion source '{name}' "
+                  f"(species {int(vals[0])}, {vals[1]:g} {unit or 'mol/s'})")
         self.refresh()
 
     def _new_area_ploss(self) -> None:
@@ -6156,7 +6192,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "moisture_source", "smoke_source", "source_term",
         "humidification", "plant_canopy", "driver", "time_series",
         "area_pressure_loss", "area_heat_source",
-        "perforated_plate", "marangoni",
+        "perforated_plate", "marangoni", "diffusion",
     )
 
     _GROUP_LABELS = {
@@ -6181,6 +6217,7 @@ class _CwConditionListPage(QWidget if _HAS_GUI else object):
         "area_heat_source": "Area heat source",
         "perforated_plate": "Perforated plate",
         "marangoni": "Marangoni convection",
+        "diffusion": "Diffusion",
     }
 
     _KIND_LABELS = {
