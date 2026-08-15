@@ -1421,6 +1421,42 @@ def transform_part_pk(model: StpreModel, archive, name: str,
     return True
 
 
+def replace_part_from_library(model: StpreModel, name: str, entry: dict
+                            ) -> bool:
+    # Replace a part's attributes from a library stub (kind / attribute /
+    # material / heat / temperature / base+size params).  Transform and
+    # conditions stay untouched; primitive geometry regenerates from the
+    # new params on the next tessellation pass (body parts keep geometry).
+    from xml.etree.ElementTree import SubElement
+    el = model.find_part(name)
+    if el is None:
+        return False
+
+    def _set(tag, val):
+        c = _first(el, tag)
+        if c is None:
+            c = SubElement(el, tag)
+            c.tail = '\n         '
+        set_text(c, str(val))
+
+    if entry.get('kind'):
+        el.set('type', str(entry['kind']))
+    if entry.get('attribute'):
+        _set('attribute', entry['attribute'])
+    if entry.get('material'):
+        _set('property', entry['material'])
+    if entry.get('heat_source') is not None:
+        _set('heat_source', entry['heat_source'])
+    if entry.get('temperature') is not None:
+        _set('temperature', entry['temperature'])
+    params = entry.get('params') or {}
+    base = params.get('base')
+    if base:
+        _set('base', ','.join(f'{float(v):.17g}' for v in base))
+    size = params.get('size')
+    if size:
+        _set('size', ','.join(f'{float(v):.17g}' for v in size))
+    return True
 def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
                         radius: float, edge_index: int = 0, *,
                         chamfer: bool = False,

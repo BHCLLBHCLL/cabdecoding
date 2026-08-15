@@ -74,7 +74,12 @@
 10. Element cross-section / Checking S-File（已加深：截面新增 Quality 显示
     类型——按单元长宽比（aspect=最长边/最短边，蓝→红）着色切片；S-File 校验
     新增轴单调/正宽度、非有限值、倒置占位盒检查）。
-11. 3DfindIT / Library part 替换深度。
+11. 3DfindIT / Library part 替换（2026-08-16 加深）：部件右键菜单新增
+    「Replace from library...」——从 [Project Parts] 图书馆应用 kind/
+    attribute/材料/发热量/温度/base+size 到目标部件（保留 transform 与
+    条件，原语件重新生成 tess，body 件保持几何）；cab_edit_ops.
+    replace_part_from_library + ReplaceFromLibraryDialog + 测试。外部 CADENAS 3DfindIT 连接性
+    无 COM 表面，记为网络服务项。
 
 ---
 

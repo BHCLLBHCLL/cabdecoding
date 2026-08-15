@@ -1989,6 +1989,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._ctx_rearrange_group(str(name) if name else "")
         elif action == "register_library":
             self._ctx_register_library(names)
+        elif action == "replace_library":
+            self._ctx_replace_from_library(names)
         else:
             self._nyi(f"Layout context: {action}")
 
@@ -3028,6 +3030,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 lambda n=name: self._on_context_action(
                     "register_library", "part", [n]))
             menu.addAction(
+                "Replace from library...",
+                lambda n=name: self._on_context_action(
+                    "replace_library", "part", [n]))
+            menu.addAction(
                 "Delete Part",
                 lambda n=name: self._on_context_action("delete", "part", [n]))
             menu.exec_(QCursor.pos())
@@ -3195,6 +3201,25 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.control._project_part_library = data
         except Exception:
             pass
+
+    def _ctx_replace_from_library(self, names: list[str]) -> None:
+        # Replace selected part's attributes from the [Project Parts] library.
+        if not names:
+            self.log('Replace from library: select a part.', 'WARN')
+            return
+        lib = getattr(self.control, '_project_part_library', []) or []
+        if not lib:
+            self.log(
+                'Library empty - register parts first (part context menu',
+                ' -> Register to library...).', 'WARN')
+            return
+        import cab_edit_dialogs
+        snap = self._snapshot()
+        dlg = cab_edit_dialogs.ReplaceFromLibraryDialog(
+            self.model, lib, names[0], self)
+        dlg.exec_()
+        if dlg.applied:
+            self._edit_finish(snap, 'Replace from library finished.')
 
     def _ctx_register_library(self, names: list[str]) -> None:
         """Copy selected part props into Control → Library [Project Parts]."""

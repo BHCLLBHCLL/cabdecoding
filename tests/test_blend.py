@@ -63,6 +63,33 @@ def test_chamfer_cycle_on_block():
     assert len(part.triangles) == 422
 
 
+
+
+def test_replace_part_from_library():
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    import cab_edit_ops
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.add_part(name='P', kind='cube', attribute='solid')
+    entry = {
+        'name': 'LibCyl', 'kind': 'cylinder', 'attribute': 'fluid',
+        'material': 'Aluminum', 'heat_source': 5.0, 'temperature': 80.0,
+        'params': {'base': (1.0, 2.0, 3.0), 'size': (20.0, 40.0, 20.0)},
+    }
+    assert cab_edit_ops.replace_part_from_library(model, 'P', entry)
+    el = model.find_part('P')
+    assert el is not None
+    assert el.get('type') == 'cylinder'
+    from cabxml import _first
+    assert _first(el, 'attribute').text.strip() == 'fluid'
+    assert _first(el, 'property').text.strip() == 'Aluminum'
+    assert float(_first(el, 'heat_source').text.strip()) == 5.0
+    assert float(_first(el, 'temperature').text.strip()) == 80.0
+    base = [float(x) for x in _first(el, 'base').text.replace(',', ' ').split()]
+    assert base == [1.0, 2.0, 3.0]
+    size = [float(x) for x in _first(el, 'size').text.replace(',', ' ').split()]
+    assert size == [20.0, 40.0, 20.0]
+    # transform untouched (identity default)
+    assert '1,0,0,0,0,1,0' in (_first(el, 'transform').text or '')
 def test_blend_part_edge_pk_persists_x_t():
     # M37 wiring: blend an x_t-part edge in place and rewrite the member.
     if not cab_ps_ops.available():

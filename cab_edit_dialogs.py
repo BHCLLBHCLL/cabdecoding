@@ -1061,6 +1061,78 @@ class ShapeChangeBooleanDialog(_EditDlg):
         self.accept()
 
 
+# --------------------------------------------------- Replace from Library
+
+
+class ReplaceFromLibraryDialog(_EditDlg):
+    # [Replace part from library] - internal part library (3DfindIT-style
+    # depth: attribute/kind swap preserving transform and conditions).
+
+    def __init__(self, model: StpreModel, library: list, target: str,
+                 parent=None):
+        super().__init__('Replace from Library', 'Replace from Library',
+                         parent)
+        self.model = model
+        self.library = library or []
+        self.body.addWidget(_capability_note(
+            'Applies the library stub (kind / attribute / material / heat /'
+            ' temperature / size) to the target part.  Transform and'
+            ' conditions stay untouched; body parts keep their geometry.'
+            '  Register parts to the library via the part context menu'
+            ' first (external CADENAS 3DfindIT connectivity is not'
+            ' available in this build).', self))
+        form = QFormLayout()
+        self.target = QComboBox(self)
+        self.target.addItems(_part_names(model))
+        if target:
+            idx = self.target.findText(target)
+            if idx >= 0:
+                self.target.setCurrentIndex(idx)
+        form.addRow('Target part', self.target)
+        self.body.addLayout(form)
+        self.entry_list = QListWidget(self)
+        for e in self.library:
+            QListWidgetItem(e.get('summary') or e.get('name', '?'),
+                            self.entry_list)
+        self.body.addWidget(self.entry_list)
+        self._root.addLayout(_bottom_buttons(self, (
+            ('Replace', self._run),
+            ('Cancel', self.reject),
+        )))
+
+    def _run(self) -> None:
+        row = self.entry_list.currentRow()
+        if row < 0 or row >= len(self.library):
+            QMessageBox.warning(self, 'Replace from Library',
+                                'Select a library entry.')
+            return
+        target = self.target.currentText()
+        if not target:
+            QMessageBox.warning(self, 'Replace from Library',
+                                'Select a target part.')
+            return
+        if not ops.replace_part_from_library(
+                self.model, target, self.library[row]):
+            QMessageBox.warning(self, 'Replace from Library',
+                                'Part not found.')
+            return
+        parent = self.parent()
+        if parent is not None and hasattr(parent, '_append_primitive_tess'):
+            try:
+                parent._append_primitive_tess()
+            except Exception:
+                pass
+        if parent is not None and hasattr(parent, '_rebuild_scene'):
+            try:
+                parent._rebuild_scene()
+            except Exception:
+                pass
+        self.applied = True
+        QMessageBox.information(
+            self, 'Replace from Library',
+            "Replaced '" + target + "' from library entry '" +
+            str(self.library[row].get('name', '?')) + "'.")
+        self.accept()
 # -------------------------------------------------------- Blend / Chamfer
 
 
