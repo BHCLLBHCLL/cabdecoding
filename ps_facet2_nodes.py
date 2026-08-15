@@ -872,44 +872,48 @@ class _PsSession:
         except OSError:
             return None
 
+    def vertex_point(self, vertex_tag: int) -> Optional[np.ndarray]:
+        """Coordinates of a PK_VERTEX (``PK_VERTEX_ask_point`` → ``PK_POINT_ask``).
+
+        ``PK_VERTEX_ask_point`` returns a ``PK_POINT_t`` entity tag (not a
+        ``double[3]``); the position is then read with ``PK_POINT_ask``.
+        """
+        pk = self.pk
+        pk.PK_VERTEX_ask_point.restype = c_int
+        pk.PK_VERTEX_ask_point.argtypes = [c_int, POINTER(c_int)]
+        pt = c_int(0)
+        if pk.PK_VERTEX_ask_point(int(vertex_tag), byref(pt)) != 0:
+            return None
+        if pt.value == 0:
+            return None
+        pk.PK_POINT_ask.restype = c_int
+        pk.PK_POINT_ask.argtypes = [c_int, POINTER(c_double * 3)]
+        sf = (c_double * 3)()
+        if pk.PK_POINT_ask(pt.value, byref(sf)) != 0:
+            return None
+        return np.array([sf[0], sf[1], sf[2]], dtype=np.float64)
+
     def body_vertices(self, tag: int) -> Optional[np.ndarray]:
-        """Real B-rep vertex coordinates of a body (PK_FACE_ask_vertices).
+        """Real B-rep vertex coordinates of a body (``PK_BODY_ask_vertices``).
 
         Used by the gridding "All / Representative" vertex detection:
         STpre reads the Parasolid vertices, not the display mesh points.
-
-        B5 note: ``PK_VERTEX_ask_point`` on this kernel returns garbage
-        (denormal x, zero y/z) with both the ``double[3]`` and struct output
-        signatures, so these coordinates are unreliable for curved parts —
-        the tr03 "all" count (native 65x115x115 vs STpre 59x118x121) is the
-        visible symptom.  The facet path (``_facet2_call``) returns correct
-        points and is used by ``face_plane`` as a workaround.
         """
-        faces = self.body_faces(tag)
-        if not faces:
-            return None
         pk = self.pk
-        pk.PK_FACE_ask_vertices.restype = c_int
-        pk.PK_FACE_ask_vertices.argtypes = [
+        pk.PK_BODY_ask_vertices.restype = c_int
+        pk.PK_BODY_ask_vertices.argtypes = [
             c_int, POINTER(c_int), POINTER(c_void_p)]
-        pk.PK_VERTEX_ask_point.restype = c_int
-        pk.PK_VERTEX_ask_point.argtypes = [c_int, POINTER(c_double)]
-        pts: list[list[float]] = []
-        seen: set[int] = set()
-        for ft in faces:
-            n = c_int(0)
-            arr = c_void_p()
-            if pk.PK_FACE_ask_vertices(ft, byref(n), byref(arr)) != 0:
-                continue
-            if n.value <= 0 or not arr:
-                continue
-            for vt in cast(arr, POINTER(c_int * n.value)).contents:
-                if vt in seen:
-                    continue
-                seen.add(vt)
-                xyz = (c_double * 3)()
-                if pk.PK_VERTEX_ask_point(vt, xyz) == 0:
-                    pts.append([xyz[0], xyz[1], xyz[2]])
+        n = c_int(0)
+        arr = c_void_p()
+        if pk.PK_BODY_ask_vertices(int(tag), byref(n), byref(arr)) != 0:
+            return None
+        if n.value <= 0 or not arr:
+            return None
+        pts: list[np.ndarray] = []
+        for vt in cast(arr, POINTER(c_int * n.value)).contents:
+            p = self.vertex_point(vt)
+            if p is not None:
+                pts.append(p)
         if not pts:
             return None
         return np.asarray(pts, dtype=np.float64)
