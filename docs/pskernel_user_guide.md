@@ -384,12 +384,33 @@ PK_MESH_create_from_facets(facet_reader, context, options, mesh)
 - **引擎内部流程**（0x13ce100 状态机）：kernel 先把 reader/context/facet_free 存入
   全局注册 trampoline（0x13c7720 → 全局 0x3191250/0x3191258），引擎经 trampoline
   回调用户 reader；每块消费后调 facet_free；stop 后 0x13c69c0 finalize 建实体。
-- **当前状态**：create_later（0x6785）返回 rc=0 + 合法 mesh tag（实体只存
-  {reader,context,facet_free,预估} 供延迟加载）；create_now（0x6784）回调触发、
-  块被消费，但 finalize 返回 **5241（0x1479，引擎 status 3 = 无有效 facet）**——
-  这是下一步要解的最后一个点（候选：会话 mesh_angle 模式、finalize 的 arg3/法向
-  分支、或块数据一致性要求）。未物化的 lazy mesh 上 PK_MESH_make_bodies 返回 907，
-  PK_MESH_ask_n_mfacets 强制加载会崩溃（access violation），不要直接调用。
+- **当前状态（第 2 轮深挖后）**：create_later（0x6785）返回 rc=0 + 合法 mesh tag；
+  create_now（0x6784）回调触发、块被消费（facet_free 回调可观察到），但 finalize
+  返回 **5241**（引擎 status 3，映射表 0xa6d630 code3→0x1479）。深挖结论：
+  * 引擎 0x13ce100 的累计器 acc（rbp-0x80..-0x31）：[+0]=顶点数 [+4]=法向计数
+    [+8]=顶点预估 [+0x10]=顶点表 [+0x18]=法向表 [+0x20]=有限标记 [+0x28]=法向标记
+    [+0x30]=facet 数 [+0x34]=facet 容量 [+0x38]=facet 索引表 [+0x4c]=模式字节；
+    块数据被逐字段消费（0x13c7740 加顶点、0x1317820 加 facet 三元组），与探针
+    传入的 index 块布局完全吻合——数据本身无误。
+  * finalize 0x13c69c0 → 0x13cb320（拷顶点/facet 表）→ 0x13cb730（建网格拓扑）
+    → 0x13cdab0 → **0x13cd5e0（mvertex 映射构建器）**；5241 即出自该链末端，
+    且对法向/thread_safe/块数/箱体等所有变体均复现——属内核侧状态要求，
+    非调用方数据问题。
+  * 0x13c6a2b 的「模式」来自 0x5ad9c0(option 0xFC) 特性门（0x5ad9c0 是对比
+    构建版本号 0x98967f 与 option 阈值表的**只读特性门**，无法用 API 改写）；
+    option 0x7e/0x75/0x7d（引擎 0x13c780e 法向路径）同理。
+  * **STpre 本身不走这条路**：ParasolidGW vtable（0x19a8=create_from_facets、
+    0x19f8=make_bodies）只有解析无调用点；实际被调的是 0x19c0/0x19c8/0x19e0/
+    0x1a00/0x1a10（do_for_all_mvertices / eval_with_mtopol /
+    find_laminar_mfins_r_f / store_normals / has_unique_normals），集中在
+    GW 的 PKSheet_MakeUntrimmedSheet（0xd5c00）与
+    PKFaces_GetMaxDistanceFromContour（0x1532a1）——即 STpre 对**既有 mesh**
+    做查询+建 sheet，不新建 mesh。
+  * 未物化 lazy mesh 上 PK_MESH_make_bodies 返回 907（其 options 转换器只认
+    o_t_version=1；907 = bad_option/mesh 未物化），PK_MESH_ask_n_mfacets 会
+    崩溃（access violation），不要直接调用。
+- 下一步：改走 STpre 同款路径——`PK_MESH_make_surf_trimmed`（mesh→trimmed
+  classic 曲面）或 GW 式 sheet 拼合 + `PK_FACE_make_solid_bodies` 出 body。
 - 完整可运行探针：`tools/mesh_create_probe.py`（含所有 struct/回调定义）。
 
 ### 7.9 其余类别（按数量）

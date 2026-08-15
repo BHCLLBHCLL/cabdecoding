@@ -31,9 +31,12 @@
 
 - CAB 容器（MSCF+MSZIP）字节级读写、XML 解析/序列化、属性库（material）。
 - File 菜单：New/Open/Save/SaveAs/Import/Export/Print/ExecuteSolver/ExecutePost/3DfindIT/Exit。
-- 导入：x_t（pskernel 原生）、STL（原生）、STEP/SAT（OpenCascade `cab_occ.py`）。
-- 导出：`s_export.py`（S 文件）、`xemt_export.py`、MDL/DXF/OBJ（`cab_import._tris_to_*`）。
-- 差距：IFC/ECXML 导入导出（手册 CAD Interface 章节）未实现；3DfindIT 为占位。
+- 导入：x_t（pskernel 原生）、STL（原生）、STEP/SAT（OpenCascade `cab_occ.py`）、
+  **IFC（SPF 解析→cuboid/panel 件 + 4×4 part transform，`cab_ifc.py`）**、
+  **ECXML（two_resistor/delphi 热模型，`ecxml.py`）**。
+- 导出：`s_export.py`（S 文件）、`xemt_export.py`、MDL/DXF/OBJ（`cab_import._tris_to_*`）、
+  **IFC2X3（墙/板/代理 + 相对布局）、ECXML**。
+- 差距：3DfindIT 为占位；IFC 复杂轮廓（圆形/多段线型材）、IFC4 进阶实体仍为简化路径。
 
 ### 2. Part 创建 — ✅ 高（~90% 几何 / ~60% 专用件参数）
 
@@ -58,9 +61,15 @@
   Simplification「mesh→B-rep 出 x_t」仍在推进：`PK_MESH_create_from_facets` V37
   ABI 已全部破解并实测（facet_geometry token 0x64E7、create_now/later = 0x6784/0x6785、
   回调 status token 0x187a4/0x187a6、facet_type 5=index/6=vector；create_later 已能返回
-  合法 mesh tag），剩余一步：create_now finalize 返回 5241（无有效 facet）待解，
-  详见 `docs/pskernel_user_guide.md` §7.8.1 与 `tools/mesh_create_probe.py`；
-  之后接 `PK_MESH_make_bodies`（或 `PK_FACE_make_solid_bodies`）出 body 再写 x_t。
+  合法 mesh tag），create_now finalize 的 5241 已定位到内核深层（引擎 0x13ce100 →
+  finalize 0x13c69c0 → 构建器 0x13cb320/0x13cd5e0；含箱体的 create_later 亦无法被
+  `PK_MESH_make_bodies` 物化（907））。另查明 **STpre 自身并不调用
+  `PK_MESH_create_from_facets`/`PK_MESH_make_bodies`**（ParasolidGW vtable
+  0x19a8/0x19f8 无调用点，仅解析），其 mesh 处理走 GW 的
+  `PKSheet_MakeUntrimmedSheet` + `PKFaces_GetMaxDistanceFromContour`
+  （find_laminar_mfins）查询路径——下轮改按该路径实现（`PK_MESH_make_surf_trimmed`
+  /sheet 拼合 + `PK_FACE_make_solid_bodies`）。详见
+  `docs/pskernel_user_guide.md` §7.8.1 与 `tools/mesh_create_probe.py`。
 
 ### 4. Mesh / Gridding — ✅ 中-高（~85%，金标收敛 + 极坐标网格）
 
@@ -146,7 +155,10 @@
 6. Source 条件非全量（time series / 函数 / diffusion source）。
 7. 专用件参数面（AC 朝向、线性 diffuser、热回路节点）子集。
 8. Parametric Study / Printer paper-feeding / Thermal Characteristics 占位。
-9. IFC / ECXML 导入导出。
+9. ~~IFC / ECXML 导入导出~~ **已完成（2026-08-15 后）**：`cab_ifc.py`（IFC-SPF
+   解析：拉伸矩形型材 + LOCALPLACEMENT 链 + m→mm，导入为 cube 件 + part
+   transform；导出最小 IFC2X3）+`ecxml.py`（two_resistor/delphi 热模型
+   round-trip）+ File 菜单接线，7 项测试全过。
 
 ### P3 — 低优先级
 10. Element cross-section / Checking S-File 浅实现。

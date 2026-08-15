@@ -3979,7 +3979,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         path, _ = QFileDialog.getOpenFileName(
             self, "Import Geometry", "",
             "Geometry (*.x_t *.xmt_txt *.step *.stp *.stl *.sat *.sab "
-            "*.obj *.dxf *.mdl);;"
+            "*.obj *.dxf *.mdl *.ifc *.ecxml);;"
+            "IFC Building (*.ifc);;ECXML Components (*.ecxml);;"
             "Parasolid XT (*.x_t *.xmt_txt);;STEP (*.step *.stp);;"
             "OBJ (*.obj);;DXF (*.dxf);;MDL (*.mdl);;"
             "STL (*.stl);;ACIS SAT (*.sat *.sab);;All files (*)")
@@ -3988,6 +3989,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         snap = self._snapshot()
         try:
             import cab_import
+            ext = os.path.splitext(path)[1].lower()
+            if ext in (".ifc", ".ecxml"):
+                self._import_ifc_ecxml(path, ext)
+                return
             if not cab_import.available():
                 QMessageBox.warning(
                     self, "Import",
@@ -4120,6 +4125,45 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.statusBar().showMessage(f"已重建 {path} ({len(data):,} B)")
         return True
 
+    def _import_ifc_ecxml(self, path: str, ext: str) -> None:
+        """File -> Import for .ifc / .ecxml: create parts directly."""
+        try:
+            raw = Path(path).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            self.log(f"Import failed: {exc}", "WARN")
+            return
+        if ext == ".ifc":
+            import cab_ifc
+            try:
+                solids = cab_ifc.parse_ifc(raw)
+            except Exception as exc:
+                QMessageBox.warning(self, "Import",
+                                    f"IFC parse failed: {exc}")
+                return
+            names = cab_ifc.register_ifc_parts(self.model, solids)
+            what = "IFC solid"
+        else:
+            import ecxml
+            try:
+                comps = ecxml.parse_ecxml(raw)
+            except Exception as exc:
+                QMessageBox.warning(self, "Import",
+                                    f"ECXML parse failed: {exc}")
+                return
+            names = ecxml.register_ecxml_parts(self.model, comps)
+            what = "ECXML component"
+        if not names:
+            QMessageBox.warning(self, "Import",
+                                f"No {what} found in the file.")
+            return
+        self._mark_dirty()
+        self._update_title()
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self._rebuild_scene()
+        self.log(f"Imported {len(names)} {what}(s) from "
+                 f"{os.path.basename(path)}")
+
     def _export_dialog(self) -> None:
         if self.model is None or self.props is None:
             return
@@ -4127,6 +4171,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self, "Export", self.model.project_name or "export",
             "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*);;"
             "STL (*.stl);;Parasolid XT (*.x_t);;"
+            "IFC Building (*.ifc);;ECXML Components (*.ecxml);;"
             "Property XML (*_property.xml);;All files (*)")
         if not path:
             return
@@ -4137,6 +4182,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if "STL" in selected or ext.lower() == ".stl":
             out = base + ".stl"
             self._export_stl(out)
+            wrote.append(out)
+        elif "IFC" in selected or ext.lower() == ".ifc":
+            out = base + ".ifc"
+            import cab_ifc
+            with open(out, "w", encoding="utf-8", newline="") as fh:
+                fh.write(cab_ifc.model_to_ifc(self.model))
+            wrote.append(out)
+        elif "ECXML" in selected or ext.lower() == ".ecxml":
+            out = base + ".ecxml"
+            import ecxml
+            with open(out, "w", encoding="utf-8", newline="") as fh:
+                fh.write(ecxml.parts_to_ecxml(self.model))
             wrote.append(out)
         elif "Parasolid" in selected or ext.lower() == ".x_t":
             out = base + ".x_t"

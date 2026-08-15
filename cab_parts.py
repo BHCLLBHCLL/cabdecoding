@@ -982,6 +982,9 @@ def register_primitive(model: StpreModel, *, name: str, kind: str,
         add("model_type", params.get("model_type", "extrusion"))
     if kind == "blower_fan":
         add("rotation_axis", params.get("rotation_axis", "+Z"))
+    for key in ("manufacturer", "part_number"):
+        if params.get(key):
+            add(key, str(params[key]))
     cond = dict(params)
     if monitor is not None:
         cond["monitor"] = monitor
