@@ -1,0 +1,148 @@
+[
+  {
+    "name": "cyl_r0_50_theta360_z0_50_std5",
+    "ok": true,
+    "set_domain_rc": true,
+    "blk_setparam_length_rc": 1,
+    "blk_setparam_limit_rc": 1,
+    "blk_setparam_ratio_rc": 1,
+    "gridparam_division_method_rc": 1,
+    "gridparam_division_type_rc": 1,
+    "gridparam_edge_contact_rc": 1,
+    "gridparam_outer_ratio_rc": 1,
+    "grid_rc": 1,
+    "element_rc": 1,
+    "save_rc": true,
+    "axes": {
+      "x": null,
+      "y": null,
+      "z": []
+    },
+    "domain": "<analysis_region type=\"cylinder\">\n      <name> Domain(cylindrical) </name>\n      <visible_count> 1 </visible_count>\n      <radius unit=\"mm\"> 0,50 </radius>\n      <angle> 0,360 </angle>\n      <height unit=\"mm\"> 0,50 </height>\n      <color> 0,255,255,255 </color>\n      <property> air(incompressible/20C) </property>\n      <heat_balance> F,F </heat_balance>\n      <region type=\"face_list\">\n         <name> Tmin </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cylindrical),1 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n         <name> Tmax </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cylindrical),2 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n      ",
+    "mesh_control": {
+      "select_vertex": "3",
+      "divide_method": "1",
+      "divide_scale": "2",
+      "divide_ratio2": "1.2,1.2,1.2",
+      "edge_contact": "0"
+    },
+    "has_element": true
+  },
+  {
+    "name": "cyl_r20_50_theta360_z0_50_std5",
+    "ok": true,
+    "set_domain_rc": true,
+    "blk_setparam_length_rc": 1,
+    "blk_setparam_limit_rc": 1,
+    "blk_setparam_ratio_rc": 1,
+    "gridparam_division_method_rc": 1,
+    "gridparam_division_type_rc": 1,
+    "gridparam_edge_contact_rc": 1,
+    "gridparam_outer_ratio_rc": 1,
+    "grid_rc": 1,
+    "element_rc": 1,
+    "save_rc": true,
+    "axes": {
+      "x": null,
+      "y": null,
+      "z": []
+    },
+    "domain": "<analysis_region type=\"cylinder\">\n      <name> Domain(cylindrical) </name>\n      <visible_count> 1 </visible_count>\n      <radius unit=\"mm\"> 20,50 </radius>\n      <angle> 0,360 </angle>\n      <height unit=\"mm\"> 0,50 </height>\n      <color> 0,255,255,255 </color>\n      <property> air(incompressible/20C) </property>\n      <heat_balance> F,F </heat_balance>\n      <region type=\"face_list\">\n         <name> Tmin </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cylindrical),1 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n         <name> Tmax </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cylindrical),2 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n     ",
+    "mesh_control": {
+      "select_vertex": "3",
+      "divide_method": "1",
+      "divide_scale": "2",
+      "divide_ratio2": "1.2,1.2,1.2",
+      "edge_contact": "0"
+    },
+    "has_element": true
+  },
+  {
+    "name": "cyl_r0_50_theta180_z0_50_std5",
+    "ok": true,
+    "set_domain_rc": true,
+    "blk_setparam_length_rc": 1,
+    "blk_setparam_limit_rc": 1,
+    "blk_setparam_ratio_rc": 1,
+    "gridparam_division_method_rc": 1,
+    "gridparam_division_type_rc": 1,
+    "gridparam_edge_contact_rc": 1,
+    "gridparam_outer_ratio_rc": 1,
+    "grid_rc": 1,
+    "element_rc": 1,
+    "save_rc": true,
+    "axes": {
+      "x": null,
+      "y": null,
+      "z": []
+    },
+    "domain": "<analysis_region type=\"cylinder\">\n      <name> Domain(cylindrical) </name>\n      <visible_count> 1 </visible_count>\n      <radius unit=\"mm\"> 0,50 </radius>\n      <angle> 0,180 </angle>\n      <height unit=\"mm\"> 0,50 </height>\n      <color> 0,255,255,255 </color>\n      <property> air(incompressible/20C) </property>\n      <heat_balance> F,F </heat_balance>\n      <region type=\"face_list\">\n         <name> Tmin </name>\n         <kind> aset </kind>\n         <base> Domain(cylindrical) </base>\n         <face no=\"1\"> Domain(cylindrical),1 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n         <name> Tmax </name>\n         <kind> aset </kind>\n         <base> Domain(cylindrical) </base>\n         <face no=\"1\"> Domain(cylindrical),2 </face>\n         <",
+    "mesh_control": {
+      "select_vertex": "3",
+      "divide_method": "1",
+      "divide_scale": "2",
+      "divide_ratio2": "1.2,1.2,1.2",
+      "edge_contact": "0"
+    },
+    "has_element": true
+  },
+  {
+    "name": "cyl_r0_50_theta360_z0_50_std2_5",
+    "ok": true,
+    "set_domain_rc": true,
+    "blk_setparam_length_rc": 1,
+    "blk_setparam_limit_rc": 1,
+    "blk_setparam_ratio_rc": 1,
+    "gridparam_division_method_rc": 1,
+    "gridparam_division_type_rc": 1,
+    "gridparam_edge_contact_rc": 1,
+    "gridparam_outer_ratio_rc": 1,
+    "grid_rc": 1,
+    "element_rc": 1,
+    "save_rc": true,
+    "axes": {
+      "x": null,
+      "y": null,
+      "z": []
+    },
+    "domain": "<analysis_region type=\"cylinder\">\n      <name> Domain(cylindrical) </name>\n      <visible_count> 1 </visible_count>\n      <radius unit=\"mm\"> 0,50 </radius>\n      <angle> 0,360 </angle>\n      <height unit=\"mm\"> 0,50 </height>\n      <color> 0,255,255,255 </color>\n      <property> air(incompressible/20C) </property>\n      <heat_balance> F,F </heat_balance>\n      <region type=\"face_list\">\n         <name> Tmin </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cylindrical),1 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n         <name> Tmax </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cylindrical),2 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n      ",
+    "mesh_control": {
+      "select_vertex": "3",
+      "divide_method": "1",
+      "divide_scale": "2",
+      "divide_ratio2": "1.2,1.2,1.2",
+      "edge_contact": "0"
+    },
+    "has_element": true
+  },
+  {
+    "name": "axial_r0_50_z0_50_std5",
+    "ok": true,
+    "set_domain_rc": "com_error: (-2147417851, '\u670d\u52a1\u5668\u51fa\u73b0\u610f\u5916\u60c5\u51b5\u3002', None, None)",
+    "axissym_rc": 1,
+    "blk_setparam_length_rc": 1,
+    "blk_setparam_limit_rc": 1,
+    "blk_setparam_ratio_rc": 1,
+    "gridparam_division_method_rc": 1,
+    "gridparam_division_type_rc": 1,
+    "gridparam_edge_contact_rc": 1,
+    "gridparam_outer_ratio_rc": 1,
+    "grid_rc": 1,
+    "element_rc": 1,
+    "save_rc": true,
+    "axes": {
+      "x": [],
+      "y": [],
+      "z": []
+    },
+    "domain": "<analysis_region type=\"cube\">\n      <name> Domain(cuboid) </name>\n      <visible_count> 1 </visible_count>\n      <base unit=\"mm\"> 0,0,0 </base>\n      <size unit=\"mm\"> 100,100,100 </size>\n      <color> 0,255,255,51 </color>\n      <property> air(incompressible/20C) </property>\n   <monitor> T </monitor>\n      <heat_balance> F,F </heat_balance>\n      <region type=\"face_list\">\n         <name> Xmin </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cuboid),4 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n         <name> Xmax </name>\n         <kind> aset </kind>\n         <face no=\"1\"> Domain(cuboid),2 </face>\n         <rad_group_num> 0 </rad_group_num>\n      </region>\n      <region type=\"face_list\">\n         <name> Ymin </name>\n",
+    "mesh_control": {
+      "select_vertex": "3",
+      "divide_method": "1",
+      "divide_scale": "2",
+      "divide_ratio2": "1.2,1.2,1.2",
+      "edge_contact": "0"
+    },
+    "has_element": true
+  }
+]

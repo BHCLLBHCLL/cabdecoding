@@ -80,8 +80,9 @@
   representative `57×91×88 vs 57×91×92`（x/y 精确，z 差 4）；`all` 计数取决于
   STpre 内部显示 tess 顶点集（与 pskernel `facet_body` 约 0.01mm 差异）。
 - Meshing（元素生成/占用分类/并行 RLE）、Multiblock、Interference 检查。
-- **差距**：`all` 模式精确计数需复刻 STpre 显示 tessellation；圆柱/轴向域网格为
-  笛卡尔 AABB 近似；Element cross-section / Checking S-File 为浅实现。
+- **差距**：`all` 模式精确计数需复刻 STpre 显示 tessellation；Element
+  cross-section / Checking S-File 为浅实现。圆柱/轴向域网格已与 STpre COM
+  探针对齐（见 P0-② 与 STPRE_GRID_RULES.md §7）。
 
 ### 5. Condition Wizard — ✅ 高（~85%）
 
@@ -147,7 +148,14 @@
 ### P0 — 阻塞正确性
 1. **`all` 顶点检测精确计数**：需复刻 STpre 内部显示 tessellation（当前 pskernel
    `facet_body` 顶点集不同，x/y/z 计数差 2~34）。
-2. **圆柱/轴向坐标域网格**：仍为笛卡尔 AABB 近似（`domain_coordinate` 仅存标志）。
+2. ~~**圆柱/轴向坐标域网格**~~ **已完成（2026-08-15 COM 探针对齐）**：
+   `tools/probe_cyl_domain.py` 实测 STpre SetCylindricalDomain 保存格式与布点
+   规则——域存 `<radius>/<angle>/<height>`（type=cylinder），mesh_block 用
+   `<r>/<t unit=radian>/<z>` + `system=1`，θ 线数 = span(度)/std（360/5→72，
+   非弧长），R 按径向投影（含轴→r_min=0）走内/外区 refine，环域全域外区；
+   轴向域 = cube + `axissymmetry=1` + Y 坍缩 2 线（y_max=y_min+min(Lx,Lz)）。
+   全部金标 4 组 R/Z + 3 组 θ 复现，序列化往返双向弧度↔度；
+   `tests/test_cylindrical_axes.py` 11 项绿，STPRE_GRID_RULES.md §7 记录。
 
 ### P1 — 高价值功能缺失
 3. **Condition Wizard 高级物理**（2026-08-15 COM 探针对齐后 **22/25 支持**：

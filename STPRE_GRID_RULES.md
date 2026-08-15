@@ -267,3 +267,61 @@ g0 = L * (1 - q) / (1 - q^n)     （q==1 时 g0 = L/n）
 
 验证：`tests/test_stpre_rules.py` 7 项，含非立方域 auto1 与
 `split_outer_counts(25,15,14) → (8,6)` 对拍黑盒数据。
+
+
+---
+
+## 7. 圆柱 / 轴对称域（P0-②，2026-08-15 COM 探针对齐）
+
+探针 tools/probe_cyl_domain.py：headless STpre 上 SetCylindricalDomain +
+RootBlock SetParam(length/limit/ratio) + SetGridParam(minmax/detail) +
+ExecuteGrid/ExecuteElement + 保存后逐字节读 mesh_block。金标保存在
+tools/probe_work/cyldom_*.cab（tools/probe_work/ 已 gitignore）。
+
+### 7.1 域存储
+
+- <analysis_region type="cylinder">，无 base/size，用
+  <radius unit="mm"> r1,r2 </radius>、<angle> t1,t2 </angle>（度）、
+  <height unit="mm"> z1,z2 </height>。
+- 轴对称：域仍为 cube（x=R、z=Z），<analysis_set><axissymmetry> 1
+  ，Y 轴坍缩为 2 线，y_max = y_min + min(x_len, z_len)
+  （"Maximum length in Y direction: Auto"）。
+- SetCylindricalDomain 且 t1=t2=0 直接 COM 报错 —— 轴向域不是
+  零角楔形，而是 cube + axissymmetry 标志。
+
+### 7.2 mesh_block 存储
+
+- <system> 1 </system>（cartesian 为 0）；
+- 轴标签为 <r num unit="mm">、<t num unit="radian">（θ 存弧度）、
+  <z num unit="mm">，子元素同 <g no> value,MARK </g>；
+- min/max 为 r1,0,z1 / r2,θ2_rad,z2（θ 用弧度）；
+- <parts no="N"> name </parts> 挂在对应轴上。
+
+### 7.3 布点规则（金标对拍全部复现）
+
+- R 轴 = 径向投影（r=√(x²+y²)）走与笛卡尔相同的内/外区 refine：
+  - 部件 XY 包围盒含轴 → 径向 minmax 范围 [0, r_max]（r_min 取 0）；
+    否则 r_min = 最小顶点半径；
+  - r_min/r_max 为 S 线；内区按 std 等分（如 [0,14.142] std5 → 3×4.714）；
+  - 外区几何级数、首间距=std、实际 q 精确填满区间（1.2 → 实测
+    5.0, 5.905, 6.975, 8.240, 9.734）；
+  - 环域（域 r=20..50、部件在 r<20 孔内）→ 全域按外区处理
+    （首间距 std，q 填充 → 20,25,30.456,36.411,42.909,50）。
+- Z 轴 = 部件 z 界（域内截断）的内/外区 refine，与笛卡尔一致。
+- θ 轴 = 均匀，n = θ_span(度) / std（非弧长）：
+  360/5→72、180/5→36、360/2.5→144；端点均 B 线，含 0 与 span。
+- vertex detection 语义与笛卡尔一致（minmax 只放 min/max S 线；
+  all/rep 追加各顶点径向投影）。
+
+### 7.4 实现对齐
+
+- cab_grid._build_cylindrical_axes：R/Z 内/外区 refine + θ=span/std；
+  _radial_part_extent 实现「含轴 → r_min=0」规则；
+- cab_grid._build_axial_axes：x/z 笛卡尔 refine + y 坍缩 2 线；
+- cabxml.mesh_coordinate/mesh_axes/mesh_axis_entries/set_mesh_axis/
+  set_mesh/set_root_block_range/root_block_bounds：r/t/z 族读写、
+  θ 弧度↔度双向转换、system=1、min/max 弧度；
+- cab_domain.apply_domain/domain_from_xml：radius/angle/height 存取 +
+  axissymmetry 标志写删；
+- 验证：tests/test_cylindrical_axes.py 11 项（R/Z 金标 4 组、θ 计数、
+  环域、序列化往返、set_mesh_axis 弧度、域 XML 往返、轴向标志）。

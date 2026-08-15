@@ -44,6 +44,7 @@ def _coordinate_from_model(model: StpreModel, ar) -> str:
 
     Prefer explicit ``mesh_control/domain_coordinate`` (stores axial);
     else ``analysis_region@type``: cylinder→cylindrical, cube→cartesian.
+    Axial symmetry also reads the STpre ``analysis_set/axissymmetry`` flag.
     """
     stored = (model.mesh_control_value("domain_coordinate") or "").strip().lower()
     if stored in ("cartesian", "cylindrical", "axial"):
@@ -51,18 +52,55 @@ def _coordinate_from_model(model: StpreModel, ar) -> str:
     xml_type = (ar.attrib.get("type") or "cube").strip().lower()
     if xml_type == "cylinder":
         return "cylindrical"
+    ax = (model.analysis_set_value("axissymmetry", "0") or "0").strip()
+    if ax in ("1", "T", "t"):
+        return "axial"
     return "cartesian"
 
 
+def _domain_child_pair(el, tag: str, default: tuple[float, float]):
+    """Parse a 'v1,v2' domain child element into a float pair."""
+    from cabxml import _first
+    c = _first(el, tag)
+    if c is None or not (c.text or "").strip():
+        return default
+    try:
+        vals = [float(x.strip()) for x in c.text.split(",")[:2]]
+        return (vals[0], vals[1]) if len(vals) == 2 else default
+    except ValueError:
+        return default
+
+
 def domain_from_xml(model: StpreModel) -> Optional[DomainSpec]:
-    """Read the current domain; ``None`` when no ``<analysis_region>``."""
+    """Read the current domain; ``None`` when no ``<analysis_region>``.
+
+    STpre cylinder domains store ``<radius unit>r1,r2`` / ``<angle>t1,t2`` /
+    ``<height unit>z1,z2`` (degrees for angle); they map onto
+    xyz_min=(r1,t1,z1), xyz_max=(r2,t2,z2).
+    """
     ar = model.analysis_region()
     if ar is None:
         return None
+    coordinate = _coordinate_from_model(model, ar)
+    if coordinate == "cylindrical":
+        r1, r2 = _domain_child_pair(ar, "radius", (0.0, 1.0))
+        t1, t2 = _domain_child_pair(ar, "angle", (0.0, 360.0))
+        z1, z2 = _domain_child_pair(ar, "height", (0.0, 1.0))
+        return DomainSpec(
+            coordinate=coordinate,
+            unit=model.domain_unit(),
+            xyz_min=(r1, t1, z1),
+            xyz_max=(r2, t2, z2),
+            material=model.domain_material(),
+            name=model.domain_name() or "Domain(cylindrical)",
+            color=model.domain_color() or (0, 255, 255, 255),
+            monitor=model.domain_monitor(),
+            initial_temperature=model.ambient_temperature(),
+        )
     base = model.domain_base() or (0.0, 0.0, 0.0)
     size = model.domain_size() or (1.0, 1.0, 1.0)
     return DomainSpec(
-        coordinate=_coordinate_from_model(model, ar),
+        coordinate=coordinate,
         unit=model.domain_unit(),
         xyz_min=base,
         xyz_max=(base[0] + size[0], base[1] + size[1], base[2] + size[2]),
@@ -86,12 +124,37 @@ def apply_domain(model: StpreModel, spec: DomainSpec,
         unit=spec.unit, material=spec.material)
     ar = model.analysis_region()
     if ar is not None:
-        # Honesty: cylindrical/axial flags are stored; native grid generation
-        # still uses cartesian AABB axes (see cab_grid / GriddingDialog).
         if spec.coordinate == "cylindrical":
+            # STpre cylinder domain (COM probe 2026-08-15):
+            #   <analysis_region type="cylinder">
+            #     <radius unit="mm"> r1,r2 </radius>
+            #     <angle> t1,t2 </angle>          (degrees)
+            #     <height unit="mm"> z1,z2 </height>
             ar.attrib["type"] = "cylinder"
+            from cabxml import _first, set_text
+            import xml.etree.ElementTree as ET
+            for tag in ("base", "size"):
+                stale = _first(ar, tag)
+                if stale is not None:
+                    ar.remove(stale)
+            for tag, text, with_unit in (
+                    ("radius", f"{base[0]:g},{spec.xyz_max[0]:g}", True),
+                    ("angle", f"{base[1]:g},{spec.xyz_max[1]:g}", False),
+                    ("height", f"{base[2]:g},{spec.xyz_max[2]:g}", True)):
+                el = _first(ar, tag)
+                if el is None:
+                    el = ET.SubElement(ar, tag)
+                    el.tail = "\n      "
+                set_text(el, text)
+                if with_unit:
+                    el.attrib["unit"] = spec.unit
         else:
             ar.attrib["type"] = "cube"  # cartesian and axial
+            from cabxml import _first
+            for tag in ("radius", "angle", "height"):
+                stale = _first(ar, tag)
+                if stale is not None:
+                    ar.remove(stale)
     try:
         model.set_mesh_control_value(
             "domain_coordinate",
@@ -99,6 +162,15 @@ def apply_domain(model: StpreModel, spec: DomainSpec,
                 "cartesian", "cylindrical", "axial") else "cartesian")
     except Exception:
         pass
+    # STpre axial-symmetry flag lives in analysis_set (probe 2026-08-15)
+    if spec.coordinate == "axial":
+        model.set_analysis_set_value("axissymmetry", "1")
+    else:
+        from cabxml import _first
+        aset = _first(model.root, "analysis_set")
+        ax = _first(aset, "axissymmetry") if aset is not None else None
+        if ax is not None:
+            aset.remove(ax)
     if name is None and spec.name:
         model.set_domain_name(spec.name)
     model.set_domain_color(spec.color)
@@ -115,6 +187,7 @@ def apply_domain(model: StpreModel, spec: DomainSpec,
             base,
             (base[0] + size[0], base[1] + size[1], base[2] + size[2]),
             unit="mm",
+            coordinate=spec.coordinate,
             extend_min=extend[0] if extend is not None else (0.0, 0.0, 0.0),
             extend_max=extend[1] if extend is not None else (0.0, 0.0, 0.0),
         )

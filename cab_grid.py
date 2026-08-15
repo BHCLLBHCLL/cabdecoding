@@ -451,8 +451,11 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
     if spec.method == "rough_only":
         return rough, {ax: list(v) for ax, v in rough.items()}
     coord = getattr(spec, "domain_coordinate", "cartesian")
-    if coord in ("cylindrical", "axial"):
+    if coord == "cylindrical":
         return rough, _build_cylindrical_axes(
+            rough, spec, part_points=part_points, part_bounds=part_bounds)
+    if coord == "axial":
+        return rough, _build_axial_axes(
             rough, spec, part_points=part_points, part_bounds=part_bounds)
     if spec.vertex_detection == "uniform":
         # STpre "uniform" ignores the part entirely: the whole domain is
@@ -465,24 +468,53 @@ def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
     return rough, detailed
 
 
+def _radial_part_extent(part_points) -> tuple[float, float]:
+    """Radial [r_lo, r_hi] of the parts from r = sqrt(x^2+y^2).
+
+    STpre COM probe (SetCylindricalDomain + ExecuteGrid, 2026-08-15):
+    a part whose XY bounding box contains the axis contributes r_lo = 0
+    (its minmax radial range is [0, r_max]); otherwise r_lo is the
+    smallest vertex radius.  r_hi is always the largest vertex radius.
+    """
+    r_proj: list[float] = []
+    contains_axis = False
+    for arr in (part_points or {}).values():
+        arr = np.asarray(arr, dtype=np.float64)
+        if len(arr) == 0:
+            continue
+        r = np.hypot(arr[:, 0], arr[:, 1])
+        r_proj.extend(float(v) for v in r)
+        if (float(arr[:, 0].min()) <= 0.0 <= float(arr[:, 0].max())
+                and float(arr[:, 1].min()) <= 0.0
+                <= float(arr[:, 1].max())):
+            contains_axis = True
+    if not r_proj:
+        return 0.0, 0.0
+    r_lo = 0.0 if contains_axis else min(r_proj)
+    return r_lo, max(r_proj)
+
+
 def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
                             *, part_points=None,
                             part_bounds=None) -> dict[str, list[float]]:
-    """Cylindrical / axial layout: x=R, y=theta, z=Z.
+    """Cylindrical layout: x=R, y=theta(deg), z=Z.
 
-    STpre stores R / theta / Z in the mesh_block tables for a cylindrical
-    domain.  R and Z run the real internal/external refine path with the
-    **radial** part extent (``sqrt(x^2+y^2)`` of the tessellation) instead
-    of the cartesian x bounds, so a part centred on the axis grids its
-    inner region [0, r_out] and its outer region [r_out, r_max] correctly.
-    Theta is a uniform 0..360 deg axis sized so the arc length at the outer
-    radius equals the standard length.
+    STpre stores R / theta / Z in the mesh_block tables (r unit=mm,
+    t unit=radian, z unit=mm, system=1; COM probe 2026-08-15).
+    R and Z run the real internal/external refine path with the radial
+    part extent (sqrt(x^2+y^2) of the tessellation) instead of the
+    cartesian x bounds, so a part centred on the axis grids its inner
+    region [0, r_out] and its outer region [r_out, r_max] correctly.
+    Theta is uniform in degrees with n = span_deg / standard_length
+    (probe: 360/5 -> 72 cells, 180/5 -> 36, 360/2.5 -> 144).
     """
     std = _as3(spec.standard_length)[0] or 1.0
     dmin = np.asarray(spec.domain_min, float)
     dmax = np.asarray(spec.domain_max, float)
     rmin = float(dmin[0])
     rmax = float(dmax[0])
+    tmin = float(dmin[1])
+    tmax = float(dmax[1])
     thrs = _as3(spec.threshold_length)
     # -- radial part extent from the tessellation (r = sqrt(x^2+y^2)) ------
     r_proj: list[float] = []
@@ -495,8 +527,7 @@ def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
         r_proj.extend(float(v) for v in r)
         z_vals.append(float(arr[:, 2].min()))
         z_vals.append(float(arr[:, 2].max()))
-    r_lo = min(r_proj) if r_proj else rmin
-    r_hi = max(r_proj) if r_proj else rmax
+    r_lo, r_hi = _radial_part_extent(part_points)
     z_lo = min(z_vals) if z_vals else float(dmin[2])
     z_hi = max(z_vals) if z_vals else float(dmax[2])
     # -- R axis: rough radial lines (part min/max + vertex projections) ----
@@ -510,10 +541,33 @@ def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
     z_bounds = (np.array([r_lo, 0.0, z_lo]), np.array([r_hi, 0.0, z_hi]))
     z_axis = refine_grids({"z": list(rough["z"])}, spec,
                           part_bounds=z_bounds)["z"]
-    # -- theta: uniform 0..360, arc length at outer radius == std ----------
-    n_theta = max(8, int(round(2.0 * np.pi * rmax / max(std, 1e-9))))
-    theta = list(np.linspace(0.0, 360.0, n_theta + 1))
+    # -- theta: uniform span/std cells (STpre probe) ------------------------
+    span = max(tmax - tmin, 0.0)
+    n_theta = max(1, stpre_rules._trunc_round(span / max(std, 1e-9)))
+    theta = list(np.linspace(tmin, tmax, n_theta + 1))
     return {"x": r_axis, "y": theta, "z": z_axis}
+
+
+def _build_axial_axes(rough: dict[str, list[float]], spec: GridSpec,
+                      *, part_points=None,
+                      part_bounds=None) -> dict[str, list[float]]:
+    """Axial-symmetry layout (STpre COM probe 2026-08-15).
+
+    The domain stays cartesian (x = R, z = Z); the Y axis collapses to
+    exactly two lines with y_max = y_min + min(x_len, z_len) and the
+    analysis flag is analysis_set/axissymmetry = 1.
+    """
+    dmin = np.asarray(spec.domain_min, float)
+    dmax = np.asarray(spec.domain_max, float)
+    xlen = float(dmax[0] - dmin[0])
+    zlen = float(dmax[2] - dmin[2])
+    ymin = float(dmin[1])
+    ymax = ymin + min(xlen, zlen)
+    x_axis = refine_grids({"x": list(rough["x"])}, spec,
+                          part_bounds=part_bounds)["x"]
+    z_axis = refine_grids({"z": list(rough["z"])}, spec,
+                          part_bounds=part_bounds)["z"]
+    return {"x": x_axis, "y": [ymin, ymax], "z": z_axis}
 
 
 def _block_internal_points(lo: float, hi: float, std: float, ratio: float,

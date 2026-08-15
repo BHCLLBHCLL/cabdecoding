@@ -3093,6 +3093,7 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             method=cab_grid.method_index(spec),
             part_min=part_min,
             part_max=part_max,
+            coordinate=domain_coord,
         )
         if entries:
             for ax in "xyz":

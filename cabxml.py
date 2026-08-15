@@ -1119,6 +1119,10 @@ class StpreModel:
                     a = [float(x.strip()) for x in mn.text.split(",")[:3]]
                     b = [float(x.strip()) for x in mx.text.split(",")[:3]]
                     if len(a) == 3 and len(b) == 3:
+                        if self.mesh_coordinate() == "cylindrical":
+                            import math
+                            return (a[0], math.degrees(a[1]), a[2],
+                                    b[0], math.degrees(b[1]), b[2])
                         return (a[0], a[1], a[2], b[0], b[1], b[2])
                 except ValueError:
                     pass
@@ -1204,6 +1208,7 @@ class StpreModel:
             extend_max: tuple[float, float, float] = (0.0, 0.0, 0.0),
             threshold: Optional[tuple[float, float, float]] = None,
             ratio: Optional[tuple[float, float, float]] = None,
+            coordinate: Optional[str] = None,
     ) -> None:
         """Update RootBlock AABB (STpre ``Mesh:block`` dialog).
 
@@ -1249,7 +1254,8 @@ class StpreModel:
             axes, unit=unit, domain_min=mn, domain_max=mx,
             threshold=thr, ratio=rat,
             standard_length=std_len or (0.5, 0.5, 0.5),
-            ratio_external=rat_ext)
+            ratio_external=rat_ext,
+            coordinate=coordinate or self.mesh_coordinate())
         mb = self.mesh_block()
         if mb is not None:
             self._mesh_child(mb, "name", name)
@@ -1269,23 +1275,49 @@ class StpreModel:
             return None
         return (vals[0], vals[1], vals[2]) if len(vals) == 3 else None
 
+    def mesh_coordinate(self) -> str:
+        """'cylindrical' when the mesh_block uses r/t/z tables.
+
+        STpre marks cylindrical blocks with <r>/<t>/<z> axes and
+        <system> 1 </system> (theta stored in radians).
+        """
+        mb = self.mesh_block()
+        if mb is None:
+            return "cartesian"
+        sys_el = _first(mb, "system")
+        if _first(mb, "r") is not None or (
+                sys_el is not None and (sys_el.text or "").strip() == "1"):
+            return "cylindrical"
+        return "cartesian"
+
     def mesh_axes(self) -> dict[str, list[float]]:
-        """Coordinates per axis from ``mesh_block`` (unit mm as stored)."""
+        """Coordinates per axis from ``mesh_block``.
+
+        Cylindrical blocks store r (mm) / t (radian) / z (mm); those are
+        mapped back to x/y/z with theta converted to degrees so all
+        downstream consumers keep the internal degrees convention.
+        """
         mb = self.mesh_block()
         if mb is None:
             return {}
+        cyl = self.mesh_coordinate() == "cylindrical"
+        tags = ("r", "t", "z") if cyl else ("x", "y", "z")
         out: dict[str, list[float]] = {}
-        for axis in ("x", "y", "z"):
-            el = _first(mb, axis)
+        for axis, tag in zip("xyz", tags):
+            el = _first(mb, tag)
             if el is None:
                 continue
             vals: list[float] = []
             for g in _children(el, "g"):
                 text = (g.text or "").split(",")[0].strip()
                 try:
-                    vals.append(float(text))
+                    v = float(text)
                 except ValueError:
-                    pass
+                    continue
+                if cyl and axis == "y":
+                    import math
+                    v = math.degrees(v)
+                vals.append(v)
             out[axis] = vals
         return out
 
@@ -1298,9 +1330,17 @@ class StpreModel:
     #   F = fixed line (user-fixed; never re-divided)  [cab extension]
 
     def mesh_axis_entries(self, axis: str) -> list[tuple[float, str]]:
-        """``(coordinate, mark)`` pairs of one mesh_block axis."""
+        """``(coordinate, mark)`` pairs of one mesh_block axis.
+
+        For cylindrical blocks the theta values are converted from
+        radians (storage) to degrees (internal convention).
+        """
         mb = self.mesh_block()
-        el = _first(mb, axis) if mb is not None else None
+        if mb is None or axis not in "xyz":
+            return []
+        cyl = self.mesh_coordinate() == "cylindrical"
+        tag = {"x": "r", "y": "t", "z": "z"}[axis] if cyl else axis
+        el = _first(mb, tag)
         out: list[tuple[float, str]] = []
         if el is None:
             return out
@@ -1310,25 +1350,37 @@ class StpreModel:
                 val = float(parts[0].strip())
             except (ValueError, IndexError):
                 continue
+            if cyl and axis == "y":
+                import math
+                val = math.degrees(val)
             mark = parts[1].strip().upper() if len(parts) > 1 else "N"
             out.append((val, mark or "N"))
         return out
 
     def set_mesh_axis(self, axis: str, entries: list[tuple[float, str]],
                       unit: str = "mm") -> bool:
-        """Rewrite one mesh_block axis from ``(coordinate, mark)`` pairs."""
+        """Rewrite one mesh_block axis from ``(coordinate, mark)`` pairs.
+
+        Cylindrical blocks store r (mm) / t (radian) / z (mm): the theta
+        values are converted degrees -> radians on write.
+        """
         mb = self.mesh_block()
         if mb is None or axis not in ("x", "y", "z"):
             return False
-        el = _first(mb, axis)
+        cyl = self.mesh_coordinate() == "cylindrical"
+        tag = {"x": "r", "y": "t", "z": "z"}[axis] if cyl else axis
+        el = _first(mb, tag)
         if el is None:
-            el = ET.SubElement(mb, axis)
+            el = ET.SubElement(mb, tag)
             el.tail = "\n   "
         el.attrib["num"] = str(len(entries))
-        el.attrib["unit"] = unit
+        el.attrib["unit"] = "radian" if cyl and axis == "y" else unit
         for child in list(el):
             el.remove(child)
         for i, (val, mark) in enumerate(entries, start=1):
+            if cyl and axis == "y":
+                import math
+                val = math.radians(val)
             g = ET.SubElement(el, "g")
             g.attrib["no"] = str(i)
             g.text = f" {val:.17g},{mark or 'N'} "
@@ -1761,8 +1813,24 @@ class StpreModel:
                  element_max: int = 100_000_000,
                  part_min: Optional[tuple[float, float, float]] = None,
                  part_max: Optional[tuple[float, float, float]] = None,
+                 coordinate: str = "cartesian",
                  ) -> None:
-        """Write ``<mesh_control>`` + ``<mesh_block>`` from generated axes."""
+        """Write ``<mesh_control>`` + ``<mesh_block>`` from generated axes.
+
+        ``coordinate="cylindrical"`` writes the STpre cylindrical block
+        form (COM probe 2026-08-15): ``<system> 1 </system>``, min/max
+        ``r1,0,z1`` / ``r2,t2_rad,z2`` and ``<r>/<t unit=radian>/<z>``
+        axis tables; the passed axes keep theta in degrees internally.
+        """
+        cyl = coordinate == "cylindrical"
+        import math
+        dmin = (float(domain_min[0]), float(domain_min[1]),
+                float(domain_min[2]))
+        dmax = (float(domain_max[0]), float(domain_max[1]),
+                float(domain_max[2]))
+        if cyl:
+            dmin = (dmin[0], math.radians(dmin[1]), dmin[2])
+            dmax = (dmax[0], math.radians(dmax[1]), dmax[2])
         counts = tuple(len(axes.get(a, [])) for a in "xyz")
         grid_text = ",".join(str(v) for v in counts)
         mc = _first(self.root, "mesh_control")
@@ -1824,9 +1892,9 @@ class StpreModel:
             block.tail = "\n   "
         block.attrib["name"] = "RootBlock"
         self._mesh_child(block, "kind", "domain")
-        self._mesh_child(block, "min", self._vec_text(domain_min),
+        self._mesh_child(block, "min", self._vec_text(dmin),
                          {"unit": unit})
-        self._mesh_child(block, "max", self._vec_text(domain_max),
+        self._mesh_child(block, "max", self._vec_text(dmax),
                          {"unit": unit})
         self._mesh_child(block, "limit", self._vec_text(threshold),
                          {"unit": unit})
@@ -1850,11 +1918,11 @@ class StpreModel:
             self.root.append(mb)
         for tag, text, attrs in (
                 ("name", "RootBlock", {}),
-                ("system", "0", {}),
+                ("system", "1" if cyl else "0", {}),
                 ("visible", "T", {}),
                 ("tree_expand", "T", {}),
-                ("min", self._vec_text(domain_min), {"unit": unit}),
-                ("max", self._vec_text(domain_max), {"unit": unit}),
+                ("min", self._vec_text(dmin), {"unit": unit}),
+                ("max", self._vec_text(dmax), {"unit": unit}),
                 ("extend_min", "0,0,0", {"unit": unit}),
                 ("extend_max", "0,0,0", {"unit": unit}),
                 ("limit", self._vec_text(threshold), {"unit": unit}),
@@ -1863,17 +1931,26 @@ class StpreModel:
                 ("divide_ratio1", self._vec_text(ratio), {}),
         ):
             self._mesh_child(mb, tag, text, attrs)
-        for axis in "xyz":
-            el = _first(mb, axis)
+        axis_tags = ("r", "t", "z") if cyl else ("x", "y", "z")
+        stale = ("x", "y", "z") if cyl else ("r", "t", "z")
+        for stale_tag in stale:
+            stale_el = _first(mb, stale_tag)
+            if stale_el is not None:
+                mb.remove(stale_el)
+        for axis, tag in zip("xyz", axis_tags):
+            el = _first(mb, tag)
             if el is None:
-                el = ET.SubElement(mb, axis)
+                el = ET.SubElement(mb, tag)
                 el.tail = "\n   "
             el.attrib["num"] = str(len(axes.get(axis, [])))
-            el.attrib["unit"] = unit
+            el.attrib["unit"] = ("radian" if cyl and axis == "y"
+                                  else unit)
             for child in list(el):
                 el.remove(child)
             vals = axes.get(axis, [])
             for i, v in enumerate(vals, start=1):
+                if cyl and axis == "y":
+                    v = math.radians(v)
                 mark = "B" if i in (1, len(vals)) else ""
                 g = ET.SubElement(el, "g")
                 g.attrib["no"] = str(i)
