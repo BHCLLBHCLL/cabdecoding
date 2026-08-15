@@ -42,13 +42,20 @@ _OP_TO_FUNC = {
 
 
 class _Transmit(Structure):
+    """``PK_PART_transmit_o_t`` (verified against Parasolid V35 headers).
+
+    Layout: o_t_version / transmit_format / transmit_user_fields /
+    transmit_version / transmit_nmnl_geometry / transmit_indexed_context /
+    transmit_meshes.
+    """
     _fields_ = [
         ("o_t_version", c_int),
         ("transmit_format", c_int),   # 0 = text
         ("transmit_user_fields", c_int),
-        ("transmit_nw_version", c_int),
-        ("transmit_xmt_file", c_int),
-        ("transmit_attr", c_int),
+        ("transmit_version", c_int),
+        ("transmit_nmnl_geometry", c_int),
+        ("transmit_indexed_context", c_void_p),
+        ("transmit_meshes", c_int),
     ]
 
 
@@ -123,13 +130,15 @@ def available() -> bool:
 def transmit_parts(tags: list[int]) -> bytes:
     """``PK_PART_transmit`` body/part tags → text ``.x_t`` bytes.
 
-    A4 note: standalone bodies created by ``PK_BODY_boolean_2`` (boolean and
-    plane-cut results) have no owning PART, and this kernel build exports
-    neither ``PK_BODY_export`` nor any part-assignment function
-    (``PK_PART_new``/``PK_ENTITY_set_part``), while ``PK_BODY_ask_parent``
-    returns 5022 for such bodies.  ``PK_PART_transmit`` therefore rejects them
-    with 973; callers must fall back to the STL + polygon-part persistence
-    path (see ``cab_edit_ops.register_tess_part``).
+    A4 note (q-solid Parasolid V35 headers): ``PK_PART_transmit`` takes PART
+    tags.  Standalone bodies from ``PK_BODY_boolean_2`` have no owning part,
+    and this kernel exports no ``PK_PART_new`` / ``PK_PART_add_bodies`` —
+    ``PK_PART_add_geoms`` only adds *construction* geometry (points/curves/
+    surfaces/lattices), not bodies; ``PK_PART_receive`` returns body tags
+    rather than part tags here; ``PK_SESSION_transmit``/``PK_PARTITION_transmit``
+    also reject a body-only session (973 / 5048).  Callers therefore fall back
+    to the STL + polygon-part persistence path
+    (see ``cab_edit_ops.register_tess_part``).
     """
     if not tags:
         raise ValueError("no body tags to transmit")
