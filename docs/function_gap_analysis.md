@@ -149,13 +149,14 @@
 ## 四、剩余差距（按严重度）
 
 ### P0 — 阻塞正确性
-1. **`all` 顶点检测精确计数**（2026-08-15 三轮深挖：全 6 模式 S 线金标已录
-   `data/stpre_tr03_marks.json`；反汇编已推进至 MeshCoarseDivide(0x23be0)
-   + 收集器 0x1ab90——定位部件循环（QueryPreParts）、部件级 select_vertex
-   开关（vtable+0x7c8，**本轮已实现 per-part 检测覆盖**）、部件类型 42 分支
-   跳表（@0x1cba0）、常量表（|range|×1e-5 扩界、limit×0.01、2π 周期合并、
-   round(x+0.501)）；all 的 84 线顶点来源仍在部件类型分支内，见
-   STPRE_GRID_RULES §2.3.2。当前 all 计数 57×133×144 vs 金标 59×118×121）。
+1. **`all` 顶点检测精确计数**（2026-08-15 四轮深挖，真身已定：vd_0 =
+   显示网格顶点投影——SaveStlFile 导出的 STpre 显示网格 100% 覆盖全部
+   5/82/84 条 S 线，rep⊄all 之谜随之解开（rep=B-rep 顶点、all=显示网格，
+   异源）；剩余差距收敛为 **facet 参数复刻**：本仓任意容差 tess 均无法
+   再现 STpre 网格的 x=±6.667/0 平面（顶点差 ≤0.6mm），下一步反汇编
+   STpreBase MakeFacetParam(0x293C20)/FacetParam::Get(0x36160) +
+   ParasolidGW PKFaces_RenderV3 选项派生；见 STPRE_GRID_RULES §2.3.2。
+   当前 all 计数 57×133×144 vs 金标 59×118×121）。
 2. ~~**圆柱/轴向坐标域网格**~~ **已完成（2026-08-15 COM 探针对齐）**：
    `tools/probe_cyl_domain.py` 实测 STpre SetCylindricalDomain 保存格式与布点
    规则——域存 `<radius>/<angle>/<height>`（type=cylinder），mesh_block 用

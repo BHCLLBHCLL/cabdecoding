@@ -128,6 +128,21 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
     0x7e5c0=1e-30（退化零）、0x7e680/0x7e690=±1。
   * 下一步：沿部件类型分支定位 all/rep 的顶点来源（当前 all=84 线
     金标仍未复现；非 tess/B-rep/面平面）。
+- **vd_0 "all" 真身 = 显示网格顶点投影（SaveStlFile 铁证，本轮）**：
+  STpreModel.SaveStlFile 导出 Impeller 显示网格（2206 三角 / 6618 顶点，
+  文本 STL、米制、世界系；tools/probe_stl_mesh.py）。其 x/y/z 投影
+  **100% 覆盖 vd_0 全部 5/82/84 条 S 线**（1e-3 容差）——all 模式的
+  网格线就是显示网格顶点投影，无额外 AABB 线（AABB 极值与网格顶点重合）。
+  且 rep ⊄ all 之谜同样解开：rep 用 B-rep 顶点、all 用显示网格顶点，
+  两集合不同源，自然互不为子集。
+- 剩余差距精确定位：本仓 facet_2/GO 在 1e-8..1e-2 × 0.06°..30° 全扫
+  （含曲线容差）**无一覆盖 STpre 网格顶点**——默认 1e-4/12° 网格规模
+  接近（2132 vs 2206 三角）但顶点位置差 ≤0.6mm，且 STpre 网格独有
+  x=-6.667/0/+6.667 三个平面（我们的 tess 任意容差下 x 投影恒为 4 值）。
+  → 下一步：反汇编 STpreBase_Bx64.dll 的 MakeFacetParam(0x293C20)/"
+  "FacetParam::Get(0x36160) + ParasolidGW PKFaces_RenderV3 选项派生，"
+  "拿到 STpre 精确 facet 参数（推测含 facet_plane_tol/min_facet_width/"
+  "max_facet_width 组合，x=±20/3 平面正是宽度约束产物）。
 ### 2.4 内区划分
 
 - 相邻“特征平面”（顶点投影线或 AABB min/max）之间的区间按

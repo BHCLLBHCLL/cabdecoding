@@ -1,5 +1,4 @@
-# Disassemble the part-coordinate collector at 0x1ab90 (called from
-# MeshCoarseDivide with the select mode in edx).
+# Disassemble the per-part detection-mode dispatch (0x1be0a .. 0x1c34a).
 import sys, struct
 from pathlib import Path
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
@@ -83,33 +82,28 @@ for i in range(n_names):
     nm = data[noff:noff + 200].split(b'\x00')[0].decode('ascii', 'replace')
     exp[rva] = nm
 
-def dump(va_rva, nbytes, label):
-    off = va_to_off(va_rva)
-    code = data[off:off + nbytes]
-    md = Cs(CS_ARCH_X86, CS_MODE_64)
-    print(f'; ---- {label} RVA {va_rva:#x} ----')
-    for ins in md.disasm(code, va_rva):
-        ops = ins.op_str
-        if 'rip +' in ops or 'rip -' in ops:
-            try:
-                disp = int(ops.split('[')[1].split(']')[0]
-                           .replace('rip + ', '').replace('rip - ', '-')
-                           .replace('rip+', '').replace('rip-', '-'), 0)
-                target = ins.address + ins.size + disp
-                nm = iat.get(target) or exp.get(target)
-                ops = ops + ('   ; ' + nm if nm else
-                             f'   ; -> {target:#x}')
-            except Exception:
-                pass
-        elif ins.mnemonic.startswith('call') and ops.startswith('0x'):
-            try:
-                t = int(ops, 16)
-                nm = exp.get(t)
-                if nm:
-                    ops = ops + '   ; ' + nm
-            except Exception:
-                pass
-        print(f'{ins.address:#10x}: {ins.mnemonic:8s} {ops}')
-    print()
-
-dump(0x1b1f0, 0xa00, 'collector@0x1ab90 part2')
+md = Cs(CS_ARCH_X86, CS_MODE_64)
+start = 0x1be0a
+end = 0x1c34a
+code = data[va_to_off(start):va_to_off(end)]
+for ins in md.disasm(code, start):
+    ops = ins.op_str
+    if 'rip +' in ops or 'rip -' in ops:
+        try:
+            disp = int(ops.split('[')[1].split(']')[0]
+                       .replace('rip + ', '').replace('rip - ', '-')
+                       .replace('rip+', '').replace('rip-', '-'), 0)
+            target = ins.address + ins.size + disp
+            nm = iat.get(target) or exp.get(target)
+            ops = ops + ('   ; ' + nm if nm else f'   ; -> {target:#x}')
+        except Exception:
+            pass
+    elif ins.mnemonic.startswith('call') and ops.startswith('0x'):
+        try:
+            t = int(ops, 16)
+            nm = exp.get(t)
+            if nm:
+                ops = ops + '   ; ' + nm
+        except Exception:
+            pass
+    print(f'{ins.address:#10x}: {ins.mnemonic:8s} {ops}')

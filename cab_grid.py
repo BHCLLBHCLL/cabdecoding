@@ -156,16 +156,15 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
             col = arr[:, ax_i]
             # STpre probe: not_considered still grids with part min/max
             # planes (only vertex detection is skipped); identical to
-            # minmax for convex parts (tr03: vd4 == vd3).
+            # minmax for convex parts (tr03: vd4 == vd3).  NOTE: vd_0
+            # "all" in STpre adds ONLY display-mesh vertex projections
+            # (proved via SaveStlFile 2026-08-15: every tr03 vd_0 S-line
+            # is an STL-vertex projection); the AABB lines coincide with
+            # mesh extremes there.  We keep the min/max lines until our
+            # display mesh reproduces STpre's facet planes (x=+-6.667, 0).
             vals.append(float(col.min()))
             vals.append(float(col.max()))
             if mode == "all":
-                # STpre "All vertices": every vertex of the triangle patches
-                # used for drawing (the tessellation), NOT the B-rep topology
-                # vertices.  tr03 proves the distinction: the curved
-                # impeller's display mesh carries ~194 y / ~240 z distinct
-                # projections, far more than the 64/59 B-rep vertices, and
-                # only those reproduce STpre's counts.
                 vals.extend(float(v) for v in col)
             elif mode == "representative":
                 src = (vertices or part_points).get(name)
