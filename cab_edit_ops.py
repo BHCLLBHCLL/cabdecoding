@@ -1379,6 +1379,48 @@ def delete_face_pk(model: StpreModel, archive, name: str,
     return len(after) if after else None
 
 
+def transform_part_pk(model: StpreModel, archive, name: str,
+                      fn, *, tolerance: float = 1e-6) -> bool:
+    """Apply a PK transform (fn(body_tag)) to a part's body and write x_t back.
+
+    ``fn`` is a callable that takes the live body tag (e.g.
+    ``lambda t: cab_ps_ops.body_transform_translate(t, dx, dy, dz)``).  The
+    transformed body is transmitted to ``.x_t`` and the part's ``<file>`` +
+    ``body_files`` member are updated so a reload shows the new geometry.
+    Returns True on success.
+    """
+    import cab_ps_ops
+    import cab_import
+    from xml.etree.ElementTree import SubElement
+    if archive is None or not cab_ps_ops.available():
+        return False
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return False
+    try:
+        fn(tag)
+    except Exception:
+        return False
+    try:
+        xt = cab_ps_ops.transmit_parts([tag])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    # update the part's x_t member reference
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    el = info.elem
+    member_name = f"{name}.x_t"
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit="m")
+    f_el = _first(el, "file")
+    if f_el is not None:
+        set_text(f_el, member_name)
+    return True
+
+
 def cut_part_by_plane_pk(model: StpreModel, archive, cad_meshes, name: str,
                          origin_m, normal, *,
                          result_base: Optional[str] = None
