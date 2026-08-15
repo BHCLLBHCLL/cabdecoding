@@ -228,3 +228,45 @@ def test_register_delphi_nodes_persistence():
     assert [( (_first(n, "name").text or "").strip(),
               float((_first(n, "resistance").text or "0").strip()))
             for n in nodes] == [("Top", 1.0), ("Bottom", 2.0)]
+
+
+SAMPLE_IFC_CIRCLE = '''ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION((''),'2;1');
+FILE_NAME('c.ifc','2026-01-01T00:00:00',(''),(''),'x','x','');
+FILE_SCHEMA(('IFC2X3'));
+ENDSEC;
+DATA;
+#1=IFCCARTESIANPOINT((0.,0.,0.));
+#2=IFCDIRECTION((0.,0.,1.));
+#3=IFCDIRECTION((1.,0.,0.));
+#4=IFCAXIS2PLACEMENT3D(#1,#2,#3);
+#5=IFCLOCALPLACEMENT($,#4);
+#6=IFCCARTESIANPOINT((0.,0.));
+#7=IFCAXIS2PLACEMENT2D(#6,$);
+#8=IFCCIRCLEPROFILEDEF(.CIRCLE.,$,#7,0.5);
+#9=IFCEXTRUDEDAREASOLID(#8,#4,#2,3.);
+#10=IFCSHAPEREPRESENTATION($,'Body','SweptSolid',(#9));
+#11=IFCPRODUCTDEFINITIONSHAPE($,$,(#10));
+#12=IFCCOLUMN('2O2Fr$t4X7Zf8NOew3FLOHV','Col-1',$,#11,$,$,$,$,$);
+ENDSEC;
+END-ISO-10303-21;'''
+
+
+def test_ifc_circle_profile_column():
+    """P2-9: IFC circular profile extrusion -> cylinder part."""
+    solids = cab_ifc.parse_ifc(SAMPLE_IFC_CIRCLE)
+    assert len(solids) == 1
+    s = solids[0]
+    assert s.kind == "cylinder"
+    assert s.radius == pytest.approx(500.0)
+    assert s.size == pytest.approx((1000.0, 1000.0, 3000.0))
+    m = _model()
+    names = cab_ifc.register_ifc_parts(m, solids)
+    assert names == ["Col-1"]
+    from cabxml import _first
+    p = m.find_part("Col-1")
+    assert p is not None
+    assert (_first(p, "radius").text or "").strip() == "500"
+    assert (_first(p, "height").text or "").strip() == "3000"
+    assert (_first(p, "direction").text or "").strip() == "+Z"

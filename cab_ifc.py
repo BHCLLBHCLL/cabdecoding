@@ -33,6 +33,8 @@ class IfcSolid:
     size: tuple
     matrix: tuple
     global_id: str = ''
+    radius: float = 0.0      # circle-profile extrusions (mm)
+    kind: str = 'cube'       # cube | cylinder
 
 
 def _split_args(s: str) -> list:
@@ -242,6 +244,18 @@ def _extruded_boxes(stmts, repr_ids) -> list:
                 if prof_id is None:
                     continue
                 pent, pargs = stmts.get(prof_id, ('', []))
+                depth = float(eargs[3])
+                sm = _placement_matrix(stmts, sol_pl)
+                if pent == 'IFCCIRCLEPROFILEDEF' and len(pargs) >= 3:
+                    # IFC2X3: (ProfileType, ProfileName, Position, Radius)
+                    idx = 3 if len(pargs) >= 4 else 2
+                    try:
+                        radius = float(pargs[idx])
+                    except (TypeError, ValueError):
+                        continue
+                    boxes.append({'kind': 'circle', 'radius': radius,
+                                  'depth': depth, 'solid': sm})
+                    continue
                 if pent != 'IFCRECTANGLEPROFILEDEF' or len(pargs) < 5:
                     continue
                 px = py = 0.0
@@ -273,16 +287,26 @@ def parse_ifc(text: str) -> list:
         pm = _placement_matrix(stmts, placement_id)
         for bi, box in enumerate(boxes):
             m = pm @ box['solid']
-            o = m @ np.array([box['px'], box['py'], 0.0, 1.0])
-            base = tuple(float(v) * 1000.0 for v in o[:3])
-            size = (box['xdim'] * 1000.0, box['ydim'] * 1000.0,
-                    box['depth'] * 1000.0)
             mrot = m.copy()
             mrot[:3, 3] = 0.0
             mat = tuple(float(v) for v in mrot.T.reshape(-1))
             nm = name or (ent + str(pid))
             if len(boxes) > 1:
                 nm = nm + '_' + str(bi + 1)
+            if box.get('kind') == 'circle':
+                r = box['radius'] * 1000.0
+                d = box['depth'] * 1000.0
+                o = m @ np.array([0.0, 0.0, 0.0, 1.0])
+                base = tuple(float(v) * 1000.0 for v in o[:3])
+                out.append(IfcSolid(name=nm, entity=ent, base=base,
+                                    size=(2.0 * r, 2.0 * r, d),
+                                    matrix=mat, radius=r,
+                                    kind='cylinder'))
+                continue
+            o = m @ np.array([box['px'], box['py'], 0.0, 1.0])
+            base = tuple(float(v) * 1000.0 for v in o[:3])
+            size = (box['xdim'] * 1000.0, box['ydim'] * 1000.0,
+                    box['depth'] * 1000.0)
             out.append(IfcSolid(name=nm, entity=ent, base=base, size=size,
                                 matrix=mat))
     return out
@@ -298,14 +322,17 @@ def register_ifc_parts(model, solids, kind_map=None) -> list:
     km = kind_map or {}
     names = []
     for s in solids:
-        kind = km.get(s.entity, 'cube')
+        kind = km.get(s.entity, s.kind if s.kind != 'cube' else 'cube')
         name = s.name
         i = 2
         while model.find_part(name) is not None:
             name = s.name + '_' + str(i)
             i += 1
-        ok = register_primitive(model, name=name, kind=kind, params={
-            'base': s.base, 'size': s.size})
+        params = {'base': s.base, 'size': s.size}
+        if s.kind == 'cylinder':
+            params = {'center': s.base, 'radius': s.radius,
+                      'height': s.size[2], 'direction': '+Z'}
+        ok = register_primitive(model, name=name, kind=kind, params=params)
         if ok:
             model.set_part_transform(
                 name, ','.join(format(v, '.12g') for v in s.matrix))
