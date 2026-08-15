@@ -647,9 +647,16 @@ class AlignPartsDialog(_EditDlg):
             QMessageBox.warning(self, "Align Parts",
                                 "Select two different parts.")
             return
-        ok = ops.align_parts(
-            self.model, a, b, self.axis.currentText(),
-            self.loc.currentText(), self.cad_meshes)
+        parent = self.parent()
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
+        ok = ops.align_parts_pk(
+            self.model, archive, self.cad_meshes, a, b,
+            self.axis.currentText(), self.loc.currentText())
+        if ok is None:
+            ok = ops.align_parts(
+                self.model, a, b, self.axis.currentText(),
+                self.loc.currentText(), self.cad_meshes)
         if not ok:
             QMessageBox.warning(
                 self, "Align Parts",
@@ -713,10 +720,18 @@ class PlacePartDialog(_EditDlg):
         )))
 
     def _set(self) -> None:
-        ok = ops.place_part_by_centers(
-            self.model, self.move_part.currentText(),
-            self.ref_part.currentText(), self.cad_meshes,
+        parent = self.parent()
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
+        ok = ops.place_part_pk(
+            self.model, archive, self.cad_meshes,
+            self.move_part.currentText(), self.ref_part.currentText(),
             offset=(self.ox.value(), self.oy.value(), self.oz.value()))
+        if ok is None:
+            ok = ops.place_part_by_centers(
+                self.model, self.move_part.currentText(),
+                self.ref_part.currentText(), self.cad_meshes,
+                offset=(self.ox.value(), self.oy.value(), self.oz.value()))
         if not ok:
             QMessageBox.warning(self, "Place Part",
                                 "Place failed (missing geometry).")
@@ -731,10 +746,12 @@ class PlacePartDialog(_EditDlg):
 class MirrorCopyDialog(_EditDlg):
     """[Copy: Mirror copy] — mirror plane + OK."""
 
-    def __init__(self, model: StpreModel, names: list[str], parent=None):
+    def __init__(self, model: StpreModel, names: list[str], parent=None,
+                 cad_meshes=None):
         super().__init__("Copy: Mirror copy", "Mirror Copy", parent)
         self.model = model
         self.names = names or _part_names(model)
+        self.cad_meshes = cad_meshes
         self.created: list[str] = []
 
         self.body.addWidget(QLabel(
@@ -768,9 +785,16 @@ class MirrorCopyDialog(_EditDlg):
             QMessageBox.warning(self, "Mirror Copy",
                                 "Select parts to mirror copy.")
             return
-        self.created = ops.mirror_copy_parts(
-            self.model, names, self.axis.currentText(),
-            self.plane.value())
+        parent = self.parent()
+        archive = (getattr(parent, "archive", None)
+                   if parent is not None else None)
+        self.created = ops.mirror_copy_parts_pk(
+            self.model, archive, self.cad_meshes, names,
+            self.axis.currentText(), self.plane.value()) or []
+        if not self.created:
+            self.created = ops.mirror_copy_parts(
+                self.model, names, self.axis.currentText(),
+                self.plane.value())
         if not self.created:
             QMessageBox.warning(self, "Mirror Copy",
                                 "No parts were copied.")
@@ -1485,41 +1509,50 @@ class WrappingDialog(_EditDlg):
             QMessageBox.warning(self, "Wrapping",
                                 "No tessellation for target.")
             return
-        info = next((p for p in self.model.parts() if p.name == name), None)
-        pts = np.asarray(tess.points, dtype=np.float64)
-        import cab_vtk
-        pts = cab_vtk._apply_transform(
-            pts, info.transform if info else "")
-        hull = ops.convex_hull_tess(pts)
-        if hull is None:
-            QMessageBox.warning(self, "Wrapping",
-                                "Convex hull failed (need >= 4 points).")
-            return
-        margin = 0.0
-        if self.rb_acc.isChecked():
-            diag = float(np.ptp(pts, axis=0).sum())
-            margin = self.accuracy.value() * diag * 0.25
-        if margin > 0:
-            centroid = pts.mean(0)
-            hull.points = hull.points + margin * (
-                hull.points - centroid) / np.maximum(
-                    np.linalg.norm(hull.points - centroid, axis=1,
-                                   keepdims=True), 1e-12)
-        new = ops.unique_part_name(self.model, f"{name}_wrap")
         parent = self.parent()
         archive = (getattr(parent, "archive", None)
                    if parent is not None else None)
-        if not ops.register_tess_part(
-                self.model, self.cad_meshes, archive, new, hull):
-            QMessageBox.warning(self, "Wrapping",
-                                "Result registration failed.")
-            return
+        accuracy = (self.accuracy.value()
+                    if self.rb_acc.isChecked() else None)
+        # PK path: real convex-hull solid -> x_t (accuracy mode vertex-clusters
+        # the point cloud first).
+        new = ops.wrap_part_pk(self.model, archive, self.cad_meshes, name,
+                               accuracy=accuracy)
+        if new is None:
+            # fallback: STL convex-hull tessellation (no pskernel / no x_t)
+            info = next((p for p in self.model.parts()
+                         if p.name == name), None)
+            pts = np.asarray(tess.points, dtype=np.float64)
+            import cab_vtk
+            pts = cab_vtk._apply_transform(
+                pts, info.transform if info else "")
+            hull = ops.convex_hull_tess(pts)
+            if hull is None:
+                QMessageBox.warning(self, "Wrapping",
+                                    "Convex hull failed (need >= 4 points).")
+                return
+            margin = 0.0
+            if self.rb_acc.isChecked():
+                diag = float(np.ptp(pts, axis=0).sum())
+                margin = self.accuracy.value() * diag * 0.25
+            if margin > 0:
+                centroid = pts.mean(0)
+                hull.points = hull.points + margin * (
+                    hull.points - centroid) / np.maximum(
+                        np.linalg.norm(hull.points - centroid, axis=1,
+                                       keepdims=True), 1e-12)
+            new = ops.unique_part_name(self.model, f"{name}_wrap")
+            if not ops.register_tess_part(
+                    self.model, self.cad_meshes, archive, new, hull):
+                QMessageBox.warning(self, "Wrapping",
+                                    "Result registration failed.")
+                return
         self.created_name = new
         self.applied = True
         QMessageBox.information(
             self, "Wrapping",
             f"Wrapped as '{new}' (convex hull"
-            + (f", margin {margin * 1000.0:g} mm" if margin else "")
+            + (" solid x_t" if self.rb_hull.isChecked() else " accuracy")
             + ").")
 
 

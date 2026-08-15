@@ -1573,7 +1573,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         import cab_edit_dialogs
         snap = self._snapshot()
-        dlg = cab_edit_dialogs.MirrorCopyDialog(self.model, [], self)
+        dlg = cab_edit_dialogs.MirrorCopyDialog(
+            self.model, [], self, cad_meshes=self._cad_meshes)
         if dlg.exec_() and dlg.applied:
             self._edit_finish(
                 snap,

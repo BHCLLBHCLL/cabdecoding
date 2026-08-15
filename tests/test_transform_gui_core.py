@@ -56,3 +56,28 @@ def test_transform_part_pk_translate():
              or sess.facet2(tags2[0]) or sess.facet_go(tags2[0]))
     lo1 = np.asarray(tess1.points).min(0)
     assert np.allclose(lo1 - lo0, [0.02, 0.0, 0.0], atol=1e-6), (lo0, lo1)
+
+
+@pytest.mark.skipif(not ps_facet2.available(), reason="pskernel not available")
+def test_mirror_copy_parts_pk():
+    archive = _box_archive()
+    model = _model(archive)
+    cad = []
+    created = cab_edit_ops.mirror_copy_parts_pk(
+        model, archive, cad, ["box"], "X", 0.0)
+    assert created, "mirror_copy_parts_pk returned no names"
+    new_name = created[0]
+    assert new_name.startswith("box_m")
+    assert any(m.name == f"{new_name}.x_t" for m in archive.members)
+    assert model.find_part(new_name) is not None
+    xt = next(m.data for m in archive.members if m.name == f"{new_name}.x_t")
+    sess = ps_facet2._get_session()
+    tags = sess.expand_to_bodies(sess.receive_xt(xt))
+    assert tags
+    tess = (sess.facet_body(tags[0], facet_tol=1e-4, facet_angle_deg=12.0)
+            or sess.facet2(tags[0]) or sess.facet_go(tags[0]))
+    pts = np.asarray(tess.points)
+    assert pts[:, 0].min() == pytest.approx(-0.01, abs=1e-5)
+    assert pts[:, 0].max() == pytest.approx(0.0, abs=1e-5)
+    assert pts[:, 1].min() == pytest.approx(0.0, abs=1e-5)
+    assert pts[:, 2].max() == pytest.approx(0.01, abs=1e-5)

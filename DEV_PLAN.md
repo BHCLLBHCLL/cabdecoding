@@ -1741,6 +1741,22 @@ tessellation，属独立长期项。
   平移 0.02 后重收验证通过；Mirror/Align/Place 对话框接入为下一步（需给对话框传
   archive + 切换 XML→PK 逻辑）。
 
+**⑨ Wrap/Transform 出真实 body（2026-08-15）**：
+
+- **Wrap → x_t**（`wrap_part_pk`）：世界坐标点云 →（accuracy 模式先顶点聚类
+  `simplify_tess_grid`）→ `convex_hull_solid` 半空间交集实体 → transmit x_t →
+  注册为 `kind=body` + identity transform。`WrappingDialog` 现优先走 PK 出
+  真实 x_t，pskernel/x_t 不可用时回退 STL 凸包。
+- **Mirror/Align/Place → 真实 body**：新增 `mirror_copy_parts_pk`（`PK_ENTITY_copy`
+  + `body_transform_reflect` 局部镜像面）、`align_parts_pk`/`place_part_pk`
+  （`body_transform_translate` 局部平移），坐标换算 `_world_delta_to_local_m` /
+  `_world_plane_to_local`（R⁻¹ 旋转逆、M⁻¹ 平面逆）把世界 delta/镜像面转到 body
+  局部系；三个对话框均「PK 优先、XML transform 回退」。
+- 验收：`test_wrap_solid_xt.py`（凸包 + accuracy 聚类各 1）、
+  `test_transform_gui_core.py::test_mirror_copy_parts_pk` 通过；全仓 370 通过
+  （+5），2 失败 8 错误均为既有（part-kinds 清单、boolean STL 持久化、
+  tempfile 沙箱权限）。
+
 ---
 
 ## 7. 关键接口设计（草案）

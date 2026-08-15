@@ -1486,3 +1486,238 @@ def cut_part_by_plane_pk(model: StpreModel, archive, cad_meshes, name: str,
     if created:
         model.delete_part(name)
     return created or None
+
+
+# -------------------------------------------- PK-level Mirror / Align / Place
+
+def _world_delta_to_local_m(transform: str, delta_world_mm) -> np.ndarray:
+    """Convert a world translation (mm) to the body's local frame (metres)."""
+    m = parse_transform(transform)
+    R = m[:3, :3]
+    d_w = np.asarray(delta_world_mm, dtype=np.float64).reshape(3) / 1000.0
+    try:
+        return np.linalg.solve(R, d_w)
+    except np.linalg.LinAlgError:
+        return d_w
+
+
+def _world_plane_to_local(transform: str, axis: str, plane_mm: float
+                          ) -> tuple[np.ndarray, np.ndarray]:
+    """World mirror plane (axis + position mm) -> local (normal, origin_m)."""
+    m = parse_transform(transform)
+    idx = {"X": 0, "Y": 1, "Z": 2}[axis.upper()]
+    n_w = np.zeros(3)
+    n_w[idx] = 1.0
+    p_w = np.zeros(3)
+    p_w[idx] = float(plane_mm) / 1000.0
+    R = m[:3, :3]
+    try:
+        n_l = np.linalg.solve(R, n_w)
+    except np.linalg.LinAlgError:
+        n_l = n_w
+    n_l = n_l / (float(np.linalg.norm(n_l)) or 1.0)
+    p_h = np.ones(4)
+    p_h[:3] = p_w
+    p_l_h = np.linalg.solve(m, p_h)
+    return n_l, p_l_h[:3]
+
+
+def _attach_xt_member(model: StpreModel, archive, part_el, xt: bytes,
+                      member_name: str) -> None:
+    """Attach a transmitted x_t stream to a part element + body_files."""
+    import cab_import
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit="m")
+    f_el = _first(part_el, "file")
+    if f_el is not None:
+        set_text(f_el, member_name)
+
+
+def _translate_part_pk(model: StpreModel, archive, cad_meshes, name: str,
+                       delta_world_mm) -> bool:
+    """Apply a world translation to a part's body via PK, writing x_t back."""
+    import cab_ps_ops
+    if archive is None or not cab_ps_ops.available():
+        return False
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return False
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    d_l = _world_delta_to_local_m(info.transform, delta_world_mm)
+    try:
+        cab_ps_ops.body_transform_translate(
+            int(tag), float(d_l[0]), float(d_l[1]), float(d_l[2]))
+    except Exception:
+        return False
+    try:
+        xt = cab_ps_ops.transmit_parts([int(tag)])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    _attach_xt_member(model, archive, info.elem, xt, f"{name}.x_t")
+    if cad_meshes is not None:
+        import ps_facet2_nodes as _ps
+        sess = _ps._get_session()
+        tess = (sess.facet_body_adaptive(int(tag)) or sess.facet2(int(tag))
+                or sess.facet_go(int(tag)))
+        if tess is not None:
+            tess.name = name
+            for i, t in enumerate(cad_meshes):
+                if getattr(t, "name", None) == name:
+                    cad_meshes[i] = tess
+                    break
+            else:
+                cad_meshes.append(tess)
+    return True
+
+
+def mirror_copy_parts_pk(model: StpreModel, archive, cad_meshes,
+                         names: list[str], axis: str, plane_mm: float
+                         ) -> Optional[list[str]]:
+    """Mirror copy via PK: clone the body, reflect about the local mirror
+    plane, transmit to x_t and register as new body parts.  Returns the new
+    names, or ``None`` when PK/x_t is unavailable (caller falls back to the
+    XML-transform path)."""
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return None
+    sess = _ps._get_session()
+    created: list[str] = []
+    for name in names:
+        tag, _ = _find_body_tags(model, archive, name, "")
+        if tag is None:
+            continue
+        info = next((p for p in model.parts() if p.name == name), None)
+        if info is None:
+            continue
+        try:
+            clone = cab_ps_ops.entity_copy(int(tag))
+        except Exception:
+            continue
+        n_l, p_l = _world_plane_to_local(info.transform, axis, plane_mm)
+        try:
+            cab_ps_ops.body_transform_reflect(
+                clone, tuple(float(v) for v in p_l),
+                tuple(float(v) for v in n_l))
+        except Exception:
+            continue
+        try:
+            xt = cab_ps_ops.transmit_parts([clone])
+        except Exception:
+            xt = None
+        if not xt:
+            continue
+        new_name = unique_part_name(model, f"{name}_m")
+        el = clone_part_element(model, name, new_name)  # keeps source transform
+        if el is None:
+            continue
+        _attach_xt_member(model, archive, el, xt, f"{new_name}.x_t")
+        tess = (sess.facet_body_adaptive(clone) or sess.facet2(clone)
+                or sess.facet_go(clone))
+        if tess is not None:
+            tess.name = new_name
+            if cad_meshes is not None:
+                cad_meshes.append(tess)
+        created.append(new_name)
+    return created or None
+
+
+def align_parts_pk(model: StpreModel, archive, cad_meshes,
+                   part_a: str, part_b: str, axis: str, location: str
+                   ) -> Optional[bool]:
+    """Align Part B to Part A on one axis via PK translation of B's body."""
+    ba = part_world_bounds(model, part_a, cad_meshes)
+    bb = part_world_bounds(model, part_b, cad_meshes)
+    if ba is None or bb is None:
+        return None
+    a_lo, a_hi = ba
+    b_lo, b_hi = bb
+    idx = {"X": 0, "Y": 1, "Z": 2}[axis.upper()]
+    loc = location.lower()
+    if loc in ("min", "minimum"):
+        delta = a_lo[idx] - b_lo[idx]
+    elif loc in ("max", "maximum"):
+        delta = a_hi[idx] - b_hi[idx]
+    else:
+        delta = 0.5 * ((a_lo[idx] + a_hi[idx]) - (b_lo[idx] + b_hi[idx]))
+    d = np.zeros(3)
+    d[idx] = delta
+    ok = _translate_part_pk(model, archive, cad_meshes, part_b, d)
+    return ok if ok else None
+
+
+def place_part_pk(model: StpreModel, archive, cad_meshes,
+                  move_name: str, ref_name: str,
+                  offset: tuple[float, float, float] = (0, 0, 0)
+                  ) -> Optional[bool]:
+    """Place (center-align) a part via PK translation of its body."""
+    ba = part_world_bounds(model, ref_name, cad_meshes)
+    bb = part_world_bounds(model, move_name, cad_meshes)
+    if ba is None or bb is None:
+        return None
+    a_c = 0.5 * (ba[0] + ba[1])
+    b_c = 0.5 * (bb[0] + bb[1])
+    delta = a_c - b_c + np.asarray(offset, dtype=np.float64)
+    ok = _translate_part_pk(model, archive, cad_meshes, move_name, delta)
+    return ok if ok else None
+
+
+def wrap_part_pk(model: StpreModel, archive, cad_meshes, name: str,
+                 *, accuracy: Optional[float] = None) -> Optional[str]:
+    """Wrap a part into a convex-hull solid and write a real ``.x_t``.
+
+    ``accuracy`` (0..1) enables STpre "Specify wrapping accuracy": the point
+    cloud is vertex-clustered at ``accuracy * diag / 4`` before the hull, so a
+    higher accuracy yields a coarser wrapped body.  The hull is built in
+    **world** coordinates (transform applied) and registered with an identity
+    transform.  Returns the new part name, or ``None`` when PK/x_t is
+    unavailable (caller falls back to the STL convex-hull path).
+    """
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    from cab_parts import PrimitivePart
+    if archive is None or not cab_ps_ops.available():
+        return None
+    tess = next((m for m in (cad_meshes or [])
+                 if getattr(m, "name", None) == name), None)
+    if tess is None or not len(getattr(tess, "points", [])):
+        return None
+    info = next((p for p in model.parts() if p.name == name), None)
+    pts = np.asarray(tess.points, dtype=np.float64)
+    pts_w = cab_vtk._apply_transform(
+        pts, info.transform if info else "")
+    if accuracy is not None and accuracy > 0:
+        diag_mm = float(np.ptp(pts_w, axis=0).sum()) * 1000.0
+        simp = simplify_tess_grid(
+            PrimitivePart(name, pts_w, np.asarray(tess.triangles)),
+            accuracy * diag_mm * 0.25)
+        if simp is not None and len(getattr(simp, "points", [])) >= 4:
+            pts_w = np.asarray(simp.points)
+    try:
+        tag = cab_ps_ops.convex_hull_solid(pts_w)
+    except Exception:
+        return None
+    try:
+        xt = cab_ps_ops.transmit_parts([int(tag)])
+    except Exception:
+        xt = None
+    if not xt:
+        return None
+    new_name = unique_part_name(model, f"{name}_wrap")
+    el = model.add_part(name=new_name, kind="body", attribute="solid",
+                        file_ref="x_t", transform=IDENTITY)
+    if el is None:
+        return None
+    _attach_xt_member(model, archive, el, xt, f"{new_name}.x_t")
+    sess = _ps._get_session()
+    t = (sess.facet_body_adaptive(int(tag)) or sess.facet2(int(tag))
+         or sess.facet_go(int(tag)))
+    if t is not None:
+        t.name = new_name
+        if cad_meshes is not None:
+            cad_meshes.append(t)
+    return new_name
