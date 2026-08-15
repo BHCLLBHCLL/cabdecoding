@@ -2292,3 +2292,60 @@ SaveCabFile → merge_mesh_result`。
 - 全仓回归：**332 通过 / 4 跳过**；
 - 剩余依赖：7.1 panel scheme 黑盒语义、7.3 V8 scheme
   （solid/panel_scheme 与 multiblock 元素形状合并）仍登记待续。
+
+## 52. 四大长尾项攻克（2026-08-16，round 30）
+
+### 52.1 P0-① 「私有三角化器」结论推翻：显示网格 = PK 本体 + STpre 容差配方
+
+- xref 扫描 + IAT 解析（新工具 tools/find_calls.py / tools/iat_list.py /
+  tools/iat_any.py）确证：STpreBase 0x1b4710 主函数调用的是
+  PK_TOPOL_facet（6 参）与 PK_TOPOL_facet_2（5 参），0x1b8a30 = 
+  PK_BODY_check 校验包装（遍历 tag=0x35fa 记录、经 STpreLib
+  OutputMessage 输出）——**不存在私有三角化器**。
+- 容差配方（ps_facet2_nodes.stpre_recipe，0x1b5620/0x1b57c0/0x1b51d0 反汇编
+  还原）：D = 部件包围盒对角线；六容差 = max_facet_width D×0.2、
+  curve_chord_max D×0.1、curve_chord_tol D×0.001、surface_plane_tol D×0.001、
+  curve/surface_plane_ang = facet_kind 分支（kind 2 → 10°）；V37 选项结构为 int 标志
+  + double 对（o_t_version=5 的 mesh_2_o_t 布局，且只用 pairs 2..7）。
+- 验证（tools/facet_validate.py vs STpre 保存的 imp_stpre.stl）：**2206/2206 三角、
+  x 7/7 线（含 ±6.667/±20）、y 201/201、z 219/219（1e-8 内）**；GUI 切换到
+  tessellate_xt_stpre；tests/test_m36_facet_recipe.py 落库。提交 cb0f084、5bb5cff、3337648。
+
+### 52.2 Blend 家族 V37 ABI 破解
+
+- 旧崩溃（读 0xFFFFFFFFFFFFFFFF）= 过时 2 参签名的寄存器垃圾被当指针；V37 实为
+  数组 API：PK_EDGE_set_blend_constant（6 参）/ PK_EDGE_set_blend_chamfer（8 参）/
+  PK_BODY_fix_blends（9 参），选项结构 o_t_version=1（旧头文件的 v2 布局会得
+  920 tolerance_too_loose——STpre 自己也在处理这个码）。
+- 关键陷阱：选项必须按 V37 布局逐字段对齐（错位打包致 chamfer 1043；
+  check_arguments 开启报 5014 会误导）。
+- cab_blend.py 封装（STpre 字节级 properties 填充 0x47ea/0x47f4/0x47fe/draw_fix=1/
+  0x4809/0x4813/0x481c/0x4827/1e-5/0）；实测 40mm 块 blend→530 三角、chamfer→422 三角；
+  Edit Solid 对话框新增 「Blend Edge / Chamfer」按钮，cab_edit_ops.blend_part_edge_pk
+  原地改件并回写 x_t 成员；tests/test_blend.py。提交 7b09b18；
+  docs/pskernel_user_guide.md §6.9 已改写为「已解」。
+
+### 52.3 Boil/condensation CW 类型
+
+- 二进制字符串扫描找到 STpreBase 有效 kind：**boil_condensation（Phase change）/
+  boil_lee（Bubbles）**——COM 实测 GetAnalysisType 返 F/T、SetAnalysisType rc=1，
+  推翻旧「无独立 SetAnalysisType kind」死结；参数键 phase_boil/
+  phase_boil_latent_heat/phase_gas_temp/phase_satulate_temp/phase_solid_temp/
+  phase_gas_density（STpreBase 字符串实证）。
+- 落地：_CwBoilPage（模型/饱和温度/潜热/气固温度/气密度 →
+  analysis_etc/boil_condensation）+ _SPECIAL_TAGS 接线 + free_surface 门控保留；
+  CW 矩阵 23/25 → **24/25**；tools/probe_boil.py 为证据；test_wizards 新测试。
+  提交 5f3c21a。
+
+### 52.4 3DfindIT / Library 替换深度
+
+- 部件右键菜单新增 「Replace from library...」：ReplaceFromLibraryDialog +
+  cab_edit_ops.replace_part_from_library（应用图书馆条目的 kind/attribute/材料/发热量/
+  温度/base+size 到目标部件，保留 transform 与条件；原语重建 tess，body 件
+  保留几何）；外部 CADENAS 3DfindIT 连通性如实标注为网络服务项。
+- 测试 test_replace_part_from_library；提交 f8e23bc。
+
+### 52.5 回归
+
+- 全仓 **441 passed / 0 failed / 4 skipped / 8 errors**（8 项均为既有沙箱
+  tempfile 权限错误）；origin/main 同步 f8e23bc。
