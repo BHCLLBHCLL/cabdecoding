@@ -1619,6 +1619,32 @@ F 视解冻。每个子项完成即：pytest → 回填本节状态 → commit/p
 
 ---
 
+### 21.5 执行更新（2026-08-14，pskernel 逆向首轮）
+
+**② B5 已修复（提交 `d54aa9f`）**：
+`PK_VERTEX_ask_point` 返回 `PK_POINT_t`（点实体标签 int），非 `double[3]`——
+正确链路 `PK_BODY_ask_vertices` → `PK_VERTEX_ask_point`(→point entity) →
+`PK_POINT_ask`(→坐标)。盒体 8 顶点/tr03 叶轮 152 顶点坐标全部真实。
+
+**① A4 结构体修正 + 阻塞登记（提交 `de3c689`）**：
+`PK_PART_transmit_o_t` 原 6-int 布局错误，已按 V35 修正为 7 字段（含
+`transmit_indexed_context` 指针）。阻塞精确化：本内核无 `PK_PART_new`/
+`PK_PART_add_bodies`，`PK_PART_add_geoms` 只加构造几何（点/曲线/面/lattice），
+`PK_PART_receive` 返回 body 标签；`PK_SESSION_transmit`(973)/`PK_PARTITION_transmit`
+(5048) 均拒纯 body 会话。
+
+**③ Transform 反汇编结论（进行中）**：
+`PK_BODY_transform_2`（RVA `0x11ba10`）反汇编显示 **6 参签名与 V35 不同**——
+arg2(RDX) 被用作循环计数（`sub rdx,1; jne` 复制 0x80 字节块），即
+`(body, n_transfs, transfs_array, options, tracking, results)`。`o_t_version=1`
+被接受（错误从 5022→963），963 仍在排查（疑矩阵列主序/尺寸盒）。
+
+**方法固化**：Cradle 2025.2 内核高于 V35，每个 PK 函数的 o_t 结构体/签名都需
+「V35 头为起点 + lief/capstone 反汇编 prologue 定参数个数与类型 + ctypes 绑定 +
+黑盒探针验证」四步循环。q-solid V35 头可用 `urllib` 直接抓取。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
