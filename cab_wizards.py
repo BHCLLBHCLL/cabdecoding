@@ -552,6 +552,9 @@ _CW_PAGES = [
     ("humidity", "Humidity", None),
     ("solar", "Solar Radiation", None),
     ("porous", "Porous Media", None),
+    ("diffusion", "Diffusion", None),
+    ("particle", "Particle", None),
+    ("jos_model", "Thermoregulation Model", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -624,11 +627,10 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
     # No dedicated Condition Wizard product page in cabdecoding — disabled
     # with honesty tooltip (analysis_set flag-only would be silent chrome).
     _ALWAYS_DISABLED = frozenset({
-        "jos_model", "plant_canopy", "moving_body",
+        "plant_canopy", "moving_body",
         "artificial_light", "reaction", "ventilation", "fusion",
-        "marangoni", "topology_opti", "particle", "aircon_model",
+        "marangoni", "topology_opti", "aircon_model",
         "current", "electrostatic", "pcm", "msc_cosim", "bci_rom",
-        "diffusion",
     })
     _DISABLED_TIP = (
         "Not supported in cabdecoding Condition Wizard "
@@ -3389,11 +3391,14 @@ class ConditionWizard(WizardBase):
 
         from cab_cwizard_pages import (
             _CwAnalysisControlHubPage, _CwConditionListPage,
-            _CwConfirmPage, _CwControlOptionPage, _CwFilePage, _CwFixedPage,
+            _CwConfirmPage, _CwControlOptionPage, _CwDiffusionPage,
+            _CwFilePage, _CwFixedPage,
             _CwHumidityPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
-            _CwOutputLFilePage, _CwOutputSeriesPage, _CwPorousPage,
+            _CwOutputLFilePage, _CwOutputSeriesPage, _CwParticlePage,
+            _CwPorousPage,
             _CwRadiationGroupingPage, _CwSolarPage, _CwSolverPage,
             _CwSourcePage, _CwStabilizationPage, _CwSteadyPage,
+            _CwThermoregulationPage,
         )
 
         self.p_analysis = _CwAnalysisTypesPage(model)
@@ -3404,6 +3409,9 @@ class ConditionWizard(WizardBase):
         self.p_humidity = _CwHumidityPage(model)
         self.p_solar = _CwSolarPage(model)
         self.p_porous = _CwPorousPage(model)
+        self.p_diffusion = _CwDiffusionPage(model)
+        self.p_particle = _CwParticlePage(model)
+        self.p_jos = _CwThermoregulationPage(model)
         self.p_initial = _CwInitialPage(model)
         self.p_bc_flow = _CwFlowBoundaryPage(model)
         self.p_bc_wall = _CwWallBoundaryPage(model)
@@ -3432,6 +3440,8 @@ class ConditionWizard(WizardBase):
             "heat": self.p_heat,
             "humidity": self.p_humidity, "solar": self.p_solar,
             "porous": self.p_porous,
+            "diffusion": self.p_diffusion, "particle": self.p_particle,
+            "jos_model": self.p_jos,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,

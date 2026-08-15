@@ -18,10 +18,10 @@
 | Free surface | free_surface | 支持 | MARS/VOF |
 | Evaporation (free surf.) | evaporation | 禁用(待 FS) | 依赖 free_surface |
 | Boil/condensation | boil | 禁用(待 FS) | 依赖 free_surface |
-| Diffusion | diffusion | 禁用 | 无产品页 |
+| Diffusion | diffusion | 支持 | 2026-08-15 后新增产品页（物种数/扩散系数/Schmidt） |
 | Plant canopy | plant_canopy | 禁用 | 无产品页 |
 | Moving object | moving_body | 禁用 | 无产品页 |
-| Thermoregulation model | jos_model | 禁用 | 无产品页 |
+| Thermoregulation model | jos_model | 支持 | 2026-08-15 后新增产品页（代谢率 met/着衣 clo） |
 | Solar radiation | sun_light | 支持 | 2026-08-15 新增产品页（Location/Date-Time/Absorptance） |
 | Lamp | artificial_light | 禁用 | 无产品页 |
 | Reaction | reaction | 禁用 | 无产品页 |
@@ -29,7 +29,7 @@
 | Solidification/melting | fusion | 禁用 | 无产品页 |
 | Marangoni convection | marangoni | 禁用 | 无产品页 |
 | Topology optimization | topology_opti | 禁用 | 无产品页 |
-| Particle | particle | 禁用 | 无产品页 |
+| Particle | particle | 支持 | 2026-08-15 后新增产品页（交互模型/粒径/密度） |
 | Air conditioner unit | aircon_model | 禁用 | 无产品页 |
 | Electric current | current | 禁用 | 无产品页 |
 | Electrostatic field | electrostatic | 禁用 | 无产品页 |
@@ -37,7 +37,7 @@
 | MSC CoSim | msc_cosim | 禁用 | 无产品页 |
 | BCI-ROM | bci_rom | 禁用 | 无产品页 |
 
-统计：支持 7（含 Flow）/ 禁用(待 FS) 2 / 禁用 17。
+统计：支持 10（含 Flow）/ 禁用(待 FS) 2 / 禁用 14。
 
 ## 2. Source Condition 值类型（子集）
 

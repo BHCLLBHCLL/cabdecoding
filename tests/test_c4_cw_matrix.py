@@ -25,9 +25,9 @@ def test_matrix_counts():
     until_fs = cw._CwAnalysisTypesPage._DISABLED_UNTIL_FS
     enabled = [k for k in keys if k not in always and k not in until_fs]
     assert len(keys) == 25, f"total types = {len(keys)}"
-    assert len(always) == 17
+    assert len(always) == 14
     assert len(until_fs) == 2
-    assert len(enabled) == 6, f"enabled = {enabled}"
+    assert len(enabled) == 9, f"enabled = {enabled}"
 
 
 def test_enabled_types_are_the_supported_subset():
@@ -37,5 +37,5 @@ def test_enabled_types_are_the_supported_subset():
     enabled = {k for k in keys if k not in always and k not in until_fs}
     assert enabled == {
         "heat", "humidity", "porous_media", "radiation_analysis", "free_surface",
-        "sun_light",
+        "sun_light", "diffusion", "particle", "jos_model",
     }, enabled

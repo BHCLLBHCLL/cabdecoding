@@ -83,13 +83,14 @@
 - **差距**：`all` 模式精确计数需复刻 STpre 显示 tessellation；圆柱/轴向域网格为
   笛卡尔 AABB 近似；Element cross-section / Checking S-File 为浅实现。
 
-### 5. Condition Wizard — ⚠️ 中（~45%，最大缺口）
+### 5. Condition Wizard — ⚠️ 中（~55%）
 
-- 26 页框架 + Analysis Types 25 项。**支持 7**（Flow/Heat/Humidity/Porous/Radiation/
-  Free surface/Solar radiation，Solar 含 Location/Date-Time/Absorptance 产品页），
-  **禁用待 FS 2**（Evaporation/Boil），**禁用 16**（Diffusion/Plant/
-  Moving/Thermoregulation/Solar/Lamp/Reaction/Ventilation/Solidification/Marangoni/
-  Topology/Particle/Aircon/Current/Electrostatic/PCM/MSC CoSim/BCI-ROM）。
+- 26 页框架 + Analysis Types 25 项。**支持 10**（Flow/Heat/Humidity/Porous/
+  Radiation/Free surface/Solar radiation/**Diffusion**/**Particle**/
+  **Thermoregulation(JOS)**；新增三页均含产品页 + 分析标志 + 参数写回），
+  **禁用待 FS 2**（Evaporation/Boil），**禁用 14**（Plant/Moving/Lamp/
+  Reaction/Ventilation/Solidification/Marangoni/Topology/Aircon/Current/
+  Electrostatic/PCM/MSC CoSim/BCI-ROM）。
 - 已实现深度写回：Source（Volumetric/Area/Perforated + 面创建/多选）、Humidity、
   Porous、Radiation Grouping、Initial、Boundary（Flow/Wall/Thermal/Symmetry/Humidity/
   Mass Transfer）、Analysis Control、Output、File、Condition List。
@@ -142,9 +143,9 @@
 2. **圆柱/轴向坐标域网格**：仍为笛卡尔 AABB 近似（`domain_coordinate` 仅存标志）。
 
 ### P1 — 高价值功能缺失
-3. **Condition Wizard 高级物理 18 项**（Solar/Particle/Diffusion/Reaction/Ventilation/
-   Moving/Solidification/Thermoregulation/Electric/Electrostatic/MSC CoSim/BCI-ROM/
-   Topology/PCM/Aircon/Lamp/Marangoni/Plant）。
+3. **Condition Wizard 高级物理**（已完成 Solar/Diffusion/Particle/Thermoregulation
+   产品页；剩余 Reaction/Ventilation/Moving/Solidification/Electric/Electrostatic/
+   MSC CoSim/BCI-ROM/Topology/PCM/Aircon/Lamp/Marangoni/Plant 14 项）。
 4. ~~**mesh→B-rep 出 x_t**~~ **已完成（2026-08-15 后）**：经典 PK 管线
    （plane/bcurve/spcurve 裁剪片体 + sew + make_solid_bodies），见 §3 与
    `cab_ps_ops.triangles_to_brep`。

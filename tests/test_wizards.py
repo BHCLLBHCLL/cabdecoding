@@ -219,3 +219,49 @@ def test_condition_wizard_cancel_restores(pieces):
     w._on_cancel()
     assert model.doc.serialize() == snapshot
     w.close()
+
+
+def test_condition_wizard_diffusion_particle_jos_pages(pieces):
+    """P1-③: Diffusion / Particle / Thermoregulation pages enable their
+    Analysis Types flags and persist parameters."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    for key in ("diffusion", "particle", "jos_model"):
+        assert w.p_analysis.types[key].isEnabled()
+    # Diffusion
+    w.p_analysis.types["diffusion"].setChecked(True)
+    w.p_diffusion.enable.setChecked(True)
+    w.p_diffusion.n_species.setValue(2)
+    w.p_diffusion.coeff.setValue(2.0e-5)
+    w.p_diffusion.schmidt.setValue(0.7)
+    w.p_diffusion.apply()
+    assert model.analysis_set_value("diffusion") == "1"
+    assert model.project_value("diffusion_n_species", "") == "2"
+    assert abs(float(model.project_value(
+        "diffusion_coefficient", "0")) - 2.0e-5) < 1e-12
+    # Particle
+    w.p_particle.enable.setChecked(True)
+    w.p_particle.mode.setCurrentIndex(1)
+    w.p_particle.diameter.setValue(1.0e-6)
+    w.p_particle.density.setValue(2500.0)
+    w.p_particle.apply()
+    assert model.analysis_set_value("particle") == "1"
+    assert "inter-particle" in model.project_value("particle_mode", "")
+    assert abs(float(model.project_value(
+        "particle_density", "0")) - 2500.0) < 1e-9
+    # Thermoregulation
+    w.p_jos.enable.setChecked(True)
+    w.p_jos.metabolic.setValue(1.4)
+    w.p_jos.clothing.setValue(0.9)
+    w.p_jos.apply()
+    assert model.analysis_set_value("jos_model") == "1"
+    assert abs(float(model.project_value(
+        "jos_metabolic_rate", "0")) - 1.4) < 1e-12
+    # disabling clears flags
+    for page, tag in ((w.p_diffusion, "diffusion"),
+                      (w.p_particle, "particle"), (w.p_jos, "jos_model")):
+        page.enable.setChecked(False)
+        page.apply()
+        assert model.analysis_set_value(tag) == "0"
+    w.close()

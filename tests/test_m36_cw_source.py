@@ -86,12 +86,17 @@ def test_unsupported_analysis_types_disabled(qapp):
     from cab_wizards import _CwAnalysisTypesPage
     m = _model()
     page = _CwAnalysisTypesPage(m)
-    assert not page.types["diffusion"].isEnabled()
-    assert "not supported" in (page.types["diffusion"].toolTip() or "").lower()
+    assert not page.types["plant_canopy"].isEnabled()
+    assert "not supported" in (
+        page.types["plant_canopy"].toolTip() or "").lower()
     # Core product types stay enabled
     assert page.types["heat"].isEnabled()
     assert page.types["humidity"].isEnabled()
     assert page.types["porous_media"].isEnabled()
+    # New advanced physics product pages are enabled too
+    assert page.types["diffusion"].isEnabled()
+    assert page.types["particle"].isEnabled()
+    assert page.types["jos_model"].isEnabled()
 
 
 def test_source_writeback_s_export_consistency(qapp):

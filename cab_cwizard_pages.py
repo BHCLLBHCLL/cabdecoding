@@ -6851,3 +6851,186 @@ class _CwRadiationGroupingPage(QWidget if _HAS_GUI else object):
                     c = ET.SubElement(el, "rad_group_num")
                     c.tail = "\n         "
                 set_text(c, str(gnum))
+
+
+class _CwDiffusionPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Diffusion (species transport)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Diffusion analysis options (species concentration transport). "
+            "Enable syncs the Analysis Types flag; the molecular diffusion "
+            "coefficient and turbulent Schmidt number are stored as "
+            "analysis settings.", self))
+        g = QGroupBox("Diffusion", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider diffusion", g)
+        aset = (model.analysis_set_value("diffusion", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("diffusion_enable", "F") == "T")
+        self.n_species = QSpinBox(g)
+        self.n_species.setRange(1, 10)
+        self.coeff = QDoubleSpinBox(g)
+        self.coeff.setRange(1e-12, 1.0)
+        self.coeff.setDecimals(9)
+        self.schmidt = QDoubleSpinBox(g)
+        self.schmidt.setRange(0.01, 100.0)
+        self.schmidt.setDecimals(3)
+        for name, w, default in (
+                ("diffusion_n_species", self.n_species, 1),
+                ("diffusion_coefficient", self.coeff, 1.6e-5),
+                ("diffusion_schmidt", self.schmidt, 0.9)):
+            try:
+                w.setValue(float(model.project_value(name, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        f.addRow(self.enable)
+        f.addRow("Number of species", self.n_species)
+        f.addRow("Molecular diffusion coefficient (m2/s)", self.coeff)
+        f.addRow("Turbulent Schmidt number", self.schmidt)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "diffusion_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "diffusion_n_species", str(self.n_species.value()))
+        self.model.set_project_value(
+            "diffusion_coefficient", f"{self.coeff.value():g}")
+        self.model.set_project_value(
+            "diffusion_schmidt", f"{self.schmidt.value():g}")
+        self.model.set_analysis_set_value("diffusion", "1" if on else "0")
+        self.model.upsert_value(
+            "diffusion", "Diffusion_default",
+            [("diffusion_coefficient", f"{self.coeff.value():g}", "m2/s"),
+             ("diffusion_schmidt", f"{self.schmidt.value():g}", None),
+             ("n_species", str(self.n_species.value()), None)])
+
+
+class _CwParticlePage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Particle (discrete phase tracking)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Particle tracking analysis. Enable syncs the Analysis Types "
+            "flag; the interaction mode, diameter and density are stored "
+            "as analysis settings.", self))
+        g = QGroupBox("Particle", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider particle", g)
+        aset = (model.analysis_set_value("particle", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("particle_enable", "F") == "T")
+        self.mode = QComboBox(g)
+        self.mode.addItems([
+            "W/o inter-particle interaction",
+            "With inter-particle interaction"])
+        cur = model.project_value("particle_mode",
+                                  "W/o inter-particle interaction")
+        i = self.mode.findText(cur)
+        if i >= 0:
+            self.mode.setCurrentIndex(i)
+        self.diameter = QDoubleSpinBox(g)
+        self.diameter.setRange(1e-9, 1.0)
+        self.diameter.setDecimals(9)
+        self.density = QDoubleSpinBox(g)
+        self.density.setRange(1.0, 1e6)
+        self.density.setDecimals(3)
+        for name, w, default in (
+                ("particle_diameter", self.diameter, 1e-5),
+                ("particle_density", self.density, 1000.0)):
+            try:
+                w.setValue(float(model.project_value(name, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        f.addRow(self.enable)
+        f.addRow("Interaction model", self.mode)
+        f.addRow("Particle diameter (m)", self.diameter)
+        f.addRow("Particle density (kg/m3)", self.density)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        mode = self.mode.currentText()
+        self.model.set_project_value(
+            "particle_enable", "T" if on else "F")
+        self.model.set_project_value("particle_mode", mode)
+        self.model.set_project_value(
+            "particle_diameter", f"{self.diameter.value():g}")
+        self.model.set_project_value(
+            "particle_density", f"{self.density.value():g}")
+        self.model.set_analysis_set_value("particle", "1" if on else "0")
+        self.model.upsert_value(
+            "particle", "Particle_default",
+            [("particle_mode", mode, None),
+             ("particle_diameter", f"{self.diameter.value():g}", "m"),
+             ("particle_density", f"{self.density.value():g}", "kg/m3")])
+
+
+class _CwThermoregulationPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Thermoregulation model (JOS-2 comfort)."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Thermoregulation model (human comfort, JOS-2 style). Enable "
+            "syncs the Analysis Types flag; metabolic rate and clothing "
+            "insulation are stored as analysis settings.", self))
+        g = QGroupBox("Thermoregulation model", self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox("Consider thermoregulation model", g)
+        aset = (model.analysis_set_value("jos_model", "") or "").strip()
+        if aset in ("1", "T", "t"):
+            self.enable.setChecked(True)
+        else:
+            self.enable.setChecked(
+                model.project_value("jos_enable", "F") == "T")
+        self.metabolic = QDoubleSpinBox(g)
+        self.metabolic.setRange(0.0, 20.0)
+        self.metabolic.setDecimals(1)
+        self.clothing = QDoubleSpinBox(g)
+        self.clothing.setRange(0.0, 5.0)
+        self.clothing.setDecimals(2)
+        for name, w, default in (
+                ("jos_metabolic_rate", self.metabolic, 1.1),
+                ("jos_clothing", self.clothing, 0.7)):
+            try:
+                w.setValue(float(model.project_value(name, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        f.addRow(self.enable)
+        f.addRow("Metabolic rate (met)", self.metabolic)
+        f.addRow("Clothing insulation (clo)", self.clothing)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            "jos_enable", "T" if on else "F")
+        self.model.set_project_value(
+            "jos_metabolic_rate", f"{self.metabolic.value():g}")
+        self.model.set_project_value(
+            "jos_clothing", f"{self.clothing.value():g}")
+        self.model.set_analysis_set_value("jos_model", "1" if on else "0")
+        self.model.upsert_value(
+            "jos_model", "JOS_default",
+            [("metabolic_rate", f"{self.metabolic.value():g}", "met"),
+             ("clothing", f"{self.clothing.value():g}", "clo")])
