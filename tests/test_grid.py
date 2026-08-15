@@ -339,3 +339,42 @@ def qapp():
     from PyQt5 import QtWidgets
     app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
     yield app
+
+
+def test_per_part_vertex_detection_overrides():
+    """STpre part select_vertex: per-part modes override the global one."""
+    spec = cab_grid.GridSpec(
+        unit="mm", domain_min=(-25.0, -25.0, -25.0),
+        domain_max=(25.0, 25.0, 25.0),
+        vertex_detection="minmax", method="rough_only",
+        standard_length=1.0, threshold_length=0.1)
+    corners = np.array(
+        [[sx * 10.0, sy * 10.0, sz * 10.0]
+         for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)])
+    b = corners + np.array([4.0, 0.0, 0.0])
+    pts = {"A": corners, "B": b}
+    # global minmax: both boxes contribute min/max only
+    rough = cab_grid.rough_grids(pts, spec)
+    assert -10.0 in rough["x"] and 10.0 in rough["x"]
+    assert -6.0 in rough["x"] and 14.0 in rough["x"]
+    # B overridden to uniform -> fully ignored (no -6/14 lines)
+    rough2 = cab_grid.rough_grids(pts, spec, part_detections={"B": "uniform"})
+    assert -6.0 not in rough2["x"] and 14.0 not in rough2["x"]
+    assert -10.0 in rough2["x"] and 10.0 in rough2["x"]
+    # B overridden to all -> every tess corner projection of B appears
+    rough3 = cab_grid.rough_grids(pts, spec, part_detections={"B": "all"})
+    assert set(b[:, 0].round(6).tolist()) <= set(
+        round(v, 6) for v in rough3["x"])
+    # B overridden to representative -> uses B-rep vertices, not tess
+    verts = {"A": corners[:2], "B": b[[0, 7]]}
+    rough4 = cab_grid.rough_grids(
+        pts, spec, part_vertices=verts,
+        part_detections={"A": "representative", "B": "representative"})
+    for v in (verts["A"][0, 0], verts["A"][1, 0],
+              verts["B"][0, 0], verts["B"][1, 0]):
+        assert round(v, 6) in [round(x, 6) for x in rough4["x"]]
+    # default falls back to the global mode (minmax: no vertex lines)
+    rough5 = cab_grid.rough_grids(
+        pts, spec, part_vertices=verts,
+        part_detections={"A": "default"})
+    assert -10.0 in rough5["x"] and 10.0 in rough5["x"]

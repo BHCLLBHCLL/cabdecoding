@@ -109,7 +109,25 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
   顶点收集不在此函数——下一步应看 InnerRegionGrid/OuterRegionGrid/
   ExecDivide 或 MeshBlock 粗线收集路径（STpreBase_Bx64.dll 的
   ?SetParam/网格线插入实现）。
-
+- MeshCoarseDivide(0x23be0) + 收集器(0x1ab90, ~8KB) 反汇编（本轮）：
+  * 入口流程：GetMeshCtrl → GetRootBlock → SetupMeshBlock →
+    GetCoordArray(每轴) → 0x1ab90(block, select_mode, num_parts,
+    &coord 数组, &counts)。
+  * 0x1ab90 结构：GetAnalysisMinMax 后按 |range|×1e-5(0x7d708) 双侧
+    扩界（越界顶点微容差）；get_limit×0.01(0x7d720) 阈值换算；
+    块 min/max 经 AddInitEntityAt 注册（attr 0x10/4/8 = B/普通/部件线）；
+    [block+0x188] 实体表（GetCount/GetCoordAt/GetAttrAt/GetPartsAt）
+    逐点注册；随后 QueryPreParts 部件循环：
+    - vtable+0x7c8 返回 2/4/8/16/32 → 部件级 select_vertex 模式
+      0/1/2/3/继承（**本轮已实现**：cab_grid._effective_detection +
+      rough_grids/build_axes part_detections + GriddingDialog 接线）；
+    - 部件类型 switch（ecx=type-0x10f, 42 分支跳表 @0x1cba0）分派
+      GetBoundingBox1(porous)/顶点提取等路径；
+    - select_mode([rbp-0x68]) > 4 → delete_all_ijk_list(-1)（uniform 跳过）。
+  * 常量：0x7d750=2π（θ 周期合并）、0x7e5d8=0.501（round(x+0.501)）、
+    0x7e5c0=1e-30（退化零）、0x7e680/0x7e690=±1。
+  * 下一步：沿部件类型分支定位 all/rep 的顶点来源（当前 all=84 线
+    金标仍未复现；非 tess/B-rep/面平面）。
 ### 2.4 内区划分
 
 - 相邻“特征平面”（顶点投影线或 AABB min/max）之间的区间按

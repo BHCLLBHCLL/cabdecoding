@@ -3078,7 +3078,11 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         else:
             _rough, detailed = cab_grid.build_axes(
                 part_points, spec, part_vertices=part_vertices or None,
-                part_bounds=part_bounds)
+                part_bounds=part_bounds,
+                part_detections={
+                    p.name: self.model.part_mesh_option(p.name)
+                    for p in self.model.parts()
+                    if self.model.part_mesh_option(p.name)})
         self.model.set_mesh(
             detailed,
             unit="mm",

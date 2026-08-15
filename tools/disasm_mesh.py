@@ -1,4 +1,5 @@
-# Dump MeshFineDivide + full MeshFineExecute with IAT annotations.
+# Disassemble the part-coordinate collector at 0x1ab90 (called from
+# MeshCoarseDivide with the select mode in edx).
 import sys, struct
 from pathlib import Path
 from capstone import Cs, CS_ARCH_X86, CS_MODE_64
@@ -8,7 +9,6 @@ data = dll.read_bytes()
 e_lfanew = struct.unpack_from('<I', data, 0x3C)[0]
 nsec = struct.unpack_from('<H', data, e_lfanew + 6)[0]
 opt = e_lfanew + 24
-image_base = struct.unpack_from('<Q', data, opt + 24)[0]
 sections = []
 off = opt + struct.unpack_from('<H', data, e_lfanew + 20)[0]
 for _ in range(nsec):
@@ -24,7 +24,64 @@ def va_to_off(va):
     for name, sva, vsize, raw, raw_size in sections:
         if sva <= va < sva + max(vsize, raw_size):
             return raw + (va - sva)
-    raise ValueError(hex(va))
+    return None
+
+def off_to_va(foff):
+    for name, sva, vsize, raw, raw_size in sections:
+        if raw <= foff < raw + raw_size:
+            return sva + (foff - raw)
+    return None
+
+dd = opt + 112
+imp_rva, imp_size = struct.unpack_from('<II', data, dd + 8)
+off = va_to_off(imp_rva)
+iat = {}
+while off is not None:
+    oft = struct.unpack_from('<I', data, off)[0]
+    name_rva = struct.unpack_from('<I', data, off + 12)[0]
+    first_thunk = struct.unpack_from('<I', data, off + 16)[0]
+    if name_rva == 0:
+        break
+    noff = va_to_off(name_rva)
+    dll_name = data[noff:noff + 80].split(b'\x00')[0].decode()
+    oft_off = va_to_off(oft) if oft else va_to_off(first_thunk)
+    ft_off = va_to_off(first_thunk)
+    i = 0
+    while True:
+        hint = struct.unpack_from('<Q', data, oft_off + i * 8)[0]
+        thunk = struct.unpack_from('<Q', data, ft_off + i * 8)[0]
+        if hint == 0 and thunk == 0:
+            break
+        if hint & 0x8000000000000000:
+            name = '#%d' % (hint & 0xFFFF)
+        else:
+            n = va_to_off(hint)
+            name = (data[n + 2:n + 120].split(b'\x00')[0].decode('ascii',
+                                                                   'replace')
+                    if n is not None else '?')
+        va = off_to_va(ft_off + i * 8)
+        if va is not None:
+            iat[va] = name.split('@')[0]
+        i += 1
+    off += 20
+
+exp_rva, exp_size = struct.unpack_from('<II', data, dd)
+eoff = va_to_off(exp_rva)
+n_names = struct.unpack_from('<I', data, eoff + 24)[0]
+addr_rva = struct.unpack_from('<I', data, eoff + 28)[0]
+nameptr_rva = struct.unpack_from('<I', data, eoff + 32)[0]
+ord_rva = struct.unpack_from('<I', data, eoff + 36)[0]
+addr_off = va_to_off(addr_rva)
+nameptr_off = va_to_off(nameptr_rva)
+ord_off = va_to_off(ord_rva)
+exp = {}
+for i in range(n_names):
+    ord_ = struct.unpack_from('<H', data, ord_off + i * 2)[0]
+    rva = struct.unpack_from('<I', data, addr_off + ord_ * 4)[0]
+    np_rva = struct.unpack_from('<I', data, nameptr_off + i * 4)[0]
+    noff = va_to_off(np_rva)
+    nm = data[noff:noff + 200].split(b'\x00')[0].decode('ascii', 'replace')
+    exp[rva] = nm
 
 def dump(va_rva, nbytes, label):
     off = va_to_off(va_rva)
@@ -39,11 +96,20 @@ def dump(va_rva, nbytes, label):
                            .replace('rip + ', '').replace('rip - ', '-')
                            .replace('rip+', '').replace('rip-', '-'), 0)
                 target = ins.address + ins.size + disp
-                ops = ops + f'   ; -> {target:#x}'
+                nm = iat.get(target) or exp.get(target)
+                ops = ops + ('   ; ' + nm if nm else
+                             f'   ; -> {target:#x}')
+            except Exception:
+                pass
+        elif ins.mnemonic.startswith('call') and ops.startswith('0x'):
+            try:
+                t = int(ops, 16)
+                nm = exp.get(t)
+                if nm:
+                    ops = ops + '   ; ' + nm
             except Exception:
                 pass
         print(f'{ins.address:#10x}: {ins.mnemonic:8s} {ops}')
     print()
 
-dump(0x25570, 0x120, 'MeshFineDivide')
-dump(0x25690, 0x600, 'MeshFineExecute')
+dump(0x1b1f0, 0xa00, 'collector@0x1ab90 part2')

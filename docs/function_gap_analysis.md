@@ -149,12 +149,13 @@
 ## 四、剩余差距（按严重度）
 
 ### P0 — 阻塞正确性
-1. **`all` 顶点检测精确计数**（2026-08-15 二轮深挖：全 6 模式 S 线金标已录
-   `data/stpre_tr03_marks.json`，rep=25 顶点+AABB、all=84 线但来源非顶点/
-   tess/面平面/其它 body——且 rep⊄all；反汇编修正：MeshFineExecute/Divide 是
-   细分坐标合并/诊断阶段，顶点收集在 InnerRegionGrid/OuterRegionGrid/
-   ExecDivide 路径，见 STPRE_GRID_RULES §2.3.2。当前 all 计数 57×133×144
-   vs 金标 59×118×121）。
+1. **`all` 顶点检测精确计数**（2026-08-15 三轮深挖：全 6 模式 S 线金标已录
+   `data/stpre_tr03_marks.json`；反汇编已推进至 MeshCoarseDivide(0x23be0)
+   + 收集器 0x1ab90——定位部件循环（QueryPreParts）、部件级 select_vertex
+   开关（vtable+0x7c8，**本轮已实现 per-part 检测覆盖**）、部件类型 42 分支
+   跳表（@0x1cba0）、常量表（|range|×1e-5 扩界、limit×0.01、2π 周期合并、
+   round(x+0.501)）；all 的 84 线顶点来源仍在部件类型分支内，见
+   STPRE_GRID_RULES §2.3.2。当前 all 计数 57×133×144 vs 金标 59×118×121）。
 2. ~~**圆柱/轴向坐标域网格**~~ **已完成（2026-08-15 COM 探针对齐）**：
    `tools/probe_cyl_domain.py` 实测 STpre SetCylindricalDomain 保存格式与布点
    规则——域存 `<radius>/<angle>/<height>`（type=cylinder），mesh_block 用

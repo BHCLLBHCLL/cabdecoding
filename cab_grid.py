@@ -109,8 +109,23 @@ def _clip_dedupe(vals: list[float], lo: float, hi: float,
     return out
 
 
+def _effective_detection(name: str, spec: GridSpec,
+                          part_detections=None) -> str:
+    """Per-part vertex-detection override (STpre part select_vertex).
+
+    STpre reads each part's own select_vertex mode in the grid collector
+    (MeshCoarseDivide part loop, vtable+0x7c8 switch) - the global mode is
+    only the default.  "default"/None falls back to the global mode.
+    """
+    d = (part_detections or {}).get(name)
+    if not d or d == "default":
+        return spec.vertex_detection
+    return d
+
+
 def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
-                part_vertices: Optional[dict[str, np.ndarray]] = None
+                part_vertices: Optional[dict[str, np.ndarray]] = None,
+                part_detections: Optional[dict[str, str]] = None
                 ) -> dict[str, list[float]]:
     """Rough grid coordinates per axis from part vertices + domain bounds.
 
@@ -118,6 +133,9 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
     (used for min/max and as vertex fallback).  ``part_vertices`` maps part
     name -> real B-rep vertex coordinates when available (STpre "All" /
     "Representative" use the Parasolid vertices, not the display mesh).
+    ``part_detections`` carries per-part vertex-detection overrides
+    (STpre part select_vertex); a part set to "uniform" contributes
+    nothing at all.
     """
     dmin = np.asarray(spec.domain_min, dtype=float)
     dmax = np.asarray(spec.domain_max, dtype=float)
@@ -129,34 +147,30 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
             out[ax] = [dmin[ax_i], dmax[ax_i]]
             continue
         vals: list[float] = []
-        if spec.vertex_detection in ("all", "representative",
-                                     "axis_plane", "minmax",
-                                     "not_considered"):
+        for name, arr in part_points.items():
+            if arr is None or len(arr) == 0:
+                continue
+            mode = _effective_detection(name, spec, part_detections)
+            if mode == "uniform":
+                continue          # STpre: uniform parts are fully ignored
+            col = arr[:, ax_i]
             # STpre probe: not_considered still grids with part min/max
             # planes (only vertex detection is skipped); identical to
             # minmax for convex parts (tr03: vd4 == vd3).
-            for arr in part_points.values():
-                if arr is None or len(arr) == 0:
-                    continue
-                col = arr[:, ax_i]
-                vals.append(float(col.min()))
-                vals.append(float(col.max()))
-        if spec.vertex_detection == "all":
-            # STpre "All vertices": every vertex of the triangle patches used
-            # for drawing (the tessellation), NOT the B-rep topology vertices.
-            # tr03 proves the distinction: the curved impeller's display mesh
-            # carries ~194 y / ~240 z distinct projections, far more than the
-            # 64/59 B-rep vertices, and only those reproduce STpre's counts.
-            for arr in part_points.values():
-                if arr is None or len(arr) == 0:
-                    continue
-                vals.extend(float(v) for v in arr[:, ax_i])
-        elif spec.vertex_detection == "representative":
-            sources = vertices or part_points
-            for arr in sources.values():
-                if arr is None or len(arr) == 0:
-                    continue
-                vals.extend(float(v) for v in arr[:, ax_i])
+            vals.append(float(col.min()))
+            vals.append(float(col.max()))
+            if mode == "all":
+                # STpre "All vertices": every vertex of the triangle patches
+                # used for drawing (the tessellation), NOT the B-rep topology
+                # vertices.  tr03 proves the distinction: the curved
+                # impeller's display mesh carries ~194 y / ~240 z distinct
+                # projections, far more than the 64/59 B-rep vertices, and
+                # only those reproduce STpre's counts.
+                vals.extend(float(v) for v in col)
+            elif mode == "representative":
+                src = (vertices or part_points).get(name)
+                if src is not None and len(src):
+                    vals.extend(float(v) for v in src[:, ax_i])
         out[ax] = _clip_dedupe(
             vals, dmin[ax_i], dmax[ax_i], tol=max(thrs[ax_i], 1e-9))
     return out
@@ -440,20 +454,25 @@ def _refine_axis_ratios(rough: list[float], std: float,
 
 def build_axes(part_points: dict[str, np.ndarray], spec: GridSpec,
                part_vertices: Optional[dict[str, np.ndarray]] = None,
-               part_bounds: Optional[tuple[np.ndarray, np.ndarray]] = None
+               part_bounds: Optional[tuple[np.ndarray, np.ndarray]] = None,
+               part_detections: Optional[dict[str, str]] = None
                ) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
     """Return ``(rough, detailed)`` axes; detailed is the final mesh.
 
     ``part_bounds`` ``(lo, hi)`` in the same unit as ``spec`` enables
     STpre external geometric-ratio refinement outside the parts.
+    ``part_detections`` applies per-part vertex-detection overrides
+    (STpre part select_vertex).
     """
-    rough = rough_grids(part_points, spec, part_vertices=part_vertices)
+    rough = rough_grids(part_points, spec, part_vertices=part_vertices,
+                        part_detections=part_detections)
     if spec.method == "rough_only":
         return rough, {ax: list(v) for ax, v in rough.items()}
     coord = getattr(spec, "domain_coordinate", "cartesian")
     if coord == "cylindrical":
         return rough, _build_cylindrical_axes(
-            rough, spec, part_points=part_points, part_bounds=part_bounds)
+            rough, spec, part_points=part_points, part_bounds=part_bounds,
+            part_detections=part_detections)
     if coord == "axial":
         return rough, _build_axial_axes(
             rough, spec, part_points=part_points, part_bounds=part_bounds)
@@ -496,7 +515,8 @@ def _radial_part_extent(part_points) -> tuple[float, float]:
 
 def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
                             *, part_points=None,
-                            part_bounds=None) -> dict[str, list[float]]:
+                            part_bounds=None,
+                            part_detections=None) -> dict[str, list[float]]:
     """Cylindrical layout: x=R, y=theta(deg), z=Z.
 
     STpre stores R / theta / Z in the mesh_block tables (r unit=mm,
@@ -517,9 +537,12 @@ def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
     tmax = float(dmax[1])
     thrs = _as3(spec.threshold_length)
     # -- radial part extent from the tessellation (r = sqrt(x^2+y^2)) ------
+    active = {
+        name: arr for name, arr in (part_points or {}).items()
+        if _effective_detection(name, spec, part_detections) != "uniform"}
     r_proj: list[float] = []
     z_vals: list[float] = []
-    for arr in (part_points or {}).values():
+    for arr in active.values():
         arr = np.asarray(arr, dtype=np.float64)
         if len(arr) == 0:
             continue
@@ -527,7 +550,7 @@ def _build_cylindrical_axes(rough: dict[str, list[float]], spec: GridSpec,
         r_proj.extend(float(v) for v in r)
         z_vals.append(float(arr[:, 2].min()))
         z_vals.append(float(arr[:, 2].max()))
-    r_lo, r_hi = _radial_part_extent(part_points)
+    r_lo, r_hi = _radial_part_extent(active)
     z_lo = min(z_vals) if z_vals else float(dmin[2])
     z_hi = max(z_vals) if z_vals else float(dmax[2])
     # -- R axis: rough radial lines (part min/max + vertex projections) ----
