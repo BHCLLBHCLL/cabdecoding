@@ -847,6 +847,19 @@ def _write_part_condition_xml(el, params: dict) -> None:
                 add(key, f"{float(val):.12g}")
             else:
                 add(key, str(val))
+    if params.get("nodes"):
+        # Delphi thermal-circuit node network (only set for delphi parts)
+        for i, (nm, r) in enumerate(params["nodes"], start=1):
+            n = ET.SubElement(el, "thermal_node")
+            n.attrib["no"] = str(i)
+            n.tail = "\n         "
+            name_el = ET.SubElement(n, "name")
+            name_el.text = f" {nm} "
+            name_el.tail = "\n            "
+            res_el = ET.SubElement(n, "resistance")
+            res_el.text = f" {float(r):.12g} "
+            res_el.attrib["unit"] = "C/W"
+            res_el.tail = "\n         "
     mon = _first(el, "monitor")
     if mon is not None and "monitor" in params:
         set_text(mon, "T" if params["monitor"] else "F")
@@ -1585,6 +1598,48 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                 tip.setStyleSheet("color:#555; font-size:11px;")
                 lay.addLayout(tr)
                 lay.addWidget(tip)
+            if kind == "delphi":
+                self.delphi_nodes = QTableWidget(0, 2, self)
+                self.delphi_nodes.setHorizontalHeaderLabels(
+                    ["Node name", "Rji (C/W)"])
+                self.delphi_nodes.horizontalHeader().setStretchLastSection(
+                    True)
+                for nm, r in (("Top", 2.5), ("Bottom", 3.0),
+                              ("Leads", 8.0), ("Sides", 12.0)):
+                    i = self.delphi_nodes.rowCount()
+                    self.delphi_nodes.insertRow(i)
+                    self.delphi_nodes.setItem(
+                        i, 0, QTableWidgetItem(nm))
+                    self.delphi_nodes.setItem(
+                        i, 1, QTableWidgetItem(f"{r:g}"))
+                b = QHBoxLayout()
+                add_btn = QPushButton("Add node", self)
+                del_btn = QPushButton("Remove node", self)
+                add_btn.clicked.connect(lambda: (
+                    self.delphi_nodes.insertRow(
+                        self.delphi_nodes.rowCount()),
+                    self.delphi_nodes.setItem(
+                        self.delphi_nodes.rowCount() - 1, 0,
+                        QTableWidgetItem("Node")),
+                    self.delphi_nodes.setItem(
+                        self.delphi_nodes.rowCount() - 1, 1,
+                        QTableWidgetItem("1"))))
+                del_btn.clicked.connect(
+                    lambda: self.delphi_nodes.removeRow(
+                        self.delphi_nodes.currentRow())
+                    if self.delphi_nodes.currentRow() >= 0 else None)
+                b.addWidget(add_btn)
+                b.addWidget(del_btn)
+                b.addStretch(1)
+                lay.addLayout(b)
+                lay.addWidget(self.delphi_nodes, 1)
+                tip = QLabel(
+                    "Thermal Circuit Model (Delphi): junction node + N "
+                    "surface nodes with junction-to-node resistances "
+                    "(JEDEC Delphi network).", self)
+                tip.setWordWrap(True)
+                tip.setStyleSheet("color:#555; font-size:11px;")
+                lay.addWidget(tip)
 
         elif kind == "hexahedron":
             self.hexa_table = QTableWidget(8, 3, self)
@@ -2035,6 +2090,20 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
                     params["rjc"] = self.rjc.value()
                     params["rjb"] = self.rjb.value()
                     params["package_power"] = self.package_power.value()
+            if kind == "delphi" and hasattr(self, "delphi_nodes"):
+                nodes = []
+                for i in range(self.delphi_nodes.rowCount()):
+                    it_n = self.delphi_nodes.item(i, 0)
+                    it_r = self.delphi_nodes.item(i, 1)
+                    if it_n is None or it_r is None:
+                        continue
+                    try:
+                        r = float(it_r.text().strip())
+                    except ValueError:
+                        r = 1.0
+                    nodes.append((it_n.text().strip() or "Node", r))
+                if nodes:
+                    params["nodes"] = nodes
         elif kind == "hexahedron":
             params["points"] = self._table_points(self.hexa_table)
         elif kind == "cylinder":

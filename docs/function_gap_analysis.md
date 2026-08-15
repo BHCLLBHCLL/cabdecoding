@@ -187,7 +187,10 @@
    Source 页新增 Diffusion source 创建器 + 条件列表 diffusion 分组；
    Boundary 新增 **Diffusion Boundary 页**（浓度/传质系数两类，
    SetDiffusionCondition "diffusion"/"transfer" 探针格式写回）。
-7. 专用件参数面（AC 朝向、线性 diffuser、热回路节点）子集。
+7. 专用件参数面（AC 朝向、线性 diffuser、热回路节点）子集——**Delphi
+   节点级热回路已补**：Part 对话框 Delphi 页新增节点表（名称 + Rji C/W，
+   可增删），持久化为 parts/thermal_node（no/name/resistance@C/W），
+   ECXML 导入导出含 <Node name r> 网络往返（2 项测试）。
 8. Parametric Study / Printer paper-feeding / Thermal Characteristics 占位。
 9. ~~IFC / ECXML 导入导出~~ **已完成（2026-08-15 后）**：`cab_ifc.py`（IFC-SPF
    解析：拉伸矩形型材 + LOCALPLACEMENT 链 + m→mm，导入为 cube 件 + part

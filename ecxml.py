@@ -75,6 +75,12 @@ def parse_ecxml(text: str) -> list:
             'package_power': (_tag_float(therm, 'Power', 1.0)
                               if therm is not None else 1.0),
         }
+        comp['nodes'] = []
+        if therm is not None:
+            for nd in therm.findall('Node'):
+                nm = nd.get('name', 'Node')
+                r = _attr_float(nd, 'r', 1.0)
+                comp['nodes'].append((nm, r))
         if comp['kind'] not in _KINDS:
             comp['kind'] = 'two_resistor'
         out.append(comp)
@@ -106,6 +112,8 @@ def register_ecxml_parts(model, comps) -> list:
             params['manufacturer'] = comp['manufacturer']
         if comp['part_number']:
             params['part_number'] = comp['part_number']
+        if comp.get('nodes'):
+            params['nodes'] = comp['nodes']
         ok = register_primitive(model, name=name, kind=comp['kind'],
                                 params=params)
         if ok:
@@ -145,6 +153,20 @@ def parts_to_ecxml(model) -> str:
             format(_tag_float(p.elem, 'rjb', 5.0), '.12g')
         ET.SubElement(th, 'Power', {'unit': 'W'}).text = \
             format(_tag_float(p.elem, 'package_power', 1.0), '.12g')
+        if p.kind == 'delphi':
+            from cabxml import _first
+            for nd in p.elem.findall('thermal_node'):
+                nm = _first(nd, 'name')
+                res = _first(nd, 'resistance')
+                n = ET.SubElement(th, 'Node', {
+                    'name': (nm.text or '').strip() if nm is not None
+                    else 'Node'})
+                try:
+                    rv = (float((res.text or '').strip())
+                          if res is not None else 1.0)
+                except ValueError:
+                    rv = 1.0
+                n.set('r', format(rv, '.12g'))
     ET.indent(root, space='  ')
     return '<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n' + \
         ET.tostring(root, encoding='unicode')

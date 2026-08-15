@@ -170,3 +170,61 @@ def test_gui_import_ifc_ecxml(qapp):
                 f.unlink()
             except OSError:
                 pass
+
+
+SAMPLE_ECXML_DELPHI = '''<?xml version="1.0"?>
+<ECXML version="1.0">
+  <Component name="QFN64" kind="delphi">
+    <Location x="0" y="0" z="0" unit="mm"/>
+    <Size x="9" y="9" z="1.0" unit="mm"/>
+    <Thermal>
+      <Rjc unit="K/W">1.0</Rjc><Rjb unit="K/W">3.0</Rjb>
+      <Power unit="W">1.5</Power>
+      <Node name="Top" r="2.5"/>
+      <Node name="Bottom" r="3.5"/>
+      <Node name="Leads" r="9.0"/>
+      <Node name="Sides" r="14.0"/>
+    </Thermal>
+  </Component>
+</ECXML>'''
+
+
+def test_ecxml_delphi_nodes_roundtrip():
+    """P2: Delphi thermal-circuit node network round-trip."""
+    m = _model()
+    comps = ecxml.parse_ecxml(SAMPLE_ECXML_DELPHI)
+    assert comps[0]['nodes'] == [("Top", 2.5), ("Bottom", 3.5),
+                                 ("Leads", 9.0), ("Sides", 14.0)]
+    names = ecxml.register_ecxml_parts(m, comps)
+    assert names == ["QFN64"]
+    p = m.find_part("QFN64")
+    assert p is not None
+    nodes = p.findall("thermal_node")
+    assert len(nodes) == 4
+    from cabxml import _first
+    assert (_first(nodes[0], "name").text or "").strip() == "Top"
+    res0 = _first(nodes[0], "resistance")
+    assert abs(float((res0.text or "").strip()) - 2.5) < 1e-9
+    assert res0.attrib.get("unit") == "C/W"
+    # export -> parse -> same network
+    out = ecxml.parts_to_ecxml(m)
+    comps2 = ecxml.parse_ecxml(out)
+    assert comps2[0]['nodes'] == comps[0]['nodes']
+
+
+def test_register_delphi_nodes_persistence():
+    """P2: register_primitive delphi with nodes writes thermal_node list."""
+    from cab_parts import register_primitive
+    m = _model()
+    ok = register_primitive(
+        m, name="Delphi1", kind="delphi",
+        params={"base": (0, 0, 0), "size": (5, 5, 1),
+                "nodes": [("Top", 1.0), ("Bottom", 2.0)]})
+    assert ok
+    p = m.find_part("Delphi1")
+    nodes = p.findall("thermal_node")
+    assert [n.attrib.get("no") for n in nodes] == ["1", "2"]
+    from cabxml import _first
+    assert [( (_first(n, "name").text or "").strip(),
+              float((_first(n, "resistance").text or "0").strip()))
+            for n in nodes] == [("Top", 1.0), ("Bottom", 2.0)]
