@@ -1757,6 +1757,29 @@ tessellation，属独立长期项。
   （+5），2 失败 8 错误均为既有（part-kinds 清单、boolean STL 持久化、
   tempfile 沙箱权限）。
 
+**⑩ SCTpre VBS/COM 全量覆盖 + attach 解冻（2026-08-15）**：
+
+- **解冻 attach 策略**：`STpreSession(attach=True)`（新默认）在「检测到 STpre 进程」
+  时改用 `GetActiveObject` 挂接并驱动运行实例，`_owned=False` 保证**绝不**
+  `Visible=False`/`Quit` 用户实例；`attach=False` 保留旧拒绝语义。`_headless` 仅对
+  owned 实例生效。
+- **类层级包装**（`cab_stpre_api.py`，按 `VB_Interface_eng`）：通用 `ComObject.call`
+  （`_FlagAsMethod` 透明化，任意成员可达）+ 类型化 `STpreApplication`/`STpreDoc`/
+  `STpreModel`/`STpreMesher`/`STpreMeshBlock`/`STpreValue`；Doc 覆盖
+  Open/Save（Cab/S/NFB/XML/Param/Condition/Library/CAD/DXF/Nas/Text/CSV）、
+  Boolean（Intersect/Subtract/Unite/Section/EditSolidModel）、全部 `Create*Model`
+  部件族、`Create*Material/Property/Script/Expression/UserFunction`、常用
+  `Set*` 条件；Model 覆盖 Copy/Rotate/Move/ConvertModel/CreateConvexHull/CreateFEM/
+  SaveStlFile/SaveXtFile；Mesher/MeshBlock 全覆盖（SetGridParam/ExecuteGrid/
+  SetParam/SetRange/GetDivideArray 等）。
+- **发现/目录**：`API_CATALOG`（Application/Mesher/MeshBlock 全清单 + Doc/Model/Value
+  高价值清单）+ `API_MEMBER_COUNTS`（Doc 459、Model 458、Value 272、Mesher 69、
+  MeshBlock 88，均自 `VB_Interface_eng` 提取）。
+- **headless 兜底**：`create_application`/`attach_application`/`headless_roundtrip`
+  （走类型化链路 Application→Doc→Mesher→MeshBlock，等价旧 `run_stpre_grid_mesh`）。
+- 验收：`test_stpre_com_wrappers.py`（4）+ `test_stpre_session_guard.py` 改 attach
+  语义（拒绝→挂接/owned 守卫）全绿；全仓 375 通过（+5），无回归。
+
 ---
 
 ## 7. 关键接口设计（草案）

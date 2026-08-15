@@ -1,17 +1,34 @@
-"""STpre VB/COM automation bridge for gridding and meshing.
+"""STpre VB/COM automation bridge — full class-hierarchy coverage + headless fallback.
 
-Reference: ``Manuals/ST/HTML/VB_Interface_eng``:
+Reference: ``Manuals/ST/HTML/VB_Interface_eng``.  ProgID:
+``STpre_Bx64net.Application.2025``.  Class hierarchy (all late-bound, any
+member callable via :meth:`ComObject.call`):
 
-* Application: ``CreateObject("STpre_Bx64net.Application.2025")``,
-  ``GetDocument``, ``Visible``, ``Quit``;
-* Doc: ``OpenCabFile(path)``, ``SaveCabFile(path)``, ``GetMesher``;
-* Mesher: ``SetGridParam(key, p1, p2, p3)``, ``ExecuteGrid(key, flag)``,
-  ``ExecuteElement``.
+    Application                              (CreateObject / GetObject, Visible, Quit)
+      `- GetDocument -> Doc                   (OpenCabFile/SaveCabFile/SaveSFile/SaveNfbFile,
+          |                                     Intersect/Subtract/Unite/Section,
+          |                                     Create*Model / Create*Property / Create*Value,
+          |                                     Get*/Set* analysis params, GetMesher/GetSketcher)
+          |- GetMesher -> Mesher               (SetGridParam/ExecuteGrid/ExecuteElement, GetBlock)
+          |    `- GetBlock/GetRootBlock -> MeshBlock (SetParam/SetRange/GetDivideArray)
+          |- GetModel/GetAllModelArray -> Model (Copy/Rotate/Transform/GetBoundingBox/SaveXtFile)
+          |- GetValue/GetAllValueArray -> Value (SetParam/GetParam, condition write-back)
+          |- GetPropertyEntity -> Property     (Create*Material/Create*Property)
+          `- GetTable -> Table, GetSketcher -> Sketch, CreateScript/Expression/UserFunction
 
-The bridge is file-relay based: cab_gui writes the current project to a
-temporary CAB, STpre (automated via COM) opens it, runs gridding/element
-division, saves another CAB, and cab_gui merges the mesh sections back into
-its in-memory model.  Default off; cab_gui keeps its native implementation.
+This module keeps the original file-relay gridding/meshing bridge (used by
+cab_gui and stpre_probe) and adds:
+
+* a generic :class:`ComObject` wrapper whose :meth:`ComObject.call` does the
+  ``_FlagAsMethod`` dance (scPOST manual "VB interface usage in Python") so
+  the *entire* VB surface is reachable without pre-writing a wrapper;
+* typed wrappers :class:`STpreApplication`, :class:`STpreDoc`, :class:`STpreModel`,
+  :class:`STpreMesher`, :class:`STpreMeshBlock`, :class:`STpreValue` for the
+  high-value members;
+* :class:`STpreSession` now *attaches* to an already-running STpre by default
+  (``attach=True``) instead of refusing — the old safety policy is unfrozen,
+  while the ownership guard (never ``Visible=False`` / ``Quit`` a user-open
+  instance) is preserved via ``_owned``.
 """
 
 from __future__ import annotations
@@ -56,8 +73,10 @@ def _stpre_process_running() -> bool:
     object of an already-running instance instead of starting a private one.
     If that instance belongs to the user (an open STpre window), hiding it
     (``Visible=False``) or quitting it (``Quit``) would destroy the user's
-    session.  Automation therefore refuses to attach while any STpre
-    process is alive; the GUI falls back to the native gridding/meshing.
+    session.  ``STpreSession`` now *attaches* by default (``attach=True``)
+    and simply never hides/quits an attached instance (``_owned=False``);
+    the legacy ``attach=False`` path still refuses while any STpre process
+    is alive.
     """
     import subprocess
     names = ("STpre_Bx64net.exe", "STprePMesh_Bx64net.exe")
@@ -432,11 +451,16 @@ def build_relay_cab(model, archive, src_path: str | Path, *,
 class STpreSession:
     """Reusable STpre COM session (start once, grid/mesh repeatedly)."""
 
-    def __init__(self):
+    def __init__(self, *, attach: bool = True, headless: bool = True):
         self._app = None
         self._doc = None
         self._mesher = None
         self._cab_in: Optional[str] = None
+        # attach=True (unfrozen policy): attach to an already-running STpre
+        # via GetActiveObject and drive it, without hiding/quoting it.
+        # attach=False keeps the legacy "refuse while STpre is running".
+        self._attach = attach
+        self._headless = headless
         # False when the COM object is a pre-existing STpre instance the
         # user may be watching.  Only self-started instances are hidden
         # (Visible=False) and terminated (Quit); attached ones are never
@@ -448,10 +472,12 @@ class STpreSession:
         cab_in = str(cab_in)
         if self._app is None:
             if _stpre_process_running():
-                last_error = (
-                    "STpre is already running; refusing to attach "
-                    "(automation would hide/quit the user's instance)")
-                return False
+                if not self._attach:
+                    last_error = (
+                        "STpre is already running; attach=False refuses "
+                        "(set attach=True to drive the running instance)")
+                    return False
+                return self._attach_start(cab_in)
             return self._start(cab_in)
         if self._cab_in == cab_in:
             return True
@@ -470,12 +496,17 @@ class STpreSession:
         return self._start(cab_in)
 
     def _start(self, cab_in: str) -> bool:
-        """Start a private, hidden STpre instance and open the relay."""
+        """Start a private STpre instance (hidden when headless) and open.
+
+        ``DispatchEx`` starts a fresh instance; ``Dispatch`` returns a
+        running one for this single-instance server (scPOST manual note).
+        """
         global last_error
         import win32com.client
         app = win32com.client.Dispatch(PROGID)
         self._owned = True
-        app.Visible = False
+        if self._headless:
+            app.Visible = False
         doc = _invoke(app, "GetDocument")
         rc = _invoke(doc, "OpenCabFile", cab_in)
         if rc != 1:
@@ -493,9 +524,61 @@ class STpreSession:
         last_error = None
         return True
 
+    def _attach_start(self, cab_in: str) -> bool:
+        """Attach to an already-running STpre (GetActiveObject) and open.
+
+        The attached instance is *never* hidden or quit (``_owned=False``);
+        only ``OpenCabFile`` and the automation calls themselves run.
+        """
+        global last_error
+        import win32com.client
+        try:
+            app = win32com.client.GetActiveObject(PROGID)
+        except Exception:
+            app = win32com.client.Dispatch(PROGID)  # single-instance fallback
+        self._owned = False
+        doc = _invoke(app, "GetDocument")
+        rc = _invoke(doc, "OpenCabFile", cab_in)
+        if rc != 1:
+            last_error = f"attach OpenCabFile rc={rc}"
+            return False
+        self._app = app
+        self._doc = doc
+        self._mesher = _invoke(doc, "GetMesher")
+        self._cab_in = cab_in
+        last_error = None
+        return True
+
     @property
     def is_open(self) -> bool:
         return self._app is not None
+
+    @property
+    def application(self):
+        """The wrapped :class:`STpreApplication` (or None before open)."""
+        return STpreApplication(self._app) if self._app is not None else None
+
+    @property
+    def doc(self):
+        """The wrapped :class:`STpreDoc` (or None before open)."""
+        return STpreDoc(self._doc) if self._doc is not None else None
+
+    @property
+    def mesher(self):
+        """The wrapped :class:`STpreMesher` (or None before open)."""
+        return STpreMesher(self._mesher) if self._mesher is not None else None
+
+    def model(self, name: str):
+        """``Doc.GetModel(name)`` -> :class:`STpreModel`."""
+        if self._doc is None:
+            return None
+        return STpreModel(_invoke(self._doc, "GetModel", name))
+
+    def value(self, name: str):
+        """``Doc.GetValue(name)`` -> :class:`STpreValue`."""
+        if self._doc is None:
+            return None
+        return STpreValue(_invoke(self._doc, "GetValue", name))
 
     def grid(self, params, method: str = "detail",
              block_params: Optional[list] = None) -> bool:
@@ -608,3 +691,919 @@ def merge_mesh_result(model, out_model) -> list[str]:
         model.doc.root.append(ET.fromstring(ET.tostring(new)))
         merged.append(tag)
     return merged
+
+# ============================================================================
+# Class-hierarchy wrappers (late-bound, full VB/COM coverage)
+# ============================================================================
+
+
+class ComObject:
+    """Generic late-bound COM wrapper.
+
+    win32com dynamic dispatch needs ``_FlagAsMethod(name)`` before calling a
+    member with *no* arguments or *only* VARIANT arguments (scPOST manual
+    "VB interface usage in Python").  :meth:`call` does this transparently
+    so **any** member in the manual's class lists is reachable without a
+    pre-written typed wrapper.  Attribute access reads COM properties;
+    :meth:`set_prop` writes them.
+    """
+
+    def __init__(self, obj):
+        self._obj = obj
+
+    @property
+    def raw(self):
+        """The underlying win32com dispatch object."""
+        return self._obj
+
+    def call(self, name: str, *args):
+        """Invoke ``name`` as a COM *method* (``_FlagAsMethod`` first)."""
+        return _invoke(self._obj, name, *args)
+
+    def prop(self, name: str, default=None):
+        """Read a COM *property* (returns ``default`` on failure)."""
+        try:
+            return getattr(self._obj, name)
+        except Exception:
+            return default
+
+    def set_prop(self, name: str, value) -> None:
+        """Write a COM *property*."""
+        setattr(self._obj, name, value)
+
+    def __repr__(self):
+        return f"<{type(self).__name__} {self._obj!r}>"
+
+
+class STpreApplication(ComObject):
+    """Application class (``CreateObject`` / ``GetObject``)."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    @property
+    def Visible(self):
+        return self.prop("Visible")
+
+    @Visible.setter
+    def Visible(self, value):
+        self.set_prop("Visible", value)
+
+    @property
+    def UserControl(self):
+        return self.prop("UserControl")
+
+    @UserControl.setter
+    def UserControl(self, value):
+        self.set_prop("UserControl", value)
+
+    def GetDocument(self):
+        return STpreDoc(self.call("GetDocument"))
+
+    def GetVersionNo(self):
+        return self.call("GetVersionNo")
+
+    def GetProcessID(self):
+        return self.call("GetProcessID")
+
+    def GetHomeFolder(self):
+        return self.call("GetHomeFolder")
+
+    def GetEnvFilePath(self):
+        return self.call("GetEnvFilePath")
+
+    def GetFileVersion(self):
+        return self.call("GetFileVersion")
+
+    def ClearDocument(self):
+        return self.call("ClearDocument")
+
+    def BeginViewerMode(self):
+        return self.call("BeginViewerMode")
+
+    def IsViewerMode(self):
+        return self.call("IsViewerMode")
+
+    def UpdateAll(self):
+        return self.call("UpdateAll")
+
+    def Quit(self):
+        return self.call("Quit")
+
+
+class STpreDoc(ComObject):
+    """Doc class — owns all Create*Model / Save* / Open* / Boolean / conditions.
+
+    Full method list (459 members) in ``Manuals/ST/HTML/VB_Interface_eng``
+    ``St_vb_Preprocessor_Doc_Class.html``; any member is reachable via
+    :meth:`ComObject.call`.
+    """
+
+    # -- open / save / export -------------------------------------------
+    def OpenCabFile(self, path):
+        return self.call("OpenCabFile", str(path))
+
+    def SaveCabFile(self, path):
+        return self.call("SaveCabFile", str(path))
+
+    def SaveSFile(self, path):
+        return self.call("SaveSFile", str(path))
+
+    def SaveNfbFile(self, path):
+        return self.call("SaveNfbFile", str(path))
+
+    def SaveXmlFile(self, path):
+        return self.call("SaveXmlFile", str(path))
+
+    def SaveParamFile(self, path):
+        return self.call("SaveParamFile", str(path))
+
+    def SaveConditionFile(self, path):
+        return self.call("SaveConditionFile", str(path))
+
+    def SaveLibraryCabFile(self, path):
+        return self.call("SaveLibraryCabFile", str(path))
+
+    def OpenCadFile(self, path):
+        return self.call("OpenCadFile", str(path))
+
+    def OpenDxfFile(self, path):
+        return self.call("OpenDxfFile", str(path))
+
+    def OpenNasFile(self, path):
+        return self.call("OpenNasFile", str(path))
+
+    def OpenXmlFile(self, path):
+        return self.call("OpenXmlFile", str(path))
+
+    def OpenTextFile(self, path):
+        return self.call("OpenTextFile", str(path))
+
+    def OpenCsvFile(self, path):
+        return self.call("OpenCsvFile", str(path))
+
+    def OpenLibraryCabFile(self, path):
+        return self.call("OpenLibraryCabFile", str(path))
+
+    # -- boolean / solid editing ----------------------------------------
+    def Intersect(self, a, b, name):
+        return self.call("Intersect", a, b, name)
+
+    def Subtract(self, a, b, name):
+        return self.call("Subtract", a, b, name)
+
+    def Unite(self, a, b, name):
+        return self.call("Unite", a, b, name)
+
+    def Section(self, *args):
+        return self.call("Section", *args)
+
+    def EditSolidModel(self, *args):
+        return self.call("EditSolidModel", *args)
+
+    def SelectSolidModel(self, *args):
+        return self.call("SelectSolidModel", *args)
+
+    # -- accessors ------------------------------------------------------
+    def GetMesher(self):
+        return STpreMesher(self.call("GetMesher"))
+
+    def GetSketcher(self):
+        return ComObject(self.call("GetSketcher"))
+
+    def GetModel(self, name):
+        return STpreModel(self.call("GetModel", name))
+
+    def GetAllModelArray(self, kind="parts"):
+        return [STpreModel(m) for m in self.call("GetAllModelArray", kind)]
+
+    def GetRootModelArray(self):
+        return [STpreModel(m) for m in self.call("GetRootModelArray")]
+
+    def GetValue(self, name):
+        return STpreValue(self.call("GetValue", name))
+
+    def GetAllValueArray(self):
+        return [STpreValue(v) for v in self.call("GetAllValueArray")]
+
+    def GetDomain(self):
+        return STpreModel(self.call("GetDomain"))
+
+    def GetFluidArea(self, idx=0):
+        return STpreModel(self.call("GetFluidArea", idx))
+
+    def GetTable(self, name):
+        return ComObject(self.call("GetTable", name))
+
+    def GetPropertyEntity(self, name):
+        return ComObject(self.call("GetPropertyEntity", name))
+
+    def GetNumAllModelArray(self):
+        return self.call("GetNumAllModelArray")
+
+    def GetAllPartsBoundingBox(self):
+        return self.call("GetAllPartsBoundingBox")
+
+    # -- project / analysis ---------------------------------------------
+    def GetProjectName(self):
+        return self.call("GetProjectName")
+
+    def SetProjectName(self, name):
+        return self.call("SetProjectName", name)
+
+    def GetComment(self):
+        return self.call("GetComment")
+
+    def SetComment(self, text):
+        return self.call("SetComment", text)
+
+    def GetFileName(self):
+        return self.call("GetFileName")
+
+    def SetFileName(self, name):
+        return self.call("SetFileName", name)
+
+    def GetAmbientTemperature(self):
+        return self.call("GetAmbientTemperature")
+
+    def SetAmbientTemperature(self, value):
+        return self.call("SetAmbientTemperature", value)
+
+    def GetGravity(self):
+        return self.call("GetGravity")
+
+    def SetGravity(self, gx, gy, gz):
+        return self.call("SetGravity", gx, gy, gz)
+
+    def GetAnalysisType(self, kind):
+        return self.call("GetAnalysisType", kind)
+
+    def SetAnalysisType(self, kind, flag):
+        return self.call("SetAnalysisType", kind, flag)
+
+    def SetCartesianDomain(self, x1, y1, z1, x2, y2, z2):
+        return self.call("SetCartesianDomain", x1, y1, z1, x2, y2, z2)
+
+    def SetCylindricalDomain(self, *args):
+        return self.call("SetCylindricalDomain", *args)
+
+    def SetUnit(self, *args):
+        return self.call("SetUnit", *args)
+
+    # -- part creation (Create*Model; the full surface is call()-able) ---
+    def CreateCubeModel(self, name, base, size):
+        return STpreModel(self.call("CreateCubeModel", name, base, size))
+
+    def CreateCylinderModel(self, name, *args):
+        return STpreModel(self.call("CreateCylinderModel", name, *args))
+
+    def CreateSphereModel(self, name, *args):
+        return STpreModel(self.call("CreateSphereModel", name, *args))
+
+    def CreateConeModel(self, name, *args):
+        return STpreModel(self.call("CreateConeModel", name, *args))
+
+    def CreatePanelModel(self, name, *args):
+        return STpreModel(self.call("CreatePanelModel", name, *args))
+
+    def CreateHexaModel(self, name, *args):
+        return STpreModel(self.call("CreateHexaModel", name, *args))
+
+    def CreatePipeModel(self, name, *args):
+        return STpreModel(self.call("CreatePipeModel", name, *args))
+
+    def CreateFinModel(self, name, *args):
+        return STpreModel(self.call("CreateFinModel", name, *args))
+
+    def CreateFanModel(self, name, *args):
+        return STpreModel(self.call("CreateFanModel", name, *args))
+
+    def CreateAxialFanModel(self, name, *args):
+        return STpreModel(self.call("CreateAxialFanModel", name, *args))
+
+    def CreateBlowerFanModel(self, name, *args):
+        return STpreModel(self.call("CreateBlowerFanModel", name, *args))
+
+    def CreateAirconModel(self, name, *args):
+        return STpreModel(self.call("CreateAirconModel", name, *args))
+
+    def CreateAnemoModel(self, name, *args):
+        return STpreModel(self.call("CreateAnemoModel", name, *args))
+
+    def CreateCardGuideModel(self, name, *args):
+        return STpreModel(self.call("CreateCardGuideModel", name, *args))
+
+    def CreateCaseModel(self, name, *args):
+        return STpreModel(self.call("CreateCaseModel", name, *args))
+
+    def CreateDelphiModel(self, name, *args):
+        return STpreModel(self.call("CreateDelphiModel", name, *args))
+
+    def CreateExtrudeModel(self, name, *args):
+        return STpreModel(self.call("CreateExtrudeModel", name, *args))
+
+    def CreateHoleModel(self, name, *args):
+        return STpreModel(self.call("CreateHoleModel", name, *args))
+
+    def CreateLinerDiffuserModel(self, name, *args):
+        return STpreModel(self.call("CreateLinerDiffuserModel", name, *args))
+
+    def CreatePeltierModel(self, name, *args):
+        return STpreModel(self.call("CreatePeltierModel", name, *args))
+
+    def CreatePinFinModel(self, name, *args):
+        return STpreModel(self.call("CreatePinFinModel", name, *args))
+
+    def CreatePointModel(self, name, *args):
+        return STpreModel(self.call("CreatePointModel", name, *args))
+
+    def CreateQuadPanelModel(self, name, *args):
+        return STpreModel(self.call("CreateQuadPanelModel", name, *args))
+
+    def CreateRevolveModel(self, name, *args):
+        return STpreModel(self.call("CreateRevolveModel", name, *args))
+
+    def CreateSlitPunchingModel(self, name, *args):
+        return STpreModel(self.call("CreateSlitPunchingModel", name, *args))
+
+    def CreateSpinRectangleSimpleModel(self, name, *args):
+        return STpreModel(self.call("CreateSpinRectangleSimpleModel", name, *args))
+
+    def CreateSweepModel(self, name, *args):
+        return STpreModel(self.call("CreateSweepModel", name, *args))
+
+    def CreateTwoResistanceModel(self, name, *args):
+        return STpreModel(self.call("CreateTwoResistanceModel", name, *args))
+
+    def CreateGroup(self, name):
+        return ComObject(self.call("CreateGroup", name))
+
+    def CreateFaceListSet(self, name, *args):
+        return ComObject(self.call("CreateFaceListSet", name, *args))
+
+    def CreateRegionPair(self, *args):
+        return ComObject(self.call("CreateRegionPair", *args))
+
+    def CreateConnectedRegion(self, *args):
+        return ComObject(self.call("CreateConnectedRegion", *args))
+
+    # -- materials / properties / conditions ----------------------------
+    def CreateFluidMaterial(self, name):
+        return ComObject(self.call("CreateFluidMaterial", name))
+
+    def CreateSolidMaterial(self, name):
+        return ComObject(self.call("CreateSolidMaterial", name))
+
+    def CreateAbsorptionProperty(self, name):
+        return ComObject(self.call("CreateAbsorptionProperty", name))
+
+    def CreateRadiationProperty(self, name):
+        return ComObject(self.call("CreateRadiationProperty", name))
+
+    def CreatePropertyGroup(self, name):
+        return ComObject(self.call("CreatePropertyGroup", name))
+
+    def CreateReactiveFormula(self, name):
+        return ComObject(self.call("CreateReactiveFormula", name))
+
+    def CreateScript(self, name):
+        return ComObject(self.call("CreateScript", name))
+
+    def CreateExpression(self, name):
+        return ComObject(self.call("CreateExpression", name))
+
+    def CreateUserFunction(self, name):
+        return ComObject(self.call("CreateUserFunction", name))
+
+    def CreateUserData(self, name):
+        return ComObject(self.call("CreateUserData", name))
+
+    # -- conditions (common subset; full Set*/Get* via call()) ----------
+    def SetWall(self, region, *args):
+        return self.call("SetWall", region, *args)
+
+    def SetFluxFix(self, region, *args):
+        return self.call("SetFluxFix", region, *args)
+
+    def SetFluxPres(self, region, *args):
+        return self.call("SetFluxPres", region, *args)
+
+    def SetFluxOut(self, region, *args):
+        return self.call("SetFluxOut", region, *args)
+
+    def SetTemperatureFix(self, region, *args):
+        return self.call("SetTemperatureFix", region, *args)
+
+    def SetHeatTransfer(self, region, *args):
+        return self.call("SetHeatTransfer", region, *args)
+
+    def SetHeatSource(self, region, *args):
+        return self.call("SetHeatSource", region, *args)
+
+    def SetSymmetry(self, region, *args):
+        return self.call("SetSymmetry", region, *args)
+
+    def SetInitialValue(self, *args):
+        return self.call("SetInitialValue", *args)
+
+    def SetFanPQcurve(self, *args):
+        return self.call("SetFanPQcurve", *args)
+
+    def SetFanConstFlow(self, *args):
+        return self.call("SetFanConstFlow", *args)
+
+    # -- housekeeping ----------------------------------------------------
+    def DeleteModel(self, name):
+        return self.call("DeleteModel", name)
+
+    def DeleteValue(self, name):
+        return self.call("DeleteValue", name)
+
+    def DeleteTable(self, name):
+        return self.call("DeleteTable", name)
+
+    def DeleteScript(self, name):
+        return self.call("DeleteScript", name)
+
+    def ClearSelect(self):
+        return self.call("ClearSelect")
+
+    def SortModel(self, *args):
+        return self.call("SortModel", *args)
+
+class STpreModel(ComObject):
+    """Model class (part / region / group).  458 members; call()-able."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    @property
+    def Visible(self):
+        return self.prop("Visible")
+
+    @Visible.setter
+    def Visible(self, value):
+        self.set_prop("Visible", value)
+
+    def GetName(self):
+        return self.call("GetName")
+
+    def GetModelType(self):
+        return self.call("GetModelType")
+
+    def GetBoundingBox(self):
+        return self.call("GetBoundingBox")
+
+    def GetVolume(self):
+        return self.call("GetVolume")
+
+    def GetColor(self):
+        return self.call("GetColor")
+
+    def SetColor(self, r, g, b):
+        return self.call("SetColor", r, g, b)
+
+    def GetMaterial(self):
+        return self.call("GetMaterial")
+
+    def SetMaterial(self, name):
+        return self.call("SetMaterial", name)
+
+    def GetTransform(self):
+        return self.call("GetTransform")
+
+    def GetParam(self, key):
+        return self.call("GetParam", key)
+
+    def SetParam(self, key, *args):
+        return self.call("SetParam", key, *args)
+
+    def Copy(self, *args):
+        return self.call("Copy", *args)
+
+    def Rotate(self, *args):
+        return self.call("Rotate", *args)
+
+    def Move(self, *args):
+        return self.call("Move", *args)
+
+    def ConvertModel(self, *args):
+        return self.call("ConvertModel", *args)
+
+    def CreateConvexHull(self, *args):
+        return self.call("CreateConvexHull", *args)
+
+    def CreateFEM(self, *args):
+        return self.call("CreateFEM", *args)
+
+    def Deform(self, *args):
+        return self.call("Deform", *args)
+
+    def SaveStlFile(self, path):
+        return self.call("SaveStlFile", str(path))
+
+    def SaveXtFile(self, path):
+        return self.call("SaveXtFile", str(path))
+
+    def GetFaceArray(self):
+        return self.call("GetFaceArray")
+
+    def GetSubModelArray(self):
+        return [STpreModel(m) for m in self.call("GetSubModelArray")]
+
+    def GetValueArray(self):
+        return [STpreValue(v) for v in self.call("GetValueArray")]
+
+    def AppendValue(self, name):
+        return self.call("AppendValue", name)
+
+    def RemoveValue(self, name):
+        return self.call("RemoveValue", name)
+
+    def SetMeshDivide(self, *args):
+        return self.call("SetMeshDivide", *args)
+
+    def SetMeshDivideType(self, kind):
+        return self.call("SetMeshDivideType", kind)
+
+    def GetMeshParam(self, key):
+        return self.call("GetMeshParam", key)
+
+    def SetFacetParam(self, *args):
+        return self.call("SetFacetParam", *args)
+
+    def GetFacetParam(self):
+        return self.call("GetFacetParam")
+
+
+class STpreMesher(ComObject):
+    """Mesher class — gridding/element division. 69 members."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetBlock(self, name):
+        return STpreMeshBlock(self.call("GetBlock", name))
+
+    def GetRootBlock(self):
+        return STpreMeshBlock(self.call("GetRootBlock"))
+
+    def GetActiveBlock(self):
+        return self.call("GetActiveBlock")
+
+    def SetActiveBlock(self, name):
+        return self.call("SetActiveBlock", name)
+
+    def CreateBlock(self, name, parent, type_):
+        return STpreMeshBlock(self.call("CreateBlock", name, parent, type_))
+
+    def DeleteBlock(self, name):
+        return self.call("DeleteBlock", name)
+
+    def SetGridParam(self, key, p1=0, p2=0, p3=0):
+        return self.call("SetGridParam", key, p1, p2, p3)
+
+    def GetGridParam(self, key):
+        return self.call("GetGridParam", key)
+
+    def ExecuteGrid(self, method, flag):
+        return self.call("ExecuteGrid", method, flag)
+
+    def ExecuteElement(self):
+        return self.call("ExecuteElement")
+
+    def ExecutePartsElement(self, part):
+        return self.call("ExecutePartsElement", part)
+
+    def GetNumElements(self):
+        return self.call("GetNumElements")
+
+    def GetNumEdgeContact(self, part):
+        return self.call("GetNumEdgeContact", part)
+
+    def RemoveEdgeContact(self, part):
+        return self.call("RemoveEdgeContact", part)
+
+    def SetSelectGrid(self, block, axis, num, value):
+        return self.call("SetSelectGrid", block, axis, num, value)
+
+    def GetSelectGrid(self):
+        return self.call("GetSelectGrid")
+
+    def Update(self):
+        return self.call("Update")
+
+
+class STpreMeshBlock(ComObject):
+    """MeshBlock class — block params / range / grid arrays. 88 members."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetName(self):
+        return self.call("GetName")
+
+    def SetName(self, name):
+        return self.call("SetName", name)
+
+    def GetRange(self):
+        return self.call("GetRange")
+
+    def SetRange(self, x1, y1, z1, x2, y2, z2):
+        return self.call("SetRange", x1, y1, z1, x2, y2, z2)
+
+    def GetParam(self, key):
+        return self.call("GetParam", key)
+
+    def SetParam(self, key, p1=0, p2=0, p3=0):
+        return self.call("SetParam", key, p1, p2, p3)
+
+    def GetDivideArray(self, axis):
+        return self.call("GetDivideArray", axis)
+
+    def SetDivideArray(self, axis, values):
+        return self.call("SetDivideArray", axis, values)
+
+    def GetNumDivision(self, axis):
+        return self.call("GetNumDivision", axis)
+
+    def GetNumElements(self):
+        return self.call("GetNumElements")
+
+    def GetAspectRatio(self):
+        return self.call("GetAspectRatio")
+
+    def GetAttribute(self):
+        return self.call("GetAttribute")
+
+    def SetAttribute(self, type_):
+        return self.call("SetAttribute", type_)
+
+    def CreateBlock(self, name, type_):
+        return STpreMeshBlock(self.call("CreateBlock", name, type_))
+
+    def CreateConnectedBlock(self, name):
+        return STpreMeshBlock(self.call("CreateConnectedBlock", name))
+
+    def AppendBlock(self, name):
+        return self.call("AppendBlock", name)
+
+    def RemoveBlock(self, name):
+        return self.call("RemoveBlock", name)
+
+    def DeleteGrid(self, type_):
+        return self.call("DeleteGrid", type_)
+
+    def SetDetailGrid(self, axis, *args):
+        return self.call("SetDetailGrid", axis, *args)
+
+    def GetChildBlockArray(self):
+        return [STpreMeshBlock(b) for b in self.call("GetChildBlockArray")]
+
+    def GetParentBlock(self):
+        return STpreMeshBlock(self.call("GetParentBlock"))
+
+
+class STpreValue(ComObject):
+    """Value class — one condition's name/params. 272 members."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetName(self):
+        return self.call("GetName")
+
+    def SetName(self, name):
+        return self.call("SetName", name)
+
+    def GetTypeKey(self):
+        return self.call("GetTypeKey")
+
+    def GetSubTypeKey(self):
+        return self.call("GetSubTypeKey")
+
+    def GetParam(self, key):
+        return self.call("GetParam", key)
+
+    def SetParam(self, key, *args):
+        return self.call("SetParam", key, *args)
+
+    def SetParam3(self, *args):
+        return self.call("SetParam3", *args)
+
+    def GetParamString(self, key):
+        return self.call("GetParamString", key)
+
+    def GetTable(self, key):
+        return ComObject(self.call("GetTable", key))
+
+    def SetTable(self, key, table):
+        return self.call("SetTable", key, table)
+
+    def GetScript(self, key):
+        return ComObject(self.call("GetScript", key))
+
+    def SetScript(self, key, script):
+        return self.call("SetScript", key, script)
+
+    def GetExpression(self, key):
+        return ComObject(self.call("GetExpression", key))
+
+    def SetExpression(self, key, expr):
+        return self.call("SetExpression", key, expr)
+
+    def GetUserFunction(self, key):
+        return ComObject(self.call("GetUserFunction", key))
+
+    def SetUserFunction(self, key, fn):
+        return self.call("SetUserFunction", key, fn)
+
+    def GetMapping(self, key):
+        return self.call("GetMapping", key)
+
+    def SetMapping(self, key, *args):
+        return self.call("SetMapping", key, *args)
+
+# ============================================================================
+# Convenience: headless create / attach + full API catalog
+# ============================================================================
+
+
+def create_application(*, headless: bool = True) -> STpreApplication:
+    """Start a private STpre instance (hidden when headless).
+
+    ``Dispatch`` on this single-instance server returns the *running*
+    instance if one exists; use :func:`attach_application` for that case.
+    """
+    import win32com.client
+    app = win32com.client.Dispatch(PROGID)
+    if headless:
+        app.Visible = False
+    return STpreApplication(app)
+
+
+def attach_application() -> STpreApplication:
+    """Attach to an already-running STpre (``GetActiveObject``)."""
+    import win32com.client
+    return STpreApplication(win32com.client.GetActiveObject(PROGID))
+
+
+def headless_roundtrip(cab_in: str | Path, cab_out: str | Path, *,
+                       method: str = "detail", division_type: str = "all",
+                       attach: bool = True, run_element: bool = True,
+                       grid_params: Optional[list] = None,
+                       block_params: Optional[list] = None) -> bool:
+    """Headless full round-trip via the typed class hierarchy.
+
+    Demonstrates the Application -> Doc -> Mesher -> MeshBlock chain and is
+    functionally identical to :func:`run_stpre_grid_mesh` (kept for the
+    file-relay callers).  Returns True when the output CAB was saved.
+    """
+    global last_error
+    session = STpreSession(attach=attach, headless=True)
+    try:
+        if not session.ensure_open(cab_in):
+            return False
+        doc = session.doc
+        mesher = session.mesher
+        if block_params:
+            root = mesher.GetBlock("root")
+            for key, p1, p2, p3 in block_params:
+                if root.SetParam(key, p1, p2, p3) != 1:
+                    last_error = f"SetParam({key}) failed"
+                    return False
+        params = grid_params if grid_params is not None else [
+            ("division_method", method, "", ""),
+            ("division_type", division_type, "", ""),
+        ]
+        for key, p1, p2, p3 in params:
+            if mesher.SetGridParam(key, p1, p2, p3) != 1:
+                last_error = f"SetGridParam({key}) failed"
+                return False
+        if mesher.ExecuteGrid(method, "T") != 1:
+            last_error = f"ExecuteGrid({method}) failed"
+            return False
+        if run_element and mesher.ExecuteElement() != 1:
+            last_error = "ExecuteElement failed"
+            return False
+        if doc.SaveCabFile(str(cab_out)) != 1:
+            last_error = "SaveCabFile failed"
+            return False
+        last_error = None
+        return True
+    finally:
+        session.close()
+
+
+# Full method catalog (names only) for discovery.  Every member below (and
+# every member in the manual) is reachable via ``ComObject.call(name, ...)``.
+API_CATALOG: dict[str, list[str]] = {
+    "Application": [
+        "ErrorCode", "ErrorString", "Visible", "UserControl",
+        "WriteBackToEnvFile", "BeginViewerMode", "ClearDocument",
+        "CreateDrawWnd", "GetDocument", "GetEnvFilePath", "GetFileVersion",
+        "GetHomeFolder", "GetProcessID", "GetVersionNo", "IsViewerMode",
+        "Quit", "UpdateAll",
+    ],
+    "Mesher": [
+        "CreateBlock", "DeleteBlock", "ExecuteGrid", "ExecuteElement",
+        "ExecutePartsElement", "GetActiveBlock", "GetBlock", "GetGridParam",
+        "GetNumEdgeContact", "GetNumElements", "GetRootBlock", "GetSelectGrid",
+        "RemoveEdgeContact", "SetActiveBlock", "SetGridParam", "SetSelectGrid",
+        "Update",
+    ],
+    "MeshBlock": [
+        "AppendBlock", "CreateBlock", "CreateConnectedBlock", "DeleteGrid",
+        "GetAspectRatio", "GetAttribute", "GetChildBlockArray",
+        "GetDependentBlockArray", "GetDivideArray", "GetName",
+        "GetNumBlockArray", "GetNumDivision", "GetNumElements", "GetParam",
+        "GetParentBlock", "GetRange", "RemoveBlock", "SetAttribute",
+        "SetDetailGrid", "SetDivideArray", "SetName", "SetParam", "SetRange",
+    ],
+    "Doc_high_value": [
+        "OpenCabFile", "SaveCabFile", "SaveSFile", "SaveNfbFile",
+        "SaveXmlFile", "SaveParamFile", "SaveConditionFile", "SaveLibraryCabFile",
+        "OpenCadFile", "OpenDxfFile", "OpenNasFile", "OpenXmlFile",
+        "OpenTextFile", "OpenCsvFile", "OpenLibraryCabFile",
+        "Intersect", "Subtract", "Unite", "Section", "EditSolidModel",
+        "GetMesher", "GetSketcher", "GetModel", "GetAllModelArray",
+        "GetValue", "GetAllValueArray", "GetDomain", "GetFluidArea",
+        "GetTable", "GetPropertyEntity", "GetAllPartsBoundingBox",
+        "CreateCubeModel", "CreateCylinderModel", "CreateSphereModel",
+        "CreateConeModel", "CreatePanelModel", "CreateHexaModel",
+        "CreatePipeModel", "CreateFinModel", "CreateFanModel",
+        "CreateAxialFanModel", "CreateBlowerFanModel", "CreateAirconModel",
+        "CreateAnemoModel", "CreateCardGuideModel", "CreateCaseModel",
+        "CreateDelphiModel", "CreateExtrudeModel", "CreateHoleModel",
+        "CreateLinerDiffuserModel", "CreatePeltierModel", "CreatePinFinModel",
+        "CreatePointModel", "CreateQuadPanelModel", "CreateRevolveModel",
+        "CreateSlitPunchingModel", "CreateSpinRectangleSimpleModel",
+        "CreateSweepModel", "CreateTwoResistanceModel", "CreateGroup",
+        "CreateFaceListSet", "CreateRegionPair", "CreateConnectedRegion",
+        "CreateFluidMaterial", "CreateSolidMaterial", "CreateAbsorptionProperty",
+        "CreateRadiationProperty", "CreatePropertyGroup", "CreateReactiveFormula",
+        "CreateScript", "CreateExpression", "CreateUserFunction", "CreateUserData",
+        "SetProjectName", "SetComment", "SetFileName", "SetAmbientTemperature",
+        "SetGravity", "SetAnalysisType", "SetCartesianDomain",
+        "SetCylindricalDomain", "SetUnit", "SetWall", "SetFluxFix",
+        "SetFluxPres", "SetFluxOut", "SetTemperatureFix", "SetHeatTransfer",
+        "SetHeatSource", "SetSymmetry", "SetInitialValue", "SetFanPQcurve",
+        "SetFanConstFlow", "DeleteModel", "DeleteValue", "DeleteTable",
+        "DeleteScript", "ClearSelect", "SortModel",
+    ],
+    "Model_high_value": [
+        "Copy", "Rotate", "Move", "ConvertModel", "CreateConvexHull",
+        "CreateFEM", "Deform", "GetBoundingBox", "GetVolume", "GetColor",
+        "SetColor", "GetMaterial", "SetMaterial", "GetTransform",
+        "GetParam", "SetParam", "SaveStlFile", "SaveXtFile", "GetFaceArray",
+        "GetSubModelArray", "GetValueArray", "AppendValue", "RemoveValue",
+        "SetMeshDivide", "SetMeshDivideType", "GetMeshParam", "SetFacetParam",
+        "GetFacetParam", "SetAircon", "SetHeatSource", "SetEmissivity",
+        "SetLayerNo", "SetDrawType", "SetCutcell", "GetName", "GetModelType",
+    ],
+    "Value_high_value": [
+        "GetName", "SetName", "GetTypeKey", "GetSubTypeKey", "GetParam",
+        "SetParam", "SetParam3", "GetParamString", "GetTable", "SetTable",
+        "GetScript", "SetScript", "GetExpression", "SetExpression",
+        "GetUserFunction", "SetUserFunction", "GetMapping", "SetMapping",
+    ],
+}
+
+
+# Method counts observed in the VB_Interface_eng manual (for the record):
+API_MEMBER_COUNTS = {
+    "Application": 12,   # methods (17 members incl. properties)
+    "Doc": 459,
+    "Model": 458,
+    "Value": 272,
+    "Mesher": 69,
+    "MeshBlock": 88,
+    "Sketch": 0,   # see manual Sketch_Class.html
+    "Property": 0,  # see manual Property_Class.html
+    "Table": 0,     # see manual Table_Class.html
+}

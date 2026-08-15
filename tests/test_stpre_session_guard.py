@@ -40,7 +40,7 @@ def test_stpre_process_running_detects_tasklist(monkeypatch):
     assert cab_stpre_api._stpre_process_running() is False
 
 
-def test_ensure_open_refuses_when_stpre_already_running(monkeypatch):
+def test_ensure_open_refuses_when_attach_disabled(monkeypatch):
     import cab_stpre_api
     monkeypatch.setattr(cab_stpre_api, "_stpre_process_running",
                         lambda: True)
@@ -49,11 +49,52 @@ def test_ensure_open_refuses_when_stpre_already_running(monkeypatch):
         raise AssertionError("must not attach to a running instance")
 
     monkeypatch.setattr("win32com.client.Dispatch", _no_dispatch)
-    session = cab_stpre_api.STpreSession()
+    # attach=False keeps the legacy refusal
+    session = cab_stpre_api.STpreSession(attach=False)
     assert session.ensure_open("relay.cab") is False
     assert session._owned is False
     assert session._app is None
     assert "already running" in (cab_stpre_api.last_error or "")
+
+
+def test_ensure_open_attaches_to_running_instance(monkeypatch):
+    """Unfrozen policy: default attach=True drives the running instance
+    via GetActiveObject and never marks it owned (so close() won't quit it).
+    """
+    import cab_stpre_api
+    monkeypatch.setattr(cab_stpre_api, "_stpre_process_running",
+                        lambda: True)
+
+    class FakeDoc(_Flag):
+        def __init__(self):
+            self.opened = []
+
+        def OpenCabFile(self, path):
+            self.opened.append(path)
+            return 1
+
+        def GetMesher(self):
+            return _Flag()
+
+    class FakeApp(_Flag):
+        def __init__(self):
+            self.doc = FakeDoc()
+
+        def GetDocument(self):
+            return self.doc
+
+        def Quit(self):
+            raise AssertionError("attached instance must not be quit")
+
+    fake_app = FakeApp()
+    monkeypatch.setattr("win32com.client.GetActiveObject",
+                        lambda progid: fake_app)
+    session = cab_stpre_api.STpreSession()  # attach=True by default
+    assert session.ensure_open("relay.cab") is True
+    assert session._owned is False          # attached, not owned
+    assert session._app is fake_app
+    assert fake_app.doc.opened == ["relay.cab"]
+    session.close()                          # must NOT call Quit
 
 
 def test_close_only_quits_owned_instance(monkeypatch):
