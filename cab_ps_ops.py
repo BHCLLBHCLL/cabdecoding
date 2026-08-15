@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import tempfile
 from ctypes import (
-    POINTER, Structure, byref, c_char_p, c_double, c_int, c_void_p, memset,
-    sizeof,
+    POINTER, Structure, byref, c_byte, c_char_p, c_double, c_int, c_void_p,
+    memset, sizeof,
 )
 from pathlib import Path
 from typing import Optional
@@ -42,20 +42,14 @@ _OP_TO_FUNC = {
 
 
 class _Transmit(Structure):
-    """``PK_PART_transmit_o_t`` (verified against Parasolid V35 headers).
-
-    Layout: o_t_version / transmit_format / transmit_user_fields /
-    transmit_version / transmit_nmnl_geometry / transmit_indexed_context /
-    transmit_meshes.
-    """
+    """``PK_PART_transmit_o_t``（对齐 pphdecoding / Cradle V37，6 字段）。"""
     _fields_ = [
         ("o_t_version", c_int),
         ("transmit_format", c_int),   # 0 = text
         ("transmit_user_fields", c_int),
-        ("transmit_version", c_int),
-        ("transmit_nmnl_geometry", c_int),
-        ("transmit_indexed_context", c_void_p),
-        ("transmit_meshes", c_int),
+        ("transmit_nw_version", c_int),
+        ("transmit_xmt_file", c_int),
+        ("transmit_attr", c_int),
     ]
 
 
@@ -420,6 +414,53 @@ def cut_body_by_plane(body_tag: int, origin_m, normal) -> dict:
     fr = body_boolean(fa, [front_block], "intersect")
     bk = body_boolean(fb, [back_block], "intersect")
     return {"front": int(fr[0]), "back": int(bk[0])}
+
+
+class _TransformOpts(Structure):
+    """``PK_BODY_transform_o_t``（对齐 pphdecoding / Cradle V37，4 int）。"""
+    _fields_ = [
+        ("o_t_version", c_int),
+        ("merge_face", c_int),
+        ("check_fa_fa", c_int),
+        ("update", c_int),
+    ]
+
+
+def body_transform_translate(body_tag: int, dx: float, dy: float, dz: float,
+                             tolerance: float = 1e-6) -> int:
+    """A-trans：平移 body（Parasolid V37 路径）。
+
+    Cradle pskernel 是 Parasolid V37，``PK_TRANSF_t`` 是 32 位 tag（非 V35 的
+    4x4 矩阵）：先 ``PK_TRANSF_create_translation`` 生成变换 tag，再
+    ``PK_BODY_transform_2(body, tag, tolerance, opts, track, res)`` 按值接收。
+    返回内核 rc。
+    """
+    if not available():
+        raise RuntimeError("pskernel not available")
+    pk = _ps._get_session().pk
+    pk.PK_SESSION_set_check_arguments.restype = c_int
+    pk.PK_SESSION_set_check_arguments.argtypes = [c_int]
+    pk.PK_SESSION_set_check_arguments(0)
+    disp = (c_double * 3)(float(dx), float(dy), float(dz))
+    tag = c_int(0)
+    pk.PK_TRANSF_create_translation.restype = c_int
+    pk.PK_TRANSF_create_translation.argtypes = [
+        POINTER(c_double * 3), POINTER(c_int)]
+    rc = pk.PK_TRANSF_create_translation(disp, byref(tag))
+    if rc != 0 or not tag.value:
+        raise RuntimeError(f"PK_TRANSF_create_translation failed: {rc}")
+    opts = _TransformOpts(1, 1, 1, 0)
+    track = (c_byte * 256)()
+    res = (c_byte * 256)()
+    pk.PK_BODY_transform_2.restype = c_int
+    pk.PK_BODY_transform_2.argtypes = [
+        c_int, c_int, c_double, POINTER(_TransformOpts), c_void_p, c_void_p]
+    rc = int(pk.PK_BODY_transform_2(
+        int(body_tag), int(tag.value), c_double(float(tolerance)),
+        byref(opts), track, res))
+    if rc != 0:
+        raise RuntimeError(f"PK_BODY_transform_2 failed: {rc}")
+    return rc
 
 
 def match_face_by_plane(body_tag: int, normal, origin, *,
