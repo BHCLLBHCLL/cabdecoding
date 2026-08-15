@@ -1695,6 +1695,23 @@ arg2(RDX) 被用作循环计数（`sub rdx,1; jne` 复制 0x80 字节块），�
 
 ---
 
+
+**⑦ 收尾进展**：
+- **B5 逐点对比发现**：STpre `all` 模式的 x 轴在 `[-20,20]` 是**均匀
+  0.95238(=40/42)** 间距、右外区 `[43,70]` 才是几何级数——即 STpre 的
+  `all` 顶点检测 refine 并非「内部等分 + 外部几何」的简单模型，z 轴碰巧对齐
+  （121），x/y 差 7 需进一步反汇编 STpre 的 `all` 分支。当前已修丢线 bug，
+  z 精确。
+- **Simplify 出 x_t**：mesh→B-rep 是硬问题；`PK_BODY_make_facet_body` 是
+  「body→facet」反向（非三角形→实体）；需逐三角形建平面 face + `PK_FACE_make_solid_bodies`
+  + `PK_BODY_sew_bodies`（长期项）。Simplify 暂走 STL + 凸包兜底。
+- **Transform GUI 核心**（提交 `bdcaa87`）：`transform_part_pk` 辅助已实现
+  （找 body tag → PK 变换 → transmit x_t → 更新 part `<file>`/body_files），
+  平移 0.02 后重收验证通过；Mirror/Align/Place 对话框接入为下一步（需给对话框传
+  archive + 切换 XML→PK 逻辑）。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
