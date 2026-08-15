@@ -17,7 +17,7 @@
 | Radiation | radiation_analysis | 支持 | VF/Flux/Monte Carlo |
 | Free surface | free_surface | 支持 | MARS/VOF |
 | Evaporation (free surf.) | evaporation | 支持(FS 门控) | 2026-08-15 COM 探针对齐：analysis_etc/evaporation（liquid_temp/gas_temp/latent_heat/recoil_model/atomic_mass）；勾选依赖 free_surface |
-| Boil/condensation | boil | 禁用(待 FS) | 依赖 free_surface |
+| Boil/condensation | boil | 支持(FS 门控) | 2026-08-16 COM 探针：STpre 有效 kind = boil_condensation（Phase change）/ boil_lee（Bubbles），SetAnalysisType rc=1；参数键 phase_boil/phase_boil_latent_heat/phase_gas_temp/phase_satulate_temp/phase_solid_temp/phase_gas_density（STpreBase 字符串实证），存 analysis_etc/boil_condensation；勾选依赖 free_surface |
 | Diffusion | diffusion | 支持 | 2026-08-15 后新增产品页（物种数/扩散系数/Schmidt） |
 | Plant canopy | plant_canopy | 支持 | 2026-08-15 COM 探针对齐：analysis_etc/plant_resistance（STpre SetAnalysisType "plant_resistance"）；冠层条件在 Source 页 |
 | Moving object | moving_body | 支持 | 2026-08-15 COM 探针对齐：analysis_set moving_body=1/2（含传热）+ moving_body_file/list_position/gap_filling；运动定义属零件属性 |
@@ -37,7 +37,7 @@
 | MSC CoSim | msc_cosim | 禁用(scFLOW) | scFLOW-only 连成分析（scFLOW 工程设置中配置）；scSTREAM .cab 不承载 |
 | BCI-ROM | bci_rom | 禁用(scFLOW) | scFLOW-only ROM 导出；scSTREAM .cab 不承载 |
 
-统计：支持 23（含 Flow）/ 禁用(待 FS) 1（Boil）/ 禁用(scFLOW-only) 2。
+统计：支持 24（含 Flow）/ 禁用(scFLOW-only) 2。
 
 > STpre 存储实证（2026-08-15 COM 探针 tools/probe_cw_types.py）：
 > SetAnalysisType("plant_resistance"/"marangoni"/"topopt"/"move_body"/"aircon", "T")

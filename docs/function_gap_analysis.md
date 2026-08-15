@@ -84,11 +84,11 @@
 **原生网格金标收敛（uniform 精确、minmax/rep x/y 精确、all 的 tess 层配方
 精确）+ 圆柱/轴向极坐标网格 + pskernel V37 真实 B-rep 编辑 + SCTpre VBS/COM
 全量桥接**多路并进。几何/部件/网格/编辑/导入导出近完整；**Condition Wizard
-高级物理（23/25 支持，20 项产品页实证）** 与 **Source/边界条件（时间序列/
+高级物理（24/25 支持，21 项产品页实证，Boil FS 门控）** 与 **Source/边界条件（时间序列/
 计算函数/diffusion 三类 + 全单位集）** 均已收敛。当前最集中的功能缺口按序为：
 ① all 模式网格线 e2e 收敛（顶点→线合并/取整规则，探针已实测差距
-`57×132×130` vs `59×118×121`）；② blend 倒圆家族 ABI（攻关进行中）；
-③ 假 UI 清理（Part Simplification 三 Method 摆设）与表达式管理器/
+`57×132×130` vs `59×118×121`）；② 假 UI 清理（Part Simplification 三 Method 摆设）；
+③ 表达式管理器/
 moving body 运动表等低成本深度项。整体完成度 **≈76%**，其中
 「可运行、可持久化、可导出求解」的 MVP 闭环已完整。
 

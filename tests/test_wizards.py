@@ -92,6 +92,29 @@ def test_initial_wizard_apply(pieces):
     w.close()
 
 
+
+
+def test_boil_page_apply_and_special_flag(pieces):
+    from cab_cwizard_pages import _CwBoilPage
+    from cab_wizards import _CwAnalysisTypesPage
+    archive, model, props, viewer = pieces
+    page = _CwBoilPage(model)
+    page.enable.setChecked(True)
+    page.kind.setCurrentIndex(1)  # Bubbles (boil_lee)
+    page.latent.setValue(1000000.0)
+    page.apply()
+    assert model.analysis_etc_section('boil_condensation') is not None
+    assert model.analysis_etc_child(
+        'boil_condensation', 'type', '') == 'lee'
+    assert model.analysis_etc_child(
+        'boil_condensation', 'phase_boil', '') == 'T'
+    assert float(model.analysis_etc_child(
+        'boil_condensation', 'phase_boil_latent_heat', '0')) == 1000000.0
+    at = _CwAnalysisTypesPage(model)
+    assert at._special_flag('boil') is True
+    page.enable.setChecked(False)
+    page.apply()
+    assert model.analysis_etc_section('boil_condensation') is None
 def test_initial_wizard_cancel_restores(pieces):
     import cab_wizards
     archive, model, props, viewer = pieces

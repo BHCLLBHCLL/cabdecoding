@@ -568,6 +568,7 @@ _CW_PAGES = [
     ("topology_opti", "Topology Optimization", None),
     ("aircon_model", "Air Conditioner Unit", None),
     ("evaporation", "Evaporation (Free Surface)", None),
+    ("boil", "Boil/Condensation", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -663,6 +664,7 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         "pcm": ("etc_sec", "phase_change_material"),
         "electrostatic": ("etc", "partcile_echarge"),
         "evaporation": ("etc_sec", "evaporation"),
+        "boil": ("etc_sec", "boil_condensation"),
     }
 
     def __init__(self, model: StpreModel):
@@ -3558,6 +3560,7 @@ class ConditionWizard(WizardBase):
 
         from cab_cwizard_pages import (
             _CwAirconPage, _CwAnalysisControlHubPage,
+            _CwBoilPage,
             _CwConditionListPage, _CwConfirmPage, _CwControlOptionPage,
             _CwCurrentPage, _CwDiffusionPage, _CwElectrostaticPage,
             _CwEvaporationPage,
@@ -3591,6 +3594,7 @@ class ConditionWizard(WizardBase):
         self.p_lamp = _CwLampPage(model)
         self.p_pcm = _CwPcmPage(model)
         self.p_evaporation = _CwEvaporationPage(model)
+        self.p_boil = _CwBoilPage(model)
         self.p_plant = _CwPlantCanopyPage(model)
         self.p_movebody = _CwMovingBodyPage(model)
         self.p_marangoni = _CwMarangoniPage(model)
@@ -3637,6 +3641,7 @@ class ConditionWizard(WizardBase):
             "topology_opti": self.p_topopt,
             "aircon_model": self.p_aircon,
             "evaporation": self.p_evaporation,
+            "boil": self.p_boil,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,

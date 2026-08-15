@@ -8044,3 +8044,101 @@ class _CwEvaporationPage(QWidget if _HAS_GUI else object):
             "evaporation", "recoil_model", str(self.recoil.currentIndex()))
         self.model.set_analysis_etc_child(
             "evaporation", "atomic_mass", f"{self.atomic.value():g}")
+
+# P1-3: Boil/condensation - kinds boil_condensation (Phase change) and
+# boil_lee (Bubbles) COM-validated 2026-08-16 (SetAnalysisType rc=1);
+# param keys phase_boil / phase_boil_latent_heat / phase_gas_temp /
+# phase_satulate_temp / phase_solid_temp / phase_gas_density recovered
+# from STpreBase strings.  Stored as analysis_etc/boil_condensation
+# (sibling of the evaporation section; sub-type kept as a child tag).
+# ---------------------------------------------------------------------------
+class _CwBoilPage(QWidget if _HAS_GUI else object):
+    # Condition Wizard - Boil/condensation (Phase change / Bubbles).
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            'Boiling analysis (requires the Free surface analysis). The '
+            'STpre kinds boil_condensation (Phase change) and boil_lee '
+            '(Bubbles) are COM-validated; parameters follow the STpreBase '
+            'phase_* keys inside analysis_etc/boil_condensation.', self))
+        g = QGroupBox('Boil/condensation', self)
+        f = QFormLayout(g)
+        self.enable = QCheckBox('Consider boil/condensation', g)
+        sec = model.analysis_etc_section('boil_condensation')
+        self.enable.setChecked(sec is not None)
+
+        def child(tag, default=''):
+            return (model.analysis_etc_child(
+                'boil_condensation', tag, default) or default).strip()
+
+        self.kind = QComboBox(g)
+        self.kind.addItems([
+            'Phase change (boil_condensation)',
+            'Bubbles (boil_lee)'])
+        self.sat_temp = QDoubleSpinBox(g)
+        self.sat_temp.setRange(-273.15, 10000.0)
+        self.sat_temp.setDecimals(2)
+        self.latent = QDoubleSpinBox(g)
+        self.latent.setRange(0.0, 1e9)
+        self.latent.setDecimals(2)
+        self.gas_temp = QDoubleSpinBox(g)
+        self.gas_temp.setRange(-273.15, 10000.0)
+        self.gas_temp.setDecimals(2)
+        self.solid_temp = QDoubleSpinBox(g)
+        self.solid_temp.setRange(-273.15, 10000.0)
+        self.solid_temp.setDecimals(2)
+        self.gas_density = QDoubleSpinBox(g)
+        self.gas_density.setRange(0.0, 1e6)
+        self.gas_density.setDecimals(6)
+        for w, tag, cast, default in (
+                (self.sat_temp, 'phase_satulate_temp', float, 100.0),
+                (self.latent, 'phase_boil_latent_heat', float, 2256000.0),
+                (self.gas_temp, 'phase_gas_temp', float, 100.0),
+                (self.solid_temp, 'phase_solid_temp', float, 0.0),
+                (self.gas_density, 'phase_gas_density', float, 0.6)):
+            try:
+                w.setValue(cast(child(tag, str(default))))
+            except (TypeError, ValueError):
+                w.setValue(default)
+        k = child('type', 'phase_change')
+        self.kind.setCurrentIndex(1 if k == 'lee' else 0)
+        f.addRow(self.enable)
+        f.addRow('Model', self.kind)
+        f.addRow('Saturation temperature (C)', self.sat_temp)
+        f.addRow('Latent heat (J/kg)', self.latent)
+        f.addRow('Gas temperature (C)', self.gas_temp)
+        f.addRow('Solid temperature (C)', self.solid_temp)
+        f.addRow('Gas density (kg/m3)', self.gas_density)
+        lay.addWidget(g)
+        lay.addStretch(1)
+
+    def apply(self) -> None:
+        on = self.enable.isChecked()
+        self.model.set_project_value(
+            'boil_enable', 'T' if on else 'F')
+        if not on:
+            self.model.remove_analysis_etc_section('boil_condensation')
+            return
+        sub = 'lee' if self.kind.currentIndex() == 1 else 'phase_change'
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'type', sub)
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'phase_boil', 'T')
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'phase_satulate_temp',
+            f'{self.sat_temp.value():g}')
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'phase_boil_latent_heat',
+            f'{self.latent.value():g}')
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'phase_gas_temp',
+            f'{self.gas_temp.value():g}')
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'phase_solid_temp',
+            f'{self.solid_temp.value():g}')
+        self.model.set_analysis_etc_child(
+            'boil_condensation', 'phase_gas_density',
+            f'{self.gas_density.value():g}')
