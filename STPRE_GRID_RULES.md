@@ -160,8 +160,8 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
   或 ParasolidGW 的曲线 tess 调用）。
 - **facet 参数管线全解码（round 30，P0-1 突破：三角化器 = PK 本体）**：
   STpreBase MakeFacet(0x293A20) -> 0x1b4380/0x1b4710（面片生成器）。
-  0x1b4710 主函数（0x1b4710..0x1b4702 ret）反汇编 + xref 扫描
-  （tools/find_calls.py）+ IAT 解析（tools/iat_any.py）确证：
+  0x1b4710 主函数反汇编 + xref 扫描（tools/find_calls.py）+ IAT 解析
+  （tools/iat_any.py）确证：
   * **两处 PK 调用**：PK_TOPOL_facet（6 参 V35 数组签名，@0x1b45b2，
     thunk 0x3e8d60→3f5ba8）与 **PK_TOPOL_facet_2**（5 参，@0x1b4a21/
     0x1b4a61/0x1b4a88，thunk 0x3e8d66→3f5ba0）。STpre 没有私有三角
@@ -171,19 +171,22 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
     （0x5794/0x5f0a 检查码），经 STpreLib OutputMessage 输出——
     不是网格生成器。
   * **选项结构 = PK_TOPOL_facet_2_o_t {mesh_2_o_t control; choice}**
-    （q-solid V35 头文件实测，与 V37 一致）。STpre 的写入偏移相对
-    PK 布局整体 **-8**（STpre 结构头比 PK 少 8 字节：+0x00 写入
-    dword 0x1a=26 为版本/尺寸，PK 的 control 从 +0x08 起）。flag/
-    double 对（0x44/0x48、0x50/0x58…0xE0/0xE8，0x1b51d0 全清零）。
-  * **六容差语义映射**（STpre flag 偏移 → PK 字段）：
+    （q-solid V35 头文件 + 0x1b51d0 初始化反汇编实测）。关键差异：
+    V37 的 flag 字段为 **4 字节 int**（V35 文档写 PK_LOGICAL_t=uchar，
+    但 STpre 的写入偏移证实 int+double 16 字节对）。mesh_2_o_t 头部
+    0x44 字节（o_t_version=26(0x1a)@0x00 … max_facet_sides@0x40），
+    之后 11 对 (int flag@0x44, double@0x48)、(0x50,0x58)…(0xE0,0xE8)；
+    0x1b51d0 全清零。
+  * **六容差语义映射**（STpre 偏移 = PK V37 偏移，无位移）：
     +0x50=max_facet_width、+0x60=curve_chord_tol、
     +0x70=curve_chord_max、+0x80=curve_chord_ang、
-    +0x90=surface_plane_tol、+0xA0=surface_plane_ang。
+    +0x90=surface_plane_tol、+0xA0=surface_plane_ang
+    （即 pairs 2..7；pair1=is_min_facet_width 从不写入）。
   * **容差配方（0x1b5620 路径，part 类型 >1 的通用面/实体）**：
     D = 部件包围盒对角线（0x1ad460 bbox + STpreLib Distance2）；
     curve_chord_ang = surface_plane_ang = max(angle_b, 10°)，
     angle_b = env[0x29B0]°→rad（类型默认：1→30°、2→10°、3→30°、
-    10→15°、其余 7.5° 分支 10°/15°，env≤0 用默认）；
+    10→15°、其余 7.5°/10°/15° 分支，env≤0 用默认）；
     curve_chord_max = D×(env[0x29B8]|0.1)，env 须在 [0.001,1]
     否则取默认（0x1b4948 区间校验，越界 → -1 → 默认）；
     max_facet_width = D×(env[0x29B8]|0.2)（同一 env，默认 0.2）；
@@ -194,7 +197,8 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
   * **五值块路径（0x1b57c0，PK_TOPOL_facet @1b45b2）**：块内 6 个
     double 依次 = curve_chord_max、max_facet_width、curve_chord_tol、
     surface_plane_tol（前四 ×D，≤0 → -1）、curve_chord_ang、
-    surface_plane_ang（后二 度→rad）；同一套六字段。
+    surface_plane_ang（后二 度→rad）；同一套六字段（mesh_o_t 头部
+    0x24 字节，pairs 2..7 = 0x30/0x40/0x50/0x60/0x70/0x80）。
   * **结论（替代旧结论）**：all 顶点源=显示网格（已证）；显示网格 =
     PK_TOPOL_facet_2(topols=[body], options=六容差) + PK_BODY_check
     校验。复刻 = 直接调用 pskernel PK_TOPOL_facet_2 并注入上述配方
