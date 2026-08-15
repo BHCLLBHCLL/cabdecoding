@@ -447,6 +447,92 @@ def body_transform_translate(body_tag: int, dx: float, dy: float, dz: float,
     return rc
 
 
+def _create_rotation(position, axis, angle) -> int:
+    pk = _ps._get_session().pk
+    pos = (c_double * 3)(float(position[0]), float(position[1]),
+                          float(position[2]))
+    ax = (c_double * 3)(float(axis[0]), float(axis[1]), float(axis[2]))
+    tag = c_int(0)
+    pk.PK_TRANSF_create_rotation.restype = c_int
+    pk.PK_TRANSF_create_rotation.argtypes = [
+        POINTER(c_double * 3), POINTER(c_double * 3), c_double, POINTER(c_int)]
+    rc = pk.PK_TRANSF_create_rotation(pos, ax, c_double(float(angle)),
+                                      byref(tag))
+    if rc != 0 or not tag.value:
+        raise RuntimeError(f"PK_TRANSF_create_rotation failed: {rc}")
+    return int(tag.value)
+
+
+def _create_reflection(position, normal) -> int:
+    pk = _ps._get_session().pk
+    pos = (c_double * 3)(float(position[0]), float(position[1]),
+                          float(position[2]))
+    nrm = (c_double * 3)(float(normal[0]), float(normal[1]), float(normal[2]))
+    tag = c_int(0)
+    pk.PK_TRANSF_create_reflection.restype = c_int
+    pk.PK_TRANSF_create_reflection.argtypes = [
+        POINTER(c_double * 3), POINTER(c_double * 3), POINTER(c_int)]
+    rc = pk.PK_TRANSF_create_reflection(pos, nrm, byref(tag))
+    if rc != 0 or not tag.value:
+        raise RuntimeError(f"PK_TRANSF_create_reflection failed: {rc}")
+    return int(tag.value)
+
+
+def _create_equal_scale(scale, centre) -> int:
+    pk = _ps._get_session().pk
+    cen = (c_double * 3)(float(centre[0]), float(centre[1]), float(centre[2]))
+    tag = c_int(0)
+    pk.PK_TRANSF_create_equal_scale.restype = c_int
+    pk.PK_TRANSF_create_equal_scale.argtypes = [
+        c_double, POINTER(c_double * 3), POINTER(c_int)]
+    rc = pk.PK_TRANSF_create_equal_scale(c_double(float(scale)), cen,
+                                         byref(tag))
+    if rc != 0 or not tag.value:
+        raise RuntimeError(f"PK_TRANSF_create_equal_scale failed: {rc}")
+    return int(tag.value)
+
+
+def _body_transform_by_tag(body_tag: int, transf_tag: int,
+                           tolerance: float = 1e-6) -> int:
+    pk = _ps._get_session().pk
+    pk.PK_SESSION_set_check_arguments.restype = c_int
+    pk.PK_SESSION_set_check_arguments.argtypes = [c_int]
+    pk.PK_SESSION_set_check_arguments(0)
+    opts = _TransformOpts(1, 1, 1, 0)
+    track = (c_byte * 256)()
+    res = (c_byte * 256)()
+    pk.PK_BODY_transform_2.restype = c_int
+    pk.PK_BODY_transform_2.argtypes = [
+        c_int, c_int, c_double, POINTER(_TransformOpts), c_void_p, c_void_p]
+    rc = int(pk.PK_BODY_transform_2(
+        int(body_tag), int(transf_tag), c_double(float(tolerance)),
+        byref(opts), track, res))
+    if rc != 0:
+        raise RuntimeError(f"PK_BODY_transform_2 failed: {rc}")
+    return rc
+
+
+def body_transform_rotate(body_tag: int, position, axis, angle,
+                          tolerance: float = 1e-6) -> int:
+    """Rotate a body about ``axis`` through ``position`` by ``angle`` (rad)."""
+    return _body_transform_by_tag(
+        body_tag, _create_rotation(position, axis, angle), tolerance)
+
+
+def body_transform_reflect(body_tag: int, position, normal,
+                           tolerance: float = 1e-6) -> int:
+    """Reflect a body in the plane through ``position`` with ``normal``."""
+    return _body_transform_by_tag(
+        body_tag, _create_reflection(position, normal), tolerance)
+
+
+def body_transform_scale(body_tag: int, scale: float, centre,
+                         tolerance: float = 1e-6) -> int:
+    """Uniformly scale a body by ``scale`` centred on ``centre``."""
+    return _body_transform_by_tag(
+        body_tag, _create_equal_scale(scale, centre), tolerance)
+
+
 def match_face_by_plane(body_tag: int, normal, origin, *,
                         normal_tol: float = 0.98,
                         dist_tol: float = 1e-4) -> Optional[int]:
