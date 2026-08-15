@@ -217,7 +217,7 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
     for i, ax in enumerate("xyz"):
         if ax not in rough:
             continue
-        axis_pts = [rough[ax][0]]
+        axis_pts = list(rough[ax])   # keep every rough grid line
         for a, b in zip(rough[ax][:-1], rough[ax][1:]):
             if lo is not None and hi is not None:
                 mid = (a + b) * 0.5
@@ -236,8 +236,6 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
                     part_side = b
                 axis_pts.extend(_stpre_external(
                     a, b, part_side, stds[i], r_ex[i], thrs[i]))
-        if axis_pts[-1] != rough[ax][-1]:
-            axis_pts.append(rough[ax][-1])
         out[ax] = _clip_dedupe(axis_pts, rough[ax][0], rough[ax][-1])
     return out
 
