@@ -158,6 +158,24 @@ tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) �
   （cos=±1/2 → x=±10，STpre 网格中无 x=±10 线）互斥 → STpre 曲线采样
   规则为下一步突破口（反汇编 PreFace facet 生成 / IndexedFaceSet 构造
   或 ParasolidGW 的曲线 tess 调用）。
+- **facet 参数管线全解码（本轮，P0-1 最后一公里）**：STpreBase
+  MakeFacet(0x293A20) -> 按 GetPreCtrl 标志分派
+  0x1b4380/0x1b4710（面片生成器）。0x1b4710 反汇编：
+  * 容差来源 = **GetEnvironment 五字段**（偏移 0x29A8/0x29B0/0x29B8/
+    0x29C0/0x29C8），角度字段经 pi/180 换算（默认 DEGREES），
+    chord 字段钳制 <=0.001（m）；
+  * 部件 facet_kind 开关（r8w）选默认角度分支：kind=2 -> 10 度，
+    其余 7.5/10/15/30 度分支（常量 0x430160=15、0x444a18=10、
+    0x444a10=7.5、0x431190=30 度 rad）；
+  * 五值块 [rsp+0x80] -> 0x1b5620/0x1b5e80（按 part 类型）->
+    0x1b8a30 + 0x3e8d66（lambda/vtable @0x585f80）——**STpre 自带
+    三角化器**，非 PK_TOPOL_facet_2；本仓任意 PK 参数组合（含 10/15 度
+    + curve ang + min/max width 全组合实测）均无法复现其顶点集。
+  * 结论：all 模式顶点源=显示网格（已证）；参数管线（env 五字段 +
+    facet_kind 角度分支 + chord 钳制）已解码；最终网格算法为 STpreBase
+    私有三角化器（0x1b5620->0x1b8a30），完整复刻需按该函数逐行移植，
+    列为长期项。env 五字段若出现在项目 XML/设置文件中即可直接读取
+    （当前模板未见，推测来自 Option 详细设置，进程内全局）。
 ### 2.4 内区划分
 
 - 相邻“特征平面”（顶点投影线或 AABB min/max）之间的区间按

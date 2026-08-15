@@ -149,13 +149,14 @@
 ## 四、剩余差距（按严重度）
 
 ### P0 — 阻塞正确性
-1. **`all` 顶点检测精确计数**（2026-08-15 五轮深挖：MakeFacetParam
-   已解码为 6-double 容差结构（≤0 钳 -1=默认），PreBody/PreFace/PreEdge/
-   PreVertex 显示模型路径已定位；工程 precision 0..4 实测不影响显示网格
-   （导入时一次性生成）；x=±20/3 平面 = 20·cos(70.53°) 四面体角签名，
-   锁定下一步=曲线采样规则（PreFace facet 生成/IndexedFaceSet 构造）。
-   当前 all 计数 57×133×144 vs 金标 59×118×121；详见
-   STPRE_GRID_RULES §2.3.2）。
+1. **`all` 顶点检测精确计数**（2026-08-15 六轮深挖，管线全解码：
+   MakeFacet(0x293A20)→0x1b4710 面片生成器——容差来自 GetEnvironment
+   五字段（0x29A8..0x29C8，角度×π/180、chord 钳 ≤0.001m），部件
+   facet_kind=2 选 10° 默认角度分支，五值块经 0x1b5620/0x1b5e80 进
+   **STpreBase 私有三角化器 0x1b8a30**（非 PK_TOPOL_facet_2，任意 PK
+   参数组合实测均无法复现顶点集）。顶点源=显示网格（已证）；最终网格
+   算法复刻需逐行移植 0x1b5620→0x1b8a30，列为长期项。当前 all 计数
+   57×133×144 vs 金标 59×118×121；详见 STPRE_GRID_RULES §2.3.2）。
 2. ~~**圆柱/轴向坐标域网格**~~ **已完成（2026-08-15 COM 探针对齐）**：
    `tools/probe_cyl_domain.py` 实测 STpre SetCylindricalDomain 保存格式与布点
    规则——域存 `<radius>/<angle>/<height>`（type=cylinder），mesh_block 用
