@@ -1660,6 +1660,24 @@ arg2(RDX) 被用作循环计数（`sub rdx,1; jne` 复制 0x80 字节块），�
 
 ---
 
+
+**⑤ 突破（参考 pphdecoding / Parasolid V37）**：
+- **Transform 已打通**（提交 `50b2acc`）：Cradle pskernel 是 **Parasolid V37**，
+  `PK_TRANSF_t` 是 **32 位 tag**（非 V35 的 4x4 矩阵）——
+  `PK_TRANSF_create_translation` 生成 tag → `PK_BODY_transform_2(body, tag, tol, opts, track, res)`
+  按值接收。之前用 V35 矩阵签名导致 `PK_ERROR_bad_component`(perspective)。
+- **A4 x_t 写回已打通**（提交 `c298c5d`）：根因是 frustrum 的**写回调是空桩**——
+  FFOPWR/FFWRIT/FFCLOS 未捕获写入字节，导致 `PK_PART_transmit` 报
+  `PK_ERROR_file_access_error`(973)。已按 pphdecoding 补全写回调
+  （`write_files/write_paths/transmit_output`），布尔/切割产物现在可写回真实
+  `.x_t` 成员（`cut_part_by_plane_pk` 已接 x_t 路径，STL 仅兜底）。
+  `PK_PART_transmit_o_t` 也回退为 V37 的 6 字段布局（此前按 V35 改成 7 字段是错的）。
+
+**关键方法沉淀**：pphdecoding 是对 Cradle V37 的成熟逆向，其 `ps_facet2_nodes.py`
+的 frustrum 写回调、`transform_body`、`_BodyTransformOpts` 等可直接对照移植。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
