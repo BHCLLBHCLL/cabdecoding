@@ -284,8 +284,14 @@ def test_condition_wizard_current_electrostatic_ventilation_pages(pieces):
     w.p_electrostatic.permittivity.setValue(4.2)
     w.p_electrostatic.apply()
     assert model.analysis_set_value("electrostatic") == "1"
+    assert model.analysis_etc_value("partcile_echarge") == "1"
     assert abs(float(model.project_value(
         "electrostatic_permittivity", "0")) - 4.2) < 1e-9
+    # initial-only timing -> partcile_echarge 2 (STpre es_field_initial)
+    w.p_electrostatic.timing.setCurrentIndex(1)
+    w.p_electrostatic.apply()
+    assert model.analysis_etc_value("partcile_echarge") == "2"
+    w.p_electrostatic.timing.setCurrentIndex(0)
     w.p_ventilation.enable.setChecked(True)
     w.p_ventilation.method.setCurrentIndex(2)
     w.p_ventilation.apply()
@@ -333,6 +339,7 @@ def test_condition_wizard_reaction_fusion_lamp_pcm_pages(pieces):
     w.p_pcm.latent.setValue(200000.0)
     w.p_pcm.apply()
     assert model.analysis_set_value("pcm") == "1"
+    assert model.analysis_etc_section("phase_change_material") is not None
     assert abs(float(model.project_value(
         "pcm_latent_heat", "0")) - 200000.0) < 1.0
     for page, tag in ((w.p_reaction, "reaction"), (w.p_fusion, "fusion"),

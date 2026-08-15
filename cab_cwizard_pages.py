@@ -7166,12 +7166,25 @@ class _CwElectrostaticPage(QWidget if _HAS_GUI else object):
         g = QGroupBox("Electrostatic field", self)
         f = QFormLayout(g)
         self.enable = QCheckBox("Consider electrostatic field", g)
-        aset = (model.analysis_set_value("electrostatic", "") or "").strip()
-        if aset in ("1", "T", "t"):
+        # STpre canonical storage: <analysis_etc><partcile_echarge> 1|2
+        # (1 = es_field, each cycle; 2 = es_field_initial, start only);
+        # the legacy flat analysis_set/electrostatic tag is kept in sync.
+        ec = (model.analysis_etc_value("partcile_echarge", "")
+              or "").strip()
+        if ec in ("1", "2"):
             self.enable.setChecked(True)
         else:
-            self.enable.setChecked(
-                model.project_value("electrostatic_enable", "F") == "T")
+            aset = (model.analysis_set_value("electrostatic", "")
+                    or "").strip()
+            if aset in ("1", "T", "t"):
+                self.enable.setChecked(True)
+            else:
+                self.enable.setChecked(
+                    model.project_value("electrostatic_enable", "F") == "T")
+        self.timing = QComboBox(g)
+        self.timing.addItems(
+            ["Each cycle", "Only at calculation start"])
+        self.timing.setCurrentIndex(0 if ec != "2" else 1)
         self.permittivity = QDoubleSpinBox(g)
         self.permittivity.setRange(1.0, 1e6)
         self.permittivity.setDecimals(3)
@@ -7181,6 +7194,7 @@ class _CwElectrostaticPage(QWidget if _HAS_GUI else object):
         except (TypeError, ValueError):
             self.permittivity.setValue(1.0)
         f.addRow(self.enable)
+        f.addRow("Calculation timing", self.timing)
         f.addRow("Relative permittivity", self.permittivity)
         lay.addWidget(g)
         lay.addStretch(1)
@@ -7191,6 +7205,10 @@ class _CwElectrostaticPage(QWidget if _HAS_GUI else object):
             "electrostatic_enable", "T" if on else "F")
         self.model.set_project_value(
             "electrostatic_permittivity", f"{self.permittivity.value():g}")
+        self.model.set_analysis_etc_value(
+            "partcile_echarge",
+            "2" if on and self.timing.currentIndex() == 1 else
+            "1" if on else "0")
         self.model.set_analysis_set_value(
             "electrostatic", "1" if on else "0")
         self.model.upsert_value(
@@ -7430,12 +7448,18 @@ class _CwPcmPage(QWidget if _HAS_GUI else object):
         g = QGroupBox("Phase change material", self)
         f = QFormLayout(g)
         self.enable = QCheckBox("Consider phase change material", g)
-        aset = (model.analysis_set_value("pcm", "") or "").strip()
-        if aset in ("1", "T", "t"):
+        # STpre canonical storage: <analysis_etc><phase_change_material/>
+        # (SetAnalysisType "pcm", COM probe 2026-08-15); the legacy flat
+        # analysis_set/pcm tag is kept in sync for older readers.
+        if model.analysis_etc_section("phase_change_material") is not None:
             self.enable.setChecked(True)
         else:
-            self.enable.setChecked(
-                model.project_value("pcm_enable", "F") == "T")
+            aset = (model.analysis_set_value("pcm", "") or "").strip()
+            if aset in ("1", "T", "t"):
+                self.enable.setChecked(True)
+            else:
+                self.enable.setChecked(
+                    model.project_value("pcm_enable", "F") == "T")
         self.melting = QDoubleSpinBox(g)
         self.melting.setRange(-273.15, 10000.0)
         self.melting.setDecimals(2)
@@ -7463,6 +7487,10 @@ class _CwPcmPage(QWidget if _HAS_GUI else object):
             "pcm_melting_temp", f"{self.melting.value():g}")
         self.model.set_project_value(
             "pcm_latent_heat", f"{self.latent.value():g}")
+        if on:
+            self.model.ensure_analysis_etc_section("phase_change_material")
+        else:
+            self.model.remove_analysis_etc_section("phase_change_material")
         self.model.set_analysis_set_value("pcm", "1" if on else "0")
         self.model.upsert_value(
             "pcm", "PCM_default",

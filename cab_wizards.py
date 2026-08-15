@@ -658,6 +658,8 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         "marangoni": ("etc_sec", "marangoni"),
         "topology_opti": ("etc_sec", "topology_optimize"),
         "aircon_model": ("aset", "aircon_model"),
+        "pcm": ("etc_sec", "phase_change_material"),
+        "electrostatic": ("etc", "partcile_echarge"),
     }
 
     def __init__(self, model: StpreModel):
@@ -793,7 +795,7 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         kind, tag = self._SPECIAL_TAGS[key]
         if kind == "etc":
             return self.model.analysis_etc_value(tag, "0").strip() \
-                in ("1", "T", "t")
+                in ("1", "2", "T", "t")
         if kind == "etc_sec":
             return self.model.analysis_etc_section(tag) is not None
         v = self.model.analysis_set_value(tag, "0").strip().lower()
@@ -805,7 +807,14 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         """Write the STpre-canonical storage for the special analysis keys."""
         kind, tag = self._SPECIAL_TAGS[key]
         if kind == "etc":
-            self.model.set_analysis_etc_value(tag, "1" if on else "0")
+            if on:
+                # partcile_echarge 2 (initial-only) must survive a flag
+                # re-apply: only stamp "1" over an off value.
+                cur = self.model.analysis_etc_value(tag, "0").strip()
+                if cur not in ("1", "2"):
+                    self.model.set_analysis_etc_value(tag, "1")
+            else:
+                self.model.set_analysis_etc_value(tag, "0")
             return
         if kind == "etc_sec":
             if on:

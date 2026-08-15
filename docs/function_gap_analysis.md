@@ -102,9 +102,12 @@
 - 已实现深度写回：Source（Volumetric/Area/Perforated + 面创建/多选）、Humidity、
   Porous、Radiation Grouping、Initial、Boundary（Flow/Wall/Thermal/Symmetry/Humidity/
   Mass Transfer）、Analysis Control、Output、File、Condition List。
-- **差距**：pcm/es_field 的 STpre 对齐存储（analysis_etc/phase_change_material、
-  analysis_etc/partcile_echarge，探针已实证）待迁移现有平铺标记；moving body
-  运动定义表（零件级）与 aircon 零件参数为后续深度项；函数/表达式 source 编辑器。
+- **差距**：pcm/es_field 的 STpre 对齐存储已完成迁移（2026-08-15：
+  `_CwPcmPage` → analysis_etc/phase_change_material、`_CwElectrostaticPage`
+  → analysis_etc/partcile_echarge 1|2 + 「每循环/仅起始」计算时机选择，
+  Analysis Types 勾选联动写同一规范存储，legacy 平铺标记保留同步）；
+  剩余：moving body 运动定义表（零件级）、aircon 零件参数、
+  函数/表达式 source 编辑器。
 
 ### 6. Wizard（Initial/Condition）— ✅ 中-高（Initial 高 / Condition 同上）
 
@@ -146,8 +149,12 @@
 ## 四、剩余差距（按严重度）
 
 ### P0 — 阻塞正确性
-1. **`all` 顶点检测精确计数**：需复刻 STpre 内部显示 tessellation（当前 pskernel
-   `facet_body` 顶点集不同，x/y/z 计数差 2~34）。
+1. **`all` 顶点检测精确计数**（2026-08-15 二轮深挖：全 6 模式 S 线金标已录
+   `data/stpre_tr03_marks.json`，rep=25 顶点+AABB、all=84 线但来源非顶点/
+   tess/面平面/其它 body——且 rep⊄all；反汇编修正：MeshFineExecute/Divide 是
+   细分坐标合并/诊断阶段，顶点收集在 InnerRegionGrid/OuterRegionGrid/
+   ExecDivide 路径，见 STPRE_GRID_RULES §2.3.2。当前 all 计数 57×133×144
+   vs 金标 59×118×121）。
 2. ~~**圆柱/轴向坐标域网格**~~ **已完成（2026-08-15 COM 探针对齐）**：
    `tools/probe_cyl_domain.py` 实测 STpre SetCylindricalDomain 保存格式与布点
    规则——域存 `<radius>/<angle>/<height>`（type=cylinder），mesh_block 用

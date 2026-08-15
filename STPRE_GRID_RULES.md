@@ -77,6 +77,39 @@ z 值 → 世界系 59 值，域内 33 值，仅 25 条在轴内）：
 
 工具：`tools/reprobe_tr03.py`（live STpre COM 重跑 vd_0/vd_1，与金标一致）。
 
+### 2.3.2 tr03 全模式 S 线全景（P0-①，2026-08-15 二次深挖）
+
+tools/probe_tr03_marks.py 重跑 tr03_imp vd_0..5 并捕获每轴 (值,标记) 对
+（金标存 data/stpre_tr03_marks.json）。z 轴 S 线数：
+
+| vd | 模式 | z 轴 S 线 | 内容 |
+|---|---|---|---|
+| 0 | all | 84 | 未知来源（见下） |
+| 1 | representative | 26 | 25 个 B-rep 顶点投影 + AABB 顶 47.4651 |
+| 2 | axis_plane | 3 | 面平面 +8.1026/+10.6026（只有正 z 面）+ AABB |
+| 3/4 | minmax / not_considered | 1 | AABB 顶 47.4651（min z 在域外） |
+| 5 | uniform | 0 | — |
+
+- rep 不是 all 的子集：rep 的 27.2809、41.6617 不在 all 中 → 两种
+  模式使用不同的顶点源，并非「all = rep + 额外」。
+- all 的 84 线来源仍未知，本轮排除：①B-rep 顶点（仅 23/84 命中）；
+  ②facet_2/GO 渲染 tess 顶点（tol 1e-5..1e-3、angle 5..30° 全扫，最高
+  36/84 命中，且不随容差收敛）；③Case/Rotate 其它 body（Rotate 为
+  3 面 2 边 0 顶点薄体，Case 仅贡献 1 线）；④x/y/z 投影混合（仅 +1）；
+  ⑤面平面（axis_plane 只有 3 线）。all 的 x 轴 S = {-6.6667, 0, 6.6667,
+  20, 22.5} 含非顶点值（0、±6.667=±20/3）——与「顶点投影」假设直接矛盾。
+- 反汇编定位修正：MeshFineExecute(0x25690)/MeshFineDivide(0x25570)
+  完整反汇编 + IAT 解析（tools/disasm_mesh.py、tools/resolve_iat.py）：
+  MeshFineDivide = 选轴/选 id（GetSelectAxis/GetSelectId）+ 排序 +
+  CalcFine(0x7c3f0)；MeshFineExecute = 细分坐标合并阶段——遍历
+  [ctx+0x190] 链表中的 MeshBlock（Valid/IsSub 过滤），对每根 fine 坐标
+  （AllocFineCoord/GetFineCoord + get_limit 阈值 + GetAttrAt 标记 8/1
+  比较 + get_minmax 界内判定 + GetPeriodKind 周期合并）把未标记线写入，
+  冲突时 virtual [rax+0x28] 取名 + 错误 0x103b → OutputMessage。
+  顶点收集不在此函数——下一步应看 InnerRegionGrid/OuterRegionGrid/
+  ExecDivide 或 MeshBlock 粗线收集路径（STpreBase_Bx64.dll 的
+  ?SetParam/网格线插入实现）。
+
 ### 2.4 内区划分
 
 - 相邻“特征平面”（顶点投影线或 AABB min/max）之间的区间按

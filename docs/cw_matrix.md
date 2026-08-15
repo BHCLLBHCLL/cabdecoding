@@ -45,8 +45,10 @@
 > analysis_etc/topology_optimize(48 项默认)、analysis_set/moving_body=1(2)
 > + moving_body_file / moving_body_option / list_position / gap_filling；
 > pcm/es_field 写 analysis_etc/phase_change_material /
-> analysis_etc/partcile_echarge（现存页面仍用平铺 analysis_set 标记，
-> 列为后续对齐项）。
+> analysis_etc/partcile_echarge（2026-08-15 已迁移：PCM 页写
+> phase_change_material 节、Electrostatic 页写 partcile_echarge 1|2 +
+> 「每循环/仅起始」时机，Analysis Types 勾选联动同一存储，legacy 平铺
+> 标记保留同步）。
 
 ## 2. Source Condition 值类型（子集）
 
