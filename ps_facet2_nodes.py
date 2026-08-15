@@ -362,6 +362,9 @@ class _PsSession:
         os.environ["P_SCHEMA"] = str(self.schema)
         self.pk = C.WinDLL(str(prog / "pskernel.dll"))
         self._files: dict = {}
+        self._write_files: dict = {}
+        self._write_paths: dict = {}
+        self._transmit_output: dict = {}
         self._next_id = 1
         self._mallo_bufs: list = []
         self._segs: list = []
@@ -375,6 +378,9 @@ class _PsSession:
         schema = self.schema
         mallo = self._mallo_bufs
         segs = self._segs
+        write_files = self._write_files
+        write_paths = self._write_paths
+        transmit_output = self._transmit_output
 
         @CFUNCTYPE(None, POINTER(c_int))
         def FSTART(ifail):
@@ -438,9 +444,14 @@ class _PsSession:
             None, POINTER(c_int), POINTER(c_int), c_void_p, POINTER(c_int),
             c_void_p, POINTER(c_int), POINTER(c_int), POINTER(c_int),
         )
-        def FFOPWR(*a):
-            a[-2][0] = 1
-            a[-1][0] = 0
+        def FFOPWR(guise, form, name, namlen, skip, mode, strid, ifail):
+            key = string_at(name, namlen[0]).decode("ascii", "replace")
+            sid = self._next_id
+            self._next_id += 1
+            write_files[sid] = bytearray()
+            write_paths[sid] = key
+            strid[0] = sid
+            ifail[0] = 0
 
         @CFUNCTYPE(
             None, POINTER(c_int), POINTER(c_int), POINTER(c_int), c_void_p,
@@ -480,13 +491,26 @@ class _PsSession:
 
         @CFUNCTYPE(None, POINTER(c_int), POINTER(c_int), POINTER(c_int),
                    c_void_p, POINTER(c_int))
-        def FFWRIT(*a):
-            a[-1][0] = 0
+        def FFWRIT(guise, strid, n, buffer, ifail):
+            buf = write_files.get(strid[0])
+            if buf is None:
+                ifail[0] = 14
+                return
+            buf.extend(string_at(buffer, n[0]))
+            ifail[0] = 0
 
         @CFUNCTYPE(None, POINTER(c_int), POINTER(c_int), POINTER(c_int),
                    POINTER(c_int))
         def FFCLOS(guise, strid, action, ifail):
-            ifail[0] = 0 if files.pop(strid[0], None) is not None else 14
+            if files.pop(strid[0], None) is not None:
+                ifail[0] = 0
+                return
+            buf = write_files.pop(strid[0], None)
+            if buf is not None:
+                transmit_output[write_paths.pop(strid[0], "")] = bytes(buf)
+                ifail[0] = 0
+            else:
+                ifail[0] = 14
 
         @CFUNCTYPE(
             None, POINTER(c_int), POINTER(c_int), POINTER(c_int),

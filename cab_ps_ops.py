@@ -138,38 +138,22 @@ def transmit_parts(tags: list[int]) -> bytes:
         raise ValueError("no body tags to transmit")
     sess = _ps._get_session()
     pk = sess.pk
-    # PK_PART_transmit expects PART tags; map body tags to their owner part.
-    pk.PK_BODY_ask_parent.restype = c_int
-    pk.PK_BODY_ask_parent.argtypes = [c_int, POINTER(c_int)]
-    parts = []
-    for tag in tags:
-        parent = c_int(0)
-        rc = -1
-        try:
-            rc = pk.PK_BODY_ask_parent(int(tag), byref(parent))
-        except Exception:
-            pass
-        parts.append(int(parent.value) if rc == 0 and parent.value
-                     else int(tag))
-    tmpdir = _ps._temp_dir("cab_tx_")
-    key = str(tmpdir / "out").encode()
+    pk.PK_SESSION_set_check_arguments.restype = c_int
+    pk.PK_SESSION_set_check_arguments.argtypes = [c_int]
+    pk.PK_SESSION_set_check_arguments(0)
     opts = _Transmit()
+    memset(byref(opts), 0, sizeof(opts))
     opts.o_t_version = 1
     opts.transmit_format = 0
     pk.PK_PART_transmit.restype = c_int
     pk.PK_PART_transmit.argtypes = [
         c_int, POINTER(c_int), c_char_p, POINTER(_Transmit)]
-    arr = (c_int * len(parts))(*parts)
-    rc = pk.PK_PART_transmit(len(parts), arr, key, byref(opts))
+    arr = (c_int * len(tags))(*[int(t) for t in tags])
+    key = b"out"
+    rc = pk.PK_PART_transmit(len(tags), arr, key, byref(opts))
     if rc != 0:
         raise RuntimeError(f"PK_PART_transmit failed: {rc}")
-    xtp = tmpdir / "out.x_t"
-    if not xtp.is_file():
-        cand = list(tmpdir.glob("out*"))
-        if not cand:
-            raise RuntimeError("PK_PART_transmit produced no file")
-        xtp = cand[0]
-    return xtp.read_bytes()
+    return sess._transmit_output.get("out", b"")
 
 
 def reconstruct_facet(xt_bytes: bytes, *, names: Optional[set[str]] = None,
