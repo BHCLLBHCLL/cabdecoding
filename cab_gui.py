@@ -4727,6 +4727,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not proc.start(exe, args, cwd):
             return False
         self._solver_proc = proc
+        self._solver_run = (cwd, sfile)
         self.log(f"Execute Solver: {sfile} cwd={cwd}")
         self.statusBar().showMessage("Solver running…", 8000)
         return True
@@ -4742,6 +4743,71 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _on_solver_success(self) -> None:
         self.log("Solver finished: exitCode=0 (success).")
         self.statusBar().showMessage("Solver finished: success", 8000)
+        self._read_back_solver_results()
+
+    def _scan_solver_results(self, cwd, sfile):
+        # Result inventory after a successful solve: .pst (post), .out/.log
+        # (solver transcript), .xlog/.fld/.pab etc. next to the case file.
+        out = []
+        if not cwd or not sfile:
+            return out
+        stem = Path(sfile).stem
+        suffixes = ('.pst', '.out', '.log', '.xlog', '.fld', '.pab',
+                    '.xemt', '.s')
+        try:
+            for f in sorted(Path(cwd).iterdir()):
+                if not f.is_file():
+                    continue
+                low = f.name.lower()
+                if f.name == Path(sfile).name:
+                    continue
+                if low.startswith(stem.lower() + '.') and                         f.suffix.lower() in suffixes:
+                    out.append(f)
+                elif f.suffix.lower() in ('.pst', '.fld') and                         f.stem.lower().startswith(stem.lower()):
+                    out.append(f)
+        except OSError:
+            pass
+        return out
+
+    def _read_back_solver_results(self) -> None:
+        # R16: solve-loop closure - inventory result files and summarize the
+        # solver transcript tail; the newest .pst becomes the Execute Post
+        # default so the user can open the post file directly.
+        cwd, sfile = getattr(self, '_solver_run', (None, None))
+        files = self._scan_solver_results(cwd, sfile)
+        if not files:
+            self.log("Solver finished: no result files found in the "
+                     "working directory.", "INFO")
+            return
+        self.log(f"Solver results ({len(files)} file(s)):", "INFO")
+        for f in files:
+            self.log(f"  - {f.name} ({f.stat().st_size} bytes)")
+        psts = [f for f in files if f.suffix.lower() == '.pst']
+        if psts:
+            newest = max(psts, key=lambda f: f.stat().st_mtime)
+            self._last_result_pst = str(newest)
+            self.log(
+                f"Post file ready: {newest.name} (File → Execute Post).",
+                "INFO")
+            self.statusBar().showMessage(
+                f"Solver finished: post file {newest.name}", 8000)
+        else:
+            self._last_result_pst = None
+        # convergence summary from the transcript tail (cycle/residual lines)
+        for f in files:
+            if f.suffix.lower() not in ('.out', '.log', '.xlog'):
+                continue
+            try:
+                tail = f.read_text(encoding='utf-8',
+                                   errors='replace').splitlines()[-40:]
+            except OSError:
+                continue
+            cyc = [l for l in tail if 'cycle' in l.lower()
+                   or 'iteration' in l.lower()]
+            if cyc:
+                self.log(f"Convergence tail ({f.name}): {cyc[-1].strip()[:120]}",
+                         "INFO")
+                break
 
     def _on_solver_error(self, exit_code: int, message: str) -> None:
         self.log(f"Solver failed: {message}", "ERROR")
@@ -4769,8 +4835,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg.setWindowTitle("Execute Post")
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
+        last_pst = getattr(self, "_last_result_pst", None)
         field = QLineEdit(str(get_setting(
-            "post_field", self.current_path or "")), dlg)
+            "post_field", last_pst or self.current_path or "")), dlg)
         brow = QHBoxLayout()
         brow.addWidget(field, 1)
         bb = QPushButton("…", dlg)

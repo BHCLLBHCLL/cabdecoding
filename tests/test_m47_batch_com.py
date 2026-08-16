@@ -93,6 +93,60 @@ def test_prepare_case_with_overrides():
     finally:
         shutil.rmtree(out, ignore_errors=True)
 
+def test_scan_solver_results():
+    import shutil
+    import cab_gui
+    out = ROOT / "tests" / "_res_tmp"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir()
+    try:
+        (out / "model.s").write_text("s")
+        (out / "model.pst").write_text("pst")
+        (out / "model.out").write_text("out\ncycle 100 converged")
+        (out / "other.txt").write_text("x")
+        files = cab_gui.CabViewer._scan_solver_results(
+            None, str(out), str(out / "model.s"))
+        names = [f.name for f in files]
+        assert "model.pst" in names
+        assert "model.out" in names
+        assert "other.txt" not in names
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
+
+def test_read_back_solver_results():
+    import shutil
+    import cab_gui
+    out = ROOT / "tests" / "_res_tmp2"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir()
+    try:
+        (out / "model.s").write_text("s")
+        (out / "model.pst").write_text("pst")
+        (out / "model.out").write_text("log\ncycle 100 converged")
+        class _SB:
+            def showMessage(self, *a, **k):
+                pass
+        class _Stub:
+            pass
+        stub = _Stub()
+        stub._solver_run = (str(out), str(out / "model.s"))
+        stub._scan_solver_results =             lambda cwd, sfile: cab_gui.CabViewer._scan_solver_results(
+                None, cwd, sfile)
+        stub._last_result_pst = None
+        stub.logs = []
+        sb = _SB()
+        stub.statusBar = lambda: sb
+        def _log(msg, level="INFO"):
+            stub.logs.append((msg, level))
+        stub.log = _log
+        cab_gui.CabViewer._read_back_solver_results(stub)
+        assert stub._last_result_pst == str(out / "model.pst")
+        assert any("Post file ready" in m for m, _ in stub.logs)
+        assert any("Convergence tail" in m for m, _ in stub.logs)
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
 def test_batch_runner_prepare_failure_paths():
     # Exercises the queue loop's prepare-failure handling without spawning
     # a solver process (sandbox-safe).

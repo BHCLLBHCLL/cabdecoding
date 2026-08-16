@@ -1709,6 +1709,7 @@ def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
                         radius: float, edge_index: int = 0, *,
                         chamfer: bool = False,
                         range1: Optional[float] = None,
+                        chain: bool = False,
                         tolerance: float = 1e-6) -> bool:
     # Blend (or chamfer) one edge of a part's body in place, write x_t back.
     # Decoded V37 blend ABI (cab_blend): PK_EDGE_set_blend_* +
@@ -1728,8 +1729,11 @@ def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
     if not edges or not (0 <= edge_index < len(edges)):
         return False
     try:
+        sel = [edges[edge_index]]
+        if chain:
+            sel = cab_blend.find_g1_edges(sess.pk, edges[edge_index])
         rc, n_set = cab_blend.blend_edge(
-            sess.pk, [edges[edge_index]], radius, chamfer=chamfer,
+            sess.pk, sel, radius, chamfer=chamfer,
             range1=range1)
         if rc != 0 or n_set < 1:
             return False

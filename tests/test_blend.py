@@ -103,6 +103,19 @@ def test_find_g1_edges_on_block():
     chain = cab_blend.find_g1_edges(sess.pk, edges[0])
     assert edges[0] in chain and len(chain) >= 1
 
+def test_blend_dialog_chain_option_present():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    from PyQt5.QtWidgets import QApplication
+    from cab_edit_dialogs import BlendEdgeDialog
+    app = QApplication.instance() or QApplication([])
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.add_part(name="P", kind="cube", attribute="solid")
+    dlg = BlendEdgeDialog(model, [], None)
+    assert hasattr(dlg, "chain_chk")
+    assert dlg.chain_chk.isChecked() is False
+
 def test_blend_part_edge_pk_persists_x_t():
     # M37 wiring: blend an x_t-part edge in place and rewrite the member.
     if not cab_ps_ops.available():

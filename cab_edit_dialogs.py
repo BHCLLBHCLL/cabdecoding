@@ -1145,8 +1145,8 @@ class BlendEdgeDialog(_EditDlg):
         self.model = model
         self.cad_meshes = cad_meshes
         self.body.addWidget(_capability_note(
-            'Blends (rounds) or chamfers one edge of the selected part ',
-            'in place via pskernel V37 (PK_EDGE_set_blend_* + ',
+            'Blends (rounds) or chamfers one edge of the selected part '
+            'in place via pskernel V37 (PK_EDGE_set_blend_* + '
             'PK_BODY_fix_blends); the part x_t member is rewritten.', self))
         form = QFormLayout()
         self.part_combo = QComboBox(self)
@@ -1180,6 +1180,13 @@ class BlendEdgeDialog(_EditDlg):
         self.rb_blend.setChecked(True)
         tl.addWidget(self.rb_blend)
         tl.addWidget(self.rb_cham)
+        self.chain_chk = QCheckBox(
+            'Blend the entire G1 (tangent) edge chain', typ)
+        self.chain_chk.setToolTip(
+            'PK_EDGE_find_g1_edges propagation: blends the selected edge '
+            'together with its smooth (tangent) neighbours, like STpre\'s '
+            'chain blending.')
+        tl.addWidget(self.chain_chk)
         self.body.addWidget(typ)
         self._root.addLayout(_bottom_buttons(self, (
             ('Execute', self._run),
@@ -1226,7 +1233,8 @@ class BlendEdgeDialog(_EditDlg):
         ok = ops.blend_part_edge_pk(
             self.model, archive, cad, name, self.radius_spin.value(),
             edge_index=self.edge_spin.value(), chamfer=chamfer,
-            range1=self.range_spin.value())
+            range1=self.range_spin.value(),
+            chain=self.chain_chk.isChecked())
         if not ok:
             QMessageBox.warning(
                 self, 'Blend',
