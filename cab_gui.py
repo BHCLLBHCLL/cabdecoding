@@ -656,60 +656,157 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._apply_options(dlg.values())
 
     def _option_distance_dialog(self) -> None:
-        """M25/L10 Option → Distance with Draw-Window vertex picking."""
+        # M25/L10 Option -> Distance: 2-point distance + angle + chain +
+        # part-to-part min distance (R13 measurement depth).
         from PyQt5.QtWidgets import (
             QDialog, QFormLayout, QDoubleSpinBox, QLabel, QPushButton,
-            QHBoxLayout, QVBoxLayout,
+            QHBoxLayout, QVBoxLayout, QComboBox, QListWidget,
         )
         dlg = QDialog(self)
-        dlg.setWindowTitle("Distance")
+        dlg.setWindowTitle('Distance / Measurement')
         dlg.setModal(False)
         lay = QVBoxLayout(dlg)
+        mode = QComboBox(dlg)
+        mode.addItems(['Distance (2 points)', 'Angle (3 points)',
+                       'Distance chain (N points)', 'Parts min distance'])
+        lay.addWidget(mode)
         form = QFormLayout()
         spins = []
-        for lab in ("X1", "Y1", "Z1", "X2", "Y2", "Z2"):
+        for lab in ('X1', 'Y1', 'Z1', 'X2', 'Y2', 'Z2'):
             sp = QDoubleSpinBox(dlg)
             sp.setRange(-1e6, 1e6)
             sp.setDecimals(3)
-            form.addRow(lab + " (mm)", sp)
+            form.addRow(lab + ' (mm)', sp)
             spins.append(sp)
         dlg.pick_spins = spins
-        result = QLabel("Distance = —", dlg)
+        p3form = QFormLayout()
+        spins3 = []
+        for lab in ('X3', 'Y3', 'Z3'):
+            sp = QDoubleSpinBox(dlg)
+            sp.setRange(-1e6, 1e6)
+            sp.setDecimals(3)
+            p3form.addRow(lab + ' (mm)', sp)
+            spins3.append(sp)
+        dlg.pick_spins3 = spins3
+        part_a = QComboBox(dlg)
+        part_b = QComboBox(dlg)
+        part_names = [p.name for p in (self.model.parts()
+                                        if self.model else [])]
+        part_a.addItems(part_names)
+        part_b.addItems(part_names)
+        partform = QFormLayout()
+        partform.addRow('Part A', part_a)
+        partform.addRow('Part B', part_b)
+        chain_list = QListWidget(dlg)
+        result = QLabel('Distance = —', dlg)
         lay.addLayout(form)
+        lay.addLayout(p3form)
+        lay.addLayout(partform)
+        lay.addWidget(chain_list)
         lay.addWidget(result)
         row = QHBoxLayout()
-        pick1 = QPushButton("Pick P1", dlg)
-        pick2 = QPushButton("Pick P2", dlg)
-        calc = QPushButton("Calculate", dlg)
-        close = QPushButton("Close", dlg)
-        row.addWidget(pick1)
-        row.addWidget(pick2)
+        pick1 = QPushButton('Pick P1', dlg)
+        pick2 = QPushButton('Pick P2', dlg)
+        pick3 = QPushButton('Pick P3', dlg)
+        addpt = QPushButton('Add point', dlg)
+        clear = QPushButton('Clear', dlg)
+        calc = QPushButton('Calculate', dlg)
+        close = QPushButton('Close', dlg)
+        for b in (pick1, pick2, pick3, addpt, clear):
+            row.addWidget(b)
         row.addStretch(1)
         row.addWidget(calc)
         row.addWidget(close)
         lay.addLayout(row)
-        hint = QLabel("Select Target of selection = Vertices, then click "
-                      "Pick P1 and pick a vertex in the Draw Window.", dlg)
+        hint = QLabel('Select Target of selection = Vertices, then click ',
+                      'Pick P1 and pick a vertex in the Draw Window.', dlg)
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: #555;")
+        hint.setStyleSheet('color: #555;')
         lay.addWidget(hint)
         dlg.pick_hint = hint
+        dlg.chain_points = []
+
+        def _set_mode(m: int) -> None:
+            # 0 distance / 1 angle / 2 chain / 3 parts
+            for w in spins3:
+                w.setVisible(m == 1)
+            part_a.setVisible(m == 3)
+            part_b.setVisible(m == 3)
+            chain_list.setVisible(m == 2)
+            addpt.setVisible(m == 2)
+            clear.setVisible(m == 2)
+            pick3.setVisible(m == 1)
+            pick2.setVisible(m in (0, 1))
+        
+        mode.currentIndexChanged.connect(_set_mode)
+        _set_mode(0)
+
+        def _cur_point(idx: int) -> np.ndarray:
+            if idx == 2:
+                return np.array([w.value() for w in spins3])
+            return np.array([spins[i].value() for i in range(idx * 3,
+                                                        idx * 3 + 3)])
 
         def _calc() -> None:
-            p1 = np.array([spins[i].value() for i in range(3)])
-            p2 = np.array([spins[i].value() for i in range(3, 6)])
-            d = float(np.linalg.norm(p2 - p1))
-            result.setText(f"Distance = {d:.6g} mm")
-            self.log(f"Distance: {d:.6g} mm")
+            m = mode.currentIndex()
+            if m == 0:
+                p1, p2 = _cur_point(0), _cur_point(1)
+                d = float(np.linalg.norm(p2 - p1))
+                result.setText(f'Distance = {d:.6g} mm')
+                self.log(f'Distance: {d:.6g} mm')
+            elif m == 1:
+                p1, p2, p3 = _cur_point(0), _cur_point(1), _cur_point(2)
+                v1, v2 = p1 - p2, p3 - p2
+                n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+                if n1 < 1e-12 or n2 < 1e-12:
+                    result.setText('Angle = — (degenerate)')
+                    return
+                ang = float(np.degrees(np.arccos(
+                    np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0))))
+                result.setText(f'Angle at P2 = {ang:.6g} deg')
+                self.log(f'Angle: {ang:.6g} deg')
+            elif m == 2:
+                pts = [np.array(p) for p in dlg.chain_points]
+                if len(pts) < 2:
+                    result.setText('Chain needs >= 2 points')
+                    return
+                segs = [float(np.linalg.norm(pts[i] - pts[i - 1]))
+                        for i in range(1, len(pts))]
+                total = sum(segs)
+                chain_list.clear()
+                for i, s in enumerate(segs, 1):
+                    chain_list.addItem(f'{i}: {s:.6g} mm')
+                result.setText(
+                    f'Chain = {total:.6g} mm ({len(segs)} segments)')
+                self.log(f'Chain distance: {total:.6g} mm')
+            else:
+                a, b = part_a.currentText(), part_b.currentText()
+                if not a or not b:
+                    result.setText('Select two parts')
+                    return
+                d = self._min_part_distance(a, b)
+                result.setText(
+                    f'Min distance = {d:.6g} mm' if d is not None
+                    else 'No tessellation for the parts')
+                if d is not None:
+                    self.log(f'Parts min distance {a}-{b}: {d:.6g} mm')
 
         dlg.pick_calc = _calc
+        dlg.mode = mode
+        dlg.chain_add = lambda: dlg.chain_points.append(
+            tuple(sp.value() for sp in spins[:3]))
+        dlg.chain_clear = lambda: (dlg.chain_points.clear(),
+                                   chain_list.clear())
+        addpt.clicked.connect(dlg.chain_add)
+        clear.clicked.connect(dlg.chain_clear)
 
         def _begin(slot: str) -> None:
             self._pick_dialog = dlg
             self._pick_slot = slot
-            self._on_sel_target("Vertex")
+            self._on_sel_target('Vertex')
             hint.setText(
-                f"Pick {slot} in the Draw Window (Target = Vertices)…")
+                f'Pick {slot} in the Draw Window (Target = Vertices)...')
+
 
         def _close() -> None:
             self._clear_pick_dialog(dlg)
@@ -717,11 +814,29 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
 
         pick1.clicked.connect(lambda: _begin("P1"))
         pick2.clicked.connect(lambda: _begin("P2"))
+        pick3.clicked.connect(lambda: _begin("P3"))
         calc.clicked.connect(_calc)
         close.clicked.connect(_close)
         dlg.finished.connect(lambda _r: self._clear_pick_dialog(dlg))
         dlg.show()
 
+    def _min_part_distance(self, a: str, b: str):
+        # Min distance (mm) between two parts' tessellation point clouds.
+        from scipy.spatial import cKDTree
+        pa = pb = None
+        for m in (self._cad_meshes or []):
+            nm = getattr(m, 'name', None)
+            if nm == a and getattr(m, 'points', None) is not None \
+                    and len(m.points):
+                pa = np.asarray(m.points, float)
+            if nm == b and getattr(m, 'points', None) is not None \
+                    and len(m.points):
+                pb = np.asarray(m.points, float)
+        if pa is None or pb is None:
+            return None
+        tree = cKDTree(pb)
+        d, _ = tree.query(pa, k=1)
+        return float(d.min()) * 1000.0
     def _option_reference_dialog(self) -> None:
         """M25/L10 Option → Reference (origin pick + axes marker)."""
         from cab_options import get_setting, set_setting
@@ -806,6 +921,19 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if not spins:
             return False
         mm = np.asarray(snapped[2], dtype=float) * 1000.0
+        if slot == "P3":
+            spins3 = getattr(dlg, "pick_spins3", None)
+            if spins3 is not None:
+                for i in range(3):
+                    spins3[i].setValue(float(mm[i]))
+            self._pick_slot = None
+            hint = getattr(dlg, "pick_hint", None)
+            if hint is not None:
+                hint.setText("Point picked.")
+            calc = getattr(dlg, "pick_calc", None)
+            if calc is not None:
+                calc()
+            return True
         base = 0 if slot == "P1" else 3
         for i in range(3):
             spins[base + i].setValue(float(mm[i]))

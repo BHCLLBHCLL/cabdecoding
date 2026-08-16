@@ -56,6 +56,41 @@ def test_launch_program_missing(qapp):
         str(ROOT / "tests" / "__no_such.exe"), []) is False
 
 
+
+
+def test_distance_dialog_measurement_modes(qapp):
+    # R13: Distance dialog gains angle / chain / parts-min-distance modes.
+    import cab_gui
+    from cab_container import CabArchive
+    from cabxml import PropertyModel, StpreModel, parse_property, parse_stpre
+    from pathlib import Path
+    import numpy as np
+    root = Path(__file__).resolve().parents[1]
+    archive = CabArchive.parse((root / 'tests' / 'box.cab').read_bytes())
+    archive.fill_member_data()
+    xml_name = next(m.name for m in archive.members
+                    if m.name.endswith('.xml') and not m.name.startswith('_'))
+    prop_name = next(m.name for m in archive.members
+                     if m.name.endswith('_property.xml'))
+    viewer = cab_gui.CabViewer(enable_3d=False)
+    viewer.archive = archive
+    viewer.model = StpreModel(parse_stpre(
+        next(m.data for m in archive.members if m.name == xml_name)))
+    viewer.props = PropertyModel(parse_property(
+        next(m.data for m in archive.members if m.name == prop_name)))
+    viewer._cad_meshes = []
+    # min-distance helper on two synthetic clouds (10 mm apart in x)
+    class _M:
+        pass
+    ma, mb = _M(), _M()
+    ma.name, mb.name = 'A', 'B'
+    ma.points = np.array([[0.0, 0, 0], [0.001, 0, 0]])
+    mb.points = np.array([[0.011, 0, 0], [0.012, 0, 0]])
+    viewer._cad_meshes = [ma, mb]
+    d = viewer._min_part_distance('A', 'B')
+    assert d == pytest.approx(10.0, abs=1e-9)
+    # angle/chain math paths via the dialog closure (offscreen) is
+    # covered by the pick flow; here only the parts mode is asserted.
 def test_export_temp_s_files(qapp, tmp_path):
     viewer = _viewer(qapp)
     sfile = viewer._export_temp_s_files()
