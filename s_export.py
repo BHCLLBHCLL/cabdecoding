@@ -9,8 +9,29 @@ Generates the same section layout as the official exporter (sample
 - INIT/FLUX/AMOM/AENT/VENT/VFWL <- ``value`` + ``condition`` bindings
 - analysis/control sections <- ``analysis_set`` / ``output`` / ``steady_param``
 
-Some opaque flag lines (header counts, EQUA mask, HSOL, VFDE extras) are kept
-as sample-derived constants and flagged for multi-sample verification (P5).
+R8-B 多样本交叉验证（CradleCFD_2023.2 示例库 295 对 (.cab,.s) 样本，
+tools/diag_s_constants.py）后，原先写死自 tests/ex4_e.s 的 opaque 常量
+已改为从 XML 状态派生，或注明保留原因：
+
+- SDAT 第二行 9 列  <- 扩散物种数(根级 <diffusion> 个数) / 辐射面组数
+  (无辐射 0, type=flux 2, 其余 4) / 湍流模型号；col4..col9 在样本中
+  存在 porous/mars/运动件等罕见非零值但无 XML 对应源，恒 0。
+- VFEX 段           <- radiation 存在且 type != "flux"（flux 法无角系数）
+- HEATPATH 段       <- analysis_set/heat_path = 1
+- EQUA 8 位掩码     <- 位1-3 各轴向网格数>1（2D/1D 关对应动量方程，
+  样本实证 exB11: 1000x1x1 -> 1001xxxx），位4 恒 1（连续性），
+  位5 热方程（0/1，mars 自由面且 mars_fluid_energy=1 时为 2），
+  位6-7 湍流（k/eps 两方程），位8 扩散物种>0。
+- HSOL              <- thermal_solver 的 [0] 与 [1],[3],[4]；仅热分析、
+  type=incompressive、无自由面、无运动件时发射（样本中 compressive /
+  mars / 运动件项目均无 HSOL 段）。
+- CYCS/CYCT/UNDR/STED <- calculation 稳/瞬态 + cycle / time_step（或
+  init_time_step+courant 自适应）；UNDR/STED 逐条来自 steady_param 的
+  under_relax / conv_check（类型索引 U1 V2 W3 P4 T5 K6 E7）。
+- 仍为常量的行：SDAT 版本行、hdr1 后 5 列（样本中 96% 为 1,0,0,0，
+  语义未知）、VFDE 的 LEAP/MREF/EM1、EQUA 后的 TBEC/UPWD 附加卡
+  （无 XML 源，不发射）。已证无法派生的例外样本清单见
+  tools/diag_s_constants.py 输出。
 """
 
 from __future__ import annotations
@@ -144,24 +165,44 @@ class SExport:
         ni = len(axes.get("x", [])) - 1
         nj = len(axes.get("y", [])) - 1
         nk = len(axes.get("z", [])) - 1
+        # hdr1 后 5 列为多块/重启类标志，295 样本中 96% 恒 1,0,0,0，
+        # 无 XML 对应源，保留常量（R8-B 证据）
         self.lines.append(
             f"{_i(ni)}{_i(nj)}{_i(nk)}{_i(1)}{_i(1)}{_i(0)}{_i(0)}{_i(0)}")
+        # hdr2：col1=扩散物种数；col2=辐射面组数（无 0 / flux 2 / 其余 4，
+        # 例外 exA09-3c=12 无 XML 源）；col3=湍流模型号；col4..9 恒 0
+        rad = aset.find("radiation") if aset is not None else None
+        if rad is None:
+            rad_groups = 0
+        elif rad.attrib.get("type", "") == "flux":
+            rad_groups = 2
+        else:
+            rad_groups = 4
+        turb_model = int(_child_text(aset, "turbulence_model", "0") or 0)
+        diff_n = len(self.m.root.findall("diffusion"))
         self.lines.append(
-            f"{_i(0)}{_i(4)}{_i(0)}{_i(0)}{_i(0)}{_i(0)}{_i(0)}{_i(0)}{_i(0)}")
+            "".join(_i(v) for v in (diff_n, rad_groups, turb_model,
+                                    0, 0, 0, 0, 0, 0)))
 
     def _vfex_unit(self):
         aset = self.m.root.find("analysis_set")
         rad = aset.find("radiation") if aset is not None else None
-        method = _child_text(rad, "method", "1") if rad is not None else "1"
+        # VFEX 仅角系数法辐射发射；flux 法及无辐射项目均无该段
+        # （exA01-1 flux / exB16a 无辐射实证；例外 exA08-* 见诊断记录）
+        if rad is not None and rad.attrib.get("type", "") != "flux":
+            method = _child_text(rad, "method", "1")
+            self.lines += ["VFEX", f"{_i(int(method))}{_i(1)}"]
         self.lines += [
-            "VFEX",
-            f"{_i(int(method))}{_i(1)}",
             "UNIT",
             f"   temperature{_i(1, 15)}{_i(1)}",
             "/",
         ]
 
     def _heatpath(self):
+        aset = self.m.root.find("analysis_set")
+        # HEATPATH 段仅 heat_path=1 时发射（exA01-1 heat_path=0 无此段）
+        if _child_text(aset, "heat_path", "0") != "1":
+            return
         proj = self.m.project
         ambient = _child_text(proj, "ambient_temperature", "20")
         self.lines += [
@@ -173,9 +214,38 @@ class SExport:
             "/",
         ]
 
-    def _equations(self):
-        self.lines += ["EQUA", "11111000"]
+    # -- R8-B 派生辅助 ---------------------------------------------------
+
+    def _equa_mask(self) -> str:
+        """EQUA 8 位掩码（295 样本交叉验证，见模块头注释）。"""
         aset = self.m.root.find("analysis_set")
+        heat = _child_text(aset, "heat", "0") == "1"
+        turb = _child_text(aset, "turbulence", "0") not in ("", "0")
+        fs = self.m.root.find("analysis_etc/free_surf")
+        mfe = _child_text(fs, "mars_fluid_energy", "") if fs is not None else ""
+        diff_n = len(self.m.root.findall("diffusion"))
+        axes = self.m.mesh_axes()
+        # 位1-3：各轴向区间数>1 才解该方向动量方程（2D/1D 实证）
+        bits = "".join("1" if len(axes.get(a, [])) - 1 > 1 else "0"
+                       for a in ("x", "y", "z"))
+        bits += "1"                                   # 位4 连续性恒开
+        if not heat:
+            bits += "0"
+        elif fs is not None and mfe == "1":
+            bits += "2"                               # mars 两流体能量方程
+        else:
+            bits += "1"
+        bits += "1" if turb else "0"                  # 位6 k
+        bits += "1" if turb else "0"                  # 位7 eps
+        bits += "1" if diff_n > 0 else "0"            # 位8 扩散
+        return bits
+
+    def _has_moving_parts(self) -> bool:
+        return bool(self._moving_parts())
+
+    def _equations(self):
+        aset = self.m.root.find("analysis_set")
+        self.lines += ["EQUA", self._equa_mask()]
         grav_abs = float(_child_text(aset, "grav_abs", "9.8"))
         grav_vec = [float(x) for x in _child_text(aset, "grav_vec",
                                                    "0,0,-1").split(",")[:3]]
@@ -185,15 +255,69 @@ class SExport:
             f"{_f(grav_vec[0] * grav_abs, 29)}"
             f"{_f(grav_vec[1] * grav_abs)}{_f(grav_vec[2] * grav_abs)}"
             f"{_f(ambient)}{_i(0)}",
-            "HSOL",
-            f"{_i(1)}",
-            f"{_i(3)}{_i(1)}{_i(1)}",
-            "CYCS",
-            f"{_i(1)}{_i(100, 10)}",
-            "UNDR",
-            f"{_i(5)}{_f(0.99)}",
-            "/",
         ]
+        # HSOL：固体热传导求解卡。样本中 compressive / mars 自由面 /
+        # 运动件项目的官方 .s 均无此段；值取 thermal_solver 的
+        # [0] 与 [1],[3],[4]（ex4_e "1,3,2,1,1,0" -> 1 / 3 1 1）
+        fs = self.m.root.find("analysis_etc/free_surf")
+        if (_child_text(aset, "heat", "0") == "1"
+                and _child_text(aset, "type", "incompressive")
+                != "compressive"
+                and fs is None and not self._has_moving_parts()):
+            ts = [x.strip() for x in _child_text(aset, "thermal_solver",
+                                                 "1,3,2,1,1,0").split(",")]
+            self.lines += [
+                "HSOL",
+                _i(int(ts[0])),
+                _i(int(ts[1])) + _i(int(ts[3])) + _i(int(ts[4])),
+            ]
+        # CYC：稳态 CYCS(起止迭代)，瞬态 CYCT(起止步 + 步进模式) + 参数行
+        cycle = [x.strip() for x in
+                 _child_text(aset, "cycle", "1,100").split(",")]
+        c0 = int(cycle[0]) if cycle and cycle[0] else 1
+        c1 = int(cycle[1]) if len(cycle) > 1 and cycle[1] else 100
+        if _child_text(aset, "calculation", "steady") == "transient":
+            ts_el = aset.find("time_step") if aset is not None else None
+            # 第三值：固定 time_step 时 -1，courant 自适应时 1（样本实证）
+            self.lines += [
+                "CYCT",
+                f"{_i(c0)}{_i(c1, 10)}{_i(-1 if ts_el is not None else 1, 10)}",
+            ]
+            if ts_el is not None:
+                tsp = [x.strip() for x in
+                       (ts_el.text or "99999,0").split(",")]
+                v0 = float(tsp[0])
+                v1 = float(tsp[1]) if len(tsp) > 1 and tsp[1] else 0.0
+                first = _i(int(v0)) if v0 == int(v0) else _f(v0)
+                self.lines.append(first + _f(v1))
+            else:
+                dt = float(_child_text(aset, "init_time_step", "0"))
+                cou = float(_child_text(aset, "courant", "0"))
+                self.lines.append(_f(dt) + _f(cou))
+        else:
+            self.lines += ["CYCS", f"{_i(c0)}{_i(c1, 10)}"]
+        # UNDR / STED：稳态控制卡，逐条来自 steady_param
+        # （类型索引 U1 V2 W3 P4 T5 K6 E7；ex4_e under_relax T 0.99
+        #   -> "5 0.99"；exB16a conv_check U/V/W/T -> STED 1/2/3/5 行）
+        sp = self.m.root.find("steady_param")
+        if sp is not None:
+            type_idx = {"U": 1, "V": 2, "W": 3, "P": 4,
+                        "T": 5, "K": 6, "E": 7}
+            for e in sp.findall("under_relax"):
+                no = type_idx.get(e.attrib.get("type", "T"), 5)
+                val = (e.text or "0").split(",")[0].strip() or "0"
+                self.lines += ["UNDR", f"{_i(no)}{_f(float(val))}"]
+            for e in sp.findall("conv_check"):
+                parts = [x.strip() for x in (e.text or "0,0").split(",")]
+                if not parts or parts[0] in ("", "0"):
+                    continue
+                no = type_idx.get(e.attrib.get("type", "T"), 5)
+                eps = float(parts[1]) if len(parts) > 1 and parts[1] else 0.0
+                self.lines += [
+                    "STED",
+                    f"{_i(no)}{_i(int(parts[0]))}{_f(eps)}",
+                ]
+        self.lines.append("/")
 
     def _property(self):
         self.lines += ["PROPERTY", f"{_i(1)}"]

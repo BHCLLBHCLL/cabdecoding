@@ -4228,6 +4228,42 @@ class _CwOutputSeriesPage(QWidget if _HAS_GUI else object):
         body.addWidget(newb)
         pl.addLayout(body, 1)
 
+        # ---- R8-A 深字段：时间序列输出间隔 + 字段选择表 ----
+        # .s 实证 TMSR 段（exB01 等）：每监测点行尾 R1/R2/R3... 为输出
+        # 字段编号；XML 侧无 COM 保存实证，间隔存 analysis_set
+        # timeseries_interval，字段选择存 timeseries_fields（分号分隔，
+        # 未实证，按 TMSR 条目定义）。
+        irow = QHBoxLayout()
+        irow.addWidget(QLabel("Output interval (cycles)", page))
+        self.ts_interval = QSpinBox(page)
+        self.ts_interval.setRange(1, 10000000)
+        try:
+            self.ts_interval.setValue(int(float(
+                model.analysis_set_value("timeseries_interval", "1"))))
+        except (TypeError, ValueError):
+            self.ts_interval.setValue(1)
+        irow.addWidget(self.ts_interval)
+        irow.addStretch(1)
+        pl.addLayout(irow)
+
+        fgrp = QGroupBox("Output fields", page)
+        fgl = QVBoxLayout(fgrp)
+        self.ts_fields = QTableWidget(0, 2, fgrp)
+        self.ts_fields.setHorizontalHeaderLabels(["Field", "Output"])
+        self.ts_fields.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        sel = set(filter(None, (s.strip() for s in
+                                model.analysis_set_value(
+                                    "timeseries_fields", "").split(";"))))
+        for i, var in enumerate(self._TS_VARS):
+            self.ts_fields.insertRow(i)
+            self.ts_fields.setItem(i, 0, QTableWidgetItem(var))
+            self.ts_fields.setItem(
+                i, 1, QTableWidgetItem(
+                    "Yes" if (not sel or var in sel) else "No"))
+        fgl.addWidget(self.ts_fields)
+        pl.addWidget(fgrp)
+
         brow = QHBoxLayout()
         tip = QLabel("Select from list > New", page)
         tip.setStyleSheet("color: #555;")
@@ -4317,6 +4353,18 @@ class _CwOutputSeriesPage(QWidget if _HAS_GUI else object):
         self.model.set_analysis_set_value(
             "timeseries_output",
             "T" if self._ts else "F")
+        # R8-A 深字段：输出间隔与字段选择表写回
+        self.model.set_analysis_set_value(
+            "timeseries_interval", str(self.ts_interval.value()))
+        chosen = []
+        for i in range(self.ts_fields.rowCount()):
+            it = self.ts_fields.item(i, 1)
+            if it is not None and it.text().strip().lower() == "yes":
+                name = self.ts_fields.item(i, 0)
+                if name is not None:
+                    chosen.append(name.text().strip())
+        self.model.set_analysis_set_value(
+            "timeseries_fields", ";".join(chosen))
 
 
 class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
@@ -7075,7 +7123,84 @@ class _CwRadiationGroupingPage(QWidget if _HAS_GUI else object):
         gl.addLayout(row)
         gl.addLayout(row2)
         gl.addWidget(self.apply_all)
-        lay.addWidget(g)
+        # ---- R8-A 深字段：辐射求解器（Monte Carlo / VF） ----
+        # 子元素名 method/calc_cycle/solver_eps/space_cycle/max_particle/
+        # max_group_num 实证于 STpre 2025.2 COM 保存样本（probe_work/
+        # cwtypes2_*.cab 的 <analysis_set><radiation type='vf'>）；取值域按
+        # Solver 手册 VFDE 命令（MPCL=20000 光线数、MAXM=4000 分组面上限、
+        # METH 0=Monte Carlo/1=Radiosity 隐式/2=Radiosity 显式）。
+        # 反射次数（VFDE MREF=100）与 SMRT 光线数（VFDE MRCL）的 XML 子元素
+        # 名未实证，按 VFDE 条目命名（max_reflection / smrt_rays）。
+        rg = QGroupBox("Radiation Solver (Monte Carlo / VF)", self)
+        rf = QFormLayout(rg)
+        self.rad_type = QComboBox(rg)
+        self.rad_type.addItem("VF method", "vf")
+        self.rad_type.addItem("Flux method", "flux")
+        self.rad_type.addItem("Monte Carlo method", "mc")
+        cur_t = model.radiation_type() or "vf"
+        i = self.rad_type.findData(cur_t)
+        self.rad_type.setCurrentIndex(i if i >= 0 else 0)
+        self.rad_method = QComboBox(rg)
+        for label, val in (
+                ("Monte Carlo method", "0"),
+                ("Radiosity method (implicit)", "1"),
+                ("Radiosity method (explicit)", "2")):
+            self.rad_method.addItem(label, val)
+        cur_m = model.radiation_param("method", "1")
+        i = self.rad_method.findData(cur_m)
+        self.rad_method.setCurrentIndex(i if i >= 0 else 1)
+        # MC 光线数：VFDE MPCL（默认 20000；XML 子元素 max_particle 实证）
+        self.mc_rays = QSpinBox(rg)
+        self.mc_rays.setRange(1, 100000000)
+        self.mc_rays.setValue(int(float(
+            model.radiation_param("max_particle", "20000"))))
+        # 单根光线最大反射次数：VFDE MREF（默认 100；XML 子元素未实证）
+        self.mc_reflect = QSpinBox(rg)
+        self.mc_reflect.setRange(1, 100000)
+        self.mc_reflect.setValue(int(float(
+            model.radiation_param("max_reflection", "100"))))
+        # SMRT 用光线数：VFDE MRCL（默认=MPCL；XML 子元素未实证）
+        self.smrt_rays = QSpinBox(rg)
+        self.smrt_rays.setRange(1, 100000000)
+        self.smrt_rays.setValue(int(float(
+            model.radiation_param("smrt_rays", "20000"))))
+        # 分组面上限：VFDE MAXM（默认 4000；XML 子元素 max_group_num 实证）
+        self.group_max = QSpinBox(rg)
+        self.group_max.setRange(1, 1000000)
+        self.group_max.setValue(int(float(
+            model.radiation_param("max_group_num", "4000"))))
+        # 辐射计算周期：XML 子元素 calc_cycle 实证（COM 默认 -1）
+        self.calc_cycle = QSpinBox(rg)
+        self.calc_cycle.setRange(-1, 10000000)
+        try:
+            self.calc_cycle.setValue(int(float(
+                model.radiation_param("calc_cycle", "-1"))))
+        except ValueError:
+            self.calc_cycle.setValue(-1)
+        # 求解收敛判据：XML 子元素 solver_eps 实证（COM 默认 -1）
+        self.solver_eps = QDoubleSpinBox(rg)
+        self.solver_eps.setRange(-1.0, 1.0)
+        self.solver_eps.setDecimals(6)
+        try:
+            self.solver_eps.setValue(float(
+                model.radiation_param("solver_eps", "-1")))
+        except ValueError:
+            self.solver_eps.setValue(-1.0)
+        # SMRT 空间平均再计算周期：XML 子元素 space_cycle 实证（默认 0）
+        self.space_cycle = QSpinBox(rg)
+        self.space_cycle.setRange(0, 10000000)
+        self.space_cycle.setValue(int(float(
+            model.radiation_param("space_cycle", "0"))))
+        rf.addRow("Radiation method (analysis type)", self.rad_type)
+        rf.addRow("View-factor calculation method", self.rad_method)
+        rf.addRow("Monte Carlo rays per group face", self.mc_rays)
+        rf.addRow("Max. reflections per ray", self.mc_reflect)
+        rf.addRow("Rays for spatial mean radiant temp.", self.smrt_rays)
+        rf.addRow("Upper limit of group faces", self.group_max)
+        rf.addRow("Radiation calculation cycle", self.calc_cycle)
+        rf.addRow("Solver convergence criterion", self.solver_eps)
+        rf.addRow("SMRT recalculation cycle", self.space_cycle)
+        lay.addWidget(rg)
         lay.addStretch(1)
 
     def apply(self) -> None:
@@ -7094,6 +7219,24 @@ class _CwRadiationGroupingPage(QWidget if _HAS_GUI else object):
             "radiation_group", gname,
             [("group_num", str(gnum), None),
              ("enable", "1" if on else "0", None)])
+        # R8-A 深字段：辐射求解器参数写回 <analysis_set>/<radiation>
+        self.model.set_radiation_type(self.rad_type.currentData())
+        self.model.set_radiation_param(
+            "method", str(self.rad_method.currentData()))
+        self.model.set_radiation_param(
+            "max_particle", str(self.mc_rays.value()))
+        self.model.set_radiation_param(
+            "max_reflection", str(self.mc_reflect.value()))
+        self.model.set_radiation_param(
+            "smrt_rays", str(self.smrt_rays.value()))
+        self.model.set_radiation_param(
+            "max_group_num", str(self.group_max.value()))
+        self.model.set_radiation_param(
+            "calc_cycle", str(self.calc_cycle.value()))
+        self.model.set_radiation_param(
+            "solver_eps", f"{self.solver_eps.value():g}")
+        self.model.set_radiation_param(
+            "space_cycle", str(self.space_cycle.value()))
         if on and self.apply_all.isChecked():
             for p in self.model.parts():
                 attr = (p.attribute or "").lower()
@@ -7218,6 +7361,93 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
         f.addRow("Particle diameter (m)", self.diameter)
         f.addRow("Particle density (kg/m3)", self.density)
         lay.addWidget(g)
+
+        # ---- R8-A 深字段：粒子完整模型 ----
+        # .s 实证 PCLE_CREATE 段（exA07-1 等）：粒径分布/个数率/初速等
+        # 按序给出；XML 侧无 COM 保存实证，统一存 <value type='particle'>
+        # Particle_default 的子元素 kv（字段名按 Solver 手册 PCLE_CREATE
+        # 条目命名，标注「未实证，按手册定义」）。
+        pf = model.value_fields("particle", "Particle_default")
+
+        def _num(key: str, default: float, w) -> None:
+            try:
+                w.setValue(float(pf.get(key, default)))
+            except (TypeError, ValueError):
+                w.setValue(default)
+
+        dg = QGroupBox("Particle Model (size distribution / drag / wall)", self)
+        dfl = QFormLayout(dg)
+        # 粒径分布类型（PCLE_CREATE 分布种类：0=均一/1=対数正規/2=Rosin-
+        # Rammler；未实证，按手册定义）
+        self.dia_dist = QComboBox(dg)
+        for label, val in (("Uniform", "0"), ("Log-normal", "1"),
+                           ("Rosin-Rammler", "2")):
+            self.dia_dist.addItem(label, val)
+        i = self.dia_dist.findData(pf.get("particle_distribution", "0"))
+        self.dia_dist.setCurrentIndex(i if i >= 0 else 0)
+        # 最小/最大/平均粒径（PCLE_CREATE 粒径三值；单位 m）
+        self.dia_min = QDoubleSpinBox(dg)
+        self.dia_min.setRange(1e-12, 1.0)
+        self.dia_min.setDecimals(9)
+        _num("particle_dia_min", 1e-5, self.dia_min)
+        self.dia_max = QDoubleSpinBox(dg)
+        self.dia_max.setRange(1e-12, 1.0)
+        self.dia_max.setDecimals(9)
+        _num("particle_dia_max", 1e-4, self.dia_max)
+        self.dia_mean = QDoubleSpinBox(dg)
+        self.dia_mean.setRange(1e-12, 1.0)
+        self.dia_mean.setDecimals(9)
+        _num("particle_dia_mean", 5e-5, self.dia_mean)
+        # 对数正态标准差 / Rosin-Rammler 分布指数（未实证，按手册定义）
+        self.dia_sigma = QDoubleSpinBox(dg)
+        self.dia_sigma.setRange(0.01, 10.0)
+        self.dia_sigma.setDecimals(3)
+        _num("particle_sigma", 0.5, self.dia_sigma)
+        # 电力模型（PCLE_CREATE IDRG：0=Stokes/1=Stokes+Cunningham/
+        # 2=Newton/3=Schiller-Naumann；未实证，按手册定义）
+        self.drag = QComboBox(dg)
+        for label, val in (
+                ("Stokes drag", "0"),
+                ("Stokes with Cunningham correction", "1"),
+                ("Newton drag", "2"),
+                ("Schiller-Naumann drag", "3")):
+            self.drag.addItem(label, val)
+        i = self.drag.findData(pf.get("drag_model", "3"))
+        self.drag.setCurrentIndex(i if i >= 0 else 3)
+        # 壁面反弹系数：法向/切向（PCLE_CREATE 反弹率 EN/ET，0~1）
+        self.restitution_n = QDoubleSpinBox(dg)
+        self.restitution_n.setRange(0.0, 1.0)
+        self.restitution_n.setDecimals(3)
+        _num("wall_restitution_normal", 0.9, self.restitution_n)
+        self.restitution_t = QDoubleSpinBox(dg)
+        self.restitution_t.setRange(0.0, 1.0)
+        self.restitution_t.setDecimals(3)
+        _num("wall_restitution_tangent", 0.9, self.restitution_t)
+        # 湍流扩散（随机轨道模型：0=off/1=on；未实证，按手册定义）
+        self.turb_diff = QComboBox(dg)
+        self.turb_diff.addItem("Off (deterministic)", "0")
+        self.turb_diff.addItem("On (random walk)", "1")
+        i = self.turb_diff.findData(pf.get("turbulent_diffusion", "1"))
+        self.turb_diff.setCurrentIndex(i if i >= 0 else 1)
+        # 随机轨道尝试数（未实证，按手册定义，默认 1）
+        self.turb_tries = QSpinBox(dg)
+        self.turb_tries.setRange(1, 10000)
+        try:
+            self.turb_tries.setValue(int(float(
+                pf.get("turbulent_tries", "1"))))
+        except (TypeError, ValueError):
+            self.turb_tries.setValue(1)
+        dfl.addRow("Diameter distribution", self.dia_dist)
+        dfl.addRow("Min. diameter (m)", self.dia_min)
+        dfl.addRow("Max. diameter (m)", self.dia_max)
+        dfl.addRow("Mean diameter (m)", self.dia_mean)
+        dfl.addRow("[Log-normal] sigma / [R-R] spread", self.dia_sigma)
+        dfl.addRow("Drag model", self.drag)
+        dfl.addRow("Wall restitution (normal)", self.restitution_n)
+        dfl.addRow("Wall restitution (tangent)", self.restitution_t)
+        dfl.addRow("Turbulent diffusion", self.turb_diff)
+        dfl.addRow("Random-walk tries", self.turb_tries)
+        lay.addWidget(dg)
         lay.addStretch(1)
 
     def apply(self) -> None:
@@ -7231,11 +7461,27 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
         self.model.set_project_value(
             "particle_density", f"{self.density.value():g}")
         self.model.set_analysis_set_value("particle", "1" if on else "0")
+        # R8-A 深字段：粒子完整模型写回 Particle_default 的 kv 扩展
         self.model.upsert_value(
             "particle", "Particle_default",
             [("particle_mode", mode, None),
              ("particle_diameter", f"{self.diameter.value():g}", "m"),
-             ("particle_density", f"{self.density.value():g}", "kg/m3")])
+             ("particle_density", f"{self.density.value():g}", "kg/m3"),
+             ("particle_distribution",
+              self.dia_dist.currentData(), None),
+             ("particle_dia_min", f"{self.dia_min.value():g}", "m"),
+             ("particle_dia_max", f"{self.dia_max.value():g}", "m"),
+             ("particle_dia_mean", f"{self.dia_mean.value():g}", "m"),
+             ("particle_sigma", f"{self.dia_sigma.value():g}", None),
+             ("drag_model", self.drag.currentData(), None),
+             ("wall_restitution_normal",
+              f"{self.restitution_n.value():g}", None),
+             ("wall_restitution_tangent",
+              f"{self.restitution_t.value():g}", None),
+             ("turbulent_diffusion",
+              self.turb_diff.currentData(), None),
+             ("turbulent_tries",
+              str(self.turb_tries.value()), None)])
 
 
 class _CwThermoregulationPage(QWidget if _HAS_GUI else object):
@@ -7484,7 +7730,81 @@ class _CwReactionPage(QWidget if _HAS_GUI else object):
         f.addRow("Reaction mode", self.mode)
         f.addRow("Reaction rate (1/s)", self.rate)
         lay.addWidget(g)
+
+        # ---- R8-A 深字段：多步反应速率表 ----
+        # .s 实证 REAC_REGION 段（exA04-1 等）：速率行为
+        # 'A, n, E, T_ref, order...'（Arrhenius 三参数 + 级数）；XML 侧
+        # 无 COM 保存实证，每步存一个 <value type='reaction'>
+        # Reaction_step{N} 子元素 kv（未实证，按手册定义）。
+        rg = QGroupBox("Multi-step Rate Constants (Arrhenius)", self)
+        rgl = QVBoxLayout(rg)
+        self.step_table = QTableWidget(0, 5, rg)
+        self.step_table.setHorizontalHeaderLabels([
+            "Rate constant A (1/s)", "Temp. exponent n",
+            "Activation energy E (J/mol)", "Reference temp. (K)",
+            "Reaction order (-)"])
+        self.step_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        rgl.addWidget(self.step_table, 1)
+        btns = QHBoxLayout()
+        self.step_add = QPushButton("Add step", rg)
+        self.step_add.clicked.connect(
+            lambda: self._step_insert(
+                self.step_table.rowCount(),
+                1.0, 0.0, 1.0e4, 0.0, 1.0))
+        self.step_del = QPushButton("Remove last", rg)
+        self.step_del.clicked.connect(self._step_remove_last)
+        btns.addWidget(self.step_add)
+        btns.addWidget(self.step_del)
+        btns.addStretch(1)
+        rgl.addLayout(btns)
+        lay.addWidget(rg)
+        self._steps_load()
         lay.addStretch(1)
+
+    def _steps_load(self) -> None:
+        """从 Reaction_step{N} value 重建多步速率表。"""
+
+        def _f(fields: dict, key: str, default: float) -> float:
+            try:
+                return float(fields.get(key, default))
+            except (TypeError, ValueError):
+                return default
+
+        self.step_table.setRowCount(0)
+        steps = []
+        for v in self.model.values_of_type("reaction"):
+            n = next((c for c in v if c.tag == "name"), None)
+            name = (n.text or "").strip() if n is not None else ""
+            if not name.startswith("Reaction_step"):
+                continue
+            try:
+                idx = int(name[len("Reaction_step"):])
+            except ValueError:
+                continue
+            fields = {c.tag: (c.text or "").strip()
+                      for c in v if c.tag != "name"}
+            steps.append((idx, fields))
+        for _idx, f in sorted(steps):
+            self._step_insert(
+                self.step_table.rowCount(),
+                _f(f, "rate_constant", 1.0),
+                _f(f, "temp_exponent", 0.0),
+                _f(f, "activation_energy", 1.0e4),
+                _f(f, "ref_temp", 0.0),
+                _f(f, "reaction_order", 1.0))
+
+    def _step_insert(self, row: int, a: float, n: float, e: float,
+                     tref: float, order: float) -> None:
+        self.step_table.insertRow(row)
+        for col, val in enumerate((a, n, e, tref, order)):
+            self.step_table.setItem(
+                row, col, QTableWidgetItem(f"{val:g}"))
+
+    def _step_remove_last(self) -> None:
+        row = self.step_table.rowCount()
+        if row > 0:
+            self.step_table.removeRow(row - 1)
 
     def apply(self) -> None:
         on = self.enable.isChecked()
@@ -7499,6 +7819,23 @@ class _CwReactionPage(QWidget if _HAS_GUI else object):
             "reaction", "Reaction_default",
             [("reaction_mode", mode, None),
              ("reaction_rate", f"{self.rate.value():g}", "1/s")])
+        # R8-A 深字段：多步速率表写回 Reaction_step{N}（步数减少时删多余）
+        rows = self.step_table.rowCount()
+        for i in range(rows):
+            def _cell(r: int, c: int, default: str = "0") -> str:
+                it = self.step_table.item(r, c)
+                return it.text().strip() if it and it.text().strip() \
+                    else default
+            self.model.upsert_value(
+                "reaction", f"Reaction_step{i + 1}",
+                [("rate_constant", _cell(i, 0, "1"), "1/s"),
+                 ("temp_exponent", _cell(i, 1, "0"), None),
+                 ("activation_energy", _cell(i, 2, "0"), "J/mol"),
+                 ("ref_temp", _cell(i, 3, "0"), "K"),
+                 ("reaction_order", _cell(i, 4, "1"), None)])
+        i = rows + 1
+        while self.model.delete_value(f"Reaction_step{i}"):
+            i += 1
 
 
 class _CwFusionPage(QWidget if _HAS_GUI else object):
@@ -8111,7 +8448,123 @@ class _CwEvaporationPage(QWidget if _HAS_GUI else object):
         f.addRow("Latent heat unit", self.latent_unit)
         f.addRow("Recoil pressure model", self.recoil)
         f.addRow("Atomic mass of liquid (kg/mol)", self.atomic)
+
+        # ---- R8-A 深字段：自由面 MARS / VOF 求解参数 ----
+        # 存储实证于 STpre 2025.2 COM 保存样本（probe_work/cwtypes2_mars.cab
+        # 与 cwtypes2_vof.cab 的 <analysis_etc><free_surf type='mars'|'vof'>
+        # 属性集）。属性名与默认值对齐样本；取值域按 Solver 手册
+        # SURF_CONTROL 命令（NFS=5 分步数、EPSVF=1e-4 VOF 阈值、IFILL/FILL
+        # 填充率检查 0/2/12 与 95%）。filling_check / fill_rate 两个属性名
+        # 未实证（样本缺省未写出），按 SURF_CONTROL 条目命名。
+        fg = QGroupBox("Free Surface (MARS / VOF)", self)
+        ff = QFormLayout(fg)
+        self.fs_enable = QCheckBox("Consider free surface analysis", fg)
+        self.fs_enable.setChecked(
+            model.analysis_etc_section("free_surf") is not None)
+        self.fs_method = QComboBox(fg)
+        self.fs_method.addItem("MARS method", "mars")
+        self.fs_method.addItem("VOF method", "vof")
+        cur_fs = model.free_surf_type() or "mars"
+        i = self.fs_method.findData(cur_fs)
+        self.fs_method.setCurrentIndex(i if i >= 0 else 0)
+        # 接触角（SUFS_REGION contactangle；XML 属性 contact 实证，默认 90）
+        self.fs_contact = QSpinBox(fg)
+        self.fs_contact.setRange(0, 180)
+        self.fs_contact.setValue(int(float(
+            model.free_surf_attr("contact", "90"))))
+        # VOF 阈值（SURF_CONTROL EPSVF，默认 1e-4）：样本 cutoff 为
+        # 'EPSVF,0.5,eps_save' 三元组，仅暴露并回写第 1 值，其余原样保留
+        self.fs_cutoff = QDoubleSpinBox(fg)
+        self.fs_cutoff.setRange(1e-9, 1.0)
+        self.fs_cutoff.setDecimals(6)
+        try:
+            self.fs_cutoff.setValue(float(
+                (model.free_surf_attr("cutoff", "0.0001,0.5,1e-06")
+                 .split(",") + ["0.0001"])[0]))
+        except ValueError:
+            self.fs_cutoff.setValue(1e-4)
+        # VOF 值检查周期（SURF_CONTROL NCKVF；XML 属性 vof_list_cycle 实证）
+        self.fs_check_cycle = QSpinBox(fg)
+        self.fs_check_cycle.setRange(0, 10000000)
+        self.fs_check_cycle.setValue(int(float(
+            model.free_surf_attr("vof_list_cycle", "0"))))
+        # 填充率检查（SURF_CONTROL IFILL 0/2/12；XML 属性名未实证）
+        self.fs_fill_check = QComboBox(fg)
+        for label, val in (
+                ("Off", "0"), ("Finish when filled", "2"),
+                ("Close inflow/outflow when filled", "12")):
+            self.fs_fill_check.addItem(label, val)
+        cur_fill = model.free_surf_attr("filling_check", "0")
+        i = self.fs_fill_check.findData(cur_fill)
+        self.fs_fill_check.setCurrentIndex(i if i >= 0 else 0)
+        # 填充率阈值 %（SURF_CONTROL FILL，默认 95.0）
+        self.fs_fill_rate = QDoubleSpinBox(fg)
+        self.fs_fill_rate.setRange(1.0, 100.0)
+        self.fs_fill_rate.setDecimals(2)
+        try:
+            self.fs_fill_rate.setValue(float(
+                model.free_surf_attr("fill_rate", "95")))
+        except ValueError:
+            self.fs_fill_rate.setValue(95.0)
+        # MARS：分步数（SURF_CONTROL NFS，默认 5；XML 属性实证）
+        self.fs_frac_step = QSpinBox(fg)
+        self.fs_frac_step.setRange(0, 100)
+        self.fs_frac_step.setValue(int(float(
+            model.free_surf_attr("fractional_step", "5"))))
+        # MARS：粘度平均（IVSCC 0=算术/1=调和；XML 属性实证）
+        self.fs_visc_avg = QComboBox(fg)
+        self.fs_visc_avg.addItem("Arithmetic mean", "0")
+        self.fs_visc_avg.addItem("Harmonic mean", "1")
+        i = self.fs_visc_avg.findData(
+            model.free_surf_attr("viscosity_average", "0"))
+        self.fs_visc_avg.setCurrentIndex(i if i >= 0 else 0)
+        # MARS：守恒修正项（IMADV 0/1；XML 属性实证，默认 1）
+        self.fs_conservation = QComboBox(fg)
+        self.fs_conservation.addItem("Disabled", "0")
+        self.fs_conservation.addItem("Enabled", "1")
+        i = self.fs_conservation.findData(
+            model.free_surf_attr("conservation_term", "1"))
+        self.fs_conservation.setCurrentIndex(i if i >= 0 else 1)
+        # MARS：单相流模型种类（XML 属性 one_fluid_model 实证，样本默认 2）
+        self.fs_one_fluid = QSpinBox(fg)
+        self.fs_one_fluid.setRange(0, 2)
+        self.fs_one_fluid.setValue(int(float(
+            model.free_surf_attr("one_fluid_model", "2"))))
+        # VOF：自由面形状（IPRPL 1=VOF 分布/2=曲率最小；XML 属性实证）
+        self.fs_surface_set = QComboBox(fg)
+        self.fs_surface_set.addItem("VOF value distribution", "1")
+        self.fs_surface_set.addItem("Minimum curvature", "2")
+        i = self.fs_surface_set.findData(
+            model.free_surf_attr("surface_set", "1"))
+        self.fs_surface_set.setCurrentIndex(i if i >= 0 else 0)
+        # VOF：流量检查输出周期（NVCH；XML 属性 flow_list 实证）
+        self.fs_flow_list = QSpinBox(fg)
+        self.fs_flow_list.setRange(0, 10000000)
+        self.fs_flow_list.setValue(int(float(
+            model.free_surf_attr("flow_list", "1"))))
+        # VOF：静压初始分布（ISFDR 0/1；XML 属性 hydro_pres 实证）
+        self.fs_hydro = QComboBox(fg)
+        self.fs_hydro.addItem("No hydrostatic pressure", "0")
+        self.fs_hydro.addItem("Hydrostatic pressure", "1")
+        i = self.fs_hydro.findData(
+            model.free_surf_attr("hydro_pres", "0"))
+        self.fs_hydro.setCurrentIndex(i if i >= 0 else 0)
+        ff.addRow(self.fs_enable)
+        ff.addRow("Free surface method", self.fs_method)
+        ff.addRow("Contact angle (deg)", self.fs_contact)
+        ff.addRow("VOF cutoff threshold", self.fs_cutoff)
+        ff.addRow("VOF check cycle", self.fs_check_cycle)
+        ff.addRow("Filling rate check", self.fs_fill_check)
+        ff.addRow("Filling rate (%)", self.fs_fill_rate)
+        ff.addRow("[MARS] Fractional step divisions", self.fs_frac_step)
+        ff.addRow("[MARS] Viscosity average", self.fs_visc_avg)
+        ff.addRow("[MARS] Conservation term", self.fs_conservation)
+        ff.addRow("[MARS] One-fluid model kind", self.fs_one_fluid)
+        ff.addRow("[VOF] Free-surface shape", self.fs_surface_set)
+        ff.addRow("[VOF] Flow rate check cycle", self.fs_flow_list)
+        ff.addRow("[VOF] Initial hydrostatic pressure", self.fs_hydro)
         lay.addWidget(g)
+        lay.addWidget(fg)
         lay.addStretch(1)
 
     def apply(self) -> None:
@@ -8120,18 +8573,54 @@ class _CwEvaporationPage(QWidget if _HAS_GUI else object):
             "evaporation_enable", "T" if on else "F")
         if not on:
             self.model.remove_analysis_etc_section("evaporation")
-            return
-        self.model.set_analysis_etc_child(
-            "evaporation", "liquid_temp", f"{self.liquid_temp.value():g}")
-        self.model.set_analysis_etc_child(
-            "evaporation", "gas_temp", f"{self.gas_temp.value():g}")
-        self.model.set_analysis_etc_child(
-            "evaporation", "latent_heat", f"{self.latent.value():g}",
-            unit=self.latent_unit.currentText())
-        self.model.set_analysis_etc_child(
-            "evaporation", "recoil_model", str(self.recoil.currentIndex()))
-        self.model.set_analysis_etc_child(
-            "evaporation", "atomic_mass", f"{self.atomic.value():g}")
+        else:
+            self.model.set_analysis_etc_child(
+                "evaporation", "liquid_temp",
+                f"{self.liquid_temp.value():g}")
+            self.model.set_analysis_etc_child(
+                "evaporation", "gas_temp", f"{self.gas_temp.value():g}")
+            self.model.set_analysis_etc_child(
+                "evaporation", "latent_heat", f"{self.latent.value():g}",
+                unit=self.latent_unit.currentText())
+            self.model.set_analysis_etc_child(
+                "evaporation", "recoil_model",
+                str(self.recoil.currentIndex()))
+            self.model.set_analysis_etc_child(
+                "evaporation", "atomic_mass", f"{self.atomic.value():g}")
+        # R8-A 深字段：自由面 MARS/VOF 参数写回 <analysis_etc>/<free_surf>
+        if self.fs_enable.isChecked():
+            m = self.model
+            m.set_free_surf_attr("type", self.fs_method.currentData())
+            m.set_free_surf_attr("contact", str(self.fs_contact.value()))
+            # cutoff 为 'EPSVF,0.5,eps_save' 三元组（样本实证）：仅替换
+            # 第 1 值，后两值原样保留（缺省补样本默认 0.5 / 1e-06）
+            parts = (m.free_surf_attr("cutoff", "0.0001,0.5,1e-06")
+                     .split(",") + ["0.5", "1e-06"])[:3]
+            parts[0] = f"{self.fs_cutoff.value():g}"
+            m.set_free_surf_attr("cutoff", ",".join(parts))
+            m.set_free_surf_attr(
+                "vof_list_cycle", str(self.fs_check_cycle.value()))
+            m.set_free_surf_attr(
+                "filling_check", self.fs_fill_check.currentData())
+            m.set_free_surf_attr(
+                "fill_rate", f"{self.fs_fill_rate.value():g}")
+            m.set_free_surf_attr(
+                "fractional_step", str(self.fs_frac_step.value()))
+            m.set_free_surf_attr(
+                "viscosity_average", self.fs_visc_avg.currentData())
+            m.set_free_surf_attr(
+                "conservation_term", self.fs_conservation.currentData())
+            m.set_free_surf_attr(
+                "one_fluid_model", str(self.fs_one_fluid.value()))
+            m.set_free_surf_attr(
+                "surface_set", self.fs_surface_set.currentData())
+            m.set_free_surf_attr(
+                "flow_list", str(self.fs_flow_list.value()))
+            m.set_free_surf_attr(
+                "hydro_pres", self.fs_hydro.currentData())
+        else:
+            # 取消勾选时移除整个自由面节（与 CW Analysis Types 行为一致）
+            self.model.remove_analysis_etc_section("free_surf")
 
 # P1-3: Boil/condensation - kinds boil_condensation (Phase change) and
 # boil_lee (Bubbles) COM-validated 2026-08-16 (SetAnalysisType rc=1);

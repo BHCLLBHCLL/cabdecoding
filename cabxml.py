@@ -1198,6 +1198,108 @@ class StpreModel:
             el.attrib["unit"] = unit
         return True
 
+    # ---- R8-A CW 深字段存储辅助 -----------------------------------------
+    # <analysis_set>/<radiation> 以子元素携带求解器深参数（STpre 2025.2 COM
+    # 保存实证：method/calc_cycle/solver_eps/space_cycle/em0_kind/part_em_kind/
+    # output_group/output_factor/max_particle/max_group_num/parts_group_num）；
+    # @type 为 'vf'/'flux'/'mc'（CW Analysis Types 页写入）。
+
+    def radiation_element(self) -> Optional[ET.Element]:
+        """返回 ``<analysis_set>/<radiation>``（可能为 None）。"""
+        aset = _first(self.root, "analysis_set")
+        return _first(aset, "radiation") if aset is not None else None
+
+    def radiation_type(self) -> str:
+        """辐射方法 @type（'vf'/'flux'/'mc'，缺省 ''）。"""
+        el = self.radiation_element()
+        return el.attrib.get("type", "") if el is not None else ""
+
+    def set_radiation_type(self, type_: str) -> bool:
+        """确保 <radiation> 存在并更新 @type（不覆盖已有子元素）。"""
+        aset = self.ensure_analysis_set()
+        el = _first(aset, "radiation")
+        if el is None:
+            el = ET.SubElement(aset, "radiation")
+            el.tail = "\n   "
+        el.attrib["type"] = type_
+        return True
+
+    def radiation_param(self, tag: str, default: str = "") -> str:
+        """读取 <radiation> 子元素文本（MC 光线数/分组上限等深参数）。"""
+        el = self.radiation_element()
+        c = _first(el, tag) if el is not None else None
+        return (c.text or "").strip() if c is not None and c.text \
+            else default
+
+    def set_radiation_param(self, tag: str, text: str) -> bool:
+        """写入 <radiation> 子元素（不存在时先建 <radiation type='vf'>）。"""
+        aset = self.ensure_analysis_set()
+        el = _first(aset, "radiation")
+        if el is None:
+            el = ET.SubElement(aset, "radiation")
+            el.tail = "\n   "
+            el.attrib["type"] = "vf"
+        c = _first(el, tag)
+        if c is None:
+            c = ET.SubElement(el, tag)
+            c.tail = "\n     "
+        set_text(c, text)
+        return True
+
+    # <analysis_etc>/<free_surf type='mars'|'vof'> 以 XML 属性携带自由面
+    # 深参数（STpre 2025.2 COM SetAnalysisType('mars'/'vof','T') 保存实证，
+    # 见 tools/probe_work/cwtypes2_mars.cab / cwtypes2_vof.cab：MARS 侧
+    # fluid_no/contact/fractional_step/cutoff/vof_list_cycle/diffusion_phase/
+    # diffusion_fluid/cutoff_save/viscosity_average/viscosity_on_surf/
+    # conservation_term/one_fluid_model/mars_marangoni/mars_pcle_*；
+    # VOF 侧 fluid_no/contact/fractional_step/surface_set/flow_list/
+    # hydro_pres/v_correction/interpolation）。
+
+    def free_surf_element(self) -> Optional[ET.Element]:
+        """返回 ``<analysis_etc>/<free_surf>``（可能为 None）。"""
+        aet = _first(self.root, "analysis_etc")
+        return _first(aet, "free_surf") if aet is not None else None
+
+    def free_surf_type(self) -> str:
+        """自由面方法 @type（'mars'/'vof'，缺省 ''）。"""
+        el = self.free_surf_element()
+        return el.attrib.get("type", "") if el is not None else ""
+
+    def free_surf_attr(self, name: str, default: str = "") -> str:
+        """读取 <free_surf> 属性（MARS/VOF 深参数统一属性存储）。"""
+        el = self.free_surf_element()
+        return el.attrib.get(name, default) if el is not None else default
+
+    def set_free_surf_attr(self, name: str, value: str,
+                           type_: Optional[str] = None) -> bool:
+        """写入 <free_surf> 属性；元素缺失时按 ``type_``（缺省 'mars'）新建。"""
+        sec = self.ensure_analysis_etc_section("free_surf")
+        if "type" not in sec.attrib and type_ is None:
+            sec.attrib["type"] = "mars"
+        elif type_ is not None:
+            sec.attrib["type"] = type_
+        sec.attrib[name] = value
+        return True
+
+    def value_fields(self, value_type: str, name: str) -> dict[str, str]:
+        """按 type+name 读取 ``<value>`` 的子元素文本字典（未命中返回 {}）。
+
+        供 CW 深字段（粒子模型扩展/多步反应速率等）复用通用 kv 存储。
+        """
+        for v in self.values():
+            if v.attrib.get("type") != value_type:
+                continue
+            n = _first(v, "name")
+            if n is not None and (n.text or "").strip() == name:
+                return {c.tag: (c.text or "").strip()
+                        for c in v if c.tag != "name"}
+        return {}
+
+    def values_of_type(self, value_type: str) -> list[ET.Element]:
+        """返回所有 ``<value type=...>`` 元素（多步反应表等按序读取）。"""
+        return [v for v in self.values()
+                if v.attrib.get("type") == value_type]
+
     def ensure_analysis_file(self) -> ET.Element:
         """``<analysis_set>/<file>`` block for Field/Restart/TM names."""
         aset = self.ensure_analysis_set()
