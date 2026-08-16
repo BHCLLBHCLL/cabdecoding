@@ -7,6 +7,32 @@ import cab_blend
 import cab_ps_ops
 
 
+def test_fill_sheet_body_caps_closed_tent():
+    # R3.1b: four sewn triangles (closed tent) heal-cap into a solid.
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    import ctypes as C
+    sess = _ps._get_session()
+    pk = sess.pk
+    a, b, c, d = (0.0, 0, 0), (0.01, 0, 0), (0.0, 0.01, 0), (0.0, 0, 0.01)
+    tris = [cab_ps_ops._triangle_sheet(pk, a, b, c),
+            cab_ps_ops._triangle_sheet(pk, a, c, d),
+            cab_ps_ops._triangle_sheet(pk, a, d, b),
+            cab_ps_ops._triangle_sheet(pk, b, d, c)]
+    sewn = cab_ps_ops.sew_sheet_bodies(pk, tris, allow_disjoint=True,
+                                       manifold=True)
+    assert sewn > 0
+    solid = cab_ps_ops.fill_sheet_body(pk, sewn)
+    assert solid > 0
+    pk.PK_BODY_ask_faces.restype = C.c_int
+    pk.PK_BODY_ask_faces.argtypes = [
+        C.c_int, C.POINTER(C.c_int), C.POINTER(C.c_void_p)]
+    n = C.c_int(0)
+    arr = C.c_void_p()
+    assert pk.PK_BODY_ask_faces(solid, C.byref(n), C.byref(arr)) == 0
+    assert n.value == 4
+
 def test_sew_sheet_bodies_stitches_two_triangles():
     # R3.1a: PK_BODY_sew_bodies helper stitches two sheet triangles.
     if not cab_ps_ops.available():

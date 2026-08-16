@@ -1548,6 +1548,20 @@ class EditSolidDialog(_EditDlg):
                 f"Deleted {self.deleted} triangle(s) on '{target}' "
                 f"(tessellation fallback).")
             return
+        if etype in ('Fill sheet', 'Create cover'):
+            # R3.1b: heal-cap the target's sheet body into a solid.
+            ok = ops.fill_part_sheet_pk(
+                self.model, self._archive(), self.cad_meshes, target)
+            if not ok:
+                QMessageBox.warning(
+                    self, "Edit Solid",
+                    "Fill sheet failed (need a sheet body part).")
+                return
+            self.applied = True
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"{etype}: '{target}' converted to a solid (x_t rewritten).")
+            return
         if etype == 'Sew sheets':
             # R3.1a: real PK sew of the target + all sheet/polygon parts.
             others = [p.name for p in self.model.parts()

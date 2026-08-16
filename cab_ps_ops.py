@@ -878,6 +878,27 @@ def sew_sheet_bodies(pk, tags, *, gap=0.0, allow_disjoint=False,
     bodies = cast(sewn_p, POINTER(c_int * n_sewn.value)).contents
     return int(bodies[0])
 
+def fill_sheet_body(pk, tag) -> int:
+    # R3.1b: Fill sheet / Create cover - PK_FACE_make_solid_bodies with
+    # heal-cap over the sheet body's faces (open sheets get capped).
+    # Returns the solid body tag or 0.
+    _sheet_declare(pk)
+    nf = c_int(0)
+    faces_p = c_void_p()
+    rc = pk.PK_BODY_ask_faces(int(tag), byref(nf), byref(faces_p))
+    if rc != 0 or nf.value == 0:
+        return 0
+    farr = cast(faces_p, POINTER(c_int * nf.value)).contents
+    n_sol = c_int(0)
+    sols_p = c_void_p()
+    checks_p = c_void_p()
+    r6 = pk.PK_FACE_make_solid_bodies(
+        nf.value, farr, PK_FACE_heal_cap_c, 0, byref(n_sol),
+        byref(sols_p), byref(checks_p))
+    if r6 != 0 or n_sol.value == 0 or not sols_p.value:
+        return 0
+    return int(cast(sols_p, POINTER(c_int * n_sol.value)).contents[0])
+
 def _triangle_sheet(pk, a, b, c, precision=1e-6) -> int:
     """One trimmed planar sheet body for triangle (a, b, c) in metres."""
     _sheet_declare(pk)
