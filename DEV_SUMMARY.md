@@ -2392,3 +2392,18 @@ SaveCabFile → merge_mesh_result`。
   PK_EDGE_find_g1_edges V37 5 参：edge, tolerance, convexity, &n, &edges），切向连续边链倒圆传播。
 - 回归：**530 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交
   fc8c82d、d12a3b1。
+
+## 55. 深度改进 R16-R19（2026-08-16）：求解闭环/G1 链/COM 存储实证
+
+- **R16 求解结果回读（求解闭环 85%→90%）**：stsol 成功后扫描案例目录（.pst/.out/.log/
+  .xlog/.fld/.pab）、日志盘点 + 收敛尾部摘要、记录最新 .pst 并预填
+  Execute Post 对话框；测试：_scan_solver_results/_read_back_solver_results（stub）。
+- **R17 blend G1 链 UI 传播**：BlendEdgeDialog 新增「Blend the entire G1
+  (tangent) edge chain」勾选→blend_part_edge_pk(chain=True)→find_g1_edges 展开整链一次倒圆。
+  顺带修复潜伏 bug：BlendEdgeDialog _capability_note 多参数调用（在生产中打开将崩溃）。
+- **R18 COM 存储深实证**（data/com_storage_probe.json）：启用 evap/solid_melt 后
+  STpre 自创 analysis_etc/evaporation{gas_temp,liquid_temp,latent_heat} + analysis_etc/fusion{...}
+  零默认段——验证本仓 CW 页原生写入路径与 STpre 一致；Set*Param 包装存在于对等（值格式待终证，rc=0）；
+  SetUserEntity rc=1 但 cab 中无可见落盘（会话局部）。
+- **R19 壳单元 kind**：CreateFEM 仅产四面体（kind=4），无壳路径可探（无样本/API），保留为剩余项。
+- 回归：**533 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交 94d8034。

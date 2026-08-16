@@ -1192,6 +1192,14 @@ class STpreDoc(ComObject):
 
     # -- extended surface (2026-08-16 signature sweep, tools/probe_com_sig.py;
     #    evidence tools/probe_work/com_sig_probe.json) ----------------------
+    #    Storage note (probe_com_storage.py -> data/com_storage_probe.json):
+    #    enabling evap/solid_melt creates the canonical sections
+    #    analysis_etc/evaporation{gas_temp,liquid_temp,latent_heat} and
+    #    analysis_etc/fusion{liquid_rotate_omega,...} with zero defaults -
+    #    the CW pages write the real values there natively.  The Set*Param
+    #    wrappers exist for parity, but their value persistence needs the
+    #    exact GUI key/value format (probed keys returned rc=0); SetUserEntity
+    #    returns rc=1 yet stores nothing visible in the cab (session-local).
     def SetSolverParam(self, key: str, value):
         return self.call("SetSolverParam", key, value)
 
