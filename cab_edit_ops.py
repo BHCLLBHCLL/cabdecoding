@@ -8,6 +8,7 @@ without the native kernel.  Bounding-box and transform ops are exact.
 from __future__ import annotations
 
 import copy
+import ctypes as _ctypes
 import xml.etree.ElementTree as ET
 from typing import Optional
 
@@ -447,14 +448,54 @@ def reconstruct_part_facets(model: StpreModel, archive, cad_meshes,
     return updated
 
 
+_XT_BODY_CACHE: dict[str, list[int]] = {}
+
+
+def _receive_xt_cached(sess, xt: bytes) -> list[int]:
+    """``receive_xt`` with content-hash caching (stable body tags).
+
+    Without the cache every ``_find_body_tags`` call re-receives the same
+    stream into new bodies, so face tags captured by a Preview could never
+    match the body a later Delete operates on (diag 2026-08-16: tag set
+    18xxx vs 32xxx across two calls on identical data).
+    """
+    import hashlib
+    key = hashlib.md5(xt).hexdigest()
+    tags = _XT_BODY_CACHE.get(key)
+    if tags is None:
+        tags = list(sess.expand_to_bodies(sess.receive_xt(xt)))
+        _XT_BODY_CACHE[key] = tags
+    return tags
+
+
+def _invalidate_xt_cache(*tags) -> None:
+    """Evict cached receives whose bodies were mutated in place.
+
+    ``transform/blend/simplify/boolean`` edit the live session body, so the
+    x_t bytes it was received from no longer describe it; a later lookup of
+    the same member must re-receive fresh geometry instead of reusing the
+    mutated tag (regression 2026-08-16: a translate test shifted the cached
+    body +0.02 m and the later mirror/wrap tests resolved the shifted body).
+    """
+    dead = {int(t) for t in tags if t is not None}
+    if not dead:
+        return
+    for key in [k for k, v in _XT_BODY_CACHE.items()
+                if dead.intersection(v)]:
+        del _XT_BODY_CACHE[key]
+
+
 def _find_body_tags(model: StpreModel, archive,
                     part_a: str, part_b: str
                     ) -> tuple[Optional[int], Optional[int]]:
     """Locate live body tags for two parts across archive x_t members.
 
-    Bodies are matched by Parasolid SDL name; unmatched single-body members
-    are assigned to remaining parts in order (multi-body members keep their
-    name-matched bodies).
+    Resolution order: (1) each part's own ``<file>`` geometry member —
+    after a PK edit writes ``{part}.x_t`` back, the part points at its
+    private member and must resolve to that edited body, not the shared
+    import member; (2) the ``body_files`` scan, matching bodies by
+    Parasolid SDL name, with unmatched single-body members assigned to
+    remaining parts in order.
     """
     if archive is None:
         return None, None
@@ -462,6 +503,32 @@ def _find_body_tags(model: StpreModel, archive,
     if _ps is None:
         return None, None
     members = {m.name: m.data for m in (archive.members or [])}
+    sess = _ps._get_session()
+    matched: dict[str, int] = {}
+
+    # (1) part-owned geometry members take precedence
+    infos = {p.name: p for p in model.parts()}
+    for name in (part_a, part_b):
+        if not name or name in matched:
+            continue
+        info = infos.get(name)
+        f_el = _first(info.elem, "file") if info is not None else None
+        ref = (f_el.text or "").strip() if f_el is not None else ""
+        if not ref or ref not in members:
+            continue
+        try:
+            tags = _receive_xt_cached(sess, members[ref])
+        except Exception:
+            continue
+        for tag in tags:
+            try:
+                if sess.body_name(tag) == name:
+                    matched[name] = int(tag)
+                    break
+            except Exception:
+                pass
+
+    # (2) shared body_files scan for anything still unmatched
     bf = model.doc.root.find("body_files")
     refs = []
     if bf is not None:
@@ -469,12 +536,10 @@ def _find_body_tags(model: StpreModel, archive,
             txt = (f.text or "").strip()
             if txt and txt in members:
                 refs.append(members[txt])
-    sess = _ps._get_session()
-    matched: dict[str, int] = {}
     leftovers: list[int] = []
     for xt in refs:
         try:
-            tags = sess.expand_to_bodies(sess.receive_xt(xt))
+            tags = _receive_xt_cached(sess, xt)
         except Exception:
             continue
         for tag in tags:
@@ -488,7 +553,7 @@ def _find_body_tags(model: StpreModel, archive,
             else:
                 leftovers.append(int(tag))
     for name in (part_a, part_b):
-        if name not in matched and leftovers:
+        if name and name not in matched and leftovers:
             matched[name] = leftovers.pop(0)
     return matched.get(part_a), matched.get(part_b)
 
@@ -563,6 +628,9 @@ def _boolean_via_pk(model: StpreModel, cad_meshes, archive,
             import ps_facet2_nodes as _ps
             sess = _ps._get_session()
             res_tags = cab_ps_ops.body_boolean(tag_a, [tag_b], op)
+            # boolean consumes the tools and mutates the target: their
+            # source x_t cache entries are stale from here on
+            _invalidate_xt_cache(tag_a, tag_b)
             res_tag = res_tags[0]
             tess = (sess.facet_body_adaptive(res_tag)
                     or sess.facet2(res_tag) or sess.facet_go(res_tag))
@@ -572,6 +640,9 @@ def _boolean_via_pk(model: StpreModel, cad_meshes, archive,
                 xt = None
             res = {"tess": tess}
         except Exception:
+            # the kernel may have consumed the tools before failing: their
+            # cache entries cannot be trusted either
+            _invalidate_xt_cache(tag_a, tag_b)
             res = None
             xt = None
         if res is not None and res["tess"] is not None:
@@ -1379,6 +1450,182 @@ def delete_face_pk(model: StpreModel, archive, name: str,
     return len(after) if after else None
 
 
+def _face_type_raw(sess, ft: int) -> int:
+    """DEPRECATED: PK_FACE_ask_type fails (rc!=0) on every face of this
+    kernel build; use facet-derived planarity via ``sess.face_plane``."""
+    return 4001 if sess.face_plane(ft) is not None else 0
+
+
+def _face_area(sess, ft: int) -> float:
+    """Facet area of one PK_FACE (sum of its facet triangles)."""
+    try:
+        result = sess._facet2_call([ft])
+        part = sess._decode_result(result, ft, "")
+    except Exception:
+        return 0.0
+    if part is None:
+        return 0.0
+    tris = getattr(part, "triangles", None)
+    pts = getattr(part, "points", None)
+    if tris is None or pts is None or len(tris) == 0:
+        return 0.0
+    p = np.asarray(pts, dtype=np.float64)
+    t = np.asarray(tris, dtype=np.int64)
+    a = p[t[:, 0]]
+    b = p[t[:, 1]]
+    c = p[t[:, 2]]
+    return float(np.linalg.norm(np.cross(b - a, c - a), axis=1).sum() * 0.5)
+
+
+def face_geometry_table(model: StpreModel, archive, name: str):
+    """Per-face geometry ``(tag, type, area, plane)`` for a part's body.
+
+    ``type`` is the PK surface class, ``area`` the facet area (local
+    units, m^2) and ``plane`` ``(normal, origin)`` for planar faces
+    (``None`` otherwise).  Returns ``None`` without an x_t body.
+    """
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return None
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return None
+    sess = _ps._get_session()
+    faces = sess.body_faces(tag)
+    if not faces:
+        return None
+    out = []
+    for ft in faces:
+        # PK_FACE_ask_type returns rc!=0 on this kernel build (type -1 for
+        # every face), so planarity is derived from the facet plane, which
+        # is verified correct (diag 2026-08-16).
+        pl = sess.face_plane(ft)
+        out.append({"tag": int(ft), "type": 4001 if pl is not None else 0,
+                    "area": _face_area(sess, ft), "plane": pl})
+    return out
+
+
+def auto_faces_by_method(model: StpreModel, archive, name: str,
+                         method: str) -> list[int]:
+    """Part Simplification method selector (heuristic, PK topology based).
+
+    internal_loop -> non-planar faces (holes / internal loops are
+                     typically cylindrical or conical surfaces);
+    thin_geometry -> planar faces under 25% of the largest face area
+                     (thin-wall walls and projection faces);
+    external_2d5  -> planar faces normal to the longest body axis
+                     (2.5D extrusion end faces).
+    """
+    faces = face_geometry_table(model, archive, name)
+    if not faces:
+        return []
+    if method == "internal_loop":
+        return [f["tag"] for f in faces if f["type"] != 4001]
+    planes = [f for f in faces if f["type"] == 4001 and f["plane"] is not None]
+    if not planes:
+        return []
+    if method == "thin_geometry":
+        biggest = max((f["area"] for f in planes), default=0.0)
+        return [f["tag"] for f in planes if 0.0 < f["area"] < 0.25 * biggest]
+    if method == "external_2d5":
+        origins = np.asarray([f["plane"][1] for f in planes],
+                             dtype=np.float64)
+        axis = int(np.argmax(origins.max(0) - origins.min(0)))
+        return [f["tag"] for f in planes
+                if abs(float(f["plane"][0][axis])) > 0.98]
+    return []
+
+
+def simplify_part_faces_pk(model: StpreModel, archive, cad_meshes, name: str,
+                           face_tags: list[int], *, heal: str = "cap"):
+    """``PK_FACE_delete_2`` on selected faces; x_t member written back.
+
+    ``heal="cap"`` (default) closes each removed region with a healing
+    face — the STpre Part-Simplification semantic (hole / feature face
+    removal, body stays a valid solid); the face count may stay equal,
+    so ``deleted`` counts requested faces that were live before the call.
+    Returns ``dict(deleted, faces_before, faces_after, tris)`` or
+    ``None`` when the PK path is unavailable / nothing matched.
+    """
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available() or not face_tags:
+        return None
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return None
+    sess = _ps._get_session()
+    faces = sess.body_faces(tag) or []
+    n_before = len(faces)
+    live = [int(t) for t in face_tags if int(t) in set(faces)]
+    if not live:
+        return None
+    # Delete one face per call: PK_FACE_delete_2 returns rc 525 on a
+    # batch of mutually adjacent faces (slot walls), while the same faces
+    # delete cleanly one at a time (diag 2026-08-16).  Cap healing
+    # REPLACES the deleted face with a healing face (tag changes,
+    # count stays) or merges neighbours, so liveness is re-checked every
+    # step and a deletion only counts when the tag really left the set.
+    deleted = 0
+    for t in live:
+        if t not in set(sess.body_faces(tag) or []):
+            continue
+        try:
+            cab_ps_ops.face_delete([t], heal=heal)
+        except Exception:
+            continue
+        if t not in set(sess.body_faces(tag) or []):
+            deleted += 1
+    if not deleted:
+        return None
+    n_after = len(sess.body_faces(tag) or [])
+    try:
+        xt = cab_ps_ops.transmit_parts([tag])
+    except Exception:
+        xt = None
+    if xt:
+        info = next((p for p in model.parts() if p.name == name), None)
+        if info is not None:
+            member_name = f"{name}.x_t"
+            old = next((m for m in archive.members
+                        if m.name == member_name), None)
+            if old is not None:
+                # in-place replace: repeated deletes must not pile up
+                # duplicate members of the same name.
+                old.data = xt
+                old.cb_file = len(xt)
+            else:
+                cab_import.add_xt_member(archive, xt, name=member_name)
+            model.add_body_file(member_name, unit="m")
+            f_el = _first(info.elem, "file")
+            if f_el is not None:
+                set_text(f_el, member_name)
+    tris = 0
+    if cad_meshes is not None:
+        try:
+            tess = sess.facet_body_stpre(tag)
+            if tess is None:
+                tess = sess.facet_body(tag)
+            if tess is not None:
+                tess.name = name
+                tri_arr = getattr(tess, "triangles", None)
+                # NOTE: no ``or []`` here — numpy truthiness raises
+                # ValueError and would silently kill the mesh refresh.
+                tris = int(len(tri_arr)) if tri_arr is not None else 0
+                for i, t in enumerate(cad_meshes):
+                    if getattr(t, "name", None) == name:
+                        cad_meshes[i] = tess
+                        break
+                else:
+                    cad_meshes.append(tess)
+        except Exception:
+            pass
+    return {"deleted": deleted, "faces_before": n_before,
+            "faces_after": n_after, "tris": tris}
+
+
 def transform_part_pk(model: StpreModel, archive, name: str,
                       fn, *, tolerance: float = 1e-6) -> bool:
     """Apply a PK transform (fn(body_tag)) to a part's body and write x_t back.
@@ -1401,6 +1648,7 @@ def transform_part_pk(model: StpreModel, archive, name: str,
         fn(tag)
     except Exception:
         return False
+    _invalidate_xt_cache(tag)  # body moved in place
     try:
         xt = cab_ps_ops.transmit_parts([tag])
     except Exception:
@@ -1490,6 +1738,7 @@ def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
             return False
     except Exception:
         return False
+    _invalidate_xt_cache(tag)  # edge blended in place
     try:
         xt = cab_ps_ops.transmit_parts([tag])
     except Exception:

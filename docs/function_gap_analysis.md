@@ -104,7 +104,7 @@ moving body 运动表等低成本深度项。整体完成度 **≈76%**，其中
 | 阶段 | 目标 | 关键任务 | 验收标准 |
 |---|---|---|---|
 | **R1**（1–2 天） | P0-1 e2e 收官 | 以 `tools/check_all_mode.py` 二分定位：① x 少 2 线→核对金标线集是否含第 2/3 部件或域线；② y/z 冗余 9~14 线→扫 threshold 合并/`0.501` round/线段过滤规则；并案修 rep z 差 4 | `test_golden_reference.py` 新增原生断言：all `(59,118,121)`、rep `(57,91,92)` e2e 绿 |
-| **R2**（3–5 天） | 假 UI 清理 + 低垂果实 | Simplification 三 Method 绑真逻辑或移除摆设；`express_list` 接 Source 页表达式管理器（列表/编辑/删除）；包装并接线 `SetMoveBodyOption` 运动定义表（零件属性面板） | 无 `lambda: None` 占位按钮；表达式可往返管理；运动表写回→重载→`.s` 导出正确 |
+| **R2**（3–5 天） | 假 UI 清理 + 低垂果实 | ~~Simplification 三 Method 绑真逻辑~~（✅ 2026-08-16 提前完成，PK_FACE_delete_2 全链路，Edit Solid Delete faces 同步接通）；`express_list` 接 Source 页表达式管理器（列表/编辑/删除）；包装并接线 `SetMoveBodyOption` 运动定义表（零件属性面板） | 无 `lambda: None` 占位按钮（✅ 已达成）；表达式可往返管理；运动表写回→重载→`.s` 导出正确 |
 | **R3**（1–2 周） | blend ABI 攻关 | 收敛 4 个 `blend_probe*` 探针→解出 V37 blend 系签名；接 Edit→Solid 二级算子（blend/chamfer/fillet） | box 倒圆→x_t 写回→重开体积/拓扑断言 |
 | **R4**（滚动） | 专用件参数面补齐 | AC 件 capacity/风量/COP + 真几何替换 cuboid 代理；线性 diffuser/Peltier/card guide 字段对齐手册；IFC 导出补 circle/polygon profile | 各专用件字段往返 + 导出格式可被上游 CAD 打开 |
 | **R5**（按需） | FEM 真网格 | 调研 solver 端 FEM 生成（COM `CreateFEM` 深探或 s 文件 FEM 段逆向） | FEM 部件产生真实单元数据 |

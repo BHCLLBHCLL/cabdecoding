@@ -157,22 +157,38 @@ def rough_grids(part_points: dict[str, np.ndarray], spec: GridSpec,
             # STpre probe: not_considered still grids with part min/max
             # planes (only vertex detection is skipped); identical to
             # minmax for convex parts (tr03: vd4 == vd3).  NOTE: vd_0
-            # "all" in STpre adds ONLY display-mesh vertex projections
-            # (proved via SaveStlFile 2026-08-15: every tr03 vd_0 S-line
-            # is an STL-vertex projection); the AABB lines coincide with
-            # mesh extremes there.  Our display mesh now uses the decoded
-            # STpre recipe (ps_facet2_nodes.stpre_recipe, bbox diagonal x
-            # tolerances + 10 deg facet_kind=2 branch) and reproduces the
-            # STpre facet planes exactly (tr03: 2206 tris, all 7 x-lines
-            # incl. +-6.667 and 0).
+            # "all" in STpre projects ONLY display-mesh nodes that lie
+            # INSIDE the computational-domain box (3D test, all axes;
+            # diag_all_diff76-79 2026-08-16: clip -> x 5/5, z 84/84
+            # exact, only y=47.5 left, supplied by the part AABB
+            # extreme).  Part AABB min/max per axis are always added
+            # even when their node is outside the box (tr03 impeller
+            # corner (-22.5, 47.5, 0) supplies gold y=47.5).  Merge of
+            # close projections happens in _clip_dedupe with tol =
+            # threshold (STpre merges S-lines within threshold, keep
+            # first).  Our display mesh uses the decoded STpre recipe
+            # (ps_facet2_nodes.stpre_recipe) and reproduces the STpre
+            # facet planes exactly (tr03: 2206 tris).
             vals.append(float(col.min()))
             vals.append(float(col.max()))
             if mode == "all":
-                vals.extend(float(v) for v in col)
+                inside = np.all(
+                    (arr >= dmin - 1e-6) & (arr <= dmax + 1e-6), axis=1)
+                vals.extend(float(v) for v in arr[inside, ax_i])
             elif mode == "representative":
                 src = (vertices or part_points).get(name)
                 if src is not None and len(src):
-                    vals.extend(float(v) for v in src[:, ax_i])
+                    # STpre rep projects ONLY vertices that lie INSIDE
+                    # the domain box (3D test, diag_rep_sector 2026-08-16:
+                    # tr03 z=-8.103 line is absent because its only
+                    # vertices sit at y=-29.05, outside the domain;
+                    # every "dropped" value traces to out-of-box
+                    # vertices; in-domain vertices all keep).  Same clip
+                    # rule as the "all" display-mesh nodes.
+                    inside_v = np.all(
+                        (src >= dmin - 1e-6) & (src <= dmax + 1e-6),
+                        axis=1)
+                    vals.extend(float(v) for v in src[inside_v, ax_i])
         out[ax] = _clip_dedupe(
             vals, dmin[ax_i], dmax[ax_i], tol=max(thrs[ax_i], 1e-9))
     return out
@@ -274,11 +290,24 @@ def refine_grids(rough: dict[str, list[float]], spec: GridSpec,
 
 def _equal_split(a: float, b: float, std: float,
                  threshold: float) -> list[float]:
-    """STpre internal-region division: equal spacing by standard length."""
+    """STpre internal-region division: equal spacing by standard length.
+
+    Interval count ``n = floor(L/std + 2/3)`` (diag_all_diff81/82
+    2026-08-16, tr03 all-mode gold: q=1.303 -> 1, 1.338 -> 2, 2.235 -> 2,
+    2.349 -> 3, 13.333 (=40/3) -> 14; carry when frac(L/std) > 1/3).
+    Also fits the earlier box probes (2.5 -> 3).
+
+    The 2/3 addend is the *float32-rounded* value (C++ ``2.0f/3.0f``
+    promoted to double = 0.66666668653...): tr03 x interval L=40/3
+    (13.333333333333305 double) must give n=14 in STpre; with an exact
+    double 2/3 the sum is 13.999999999999972 -> 13.  The float32 constant
+    pushes the decision boundary to L/std > 13.333333313..., matching
+    every gold probe (diag_all_diff85 2026-08-16)."""
+    import math
     length = b - a
     if length <= 1e-12:
         return []
-    n = max(1, stpre_rules._trunc_round(length / std)) if std > 0 else 1
+    n = max(1, int(length / std + 0.6666666865348816)) if std > 0 else 1
     if threshold > 0 and length / n < threshold:
         n = max(1, int(length / threshold))
     return list(np.linspace(a, b, n + 1)[1:-1])

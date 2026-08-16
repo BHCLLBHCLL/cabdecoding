@@ -222,11 +222,21 @@ fence_none=18212、check_fa_yes=21801、repair_fa_fa_no=24360。
 
 ### 5.3 删除面 / 变换
 
-      class _FaceDeleteOpts(Structure):    # PK_FACE_delete_o_t（o_t_version=1，7 字段）
+      class _FaceDeleteOpts(Structure):    # PK_FACE_delete_o_t（o_t_version=1，8 字段）
           _fields_ = [("o_t_version", c_int), ("update", c_int), ("heal_action", c_int),
-                      ("heal_loops", c_int), ("local_check", c_int),
+                      ("heal_loops", c_int), ("local_check", c_int), ("allow_disjoint", c_int),
                       ("repair_fa_fa", c_int), ("track", c_int)]
-      # heal：cap=18081、shrink=18084；update 默认=24330；track_no=26340
+      # heal：none=18080、cap=18081；update 默认=24330；track_no=26340
+
+> **heal token 实测（2026-08-16 扫描 18060-18110）**：本 kernel 的
+> `PK_FACE_delete_2` 只接受 18080(none)/18081(cap)；旧记录的
+> `shrink=18084` 返回 rc 525（任何体），`18082` 返回 rc 5000。失败调用
+> 会让 session 进入不稳定状态（下一次调用可能 access violation），
+> 所以**逐面删除**且只传合法 token。相邻面（如贯穿槽四壁）批量删
+> rc 525，同批面逐个删则全部成功；cap 愈合是"替换被删面"语义
+> ——tag 变化、面数不变、体积不变（不填洞）。另：`PK_FACE_ask_type`
+> 在本 build 上对任何面返回 rc!=0（不可用），平面性由
+> `face_plane`（facet 推导）判定。
 
       class _TransformOpts(Structure):     # PK_BODY_transform_o_t（4 int）
           _fields_ = [("o_t_version", c_int), ("merge_face", c_int),

@@ -196,3 +196,77 @@ def test_sphere_tess_indices_valid():
     for div in (8, 12, 24):
         t = sphere_tess((0.0, 0.0, 0.0), 10.0, divisions=div)
         assert int(t.triangles.max()) < len(t.points)
+
+
+def test_part_simplification_pk_face_delete():
+    """M39-P1: Part Simplification via PK_FACE_delete_2 + x_t write-back.
+
+    Slotted-solid scenario at ops level: the thin_geometry selector
+    picks the 4 slot wall faces; one-at-a-time PK delete (batches of
+    mutually adjacent faces fail with rc 525) really removes each tag
+    from the body's face set (cap healing inserts a replacement face);
+    the edited body is transmitted back as an archive member, the part
+    file ref switches to it, the cad mesh refreshes and a repeated
+    delete replaces that member in place (no duplicates).
+    """
+    if not cab_ps_ops.available():
+        return
+    from cab_container import CabArchive
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre, _first
+    # slotted solid: 20 mm cube with a 4x4 mm through slot along z
+    outer = cab_ps_ops.create_solid_block((0.02, 0.02, 0.02))
+    rod = cab_ps_ops.create_solid_block((0.004, 0.004, 0.024))
+    body = cab_ps_ops.body_boolean(outer, [rod], "subtract")[0]
+
+    arch = CabArchive.parse(
+        (ROOT / "tests" / "box.cab").read_bytes())
+    arch.fill_member_data()
+    import cab_import
+    cab_import.add_xt_member(
+        arch, cab_ps_ops.transmit_parts([body]), name="slot.x_t")
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.add_part(name="slot", kind="body", attribute="solid",
+                   file_ref="slot.x_t")
+    model.add_body_file("slot.x_t", unit="m")
+    cad = []
+
+    # selector: slot walls are the only planar faces under 1e-4 m^2
+    table = cab_edit_ops.face_geometry_table(model, arch, "slot")
+    assert table and len(table) == 10, \
+        f"slotted solid has 10 faces, got {len(table)}"
+    walls = cab_edit_ops.auto_faces_by_method(
+        model, arch, "slot", "thin_geometry")
+    assert len(walls) == 4, \
+        f"selector must find the 4 slot walls, got {len(walls)}"
+
+    res = cab_edit_ops.simplify_part_faces_pk(
+        model, arch, cad, "slot", walls)
+    assert res is not None, "PK face delete must succeed with pskernel"
+    assert res["deleted"] == 4, "each wall tag must leave the face set"
+    assert res["faces_after"] >= 6  # cap healing keeps a closed solid
+    # body stays a valid solid and the volume is sane (slot NOT filled:
+    # cap replaces the deleted face region itself, 7.68e-6 m^3)
+    tess = next(t for t in cad if getattr(t, "name", "") == "slot")
+    vol = cab_ps_ops.mesh_volume_m3(tess.points, tess.triangles)
+    assert abs(vol - 7.68e-6) / 7.68e-6 < 0.02, f"body corrupted: {vol}"
+    assert res["tris"] == len(tess.triangles) and res["tris"] > 0
+    # x_t member written back, part file ref switched to it
+    member = next((m for m in arch.members if m.name == "slot.x_t"), None)
+    assert member is not None and len(member.data) > 100
+    part = next(p for p in model.parts() if p.name == "slot")
+    ref = _first(part.elem, "file")
+    assert ref is not None and (ref.text or "").strip() == "slot.x_t"
+    assert "slot.x_t" in model.body_files()
+
+    # repeated delete replaces the member in place (no duplicates)
+    n_members = len(arch.members)
+    table2 = cab_edit_ops.face_geometry_table(model, arch, "slot")
+    assert table2 and len(table2) == res["faces_after"]
+    # cap faces replaced the walls: tag set must differ from the original
+    assert {f["tag"] for f in table2} != {f["tag"] for f in table}
+    res2 = cab_edit_ops.simplify_part_faces_pk(
+        model, arch, cad, "slot", [table2[0]["tag"]])
+    assert res2 is not None and res2["deleted"] == 1
+    dup = sum(1 for m in arch.members if m.name == "slot.x_t")
+    assert dup == 1, f"expected in-place replace, got {dup} members"
+    assert len(arch.members) == n_members

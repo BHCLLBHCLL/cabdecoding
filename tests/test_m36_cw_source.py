@@ -204,3 +204,36 @@ def test_diffusion_source_writeback(qapp):
     v2 = m2.find_value("DiffSource1")
     assert v2 is not None
     assert (_first(v2, "no").text or "").strip() == "2"
+
+
+def test_expression_manager_delete_cascade(qapp):
+    """R2: expression manager — list / edit / delete with reference cascade."""
+    from cab_cwizard_pages import _CwSourcePage
+    m = _model()
+    page = _CwSourcePage(m)
+    page._write_expression_source("ExprSource1", "ExprSource1_f",
+                                  "1000*sin(2*pi*t)", "W/m3")
+    m.bind_condition("analysis", m.domain_name() or "Domain(cuboid)",
+                     "ExprSource1")
+
+    # reference tracking
+    assert m.express_referenced_by("ExprSource1_f") == ["ExprSource1"]
+    # delete refused while a value references the expression
+    assert m.delete_express("ExprSource1_f") is False
+    assert m.express_list()
+
+    # edit through upsert (the manager's Edit path)
+    m.upsert_express("ExprSource1_f", "VENT_source", "750*t")
+    assert m.express_list() == [("ExprSource1_f", "VENT_source", "750*t")]
+
+    # cascade delete removes expression + referencing value + its condition
+    assert m.delete_express("ExprSource1_f", cascade=True) is True
+    assert m.express_list() == []
+    assert m.find_value("ExprSource1") is None
+    assert all((_first(c, "value").text or "").strip() != "ExprSource1"
+               for c in m.conditions() if _first(c, "value") is not None)
+
+    # round-trip of the emptied model keeps zero expressions
+    m2 = StpreModel(parse_stpre(m.doc.serialize()))
+    assert m2.express_list() == []
+    assert m2.find_value("ExprSource1") is None

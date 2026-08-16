@@ -1383,6 +1383,37 @@ class CuttingPlaneDialog(_EditDlg):
 # -------------------------------------------------------- Edit Solid
 
 
+def _picked_face_to_tag(model, archive, cad_meshes, target, picked):
+    """Map a Draw-window triangle pick ``(part, cell)`` to its B-rep
+    ``PK_FACE`` tag via ``match_face_by_plane``.
+
+    Returns the face tag or ``None`` (no pick / no body / no match).
+    Shared by Edit Solid and Part Simplification delete paths.
+    """
+    if not picked or picked[0] != target:
+        return None
+    tess = next((m for m in (cad_meshes or [])
+                 if getattr(m, "name", None) == target), None)
+    tris = getattr(tess, "triangles", None)
+    pts = getattr(tess, "points", None)
+    cell = picked[1]
+    if tris is None or pts is None or cell >= len(tris):
+        return None
+    import cab_ps_ops
+    p = np.asarray(pts, dtype=np.float64)
+    tri = np.asarray(tris)[int(cell)]
+    a, b, c = p[tri[0]], p[tri[1]], p[tri[2]]
+    n = np.cross(b - a, c - a)
+    ln = np.linalg.norm(n)
+    if ln < 1e-18:
+        return None
+    tag, _ = ops._find_body_tags(model, archive, target, "")
+    if tag is None:
+        return None
+    return cab_ps_ops.match_face_by_plane(
+        tag, tuple(n / ln), tuple((a + b + c) / 3.0))
+
+
 class EditSolidDialog(_EditDlg):
     """[Edit Solid] — 8 edit types (STpre)."""
 
@@ -1402,9 +1433,10 @@ class EditSolidDialog(_EditDlg):
         self.model = model
         self.cad_meshes = cad_meshes
         self.body.addWidget(_capability_note(
-            "M33: Delete faces removes the coplanar triangle cluster from "
-            "the current Draw face pick (tessellation). Other edit types "
-            "remain project intent until full B-rep heal paths land.", self))
+            "M33: Delete faces runs PK_FACE_delete_2 (cap heal) on the "
+            "picked B-rep face and rewrites the part x_t (tessellation "
+            "cluster delete without pskernel). Other edit types remain "
+            "project intent until their sheet/heal ops land.", self))
         form = QFormLayout()
         self.edit_type = QComboBox(self)
         self.edit_type.addItems(self.TYPES)
@@ -1426,12 +1458,39 @@ class EditSolidDialog(_EditDlg):
         form.addRow("Thickness", self.thickness)
         self.body.addLayout(form)
         self._root.addLayout(_bottom_buttons(self, (
-            ('Preview', lambda: None),
+            ('Preview', self._preview),
             ('Blend Edge / Chamfer', self._open_blend),
             ('Execute', self._exec),
             ('Close', self.accept),
         )))
         self.deleted = 0
+
+    def _archive(self):
+        parent = self.parent()
+        return getattr(parent, "archive", None) if parent else None
+
+    def _preview(self) -> None:
+        if self.edit_type.currentText() != "Delete faces":
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"'{self.edit_type.currentText()}' has no preview "
+                "(project-intent only).")
+            return
+        parent = self.parent()
+        picked = getattr(parent, "_picked_face", None) if parent else None
+        tag = _picked_face_to_tag(
+            self.model, self._archive(), self.cad_meshes,
+            self.target.currentText(), picked)
+        if tag is None:
+            QMessageBox.warning(
+                self, "Edit Solid",
+                "Pick a Face on the target part in the Draw Window "
+                "(no matching B-rep face).")
+            return
+        QMessageBox.information(
+            self, "Edit Solid",
+            f"Picked face matches B-rep face {tag} on "
+            f"'{self.target.currentText()}'.")
 
     def _open_blend(self) -> None:
         from PyQt5.QtWidgets import QMessageBox
@@ -1450,9 +1509,24 @@ class EditSolidDialog(_EditDlg):
         if etype == "Delete faces":
             parent = self.parent()
             picked = getattr(parent, "_picked_face", None) if parent else None
-            cell = None
-            if picked and picked[0] == target:
-                cell = picked[1]
+            tag = _picked_face_to_tag(
+                self.model, self._archive(), self.cad_meshes, target, picked)
+            if tag is not None:
+                res = ops.simplify_part_faces_pk(
+                    self.model, self._archive(), self.cad_meshes,
+                    target, [tag])
+                if res is not None:
+                    self.deleted = res["deleted"]
+                    self.applied = True
+                    QMessageBox.information(
+                        self, "Edit Solid",
+                        f"PK_FACE_delete_2 removed the picked face from "
+                        f"'{target}' ({res['faces_before']} -> "
+                        f"{res['faces_after']} faces, {res['tris']} "
+                        f"triangles).")
+                    return
+            # tessellation fallback (no pskernel / no x_t body / no match)
+            cell = picked[1] if picked and picked[0] == target else None
             self.deleted = ops.delete_selected_faces_tess(
                 self.cad_meshes, target, cell)
             if self.deleted <= 0:
@@ -1463,7 +1537,8 @@ class EditSolidDialog(_EditDlg):
             self.applied = True
             QMessageBox.information(
                 self, "Edit Solid",
-                f"Deleted {self.deleted} triangle(s) on '{target}'.")
+                f"Deleted {self.deleted} triangle(s) on '{target}' "
+                f"(tessellation fallback).")
             return
         self.applied = True
         QMessageBox.information(
@@ -1476,7 +1551,13 @@ class EditSolidDialog(_EditDlg):
 
 
 class PartSimplificationDialog(_EditDlg):
-    """[Part Simplification]."""
+    """[Part Simplification] — PK_FACE_delete_2 on auto/picked faces."""
+
+    _METHODS = (
+        ("Auto selection by internal loop", "internal_loop"),
+        ("Hole and projection face in thin geometry", "thin_geometry"),
+        ("External loop face in 2.5 dimensional geometry", "external_2d5"),
+    )
 
     def __init__(self, model: StpreModel, cad_meshes=None, parent=None):
         super().__init__("Part Simplification", "Part Simplification",
@@ -1484,9 +1565,13 @@ class PartSimplificationDialog(_EditDlg):
         self.model = model
         self.cad_meshes = cad_meshes
         self.deleted = 0
+        self._auto_tags: list[int] = []
         self.body.addWidget(_capability_note(
-            "M33: Delete selected face removes the coplanar triangle cluster "
-            "from the current Draw face pick.", self))
+            "M33: Method selects B-rep faces from PK topology; Delete runs "
+            "PK_FACE_delete_2 one face at a time (cap healing — the face "
+            "count may stay equal while the tags change) and rewrites the "
+            "part's x_t body in place (tessellation fallback without "
+            "pskernel).", self))
         row = QHBoxLayout()
         row.addWidget(QLabel("Target", self))
         self.part = QComboBox(self)
@@ -1498,24 +1583,41 @@ class PartSimplificationDialog(_EditDlg):
         self.body.addLayout(row)
         method = QGroupBox("Method", self)
         ml = QVBoxLayout(method)
-        for lab in (
-                "Auto selection by internal loop",
-                "Hole and projection face in thin geometry",
-                "External loop face in 2.5 dimensional geometry",
-        ):
+        self._method_btns: list[QRadioButton] = []
+        for lab, _key in self._METHODS:
             rb = QRadioButton(lab, method)
             if "internal" in lab:
                 rb.setChecked(True)
+            rb.toggled.connect(self._on_method_changed)
+            self._method_btns.append(rb)
             ml.addWidget(rb)
         self.body.addWidget(method)
         self.body.addWidget(QLabel(
             "Additional selection and cancel of selected face", self))
+        self.status = QLabel("", self)
+        self.status.setStyleSheet("color:#555;")
+        self.status.setWordWrap(True)
+        self.body.addWidget(self.status)
         self._root.addLayout(_bottom_buttons(self, (
-            ("Preview", lambda: None),
-            ("Cancel all selections (Initialization)", lambda: None),
+            ("Preview", self._preview),
+            ("Cancel all selections (Initialization)", self._clear),
             ("Delete selected face", self._exec),
             ("Close", self.accept),
         )))
+
+    def _archive(self):
+        parent = self.parent()
+        return getattr(parent, "archive", None) if parent else None
+
+    def _current_method(self) -> str:
+        for rb, (_lab, key) in zip(self._method_btns, self._METHODS):
+            if rb.isChecked():
+                return key
+        return "internal_loop"
+
+    def _on_method_changed(self) -> None:
+        self._auto_tags = []
+        self.status.setText("")
 
     def _use_pick(self) -> None:
         parent = self.parent()
@@ -1525,8 +1627,62 @@ class PartSimplificationDialog(_EditDlg):
             if idx >= 0:
                 self.part.setCurrentIndex(idx)
 
+    def _preview(self) -> None:
+        target = self.part.currentText()
+        tags = ops.auto_faces_by_method(
+            self.model, self._archive(), target, self._current_method())
+        table = ops.face_geometry_table(self.model, self._archive(), target)
+        total = len(table) if table else 0
+        self._auto_tags = tags
+        if tags:
+            self.status.setText(
+                f"Method selected {len(tags)} of {total} face(s) "
+                f"on '{target}'.")
+        else:
+            self.status.setText(
+                f"No face matched the method on '{target}' "
+                f"({total} face(s) in body).")
+
+    def _clear(self) -> None:
+        self._auto_tags = []
+        parent = self.parent()
+        if parent is not None and getattr(parent, "_picked_face", None):
+            parent._picked_face = None
+        self.status.setText("All selections cleared.")
+
+    def _picked_tag(self) -> int | None:
+        """Map the Draw-window picked triangle to its B-rep face tag."""
+        parent = self.parent()
+        picked = getattr(parent, "_picked_face", None) if parent else None
+        return _picked_face_to_tag(
+            self.model, self._archive(), self.cad_meshes,
+            self.part.currentText(), picked)
+
     def _exec(self) -> None:
         target = self.part.currentText()
+        tags = list(self._auto_tags)
+        if not tags:
+            picked_tag = self._picked_tag()
+            if picked_tag is not None:
+                tags = [picked_tag]
+        if tags:
+            res = ops.simplify_part_faces_pk(
+                self.model, self._archive(), self.cad_meshes, target, tags)
+            if res is not None:
+                self.deleted = res["deleted"]
+                self.applied = True
+                self._auto_tags = []
+                self.status.setText(
+                    f"{res['faces_after']} face(s) / {res['tris']} "
+                    f"triangle(s) remain on '{target}'.")
+                QMessageBox.information(
+                    self, "Part Simplification",
+                    f"PK_FACE_delete_2 removed {res['deleted']} face(s) "
+                    f"from '{target}' ({res['faces_before']} -> "
+                    f"{res['faces_after']} faces, {res['tris']} "
+                    f"triangles).")
+                return
+        # tessellation fallback (no pskernel / no x_t body)
         parent = self.parent()
         picked = getattr(parent, "_picked_face", None) if parent else None
         cell = picked[1] if picked and picked[0] == target else None
@@ -1535,12 +1691,13 @@ class PartSimplificationDialog(_EditDlg):
         if self.deleted <= 0:
             QMessageBox.warning(
                 self, "Part Simplification",
-                "Pick a Face on the target part in the Draw Window.")
+                "Pick a Face on the target part (or run Preview) first.")
             return
         self.applied = True
         QMessageBox.information(
             self, "Part Simplification",
-            f"Deleted {self.deleted} triangle(s) on '{target}'.")
+            f"Deleted {self.deleted} triangle(s) on '{target}' "
+            f"(tessellation fallback).")
 
 
 class ShapeSimplificationDialog(_EditDlg):

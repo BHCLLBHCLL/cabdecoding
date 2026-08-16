@@ -28,8 +28,13 @@ PK_boolean_subtract_c = 15902
 PK_boolean_unite_c = 15903
 PK_boolean_fence_none_c = 18212
 PK_boolean_check_fa_yes_c = 21801
+PK_FACE_heal_none_c = 18080
 PK_FACE_heal_cap_c = 18081
-PK_FACE_heal_shrink_c = 18084
+# NOTE (diag 2026-08-16): this kernel's PK_FACE_delete_2 accepts ONLY
+# heal tokens 18080 (none) / 18081 (cap).  The old ``shrink`` token 18084
+# returns rc 525 on every body (created or received) and leaves the
+# session unstable enough that the next call can crash; 18082 gives rc
+# 5000.  Scan range 18060-18110, only 18080/18081 return rc 0.
 PK_local_ops_update_default_c = 24330
 PK_repair_fa_fa_no_c = 24360
 PK_delete_track_no_c = 26340
@@ -271,7 +276,12 @@ def body_boolean(target: int, tools: list[int], op: str
 
 def face_delete(face_tags: list[int], *,
                 heal: str = "cap") -> None:
-    """``PK_FACE_delete_2`` with cap/shrink healing (same body)."""
+    """``PK_FACE_delete_2`` with cap/none healing (same body).
+
+    ``heal="cap"`` closes the removed region with a healing face (the
+    STpre Part-Simplification semantic: delete hole/feature face, keep a
+    valid solid); ``"none"`` leaves the gap open.
+    """
     if not available():
         raise RuntimeError("pskernel not available")
     if not face_tags:
@@ -286,7 +296,7 @@ def face_delete(face_tags: list[int], *,
     opts.o_t_version = 1
     opts.update = PK_local_ops_update_default_c
     opts.heal_action = (
-        PK_FACE_heal_shrink_c if heal == "shrink" else PK_FACE_heal_cap_c)
+        PK_FACE_heal_none_c if heal == "none" else PK_FACE_heal_cap_c)
     opts.heal_loops = 0
     opts.local_check = 1
     opts.repair_fa_fa = PK_repair_fa_fa_no_c

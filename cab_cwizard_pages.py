@@ -87,6 +87,7 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
                 ("Driver", self._new_vol_driver),
                 ("Time series", self._new_vol_time_series),
                 ("Expression", self._new_vol_expression),
+                ("Manage expressions", self._manage_expressions),
                 ("Diffusion source", self._new_vol_diffusion),
                 ("Generalized source term", self._new_vol_term),
             ),
@@ -882,6 +883,93 @@ class _CwSourcePage(QWidget if _HAS_GUI else object):
         for region, rtype in regions:
             self._bind_target(region, rtype or "Domain", name)
         self._log(f"Source: expression '{name}' -> {expr_name}")
+        self.refresh()
+
+    def _manage_expressions(self) -> None:
+        """R2: expression manager — list / edit / delete <express> functions."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Expressions")
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            "Computing functions used by expression conditions.", dlg))
+        table = QTableWidget(0, 3, dlg)
+        table.setHorizontalHeaderLabels(["Name", "Kind", "Formula"])
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        rows = self.model.express_list()
+        table.setRowCount(len(rows))
+        for r, (name, kind, formula) in enumerate(rows):
+            for c, txt in enumerate((name, kind, formula)):
+                table.setItem(r, c, QTableWidgetItem(txt))
+        table.setCurrentCell(0, 0)
+        lay.addWidget(table, 1)
+
+        def _selected() -> Optional[tuple[str, str, str]]:
+            r = table.currentRow()
+            if 0 <= r < len(rows):
+                return rows[r]
+            return None
+
+        def _edit() -> None:
+            sel = _selected()
+            if sel is None:
+                return
+            name, kind, formula = sel
+            ed = QDialog(dlg)
+            ed.setWindowTitle(f"Edit expression '{name}'")
+            elay = QVBoxLayout(ed)
+            formula_ed = QLineEdit(formula, ed)
+            _pair(elay, "Formula (t = time)", formula_ed)
+            brow = QHBoxLayout()
+            ok = QPushButton("OK", ed)
+            cancel = QPushButton("Cancel", ed)
+            ok.clicked.connect(ed.accept)
+            cancel.clicked.connect(ed.reject)
+            brow.addStretch(1)
+            brow.addWidget(ok)
+            brow.addWidget(cancel)
+            elay.addLayout(brow)
+            if ed.exec_() and formula_ed.text().strip():
+                self.model.upsert_express(name, kind,
+                                          formula_ed.text().strip())
+                self._log(f"Source: expression '{name}' updated")
+                dlg.accept()
+
+        def _delete() -> None:
+            sel = _selected()
+            if sel is None:
+                return
+            name = sel[0]
+            refs = self.model.express_referenced_by(name)
+            if refs:
+                ret = QMessageBox.question(
+                    dlg, "Delete expression",
+                    f"'{name}' is referenced by: {', '.join(refs)}.\n"
+                    "Delete the expression and those conditions too?")
+                if ret != QMessageBox.Yes:
+                    return
+                self.model.delete_express(name, cascade=True)
+                self._log(f"Source: expression '{name}' deleted "
+                          f"(with {len(refs)} condition(s))")
+            else:
+                self.model.delete_express(name)
+                self._log(f"Source: expression '{name}' deleted")
+            dlg.accept()
+
+        row = QHBoxLayout()
+        edit_btn = QPushButton("Edit", dlg)
+        del_btn = QPushButton("Delete", dlg)
+        close = QPushButton("Close", dlg)
+        edit_btn.clicked.connect(_edit)
+        del_btn.clicked.connect(_delete)
+        close.clicked.connect(dlg.accept)
+        row.addWidget(edit_btn)
+        row.addWidget(del_btn)
+        row.addStretch(1)
+        row.addWidget(close)
+        lay.addLayout(row)
+        dlg.exec_()
         self.refresh()
 
     def _write_diffusion_source(self, name: str, no: int, amount: float,

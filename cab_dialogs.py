@@ -649,6 +649,152 @@ class AttributePanel(QGroupBox if _HAS_GUI_DEPS else object):
         return out
 
 
+class MotionPanel(QGroupBox if _HAS_GUI_DEPS else object):
+    """STpre moving-body (prescribed motion) group for part dialogs.
+
+    Reads/writes the ``body_move`` value + condition pair via
+    :meth:`cabxml.StpreModel.part_motion` /
+    :meth:`cabxml.StpreModel.set_part_motion` (c7, COM-probed format).
+    """
+
+    KINDS = (
+        ("none", "(none)"),
+        ("translate", "Translate"),
+        ("rotate", "Rotate"),
+        ("translate+rotate", "Translate + Rotate"),
+        ("coordinate", "Coordinate"),
+    )
+    #: fields shown per kind (spin boxes), beside the kind combo
+    _FIELDS = {
+        "translate": ("velocity",),
+        "rotate": ("omega", "center", "normal"),
+        "translate+rotate": ("velocity", "omega", "center", "normal"),
+        "coordinate": ("coordinate",),
+    }
+    _LABELS = {
+        "velocity": "Velocity (m/s)", "omega": "Omega (rad/s)",
+        "center": "Center (mm)", "normal": "Normal",
+        "coordinate": "Coordinate (mm)",
+    }
+
+    def __init__(self, model, part_name: str, parent=None):
+        super().__init__("Moving Body", parent)
+        self.model = model
+        self.part_name = part_name
+        lay = QVBoxLayout(self)
+        lay.setSpacing(4)
+
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Motion type", self))
+        self.kind = QComboBox(self)
+        for key, label in self.KINDS:
+            self.kind.addItem(label, key)
+        self.kind.currentIndexChanged.connect(self._sync_visibility)
+        row.addWidget(self.kind, 1)
+        lay.addLayout(row)
+
+        self.spins: dict[str, dict[str, QDoubleSpinBox]] = {}
+        for field in ("velocity", "omega", "center", "normal", "coordinate"):
+            frow = QHBoxLayout()
+            lbl = QLabel(self._LABELS[field], self)
+            frow.addWidget(lbl)
+            frow.addStretch(1)
+            lay.addLayout(frow)
+            box = QWidget(self)
+            if field == "omega":
+                hlay = QHBoxLayout(box)
+                hlay.setContentsMargins(0, 0, 0, 0)
+                sb = QDoubleSpinBox(box)
+                sb.setRange(-1.0e9, 1.0e9)
+                sb.setDecimals(6)
+                sb.setMinimumWidth(64)
+                hlay.addWidget(sb)
+                hlay.addStretch(1)
+                spins = {"x": sb}
+            else:
+                grid = QGridLayout(box)
+                grid.setHorizontalSpacing(4)
+                spins = {}
+                for i, ax in enumerate("XYZ"):
+                    lab = QLabel(ax, box)
+                    lab.setAlignment(Qt.AlignCenter)
+                    grid.addWidget(lab, 0, i)
+                    sb = QDoubleSpinBox(box)
+                    sb.setRange(-1.0e9, 1.0e9)
+                    sb.setDecimals(6)
+                    sb.setMinimumWidth(64)
+                    grid.addWidget(sb, 1, i)
+                    spins[ax.lower()] = sb
+            lay.addWidget(box)
+            self.spins[field] = spins
+            # tag container widgets for show/hide
+            self.spins[f"_box_{field}"] = box
+            self.spins[f"_label_{field}"] = frow
+        lay.addStretch(1)
+        self._sync_visibility()
+
+    # -- visibility ---------------------------------------------------------
+
+    def _current_kind(self) -> str:
+        return self.kind.currentData() or "none"
+
+    def _sync_visibility(self) -> None:
+        kind = self._current_kind()
+        fields = self._FIELDS.get(kind, ())
+        for field in ("velocity", "omega", "center", "normal", "coordinate"):
+            on = field in fields
+            self.spins[f"_box_{field}"].setVisible(on)
+            # label rows are layouts: hide via their first widget
+            lbl = self.spins[f"_label_{field}"].itemAt(0).widget()
+            lbl.setVisible(on)
+
+    # -- model <-> widgets ----------------------------------------------------
+
+    def load(self) -> None:
+        motion = self.model.part_motion(self.part_name)
+        if motion is None:
+            self.kind.setCurrentIndex(0)
+            self._sync_visibility()
+            return
+        key = motion.get("kind") or "none"
+        idx = next((i for i, (k, _l) in enumerate(self.KINDS) if k == key), 0)
+        self.kind.setCurrentIndex(idx)
+        vel = motion.get("velocity") or (0.0, 0.0, 0.0)
+        for i, ax in enumerate("xyz"):
+            self.spins["velocity"][ax].setValue(vel[i] if vel[i] is not None
+                                                else 0.0)
+        self.spins["omega"]["x"].setValue(motion.get("omega") or 0.0)
+        for field in ("center", "normal"):
+            vec = motion.get(field) or (0.0, 0.0, 0.0)
+            for i, ax in enumerate("xyz"):
+                self.spins[field][ax].setValue(
+                    vec[i] if vec[i] is not None else 0.0)
+        coord = motion.get("coordinate") or (0.0, 0.0, 0.0)
+        for i, ax in enumerate("xyz"):
+            self.spins["coordinate"][ax].setValue(
+                coord[i] if coord[i] is not None else 0.0)
+        self._sync_visibility()
+
+    def commit(self) -> bool:
+        kind = self._current_kind()
+        if kind == "none":
+            return self.model.set_part_motion(self.part_name, None)
+        motion: dict = {"kind": kind}
+        if "velocity" in self._FIELDS[kind]:
+            motion["velocity"] = tuple(
+                self.spins["velocity"][ax].value() for ax in "xyz")
+        if "omega" in self._FIELDS[kind]:
+            motion["omega"] = self.spins["omega"]["x"].value()
+        for field in ("center", "normal"):
+            if field in self._FIELDS[kind]:
+                motion[field] = tuple(
+                    self.spins[field][ax].value() for ax in "xyz")
+        if "coordinate" in self._FIELDS[kind]:
+            motion["coordinate"] = tuple(
+                self.spins["coordinate"][ax].value() for ax in "xyz")
+        return self.model.set_part_motion(self.part_name, motion)
+
+
 class MaterialListDialog(QDialog if _HAS_GUI_DEPS else object):
     """STpre [List of Materials] — tree of standard property groups.
 
@@ -1474,10 +1620,24 @@ class PartDialog(StpreDialogBase):
             attributes=("Obstacle", "Solid", "Condition region", "Fluid"),
             attribute_enabled=True, heat_source=True, virtual_part=True)
         attr.configure_requested.connect(self._configure_material)
+        self.motion = MotionPanel(model, part_name)
         super().__init__(
             f"Part — {part_name}", "Cuboid" if self._is_box() else "Part",
             icon="cube" if self._is_box() else "part", parent=parent,
             attribute_panel=attr, left_title="Scale")
+        # stack the Moving Body group under the attribute panel (right
+        # column): re-parent attr into a vertical holder widget
+        cols = self.layout().itemAt(2).layout()
+        idx = cols.indexOf(attr) if cols is not None else -1
+        if idx >= 0:
+            holder = QWidget(self)
+            v = QVBoxLayout(holder)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(6)
+            cols.removeWidget(attr)
+            v.addWidget(attr)
+            v.addWidget(self.motion)
+            cols.insertWidget(idx, holder, 2)
         self._load_part()
 
     def _is_box(self) -> bool:
@@ -1558,6 +1718,8 @@ class PartDialog(StpreDialogBase):
             attr.set_monitor(
                 mel is None or not mel.text
                 or mel.text.strip().upper() != "F")
+        self.motion.part_name = self.part_name
+        self.motion.load()
 
     @staticmethod
     def _triple(text: str) -> Optional[tuple[float, float, float]]:
@@ -1603,6 +1765,8 @@ class PartDialog(StpreDialogBase):
                 return
             self.model.rename_part(self._part.name, new_name)
             self.part_name = new_name
+        self.motion.part_name = self.part_name
+        self.motion.commit()
         self.model.set_part_property(
             self.part_name, self.attr_panel.material_name())
         self.model.set_part_color(self.part_name, self.color_btn.rgba())

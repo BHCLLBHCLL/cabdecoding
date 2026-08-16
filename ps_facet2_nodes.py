@@ -222,6 +222,10 @@ class TessPart:
     triangles: np.ndarray       # (M, 3) int32 into points
     tag: int = 0
     vertices: Optional[np.ndarray] = None  # real B-rep vertices (M, 3)
+    # True where a mesh node lies on a model (B-rep) edge - decoded from
+    # the kernel's fin_edge table (token 0x57C2 on this build).  STpre's
+    # gridding "All" vertex detection projects only these nodes.
+    edge_mask: Optional[np.ndarray] = None  # (N,) bool
 
 
 # ---------------------------------------------------------------------------
@@ -743,14 +747,16 @@ class _PsSession:
                      facet_tol: float = DEFAULT_FACET_TOL,
                      facet_angle_deg: float = DEFAULT_FACET_ANGLE_DEG,
                      local_tols: Optional[list[tuple[int, tuple[float, ...]]]]
-                     = None) -> Optional["_Facet2Result"]:
+                     = None,
+                     want_fin_edge: bool = False) -> Optional["_Facet2Result"]:
         """Build a V5 option block and call PK_TOPOL_facet_2 once.
 
         ``local_tols`` is a list of ``(topol_tag, tolerance5)`` pairs; the
         kernel overrides the global surface tolerances on exactly those
         faces/bodies (PK_facet_local_tolerances_t, zero entries keep the
-        global value).  The result owns kernel memory; decode with
-        ``_decode_result``.
+        global value).  ``want_fin_edge`` additionally requests the
+        fin->model-edge table (token 0x57C2).  The result owns kernel
+        memory; decode with ``_decode_result``.
         """
         pk = self.pk
         pk.PK_TOPOL_facet_2.restype = c_int
@@ -784,6 +790,8 @@ class _PsSession:
         opts.fin_data = 1
         opts.data_point_idx = 1
         opts.point_vec = 1
+        if want_fin_edge:
+            opts.fin_edge = 1
         result = _Facet2Result()
         memset(byref(result), 0, sizeof(result))
         rc = pk.PK_TOPOL_facet_2(
@@ -873,11 +881,29 @@ class _PsSession:
                 tris.append(verts)
         if not tris:
             return None
+
+        # fin_edge table (token 0x57C2 on this kernel): {fin, PK_EDGE_t}
+        # records marking the fins that lie on model edges.  Project the
+        # marked fins onto their mesh nodes -> edge_mask.
+        edge_mask = None
+        fe_ptr = data.get(FCTAB_FACET_FACE)
+        if fe_ptr:
+            fe_data_ptr, fe_len = table_wrapper(fe_ptr)
+            mask = np.zeros(len(points), dtype=bool)
+            for fin, _edge in pairs(fe_data_ptr, fe_len):
+                if 0 <= fin < len(fin_data):
+                    di = fin_data[fin]
+                    if 0 <= di < len(point_of_data):
+                        pi = point_of_data[di]
+                        if 0 <= pi < len(points):
+                            mask[pi] = True
+            edge_mask = mask
         return TessPart(
             name=name,
             points=points,
             triangles=np.asarray(tris, dtype=np.int32),
             tag=tag,
+            edge_mask=edge_mask,
         )
 
     def facet2(self, tag: int, *,
@@ -1307,11 +1333,14 @@ class _PsSession:
         return tuple(float(box[i]) for i in range(6))
 
     def facet_body_stpre(self, tag: int, *,
-                         angle_deg: Optional[float] = None) \
+                         angle_deg: Optional[float] = None,
+                         want_fin_edge: bool = False) \
             -> Optional[TessPart]:
         """Facet a body exactly like STpre's display mesh (recipe in
         STPRE_GRID_RULES.md 2.3.3): six tolerances from the body bbox
-        diagonal.  Reproduces SaveStlFile output (tr03 golden verified)."""
+        diagonal.  Reproduces SaveStlFile output (tr03 golden verified).
+        ``want_fin_edge=True`` additionally decodes the fin->model-edge
+        table into ``TessPart.edge_mask`` (nodes on B-rep edges)."""
         D = None
         box = self.body_box(tag)
         if box is not None:
@@ -1345,6 +1374,8 @@ class _PsSession:
         opts.fin_data = 1
         opts.data_point_idx = 1
         opts.point_vec = 1
+        if want_fin_edge:
+            opts.fin_edge = 1
         result = _Facet2Result()
         memset(byref(result), 0, sizeof(result))
         rc = pk.PK_TOPOL_facet_2(

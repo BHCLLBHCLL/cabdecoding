@@ -946,6 +946,20 @@ class STpreDoc(ComObject):
     def SetAnalysisType(self, kind, flag):
         return self.call("SetAnalysisType", kind, flag)
 
+    def SetMoveBodyOption(self, key: str, param) -> int:
+        """Set a moving-object analysis parameter (MOVB_OPTION).
+
+        Keywords (VB manual): 'panel', 'interference', 'initial-state',
+        'listout-position', 'courant', 'gap_filling', 'body_file',
+        'matrix_solver', 'pdro_threshold', 'dynamical_gravity',
+        'dynamical_fluid'.  Returns 1 on success.
+        """
+        return self.call("SetMoveBodyOption", key, param)
+
+    def GetMoveBodyOption(self, key: str):
+        """Read back a SetMoveBodyOption parameter."""
+        return self.call("GetMoveBodyOption", key)
+
     def SetCartesianDomain(self, x1, y1, z1, x2, y2, z2):
         return self.call("SetCartesianDomain", x1, y1, z1, x2, y2, z2)
 
@@ -1160,6 +1174,18 @@ class STpreModel(ComObject):
 
     def GetModelType(self):
         return self.call("GetModelType")
+
+    def SetMoveBodyControl(self, key: str, params) -> "STpreValue":
+        """Set the moving-object motion (MOVB_CONTROL).
+
+        ``key``: 'T' translation velocity xyz (m/s) | 'R' omega (rad/s),
+        rotation-center xyz, axis-vector xyz | 'B' both (10 values) |
+        'X' translation coordinates xyz (mm).  Returns the created
+        Value (saved as ``<value type="body_move">`` + ``<condition>``;
+        COM-probed 2026-08-16).
+        """
+        return STpreValue(self.call("SetMoveBodyControl", key,
+                                    list(params)))
 
     def GetBoundingBox(self):
         return self.call("GetBoundingBox")
@@ -1572,9 +1598,9 @@ API_CATALOG: dict[str, list[str]] = {
         "SetGravity", "SetAnalysisType", "SetCartesianDomain",
         "SetCylindricalDomain", "SetUnit", "SetWall", "SetFluxFix",
         "SetFluxPres", "SetFluxOut", "SetTemperatureFix", "SetHeatTransfer",
-        "SetHeatSource", "SetSymmetry", "SetInitialValue", "SetFanPQcurve",
-        "SetFanConstFlow", "DeleteModel", "DeleteValue", "DeleteTable",
+        "SetHeatSource", "SetSymmetry", "SetInitialValue", "SetFanPQcurve", "SetFanConstFlow", "DeleteModel", "DeleteValue", "DeleteTable",
         "DeleteScript", "ClearSelect", "SortModel",
+        "SetMoveBodyOption", "GetMoveBodyOption",
     ],
     "Model_high_value": [
         "Copy", "Rotate", "Move", "ConvertModel", "CreateConvexHull",
@@ -1585,6 +1611,7 @@ API_CATALOG: dict[str, list[str]] = {
         "SetMeshDivide", "SetMeshDivideType", "GetMeshParam", "SetFacetParam",
         "GetFacetParam", "SetAircon", "SetHeatSource", "SetEmissivity",
         "SetLayerNo", "SetDrawType", "SetCutcell", "GetName", "GetModelType",
+        "SetMoveBodyControl",
     ],
     "Value_high_value": [
         "GetName", "SetName", "GetTypeKey", "GetSubTypeKey", "GetParam",

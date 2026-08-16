@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from cabxml import StpreModel, new_stpre_bytes, parse_stpre
 
@@ -153,3 +154,67 @@ def test_stpre_box_occupancy_golden():
         assert st == nt, f"occupancy mismatch for {r.get('name')}"
         checked += 1
     assert checked >= 20
+
+
+def test_tr03_native_grid_counts_match_golden():
+    """R1 acceptance: native build_axes reproduces STpre tr03 counts e2e.
+
+    all (59,118,121) and representative (57,91,92) via the decoded
+    recipes: display-mesh node projection clipped to the domain box +
+    part AABB extremes (all); in-domain B-rep vertices + AABB extremes
+    (rep); interval split ``n = floor(L/std + 2/3_f32)`` (STpre uses the
+    float32-rounded 2/3 constant).  Requires pskernel; skipped when the
+    Parasolid runtime is unavailable.
+    """
+    pytest.importorskip("ps_facet2_nodes")
+    import ps_facet2_nodes as ps
+    import cab_grid
+    import cab_vtk
+
+    transform = ("1,0,0,0,0,1,0,0,0,0,1,0,"
+                 "-0.0225,-0.0475,-0.0475,1")
+
+    def world(p):
+        return cab_vtk._apply_transform(
+            np.asarray(p, float) / 1000.0, transform) * 1000.0
+
+    data = json.loads(TR03_JSON.read_text(encoding="utf-8"))
+    recs = data if isinstance(data, list) else data.get("records", [])
+
+    try:
+        sess = ps._get_session()
+        xt = (ROOT / "tests" / "tr03" / "_tr03_all.x_t").read_bytes()
+        tags = sess.expand_to_bodies(sess.receive_xt(xt))
+        imp = next((t for t in tags
+                    if sess.body_name(t) == "Impeller"), None)
+        if imp is None:
+            pytest.skip("Impeller body not found in tr03 x_t")
+        part = sess.facet_body_stpre(imp) or sess.facet_body(imp)
+        verts = sess.body_vertices(imp)
+    except OSError:
+        pytest.skip("pskernel runtime unavailable")
+
+    tess = {"Impeller": world(np.asarray(part.points) * 1000.0)}
+    vertices = {"Impeller": world(np.asarray(verts) * 1000.0)}
+    lo = tess["Impeller"].min(axis=0)
+    hi = tess["Impeller"].max(axis=0)
+
+    for vd, det, want in ((0, "all", (59, 118, 121)),
+                          (1, "representative", (57, 91, 92))):
+        rec = next(r for r in recs
+                   if r["input"]["threshold"] == [0.1, 0.1, 0.1]
+                   and r["input"]["vertex_detection"] == vd)
+        inp = rec["input"]
+        spec = cab_grid.GridSpec(
+            unit="mm",
+            domain_min=tuple(inp["domain_min"]),
+            domain_max=tuple(inp["domain_max"]),
+            vertex_detection=det, method="rough_and_detail",
+            standard_length=tuple(inp["standard_length"]),
+            threshold_length=tuple(inp["threshold"]),
+            geometric_ratio=tuple(inp["ratio_in"]),
+            geometric_ratio_external=tuple(inp["ratio_out"]))
+        _, detailed = cab_grid.build_axes(
+            tess, spec, part_vertices=vertices, part_bounds=(lo, hi))
+        got = tuple(len(detailed[a]) for a in "xyz")
+        assert got == want, f"vd={vd}: native {got} != golden {want}"

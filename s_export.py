@@ -95,12 +95,14 @@ class SExport:
         self._cxyz()
         self._parts()
         self._regions()
+        self._movb_parts()
         self._init_region()
         self._flux_region()
         self._amom_region()
         self._aent_region()
         self._vent_region()
         self._vfwl_region()
+        self._movb_control()
         self._vfem_vfde()
         self._autofixp()
         self._fout()
@@ -302,6 +304,123 @@ class SExport:
                     + "".join(f"{int(x):10d}" for x in box[1:7]),
                     "   /",
                 ]
+        self.lines.append("/")
+
+    # -- moving object (c7) -------------------------------------------------
+    #
+    # STpre 2025.2 does not write MOVB blocks itself (probe probe_movebody_s);
+    # the layout below mirrors the official 2023.2 exercise exports
+    # (exA09-1/-2/-4, exA15-2): MOVB_PARTS after the REGION family,
+    # MOVB_CONTROL after the value/condition regions, before MEIX_VAR.
+
+    def _moving_parts(self) -> list[tuple]:
+        """``[(part_info, motion_dict)]`` for parts with a body_move."""
+        out = []
+        for p in self.parts[1:]:
+            motion = self.m.part_motion(p["name"])
+            if motion is not None:
+                out.append((p, motion))
+        return out
+
+    def _part_bounds_m(self, p: dict) -> Optional[tuple]:
+        """Part bounding box in metres: cube base/size, else element boxes."""
+        info = next((q for q in self.m.parts() if q.name == p["name"]), None)
+        if info is not None and info.base and info.size:
+            try:
+                base = [float(v) for v in info.base.split(",")[:3]]
+                size = [float(v) for v in info.size.split(",")[:3]]
+                if len(base) == 3 and len(size) == 3:
+                    return (base[0] / 1000.0, base[1] / 1000.0,
+                            base[2] / 1000.0,
+                            (base[0] + size[0]) / 1000.0,
+                            (base[1] + size[1]) / 1000.0,
+                            (base[2] + size[2]) / 1000.0)
+            except ValueError:
+                pass
+        axes = self.m.mesh_axes()
+        xs, ys, zs = axes.get("x", []), axes.get("y", []), axes.get("z", [])
+        if not (xs and ys and zs):
+            return None
+        lo = [min(xs), min(ys), min(zs)]
+        hi = [max(xs), max(ys), max(zs)]
+        for box in p["boxes"]:
+            if len(box) < 7:
+                continue
+            i0, i1, j0, j1, k0, k1 = box[1:7]
+            for ax, (a, b, axis) in enumerate(
+                    ((i0, i1, xs), (j0, j1, ys), (k0, k1, zs))):
+                if 0 <= min(a, b) < len(axis):
+                    lo[ax] = min(lo[ax], axis[min(a, b)])
+                if 0 <= max(a, b) < len(axis):
+                    hi[ax] = max(hi[ax], axis[max(a, b)])
+        return (lo[0] / 1000.0, lo[1] / 1000.0, lo[2] / 1000.0,
+                hi[0] / 1000.0, hi[1] / 1000.0, hi[2] / 1000.0)
+
+    def _movb_parts(self):
+        moving = self._moving_parts()
+        if not moving:
+            return
+        self.lines.append("MOVB_PARTS")
+        self.lines.append(f"{len(moving):15d}{0:12d}")
+        for p, _motion in moving:
+            b = self._part_bounds_m(p)
+            if b is None:
+                b = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+            x0, y0, z0, x1, y1, z1 = b
+            # exA09-4 corner order: bottom ring then top ring, the
+            # trailing list is the official outline order 1 2 4 3 5 6 8 7
+            corners = [
+                (x0, y0, z0), (x1, y0, z0), (x0, y1, z0), (x1, y1, z0),
+                (x0, y0, z1), (x1, y0, z1), (x0, y1, z1), (x1, y1, z1),
+            ]
+            self.lines.append(f" {p['name']}")
+            self.lines.append(f"{3:15d}{0:12d}")
+            self.lines.append(f"{1:8d}{len(corners):7d}")
+            for cx, cy, cz in corners:
+                self.lines.append(" " * 9 + "      ".join(
+                    f"{v:.14e}" for v in (cx, cy, cz)))
+            self.lines.append(f"{1:15d}"
+                              + "".join(f"{v:12d}" for v in (2, 4, 3, 5, 6, 8, 7)))
+        self.lines.append("/")
+
+    def _movb_control(self):
+        moving = self._moving_parts()
+        if not moving:
+            return
+        self.lines.append("MOVB_CONTROL")
+        for p, motion in moving:
+            name = p["name"]
+            vname = motion.get("value_name") or name
+            kind = motion.get("kind") or ""
+
+            def _params(vals) -> str:
+                return " " * 9 + "      ".join(f"{v:.14e}" for v in vals)
+
+            def _entry(kind_s: str, vals, part: str):
+                self.lines.append(f"{kind_s}    0   ! {vname}")
+                self.lines.append(_params(vals))
+                self.lines.append(f"   {part}")
+                self.lines.append("   /")
+
+            if kind in ("translate", "translate+rotate"):
+                vel = motion.get("velocity") or (0.0, 0.0, 0.0)
+                _entry("translation", tuple(float(v) for v in vel[:3]), name)
+            if kind in ("rotate", "translate+rotate"):
+                omega = float(motion.get("omega") or 0.0)
+                center = motion.get("center") or (0.0, 0.0, 0.0)
+                normal = motion.get("normal") or (0.0, 0.0, 1.0)
+                # XML stores the centre in mm (like all geometry);
+                # the solver takes metres.
+                _entry("rotation",
+                       (omega,
+                        float(center[0]) / 1000.0, float(center[1]) / 1000.0,
+                        float(center[2]) / 1000.0,
+                        float(normal[0]), float(normal[1]), float(normal[2])),
+                       name)
+            if kind == "coordinate":
+                coord = motion.get("coordinate") or (0.0, 0.0, 0.0)
+                _entry("coordinate",
+                       tuple(float(v) / 1000.0 for v in coord[:3]), name)
         self.lines.append("/")
 
     def _init_region(self):

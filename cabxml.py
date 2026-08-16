@@ -308,6 +308,16 @@ class StpreModel:
             c = _first(el, tag)
             if c is not None:
                 set_text(c, new)
+        # keep <condition><parts> references (body_move bindings, ...)
+        # pointing at the renamed part
+        for c in self.conditions():
+            pe = _first(c, "parts")
+            if pe is None or not pe.text:
+                continue
+            tokens = [t.strip() for t in pe.text.split(",")]
+            if old in tokens:
+                set_text(pe, ",".join(
+                    new if t == old else t for t in tokens))
         return True
 
     def set_part_property(self, name: str, material: str) -> bool:
@@ -379,6 +389,190 @@ class StpreModel:
             c.tail = "\n      "
         set_text(c, "T" if on else "F")
         return True
+
+    # -- part motion (moving object, COM-probed 2026-08-16) ----------------
+    #
+    # ``Model.SetMoveBodyControl(key, params)`` on STpre 2025.2 saves:
+    #
+    #     <value type="body_move">
+    #        <name> MoveBody1 </name>
+    #        <kind> translate|rotate|translate+rotate|coordinate </kind>
+    #        <velocity_x unit="m/s"> .. </velocity_x> (y/z)     # translate
+    #        <omega> .. </omega>                                # rotate
+    #        <center unit="default"> x,y,z </center>
+    #        <normal> x,y,z </normal>                           # rotate
+    #        <coordinate_x unit="mm"> .. </coordinate_x> (y/z)  # coordinate
+    #     </value>
+    #     <condition>
+    #        <parts> part </parts>
+    #        <value> MoveBody1 </value>
+    #     </condition>
+    #
+    # Kind switch clears the other kind's fields (probe movebody_X diff).
+
+    _MOTION_FIELDS = {
+        "translate": ("velocity_x", "velocity_y", "velocity_z"),
+        "rotate": ("omega", "center", "normal"),
+        "translate+rotate": ("velocity_x", "velocity_y", "velocity_z",
+                             "omega", "center", "normal"),
+        "coordinate": ("coordinate_x", "coordinate_y", "coordinate_z"),
+    }
+
+    def part_motion(self, name: str) -> Optional[dict]:
+        """The ``body_move`` motion definition bound to part ``name``.
+
+        Returns ``{kind, velocity, omega, center, normal, coordinate,
+        value_name}`` (absent fields ``None``) or ``None`` when the part
+        has no motion condition.
+        """
+        for c in self.conditions():
+            p = _first(c, "parts")
+            v = _first(c, "value")
+            if p is None or v is None or (p.text or "").strip() != name:
+                continue
+            val = self.find_value((v.text or "").strip())
+            if val is None or val.attrib.get("type") != "body_move":
+                continue
+
+            def f1(tag):
+                el = _first(val, tag)
+                try:
+                    return float(el.text) if el is not None and el.text \
+                        else None
+                except ValueError:
+                    return None
+
+            def f3(tag):
+                el = _first(val, tag)
+                if el is None or not el.text:
+                    return None
+                try:
+                    parts = tuple(float(x) for x in el.text.split(",")[:3])
+                except ValueError:
+                    return None
+                return parts if len(parts) == 3 else None
+
+            vel = [f1(f"velocity_{ax}") for ax in "xyz"]
+            coord = [f1(f"coordinate_{ax}") for ax in "xyz"]
+            kind_el = _first(val, "kind")
+            return {
+                "kind": (kind_el.text or "").strip()
+                        if kind_el is not None else "",
+                "velocity": vel if any(x is not None for x in vel) else None,
+                "omega": f1("omega"),
+                "center": f3("center"),
+                "normal": f3("normal"),
+                "coordinate": coord
+                              if any(x is not None for x in coord) else None,
+                "value_name": (v.text or "").strip(),
+            }
+        return None
+
+    def set_part_motion(self, name: str, motion: Optional[dict]) -> bool:
+        """Create/update (dict) or remove (``None``) a part's motion.
+
+        ``motion`` keys (all optional except ``kind``): ``velocity``
+        (3-tuple, m/s), ``omega`` (rad/s), ``center``/``normal``
+        (3-tuples), ``coordinate`` (3-tuple).  Removing passes ``None``.
+        """
+        if self.find_part(name) is None:
+            return False
+        cur = self.part_motion(name)
+        if motion is None:
+            if cur is None:
+                return False
+            return self.delete_value(cur["value_name"])
+        kind = (motion.get("kind") or "").strip()
+        if kind not in self._MOTION_FIELDS:
+            return False
+
+        # reuse (or create) the part's body_move value
+        if cur is not None:
+            vname = cur["value_name"]
+            val = self.find_value(vname)
+        else:
+            vname = self._next_motion_name()
+            val = ET.Element("value")
+            val.attrib["type"] = "body_move"
+            val.tail = "\n   "
+            n = ET.SubElement(val, "name")
+            n.tail = "\n      "
+            set_text(n, vname)
+            last = self.values()[-1] if self.values() else None
+            if last is not None:
+                self.root.insert(list(self.root).index(last) + 1, val)
+            else:
+                self.root.append(val)
+            cond = ET.Element("condition")
+            cond.tail = "\n   "
+            pe = ET.SubElement(cond, "parts")
+            pe.tail = "\n      "
+            set_text(pe, name)
+            ve = ET.SubElement(cond, "value")
+            ve.tail = "\n      "
+            set_text(ve, vname)
+            conds = self.conditions()
+            if conds:
+                self.root.insert(list(self.root).index(conds[-1]) + 1, cond)
+            else:
+                self.root.append(cond)
+
+        kind_el = _first(val, "kind")
+        if kind_el is None:
+            kind_el = ET.SubElement(val, "kind")
+            kind_el.tail = "\n      "
+        set_text(kind_el, kind)
+
+        # clear stale fields from a previous kind (STpre behaviour)
+        stale = {"velocity_x", "velocity_y", "velocity_z", "omega",
+                 "center", "normal", "coordinate_x", "coordinate_y",
+                 "coordinate_z"} - set(self._MOTION_FIELDS[kind])
+        for tag in stale:
+            el = _first(val, tag)
+            if el is not None:
+                val.remove(el)
+
+        def set_field(tag: str, text: str, unit: Optional[str] = None):
+            el = _first(val, tag)
+            if el is None:
+                el = ET.SubElement(val, tag)
+                el.tail = "\n      "
+            set_text(el, text)
+            if unit is not None:
+                el.attrib["unit"] = unit
+            else:
+                el.attrib.pop("unit", None)
+
+        vel = motion.get("velocity")
+        if vel is not None and len(vel) == 3:
+            for ax, v in zip("xyz", vel):
+                set_field(f"velocity_{ax}", f"{float(v):.17g}", "m/s")
+        if motion.get("omega") is not None:
+            set_field("omega", f"{float(motion['omega']):.17g}")
+        for tag in ("center", "normal"):
+            vec = motion.get(tag)
+            if vec is not None and len(vec) == 3:
+                set_field(
+                    tag, ",".join(f"{float(v):.17g}" for v in vec),
+                    "default" if tag == "center" else None)
+        coord = motion.get("coordinate")
+        if coord is not None and len(coord) == 3:
+            for ax, v in zip("xyz", coord):
+                set_field(f"coordinate_{ax}", f"{float(v):.17g}", "mm")
+        return True
+
+    def _next_motion_name(self) -> str:
+        used = set()
+        for v in self.values():
+            if v.attrib.get("type") != "body_move":
+                continue
+            n = _first(v, "name")
+            if n is not None and n.text:
+                used.add((n.text or "").strip())
+        idx = 1
+        while f"MoveBody{idx}" in used:
+            idx += 1
+        return f"MoveBody{idx}"
 
     def reorder_parts(self, names: list[str], anchor: str, *,
                       before: bool = True) -> list[str]:
@@ -976,6 +1170,55 @@ class StpreModel:
             if name:
                 out.append((name, kind, formula))
         return out
+
+    def express_referenced_by(self, name: str) -> list[str]:
+        """Value names whose ``<source type="express">`` is ``name``."""
+        out: list[str] = []
+        for v in self.root.iter('value'):
+            src = _first(v, 'source')
+            if src is None or src.attrib.get('type') != 'express':
+                continue
+            if (src.text or '').strip() != name:
+                continue
+            n = _first(v, 'name')
+            if n is not None and (n.text or '').strip():
+                out.append((n.text or '').strip())
+        return out
+
+    def delete_value(self, name: str) -> bool:
+        """Remove a ``<value>`` and every ``<condition>`` referencing it."""
+        el = self.find_value(name)
+        if el is None:
+            return False
+        for c in list(self.conditions()):
+            v = _first(c, 'value')
+            if v is not None and (v.text or '').strip() == name:
+                self.root.remove(c)
+        self.root.remove(el)
+        return True
+
+    def delete_express(self, name: str, *, cascade: bool = False) -> bool:
+        """Delete an ``<express>`` computing function.
+
+        Refuses (returns ``False``) while values still reference it through
+        ``<source type="express">`` unless ``cascade=True``, which removes
+        the referencing values (and their conditions) as well.
+        """
+        el = None
+        for e in self.root.findall('express'):
+            n = _first(e, 'name')
+            if n is not None and (n.text or '').strip() == name:
+                el = e
+                break
+        if el is None:
+            return False
+        refs = self.express_referenced_by(name)
+        if refs and not cascade:
+            return False
+        for r in refs:
+            self.delete_value(r)
+        self.root.remove(el)
+        return True
 
     def bind_condition(self, target_kind: str, target: str,
                        value_name: str) -> bool:
