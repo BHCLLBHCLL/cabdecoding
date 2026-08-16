@@ -813,6 +813,7 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
     _COMBO_ITEMS = {
         "def_axis": _AXIS_ITEMS, "row_axis": _AXIS_ITEMS,
         "def_plane": _AXIS_ITEMS, "axis": _AXIS_ITEMS,
+        "plane": _AXIS_ITEMS,
         "operation_type": ("cooling", "heating"),
         "t_limit_type": ("none", "min", "max", "minmax"),
     }
@@ -887,6 +888,24 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
             ("f", "Outer radius r2 (mm)", "r2", None, 20.0),
             ("f", "Thickness (mm)", "thickness", None, 8.0),
             ("s", "Axis", "axis", None, "+Z"),
+        ),
+        "pin_fin": (
+            ("f", "Fin width f1 (mm)", "f1", None, 1.5),
+            ("f", "Fin width f2 (mm)", "f2", None, 1.5),
+            ("f", "Pitch h1 (mm)", "h1", None, 5.0),
+            ("f", "Pitch h2 (mm)", "h2", None, 5.0),
+            ("i", "Number of fins n1", "n1", None, 10),
+            ("i", "Number of fins n2", "n2", None, 10),
+            ("s", "Axis", "axis", None, "+Z"),
+        ),
+        "slit_punching": (
+            ("s", "Plane", "plane", None, "+X"),
+            ("f", "Thickness (mm)", "thick", None, 1.0),
+            ("i", "Number of slits", "count", None, 8),
+        ),
+        "anemostat": (
+            ("t", "Mode", "mode", None, ""),
+            ("t", "Type", "type", None, ""),
         ),
     }
 

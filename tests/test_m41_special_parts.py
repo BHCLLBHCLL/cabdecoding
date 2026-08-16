@@ -57,7 +57,11 @@ def test_fan_family_params_roundtrip():
             ("axial_fan", {"r1": 4.0, "r2": 18.0, "t1": 5.0, "t2": 5.0,
                           "axis": "+X"}),
             ("blower_fan", {"r1": 6.0, "r2": 22.0, "thickness": 8.0,
-                           "axis": "-Z"})):
+                           "axis": "-Z"}),
+            ("pin_fin", {"f1": 1.5, "f2": 1.5, "h1": 5.0, "h2": 5.0,
+                         "n1": 10, "n2": 10, "axis": "+Y"}),
+            ("slit_punching", {"plane": "+X", "thick": 1.0, "count": 8}),
+            ("anemostat", {"mode": "horizontal", "type": "round"})):
         model.add_part(name="F", kind=kind, attribute="solid")
         assert model.set_part_params("F", params)
         got = model.part_params("F")

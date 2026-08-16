@@ -652,6 +652,21 @@ class StpreModel:
             "r1": ("mm", 1), "r2": ("mm", 1), "thickness": ("mm", 1),
             "axis": (None, "str"),
         },
+        # R3.5b/c: field names from STpreBase string evidence
+        # (CreatePinFinModel f1/h1/f2/h2/n1/n2 + axis; CreateSlitPunchingModel
+        # plane/flag/thick/count; CreateAnemoModel mode/type).
+        "pin_fin": {
+            "f1": ("mm", 1), "f2": ("mm", 1), "h1": ("mm", 1),
+            "h2": ("mm", 1), "n1": (None, "int"), "n2": (None, "int"),
+            "axis": (None, "str"),
+        },
+        "slit_punching": {
+            "plane": (None, "str"), "thick": ("mm", 1),
+            "count": (None, "int"),
+        },
+        "anemostat": {
+            "mode": (None, "str"), "type": (None, "str"),
+        },
     }
 
     #: 真实 STpre 部件 type 与本项目 kind 的别名
