@@ -574,6 +574,222 @@ class StpreModel:
             idx += 1
         return f"MoveBody{idx}"
 
+    # -- special part parameters (R7, COM-probed 2026-08-16) ------------------
+    #
+    # tools/probe_special_parts.py 实证（结果存 probe_work/
+    # special_parts_probe.json），STpre 2025.2 各专用件的落盘格式：
+    #
+    # peltier    CreatePeltierModel → ``<parts type="peltier">`` 子元素：
+    #     <thick unit="mm">tc,th
+    #     <paramV unit="default">Vdrv,V1,V2,V3
+    #     <paramA unit="default">Imax,I1,I2,I3,Th1
+    #     <paramQ unit="default">Qmax,Q1,Q2,Q3,Th2
+    #     <paramT>DTmax,DT1
+    #     <def_axis>+Z
+    # card_guide CreateCardGuideModel → ``<parts type="card_guide">`` 子元素：
+    #     <fin unit="mm">f1 <space unit="mm">h1,h2 <depth unit="mm">d1,d2
+    #     <nfin>8 <row_axis>+X <def_plane>+Z
+    # diffuser  CreateLinerDiffuserModel → ``<parts type="air_outlet">``
+    #     子元素 <angle>（度）+ 绑定 <value type="flux">（<kind>outlet、
+    #     <flow_rate unit="m3/s">、<temperature unit="C">、<aircon_type>S）
+    #     经 <condition><parts> 挂到部件（value 名 _outletN_flux）。
+    # heat_pipe  Model.SetHeatPipeCondition(cool, hot, r, qmax) 落盘为
+    #     顶层 <thermal_resist_model> 网络 + region pair（kind=heatpipe），
+    #     其 <heatpipe unit="K/W,W"> 存 "r,qmax"；本 API 以部件子元素
+    #     简化存储（字段一一对应 cool/hot/r/qmax）。
+    # ac_unit    CreateAirconModel 在 2025.2 返回 None（部件级未实证，
+    #     按手册降级）；条件模型容器已实证（AirconModel.SetParam）：
+    #     <analysis_air_etc><aircon> 下的 <name>/<kind>/<model>cooling|
+    #     heating/<flow_type>area/<power_type type="power"><power unit="W">/
+    #     <temperature_limit>none|minmax/<tmin>/<tmax>/<humidity_limit>/
+    #     <qvn unit="m3/s">，本 API 以同名部件子元素镜像存储。
+
+    #: 专用件参数字段表：tag -> (unit 属性, 长度；1 为标量，
+    #: "int" 为整数, "str" 为字符串)
+    _SPECIAL_PARAM_FIELDS = {
+        "peltier": {
+            "thick": ("mm", 2), "paramV": ("default", 4),
+            "paramA": ("default", 5), "paramQ": ("default", 5),
+            "paramT": (None, 2), "def_axis": (None, "str"),
+        },
+        "card_guide": {
+            "fin": ("mm", 1), "space": ("mm", 2), "depth": ("mm", 2),
+            "nfin": (None, "int"), "row_axis": (None, "str"),
+            "def_plane": (None, "str"),
+        },
+        "ac_unit": {
+            "ac_model": (None, "str"), "ac_kind": (None, "int"),
+            "operation_type": (None, "str"), "flow_type": (None, "str"),
+            "capability": ("W", 1), "flow_rate": ("m3/s", 1),
+            "t_limit_type": (None, "str"), "tmin": (None, 1),
+            "tmax": (None, 1), "h_limit_type": (None, "str"),
+        },
+        "diffuser": {
+            # <angle> 为实证部件子元素；后两项镜像到绑定的
+            # value type="flux"（kind=outlet，实证 _outlet1_flux）
+            "supply_air_angle": (None, 1),
+            "supply_flow_rate": ("m3/s", 1),
+            "inflow_temperature": ("C", 1),
+        },
+        "heat_pipe": {
+            "cooling_part": (None, "str"), "heat_release_part": (None, "str"),
+            "thermal_resistance": ("K/W", 1), "max_heat_transport": ("W", 1),
+        },
+    }
+
+    #: 真实 STpre 部件 type 与本项目 kind 的别名
+    _SPECIAL_KIND_ALIAS = {"air_outlet": "diffuser"}
+
+    def _special_kind(self, name: str) -> Optional[str]:
+        """部件名 → 专用件 kind（非专用件返回 None）。"""
+        el = self.find_part(name)
+        if el is None:
+            return None
+        kind = el.attrib.get("type", "")
+        kind = self._SPECIAL_KIND_ALIAS.get(kind, kind)
+        return kind if kind in self._SPECIAL_PARAM_FIELDS else None
+
+    def part_params(self, name: str) -> Optional[dict]:
+        """读取专用件参数（未存储的字段不出现）。
+
+        返回 ``{tag: float | [float,...] | int | str}``；非专用件或
+        部件不存在返回 ``None``。diffuser 的风量/温度从绑定的
+        flux 值合并读取（实证存储位置）。
+        """
+        kind = self._special_kind(name)
+        if kind is None:
+            return None
+        el = self.find_part(name)
+        out: dict = {}
+        for tag, (_unit, fmt) in self._SPECIAL_PARAM_FIELDS[kind].items():
+            c = _first(el, tag)
+            if c is None or not c.text:
+                continue
+            text = c.text.strip()
+            if fmt == "str":
+                out[tag] = text
+            elif fmt == "int":
+                try:
+                    out[tag] = int(float(text.split(",")[0]))
+                except ValueError:
+                    continue
+            else:
+                try:
+                    vals = [float(v) for v in text.split(",")
+                            if v.strip()]
+                except ValueError:
+                    continue
+                if not vals:
+                    continue
+                out[tag] = vals[0] if fmt == 1 else vals
+        if kind == "diffuser":
+            # 风量/温度优先取绑定的 flux 值（实证存储位置）
+            val = self._part_flux_value(name)
+            if val is not None:
+                for tag, vtag in (("supply_flow_rate", "flow_rate"),
+                                  ("inflow_temperature", "temperature")):
+                    c = _first(val, vtag)
+                    if c is not None and c.text:
+                        try:
+                            out[tag] = float(c.text)
+                        except ValueError:
+                            pass
+        return out
+
+    def _part_flux_value(self, name: str) -> Optional[ET.Element]:
+        """绑定到部件的 outlet 类 flux 值（无则 None）。"""
+        vname = self.condition_value("parts", name)
+        if not vname:
+            return None
+        val = self.find_value(vname)
+        if val is None or val.attrib.get("type") != "flux":
+            return None
+        k = _first(val, "kind")
+        if k is None or (k.text or "").strip() != "outlet":
+            return None
+        return val
+
+    def _next_flux_name(self) -> str:
+        """下一个 ``_outletN_flux`` 值名（实证命名）。"""
+        used = set()
+        for v in self.values():
+            if v.attrib.get("type") != "flux":
+                continue
+            n = _first(v, "name")
+            if n is not None and n.text \
+                    and (n.text or "").strip().startswith("_outlet"):
+                used.add((n.text or "").strip())
+        idx = 1
+        while f"_outlet{idx}_flux" in used:
+            idx += 1
+        return f"_outlet{idx}_flux"
+
+    def set_part_params(self, name: str, params: dict) -> bool:
+        """写入专用件参数（部分写入，未知字段拒绝）。
+
+        数值字段接受标量或定长列表；diffuser 的风量/温度同步
+        镜像到绑定的 ``value type="flux"``（kind=outlet）。
+        """
+        kind = self._special_kind(name)
+        if kind is None:
+            return False
+        spec = self._SPECIAL_PARAM_FIELDS[kind]
+        for key in params:
+            if key not in spec:
+                return False
+        el = self.find_part(name)
+
+        def set_field(tag: str, text: str, unit):
+            c = _first(el, tag)
+            if c is None:
+                c = ET.SubElement(el, tag)
+                c.tail = "\n         "
+            set_text(c, text)
+            if unit is not None:
+                c.attrib["unit"] = unit
+            else:
+                c.attrib.pop("unit", None)
+
+        for tag, value in params.items():
+            if value is None:
+                continue
+            unit, fmt = spec[tag]
+            if fmt == "str":
+                set_field(tag, str(value), unit)
+            elif fmt == "int":
+                set_field(tag, str(int(value)), unit)
+            else:
+                if isinstance(value, (int, float)):
+                    vals = [float(value)]
+                else:
+                    vals = [float(v) for v in value]
+                if fmt != 1 and len(vals) != fmt:
+                    return False
+                set_field(tag, ",".join(f"{v:.12g}" for v in vals), unit)
+
+        # diffuser：风量/温度镜像到绑定的 flux 值（实证格式）
+        if kind == "diffuser" and ("supply_flow_rate" in params
+                                   or "inflow_temperature" in params):
+            val = self._part_flux_value(name)
+            vname = (_first(val, "name").text or "").strip() \
+                if val is not None and _first(val, "name") is not None \
+                else self._next_flux_name()
+            children = [("kind", "outlet", None)]
+            if params.get("supply_flow_rate") is not None:
+                children.append(("flow_rate",
+                                 f"{float(params['supply_flow_rate']):.12g}",
+                                 "m3/s"))
+            if params.get("inflow_temperature") is not None:
+                children.append((
+                    "temperature",
+                    f"{float(params['inflow_temperature']):.12g}", "C"))
+            children.append(("aircon_type", "S", None))
+            if not self.upsert_value("flux", vname, children):
+                return False
+            if not self.bind_condition("parts", name, vname):
+                return False
+        return True
+
     def reorder_parts(self, names: list[str], anchor: str, *,
                       before: bool = True) -> list[str]:
         """Move ``names`` immediately before/after ``anchor`` (same parent)."""

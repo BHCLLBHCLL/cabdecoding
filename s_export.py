@@ -104,6 +104,7 @@ class SExport:
         self._vfwl_region()
         self._movb_control()
         self._vfem_vfde()
+        self._peltier()
         self._autofixp()
         self._fout()
         self._meix_var()
@@ -604,6 +605,48 @@ class SExport:
         self.lines.append(f"   MAXM{_i(int(_child_text(rad, 'max_group_num', '4000')), 9)}")
         pgn = _child_text(rad, "parts_group_num", "6,-1").split(",")[0]
         self.lines.append(f"   MGMI{_i(int(pgn), 9)}")
+        self.lines.append("/")
+
+    def _peltier(self):
+        """R7: PELTIER_OUT / PELTIER_SET — 唯一有官方 .s 实证的专用件段。
+
+        依据 CradleCFD_2023.2 exA22-2（配套 exA22-2_e.cab 可交叉验证）::
+
+            PELTIER_OUT
+                   0:L
+             basic
+            /
+            PELTIER_SET
+                Peltier
+                     1.00000000000000e+01   @S:_peltier1_cr   @S:_peltier1_qc   @S:_peltier1_qh   @S:_peltier1_dt
+            /
+
+        官方 cab 中该件 ``paramV unit="V" = 15.5,17.5,10``，卡片数值
+        ``1.0e+01`` 即 **paramV 的最后一个元素**（驱动电压）；``@S:``
+        求解器变量按 Peltier 件出现顺序从 1 编号（cr/qc/qh/dt 为电流/
+        冷端/热端/温差输出）。其余四种专用件（AC Unit / Diffuser /
+        Card Guide / Heat Pipe）在 2023.2 样本 *.s 与 2025.2 探针
+        SaveSFile 中均无对应卡片 —— 无实证不发射。
+        """
+        entries = []
+        for p in self.m.parts():
+            if p.kind != "peltier":
+                continue
+            params = self.m.part_params(p.name) or {}
+            param_v = params.get("paramV")
+            if not param_v:
+                continue
+            entries.append((p.name, float(param_v[-1])))
+        if not entries:
+            return
+        self.lines += ["PELTIER_OUT", "       0:L", " basic", "/"]
+        self.lines.append("PELTIER_SET")
+        for i, (name, volt) in enumerate(entries, 1):
+            refs = "".join(f"   @S:_peltier{i}_{s}"
+                           for s in ("cr", "qc", "qh", "dt"))
+            self.lines.append(f"    {name}")
+            # 官方数值列宽 29（9 空格 + .14e），与 VENT source 行一致
+            self.lines.append(f"{_f(volt, 29)}{refs}")
         self.lines.append("/")
 
     def _autofixp(self):

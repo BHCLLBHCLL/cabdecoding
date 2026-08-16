@@ -51,12 +51,14 @@ try:
         import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
     except Exception:
         pass
+    from cab_solver_proc import SolverProcess  # R6 求解闭环监控
     _HAS_GUI_DEPS = True
 except Exception:  # pragma: no cover - headless environments
     _HAS_GUI_DEPS = False
     QtWidgets = None
     QMainWindow = object  # type: ignore
     QKeySequence = None  # type: ignore
+    SolverProcess = None  # type: ignore
 
 
 ST_MANUAL = (r"C:\Program Files\Cradle\CradleCFD2025.2"
@@ -191,6 +193,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         # Reusable STpre COM session: Gridding/Meshing share one STpre
         # process instead of cold-starting COM + OpenCabFile per click.
         self._stpre_session = None
+        # R6 求解闭环监控: 当前/最近一次求解器进程 (同一时刻仅允许一个)
+        self._solver_proc = None
         self._paneling_mode = False
         self._paneling_faces: list = []
         self._act_paneling_esc = None
@@ -4534,25 +4538,79 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             if sfile is None:
                 self.log("Execute Solver: export failed.", "ERROR")
                 return
+            # R6: 同一时刻只允许一个求解进程, 运行中拒绝重复启动
+            if self._solver_proc is not None \
+                    and self._solver_proc.is_running():
+                self.log("Execute Solver: solver already running; "
+                         "start rejected.", "WARN")
+                return
             exe = self._find_program(
                 ["stsol_Dx64net.exe", "stsol_Sx64net.exe", "stsol.exe"])
+            if exe is None:
+                # 降级路径: 未找到 stsol, 保留导出的 S 文件供手动执行
+                self.log("Program not found (Cradle CFD 2025.2).", "WARN")
+                QMessageBox.warning(
+                    self, "Execute Solver",
+                    "未找到 stsol；S 文件已导出到:\n" + sfile)
+                dlg.accept()
+                return
             args = [sfile]
             if envf.text().strip():
                 args += ["-env", envf.text().strip()]
             if restart.isChecked():
                 args += ["-restart"]
             cwd = work.text().strip() or None
-            if not self._launch_program(exe, args, cwd=cwd):
-                QMessageBox.warning(
-                    self, "Execute Solver",
-                    "未找到 stsol；S 文件已导出到:\n" + sfile)
-            else:
-                self.log(f"Execute Solver: {sfile} cwd={cwd}")
-            dlg.accept()
+            if self._start_solver_monitor(exe, args, cwd, sfile):
+                dlg.accept()
+            # 启动失败时保留对话框供用户调整 (日志已记 ERROR)
 
         ok.clicked.connect(_run)
         cancel.clicked.connect(dlg.reject)
         dlg.exec_()
+
+    # ------------------------------------------------- R6 solver monitoring
+
+    def _start_solver_monitor(self, exe: str, args: list,
+                              cwd: Optional[str], sfile: str) -> bool:
+        """R6: 启动求解器并接管监控闭环 (日志 tail / 退出码 / 异常)。
+
+        返回 False 表示启动失败 (FailedToStart 等, 已记 ERROR 日志)。
+        """
+        proc = SolverProcess()
+        proc.output_line.connect(self._on_solver_output)
+        proc.progress.connect(self._on_solver_progress)
+        proc.success.connect(self._on_solver_success)
+        proc.error.connect(self._on_solver_error)
+        if not proc.start(exe, args, cwd):
+            return False
+        self._solver_proc = proc
+        self.log(f"Execute Solver: {sfile} cwd={cwd}")
+        self.statusBar().showMessage("Solver running…", 8000)
+        return True
+
+    def _on_solver_output(self, line: str) -> None:
+        # 按行回显到 Message pane (其自身有 2000 行滚动上限, 不会刷爆)
+        self.log(f"[solver] {line}")
+
+    def _on_solver_progress(self, line: str) -> None:
+        # 迭代/残差行: 额外刷新状态栏显示运行进度
+        self.statusBar().showMessage(f"Solver: {line[:120]}", 8000)
+
+    def _on_solver_success(self) -> None:
+        self.log("Solver finished: exitCode=0 (success).")
+        self.statusBar().showMessage("Solver finished: success", 8000)
+
+    def _on_solver_error(self, exit_code: int, message: str) -> None:
+        self.log(f"Solver failed: {message}", "ERROR")
+        self.statusBar().showMessage(
+            f"Solver failed (exit={exit_code})", 8000)
+
+    def _shutdown_solver(self) -> None:
+        """退出程序时停止仍在运行的求解器进程 (terminate -> kill)。"""
+        proc = getattr(self, "_solver_proc", None)
+        if proc is not None and proc.is_running():
+            self.log("Closing: stopping solver process…", "WARN")
+            proc.stop()
 
     def _execute_post(self) -> None:
         """M31 File -> Execute Post: open cab / field file."""
@@ -5096,6 +5154,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._stpre_session = None
 
     def closeEvent(self, event) -> None:
+        self._shutdown_solver()  # R6: 退出前停止仍在运行的求解器
         self._close_stpre_session()
         super().closeEvent(event)
 

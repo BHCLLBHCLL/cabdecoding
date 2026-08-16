@@ -110,3 +110,41 @@ moving body 运动表等低成本深度项。整体完成度 **≈76%**，其中
 | **R5**（按需） | FEM 真网格 | 调研 solver 端 FEM 生成（COM `CreateFEM` 深探或 s 文件 FEM 段逆向） | FEM 部件产生真实单元数据 |
 
 依赖：R1 独立可启；R2 无依赖可并行；R3 为 Edit 面最大单项；R4/R5 滚动。
+
+---
+
+## 七、改进计划 R6-R10（2026-08-16 全面复核后制定，R6/R7 当日完成）
+
+> 复核基线：R1 done（all 模式金标 59/118/121 MATCH）、R2 done、R3 done（blend V37 ABI，test_blend.py 5 passed）。
+> 完成度 约80% -> R6/R7 落地后 约84%。按「用户可感知断层 x 性价比」排序。
+
+### 维度化完成度（2026-08-16，含 R6/R7 后）
+
+| 维度 | 完成度 | 依据 | 剩余差距 |
+|---|---:|---|---|
+| 数据层（cab 容器/XML/材料/单位） | 95% | MSZIP 读写、477 测试、xml 往返稳定 | -- |
+| 几何建模 Part（26 种） | 90% | 26 原语 + sketch/pipe + 五种专用件真参数面（R7） | 其余专用件深字段 |
+| 几何编辑 PK 内核 | 82% | blend/chamfer/delete_2/cut/wrap/boolean/section 全通 | sheet heal、sweep 面深度 |
+| 网格 Gridding/Meshing | 90% | all 金标收敛 + rep/multiblock/圆柱/轴向 | cut-cell 生成器 |
+| Condition Wizard | 75% | 24/25 类型 + 35 深度页 | MC 辐射/MARS/particle/reaction 多步/output series 深字段 |
+| .s 导出 | 87% | 全 section 含 MOVB + PELTIER（R7） | opaque 头部常量；AC/Diffuser 等无官方卡片（有据不发射） |
+| 导入导出（9+ 格式） | 85% | x_t/stl/obj/step/sat/ifc/ecxml/dxf/nas | IGES/IDF（决策不做） |
+| COM 自动化桥 | 70% | ComObject.call 全 VB 面 + 显式包装 + 专用件探针实证 | 探针实证方法子集有限 |
+| UI 菜单/对话框 | 90% | 8 菜单全接线无 NYI、90+ 对话框 | Distance/Reference 测量深度 |
+| 求解闭环 | 85% | R6：QProcess 监控 + 日志 tail + exit code + 单实例互斥 | 结果回读/后处理联动 |
+| 高级工具 | 40% | parametric 矩阵 + CSV | PICLS/WindTool/热路径、批量执行闭环 |
+| FEM | 10% | CreateFEM 已包装未调用 | 真单元生成 |
+
+### 阶段计划
+
+| 阶段 | 目标 | 关键任务 | 验收标准 |
+|---|---|---|---|
+| **R6**（2-3 天） | 求解闭环补全 | （done 2026-08-16）cab_solver_proc.py SolverProcess 信号闭环：output_line/progress(cycle/residual/iteration)/success/error(exitCode)；cab_gui 接线按行进 Message pane、状态栏进度、单实例互斥、closeEvent 停进程；stsol 缺失仍走降级路径 | （done）test_m40_solver_monitor.py 4 项全过：正常退出提示/退出码 2 报 ERROR/输出 tail/重复启动拒 |
+| **R7**（3-5 天） | 专用件参数真实化 | （done 2026-08-16）探针 tools/probe_special_parts.py 实证 Peltier `<parts type="peltier">` thick/paramV/paramA/paramQ/paramT/def_axis、Card Guide fin/space/depth/nfin/row_axis；AC 部件级 COM 返 None -> 按条件模型镜像 model/cooling/power/qvn/tmin/tmax；Diffuser 角度存部件 + 风量温度镜像 value type="flux"；Heat Pipe 镜像 K/W,W；cabxml.part_params/set_part_params + PartDialog SpecialParamsPanel + .s PELTIER_OUT/PELTIER_SET（exA22-2 实证；其余四件官方无卡片有据不发射） | （done）test_m41_special_parts.py 12 项全过：五件 XML 往返/diffuser 镜像幂等/校验拒绝/UI 写回重载/.s 发射与有据不发射断言 |
+| **R8**（3-5 天） | CW 深度页 + .s 常量透明化 | ① 对照 HTML 手册补深字段页：radiation Monte Carlo、MARS/VOF、particle 完整模型、reaction 多步速率、output series 间隔表；② .s 头部 opaque 常量（header counts/EQUA mask/HSOL）用 2023.2 样本 .s 交叉 diff 变 XML 派生 | 新字段 xml 往返；.s 与多样本 diff 仅剩项目特定值 |
+| **R9**（1-2 周） | FEM + cut-cell 深水区 | ① COM CreateFEM 探针：FEM 部件->单元数据->XML 落盘格式；② cut-cell 生成器（Option->Cut Cell -> ExecuteElement cut-cell 模式） | FEM 部件产生真实单元数据；cut-cell 项目 .s 导出 |
+| **R10**（按需） | 周边互连 | PICLS 桥、WindTool、热路径视图（HeatPathView）数据接口 | 各互连一次端到端 demo |
+
+依赖与顺序：R6 done / R7 done 已落地；R8 需 2023.2 样本 .s 全集（已有）可立即启动；R9 深水区按需；R10 依赖外部程序接口考证。
+
+> 注意：tools/patch_gap_doc.py 会以脚本内嵌文本重写本文档，运行前先更新其内嵌内容，避免覆盖手工编辑（2026-08-16 曾因此回退第七节）。另：编辑器 Edit 工具对该文件的写入未落盘（疑似文件被占用/虚拟化），本节经终端直接写入。

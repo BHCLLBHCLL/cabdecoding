@@ -51,10 +51,10 @@ try:
     from PyQt5.QtCore import QPoint, QPointF
     from PyQt5.QtWidgets import (
         QButtonGroup, QCheckBox, QComboBox, QDialog, QDoubleSpinBox, QFrame,
-        QGridLayout, QGroupBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit,
-        QListWidget, QListWidgetItem, QMessageBox, QPushButton, QRadioButton,
-        QSlider, QSpinBox, QTabWidget, QTextEdit, QTreeWidget,
-        QTreeWidgetItem, QVBoxLayout, QWidget,
+        QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QInputDialog,
+        QLabel, QLineEdit, QListWidget, QListWidgetItem, QMessageBox,
+        QPushButton, QRadioButton, QSlider, QSpinBox, QTabWidget, QTextEdit,
+        QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     )
     _HAS_GUI_DEPS = True
 except Exception:  # pragma: no cover - headless environments
@@ -793,6 +793,180 @@ class MotionPanel(QGroupBox if _HAS_GUI_DEPS else object):
             motion["coordinate"] = tuple(
                 self.spins["coordinate"][ax].value() for ax in "xyz")
         return self.model.set_part_motion(self.part_name, motion)
+
+
+class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
+    """专用件参数组（R7）：AC Unit / Peltier / Linear Diffuser /
+    Card Guide / Heat Pipe。
+
+    经 :meth:`cabxml.StpreModel.part_params` /
+    :meth:`cabxml.StpreModel.set_part_params` 读写；字段名与探针
+    tools/probe_special_parts.py 实证的 STpre XML 元素一致
+    （thick/paramV/paramA/paramQ/paramT、fin/space/depth/nfin、
+    supply_flow_rate 镜像 value type=flux 等）。非专用件隐藏。
+    """
+
+    #: 向量字段的固定长度（实证格式）
+    _VEC_LEN = {"thick": 2, "paramV": 4, "paramA": 5, "paramQ": 5,
+                "paramT": 2, "space": 2, "depth": 2}
+    _AXIS_ITEMS = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
+    _COMBO_ITEMS = {
+        "def_axis": _AXIS_ITEMS, "row_axis": _AXIS_ITEMS,
+        "def_plane": _AXIS_ITEMS,
+        "operation_type": ("cooling", "heating"),
+        "t_limit_type": ("none", "min", "max", "minmax"),
+    }
+
+    #: 字段表: (控件类型 f/i/s/t, 标签, 参数键, 向量槽位, 默认值)
+    #  f=QDoubleSpinBox i=QSpinBox s=QComboBox t=QLineEdit
+    _FIELDS = {
+        "peltier": (
+            ("f", "Cooling thickness tc (mm)", "thick", 0, 2.0),
+            ("f", "Heat-release thickness th (mm)", "thick", 1, 2.0),
+            ("f", "Drive voltage (V)", "paramV", 0, 12.0),
+            ("f", "Max current Imax (A)", "paramA", 0, 6.0),
+            ("f", "Max cooling Qmax (W)", "paramQ", 0, 50.0),
+            ("f", "Max temperature diff. dT (C)", "paramT", 0, 60.0),
+            ("f", "Th1 — high-T side 1 (C)", "paramA", 4, 27.0),
+            ("f", "Th2 — high-T side 2 (C)", "paramQ", 4, 47.0),
+            ("s", "Orientation (cool to heat)", "def_axis", None, "+Z"),
+        ),
+        "card_guide": (
+            ("f", "Frame width d1 (mm)", "depth", 0, 2.0),
+            ("f", "Frame width d2 (mm)", "depth", 1, 2.0),
+            ("f", "Gap width h1 (mm)", "space", 0, 3.0),
+            ("f", "Gap width h2 (mm)", "space", 1, 3.0),
+            ("f", "Guide width f1 (mm)", "fin", None, 1.5),
+            ("i", "Number of gaps", "nfin", None, 8),
+            ("s", "Row axis", "row_axis", None, "+X"),
+            ("s", "Depth plane", "def_plane", None, "+Z"),
+        ),
+        "ac_unit": (
+            ("t", "AC model name", "ac_model", None, ""),
+            ("s", "Operation type", "operation_type", None, "cooling"),
+            ("f", "Capability (W)", "capability", None, 2500.0),
+            ("f", "Supply flow rate (m3/s)", "flow_rate", None, 15.0),
+            ("s", "Temperature limit", "t_limit_type", None, "minmax"),
+            ("f", "Tmin (C)", "tmin", None, 16.0),
+            ("f", "Tmax (C)", "tmax", None, 30.0),
+        ),
+        "diffuser": (
+            ("f", "Supply airflow rate (m3/s)", "supply_flow_rate",
+             None, 0.01),
+            ("f", "Supply air angle (deg)", "supply_air_angle",
+             None, 0.0),
+            ("f", "Inflow temperature (C)", "inflow_temperature",
+             None, 20.0),
+        ),
+        "heat_pipe": (
+            ("t", "Cooling part (high T)", "cooling_part", None, ""),
+            ("t", "Heat-release part (low T)", "heat_release_part",
+             None, ""),
+            ("f", "Thermal resistance (K/W)", "thermal_resistance",
+             None, 0.05),
+            ("f", "Max heat transport (W)", "max_heat_transport",
+             None, 50.0),
+        ),
+    }
+
+    def __init__(self, model, part_name: str, parent=None):
+        super().__init__("Parameters", parent)
+        self.model = model
+        self.part_name = part_name
+        self._kind = self._detect_kind()
+        form = QFormLayout(self)
+        self.edits: dict[tuple, QWidget] = {}
+        if self._kind is None:
+            self.setVisible(False)
+            return
+        for spec in self._FIELDS[self._kind]:
+            self._add_row(form, spec)
+        self.setVisible(True)
+
+    # -- 构建辅助 -----------------------------------------------------------
+
+    def _detect_kind(self) -> Optional[str]:
+        """从模型里取部件 kind，映射到五种专用件（否则 None）。"""
+        alias = {"air_outlet": "diffuser"}
+        for p in self.model.parts():
+            if p.name == self.part_name:
+                kind = p.kind
+                return alias.get(kind, kind) \
+                    if alias.get(kind, kind) in self._FIELDS else None
+        return None
+
+    def _add_row(self, form: QFormLayout, spec) -> None:
+        wtype, label, key, slot, default = spec
+        if wtype == "f":
+            w = QDoubleSpinBox(self)
+            w.setRange(-1.0e9, 1.0e9)
+            w.setDecimals(6)
+            w.setValue(float(default))
+        elif wtype == "i":
+            w = QSpinBox(self)
+            w.setRange(1, 10000)
+            w.setValue(int(default))
+        elif wtype == "s":
+            w = QComboBox(self)
+            w.addItems(list(self._COMBO_ITEMS[key]))
+        else:
+            w = QLineEdit(str(default), self)
+        form.addRow(label, w)
+        self.edits[(key, slot)] = w
+
+    # -- model <-> widgets --------------------------------------------------
+
+    def load(self) -> None:
+        if self._kind is None:
+            return
+        params = self.model.part_params(self.part_name) or {}
+        for (key, slot), w in self.edits.items():
+            value = params.get(key)
+            if value is None:
+                continue
+            if slot is not None:
+                # 向量槽位：实证格式按定长列表存储
+                value = value[slot] if isinstance(value, list) \
+                    and len(value) > slot else None
+                if value is None:
+                    continue
+            if isinstance(w, QComboBox):
+                i = w.findText(str(value))
+                if i >= 0:
+                    w.setCurrentIndex(i)
+            elif isinstance(w, QLineEdit):
+                w.setText(str(value))
+            elif isinstance(w, QSpinBox):
+                w.setValue(int(value))
+            else:
+                w.setValue(float(value))
+
+    def commit(self) -> bool:
+        # 非专用件时面板隐藏、无需写回（与 MotionPanel 一致，
+        # 不检查 isVisible：对话框可未经 show 直接提交）
+        if self._kind is None:
+            return True
+        params = dict(self.model.part_params(self.part_name) or {})
+        for (key, slot), w in self.edits.items():
+            if isinstance(w, QComboBox):
+                value = w.currentText()
+            elif isinstance(w, QLineEdit):
+                value = w.text().strip()
+            elif isinstance(w, QSpinBox):
+                value = w.value()
+            else:
+                value = w.value()
+            if slot is None:
+                params[key] = value
+            else:
+                vec = list(params.get(key)) \
+                    if isinstance(params.get(key), list) \
+                    else [0.0] * self._VEC_LEN[key]
+                while len(vec) <= slot:
+                    vec.append(0.0)
+                vec[slot] = float(value)
+                params[key] = vec[:self._VEC_LEN[key]]
+        return self.model.set_part_params(self.part_name, params)
 
 
 class MaterialListDialog(QDialog if _HAS_GUI_DEPS else object):
@@ -1621,6 +1795,8 @@ class PartDialog(StpreDialogBase):
             attribute_enabled=True, heat_source=True, virtual_part=True)
         attr.configure_requested.connect(self._configure_material)
         self.motion = MotionPanel(model, part_name)
+        # R7：专用件参数组（五种专用件显示，其他 kind 隐藏自身）
+        self.special = SpecialParamsPanel(model, part_name)
         super().__init__(
             f"Part — {part_name}", "Cuboid" if self._is_box() else "Part",
             icon="cube" if self._is_box() else "part", parent=parent,
@@ -1637,6 +1813,7 @@ class PartDialog(StpreDialogBase):
             cols.removeWidget(attr)
             v.addWidget(attr)
             v.addWidget(self.motion)
+            v.addWidget(self.special)
             cols.insertWidget(idx, holder, 2)
         self._load_part()
 
@@ -1720,6 +1897,10 @@ class PartDialog(StpreDialogBase):
                 or mel.text.strip().upper() != "F")
         self.motion.part_name = self.part_name
         self.motion.load()
+        # R7：专用件参数组同步载入（部件更名不改 kind，
+        # _kind 仍按构造时识别结果）
+        self.special.part_name = self.part_name
+        self.special.load()
 
     @staticmethod
     def _triple(text: str) -> Optional[tuple[float, float, float]]:
@@ -1767,6 +1948,9 @@ class PartDialog(StpreDialogBase):
             self.part_name = new_name
         self.motion.part_name = self.part_name
         self.motion.commit()
+        # R7：专用件参数随部件一同写回
+        self.special.part_name = self.part_name
+        self.special.commit()
         self.model.set_part_property(
             self.part_name, self.attr_panel.material_name())
         self.model.set_part_color(self.part_name, self.color_btn.rgba())
