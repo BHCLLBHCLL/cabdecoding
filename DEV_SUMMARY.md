@@ -2349,3 +2349,29 @@ SaveCabFile → merge_mesh_result`。
 
 - 全仓 **441 passed / 0 failed / 4 skipped / 8 errors**（8 项均为既有沙箱
   tempfile 权限错误）；origin/main 同步 f8e23bc。
+
+## 53. P1-P3 改进（R11-R13，2026-08-16）：COM 桥/高级工具/FEM/测量
+
+- **R11 COM 自动化桥扩展（75%→80%）**：tools/probe_com_sig.py 签名扫描验证 23 个
+  文档化但未封装的 COM 方法（Set/GetSolverParam、Set/GetEvaporationParam、
+  Set/GetSolidMeltParam、Set/GetPhaseParam、SetPorousHeatTransfer(region,model,coeff)、
+  Set/GetCycle、Set/GetUserEntity、GetScript/GetExpression/GetReferencedExpression/
+  Set/GetUserFunction/Set/GetUserData）并全部封装进 STpreDoc；证据入库
+  data/com_sig_probe.json + data/com_surface_probe.json。
+- **R11 批量执行编排（高级工具 70%→78%）**：cab_batch.py 新模块：
+  BatchRunner 顺序队列（多工程 cab → 逐案 load_models/prepare_case 导出
+  .s/.xemt → SolverProcess 监控 → 停即停/继续）+ BatchExecutionDialog + File 菜单
+  「Batch Execution...」；5 项测试（含沙箱安全的 prepare 失败路径）。
+- **R12 FEM Conversion UI 接线（FEM 60%→70%）**：对话框 _exec 现在真实生成
+  build_fem_hexa 四面体（base/size 或 tess 包围盒，单元尺寸分轴）、新建
+  type=mesh_body 部件 + .xfem 成员（cab_import.add_member + add_body_file(type=fem)）；
+  原始部件保留且记录 fem_element_size/leave_edges（R9 CreateFEM 证据语义）。
+- **R13 测量深度（UI 90%→92%）**：Distance 对话框扩为四模式——
+  两点距离/三点角度/N 点连线链/部件间最小距（scipy cKDTree），
+  P3 拾取接线 _feed_pick_point。
+- **调研结论**：.ccel 格式由 solver 从 .s CUTCELL 段生成，全盘无样本可逆
+  （当前内联 PARTS 盒列表发射为已记录差异）；sheet heal/sweep 核心
+  （PK_BODY_sew_bodies + PK_FACE_make_sheet_body + PK_SURF_make_sheet_trimmed）已在 cab_ps_ops 经典管线，
+  STpreBase IAT 同套函数（无 PK_BODY_fix_general），剩余为 UI 多件流程。
+- 回归：**526 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交
+  8bb3935、f8b19cb、6b5adf4。
