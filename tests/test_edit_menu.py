@@ -134,15 +134,25 @@ def test_fem_conversion_dialog(qapp, monkeypatch):
     viewer = _viewer(qapp)
     model = viewer.model
     model.add_part(name="fem_p")
+    el0 = model.find_part("fem_p")
+    from xml.etree.ElementTree import SubElement
+    for tag, val in (("base", "0,0,0"), ("size", "10,10,10")):
+        c = _first(el0, tag)
+        if c is None:
+            c = SubElement(el0, tag)
+        c.text = val
     dlg = cab_edit_dialogs.FEMConversionDialog(model)
     dlg.target.setCurrentText("fem_p")
     dlg.elem_size.setValue(2.5)
     dlg.leave.setChecked(True)
     dlg._exec()
+    # R12: conversion keeps the source part and adds a real mesh_body FEM
+    # part (R9 CreateFEM evidence), storing the intent params on source.
     el = model.find_part("fem_p")
-    assert el is not None and el.attrib.get("type") == "fem"
+    assert el is not None and el.attrib.get("type") == "body"
     assert (_first(el, "fem_element_size").text or "").strip() == "2.5"
     assert (_first(el, "fem_leave_edges").text or "").strip() == "T"
+    assert model.part_fem("fem_p_fem") is not None
     # reload restores the values
     dlg2 = cab_edit_dialogs.FEMConversionDialog(model)
     dlg2.target.setCurrentText("fem_p")

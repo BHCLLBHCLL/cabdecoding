@@ -384,6 +384,21 @@ def _msdos_now() -> tuple[int, int]:
     return date, time
 
 
+def add_member(archive: CabArchive, data: bytes, name: str) -> CabMember:
+    # Generic cab member append (reused by x_t/stl/xfem importers).
+    date, time = _msdos_now()
+    member = CabMember(
+        name=name,
+        cb_file=len(data),
+        uoff_folder_start=0,
+        i_folder=0,
+        date=date,
+        time=time,
+        attribs=0x00A0,
+        data=data,
+    )
+    archive.members.append(member)
+    return member
 def add_xt_member(archive: CabArchive, xt_bytes: bytes,
                   name: Optional[str] = None) -> CabMember:
     """Append an imported x_t stream as a new cab member."""

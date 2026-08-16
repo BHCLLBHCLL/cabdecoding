@@ -2416,23 +2416,24 @@ class StpreModel:
         return [(c.text or "").strip() for c in _children(bf, "file")
                 if c.attrib.get("type", "xt") == "xt" and c.text]
 
-    def add_body_file(self, name: str, unit: str = "m") -> bool:
-        """Register an additional ``.x_t`` member; no-op when already listed."""
-        bf = _first(self.root, "body_files")
+    def add_body_file(self, name: str, unit: str = 'm',
+                      file_type: str = 'xt') -> bool:
+        # Register an additional body member; no-op when already listed.
+        bf = _first(self.root, 'body_files')
         if bf is None:
-            bf = ET.Element("body_files")
-            bf.attrib["unit"] = unit
-            bf.text = "\n   "
-            bf.tail = "\n"
+            bf = ET.Element('body_files')
+            bf.attrib['unit'] = unit
+            bf.text = '\n   '
+            bf.tail = '\n'
             self.root.append(bf)
-        for c in _children(bf, "file"):
-            if c.attrib.get("type", "xt") == "xt" \
-                    and (c.text or "").strip() == name:
+        for c in _children(bf, 'file'):
+            if c.attrib.get('type', 'xt') == file_type \
+                    and (c.text or '').strip() == name:
                 return False
-        e = ET.SubElement(bf, "file")
-        e.attrib["type"] = "xt"
-        e.text = f" {name} "
-        e.tail = "\n   "
+        e = ET.SubElement(bf, 'file')
+        e.attrib['type'] = file_type
+        e.text = f' {name} '
+        e.tail = '\n   '
         return True
 
     def add_part(self, *, name: str, name2: str = "", kind: str = "body",

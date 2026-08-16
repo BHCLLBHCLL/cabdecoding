@@ -1897,16 +1897,61 @@ class FEMConversionDialog(_EditDlg):
             f"{warn}")
 
     def _exec(self) -> None:
-        el = self.model.find_part(self.target.currentText())
+        # R12: real FEM conversion - offline tetrahedral mesh from the
+        # part box (base/size) or tessellation bbox, persisted as a
+        # type=mesh_body part + .xfem member (R9 evidence format).
+        name = self.target.currentText()
+        el = self.model.find_part(name)
         if el is None:
             return
-        el.attrib["type"] = "fem"
-        self._store_el(el, "fem_element_size", f"{self.elem_size.value():g}")
-        self._store_el(el, "fem_leave_edges",
-                       "T" if self.leave.isChecked() else "F")
+        base = size = None
+        b = _first(el, 'base')
+        s = _first(el, 'size')
+        if b is not None and s is not None and b.text and s.text:
+            try:
+                base = tuple(float(x) for x in
+                            b.text.replace(',', ' ').split())
+                size = tuple(float(x) for x in
+                            s.text.replace(',', ' ').split())
+            except ValueError:
+                base = size = None
+        if base is None or size is None:
+            tess = next((m for m in (self.cad_meshes or [])
+                         if getattr(m, 'name', None) == name), None)
+            if tess is None or getattr(tess, 'points', None) is None \
+                    or len(tess.points) == 0:
+                QMessageBox.warning(
+                    self, 'FEM Conversion',
+                    'No geometry source for the target part.')
+                return
+            pts = np.asarray(tess.points, float) * 1000.0
+            base = tuple(float(v) for v in pts.min(0))
+            size = tuple(float(v) for v in pts.max(0) - pts.min(0))
+        es = max(float(self.elem_size.value()), 1e-6)
+        divide = tuple(max(1, int(round(float(l) / es))) for l in size)
+        from cabxml import build_fem_hexa, femodel_bytes
+        fem = build_fem_hexa(base, size, divide)
+        fem_name = ops.unique_part_name(self.model, f'{name}_fem')
+        member_name = f'_{self.model.project_name or "model"}_all.xfem'
+        self.model.set_part_fem(fem_name, fem, xfem_member=member_name)
+        self.model.add_body_file(member_name, unit='m', file_type='fem')
+        parent = self.parent()
+        archive = getattr(parent, 'archive', None)
+        if archive is not None and not any(
+                m.name == member_name for m in archive.members):
+            import cab_import
+            cab_import.add_member(
+                archive, femodel_bytes(fem_name, fem), member_name)
+        self._store_el(el, 'fem_element_size', f'{self.elem_size.value():g}')
+        self._store_el(el, 'fem_leave_edges',
+                       'T' if self.leave.isChecked() else 'F')
         self.applied = True
-        QMessageBox.information(self, "FEM Conversion",
-                                "FEM conversion finished.")
+        QMessageBox.information(
+            self, 'FEM Conversion',
+            f"FEM part '{fem_name}': {len(fem['nodes'])} nodes / "
+            f"{len(fem['elements'])} tetrahedra written"
+            " (.xfem member " + member_name + ").")
+
 
 
 class WrappingDialog(_EditDlg):
