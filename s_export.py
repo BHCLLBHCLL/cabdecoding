@@ -130,6 +130,7 @@ class SExport:
         self._fout()
         self._meix_var()
         self._balances()
+        self._cutcell()
         self._tprt()
         self.lines.append("GOGO")
         return "\r\n".join(self.lines) + "\r\n"
@@ -819,6 +820,65 @@ class SExport:
             f"{_i(int(c2), 5)}:L{_i(0, 12)}",
             "FBAL",
             f"{_i(1, 5)}:L",
+        ]
+
+    def _cutcell(self):
+        """R9-B: CUTCELL_OPTION / CUTCELL_GAP 段。
+
+        样本实证（CradleCFD_2023.2 Exercise_e/Function/exA23-2/
+        exA23-2b_cut_cell_e.s L217-225）::
+
+            CUTCELL_OPTION
+            volume_min_ratio
+                     5.00000000000000e-03
+            thin_shape_model
+                       1
+            /
+            CUTCELL_GAP
+                         -1          -1
+            /
+
+        - volume_min_ratio <- analysis_set/cutcell_criteria（手册默认
+          0.05；样本值 0.005）；
+        - thin_shape_model <- analysis_set/cutcell_thin_model（缺省 1）；
+        - CUTCELL_GAP 两整数为样本唯一观测值（cutcell_all_gap=T 时
+          -1 -1），无其余变体样本可考证，按常量发射。
+
+        发射判据 = 存在零件级 cut-cell 注册（<parts> 下 <cutcell> T，
+        exA23-2b_cut_cell.cab XML 实证）——staircase 对照版虽带相同
+        analysis_set 值但不注册零件，其 .s 无本段。
+
+        注：官方开启后 cut-cell 零件的 PARTS 盒列表移入 .ccel 二进制
+        文件（.s 头部 CCEL 行引用）。本仓尚无 .ccel 生成器，故不发
+        CCEL 行、不改 PARTS 段——避免产出引用缺失文件的坏 .s。
+        """
+        registered = False
+        for p in self.m.parts():
+            cc = p.elem.find("cutcell") if p.elem is not None else None
+            if cc is not None and (cc.text or "").strip().upper() in ("T", "1"):
+                registered = True
+                break
+        if not registered:
+            return
+        aset = self.m.root.find("analysis_set")
+        try:
+            criteria = float(_child_text(aset, "cutcell_criteria", "0.05"))
+        except ValueError:
+            criteria = 0.05
+        try:
+            thin = int(_child_text(aset, "cutcell_thin_model", "1"))
+        except ValueError:
+            thin = 1
+        self.lines += [
+            "CUTCELL_OPTION",
+            "volume_min_ratio",
+            _f(criteria, 29),
+            "thin_shape_model",
+            _i(thin),
+            "/",
+            "CUTCELL_GAP",
+            f"{-1:15d}{-1:12d}",
+            "/",
         ]
 
     def _tprt(self):

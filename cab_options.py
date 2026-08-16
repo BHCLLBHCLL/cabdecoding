@@ -45,6 +45,36 @@ def set_setting(key: str, value) -> None:
         pass
 
 
+# -- R9-B cut-cell（Option -> Cut Cell Setting）--------------------------
+#
+# 手册 HTML_STpre_Eng/Cutcell_Setting.html：[Criteria] 实数 0 < c < 1
+# （min 1e-10 / max 0.9999 / 默认 0.05），体积分数 >= 1-criteria 记
+# 完全覆盖，< criteria 记流体，中间为 cut cell（部分单元）。
+# 开关/阈值持久化在 QSettings；工程级零件注册（<cutcell> T）在
+# cab_mesh.set_part_cutcell（XML 侧），本模块只管应用偏好。
+
+CUTCELL_CRITERIA_DEFAULT = 0.05
+
+
+def _to_bool(value) -> bool:
+    """QSettings 布尔往返（bool / 'True' / 'true' / 1 均为真）。"""
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("true", "t", "1", "yes")
+
+
+def cutcell_settings() -> tuple[bool, float]:
+    """(cut-cell 开关, criteria)——阈值已按手册范围钳制。"""
+    enable = _to_bool(get_setting("cutcell_enable", False))
+    try:
+        crit = float(get_setting("cutcell_criteria",
+                                 CUTCELL_CRITERIA_DEFAULT))
+    except (TypeError, ValueError):
+        crit = CUTCELL_CRITERIA_DEFAULT
+    crit = min(max(crit, 1e-10), 0.9999)
+    return enable, crit
+
+
 class OptionsDialog(QDialog):
     """Environment Settings / Detailed Program Settings (STpre page set)."""
 
@@ -166,6 +196,19 @@ class OptionsDialog(QDialog):
         self.use_stpre_api.setChecked(
             str(get_setting("use_stpre_api", "False")) == "True")
         f.addRow(self.use_stpre_api)
+        # R9-B: Cut Cell Setting（手册 Cutcell_Setting.html）——开启后
+        # Meshing 的 solid 零件按体积分数分类（cut-cell 近似）。
+        self.cutcell_enable = QCheckBox(
+            "Cut cell meshing (partial cells at part boundaries)", w)
+        self.cutcell_enable.setChecked(
+            _to_bool(get_setting("cutcell_enable", False)))
+        f.addRow(self.cutcell_enable)
+        self.cutcell_criteria = QDoubleSpinBox(w)
+        self.cutcell_criteria.setRange(1e-10, 0.9999)
+        self.cutcell_criteria.setDecimals(10)
+        self.cutcell_criteria.setValue(float(
+            get_setting("cutcell_criteria", CUTCELL_CRITERIA_DEFAULT)))
+        f.addRow("Cut cell criteria (volume fraction)", self.cutcell_criteria)
         return w
 
     def _folder_tab(self):
@@ -392,6 +435,8 @@ class OptionsDialog(QDialog):
             "facet_tol": self.facet_tol.value(),
             "facet_angle": self.facet_angle.value(),
             "use_stpre_api": self.use_stpre_api.isChecked(),
+            "cutcell_enable": self.cutcell_enable.isChecked(),
+            "cutcell_criteria": self.cutcell_criteria.value(),
             "work_folder": self.work_folder.text(),
             "lib_folder": self.lib_folder.text(),
             "temp_folder": self.temp_folder.text(),

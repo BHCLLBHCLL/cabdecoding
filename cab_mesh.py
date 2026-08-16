@@ -137,6 +137,121 @@ def classify_part_cells(xc: np.ndarray, yc: np.ndarray, zc: np.ndarray,
 _PANEL_KINDS = frozenset({"panel", "quad_panel"})
 _PANEL_ATTRS = frozenset({"panel", "sheet", "open"})
 
+# ---------------------------------------------------------------------------
+# R9-B: cut-cell 分类（Option -> Cut Cell Setting）
+#
+# 离线考证（手册 + CradleCFD_2023.2 官方样本）：
+# - 手册 HTML_STpre_Eng/Cutcell_Setting.html：[Criteria] 为实数
+#   0 < c < 1（min 1e-10, max 0.9999，默认 0.05）。单元内 cut-cell 零件
+#   体积分数 >= 1-Criteria 记完全覆盖（solid）；< Criteria 记流体；
+#   介于中间为部分单元（cut cell）。Criteria 越大越接近楼梯近似。
+# - 样本 Exercise_e/Function/exA23-2/exA23-2b_cut_cell_e.s：开启后 .s
+#   发射 CUTCELL_OPTION(volume_min_ratio, thin_shape_model) 与
+#   CUTCELL_GAP 段；cut-cell 零件的 PARTS 盒列表移入 .ccel 二进制。
+# - 样本 exA23-2b_cut_cell.cab XML：零件级注册 = <parts> 下
+#   <cutcell> T </cutcell>；analysis_set 存 cutcell_criteria 等全局值
+#   （staircase 版也有这些 analysis_set 值但不发射 .s 段——零件级
+#   注册才是真开关）。
+# 本实现的体积分数按零件 AABB 与格的解析交（对齐盒零件精确，
+# 曲面零件为一级近似）。
+# ---------------------------------------------------------------------------
+
+CUTCELL_CRITERIA_MIN = 1e-10      # 手册下限
+CUTCELL_CRITERIA_MAX = 0.9999     # 手册上限
+CUTCELL_CRITERIA_DEFAULT = 0.05   # 手册默认
+
+
+def clamp_cutcell_criteria(value: float) -> float:
+    """把 criteria 钳制到手册范围 [1e-10, 0.9999]。"""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return CUTCELL_CRITERIA_DEFAULT
+    return min(max(v, CUTCELL_CRITERIA_MIN), CUTCELL_CRITERIA_MAX)
+
+
+def cell_volume_fractions(x_edges: np.ndarray, y_edges: np.ndarray,
+                          z_edges: np.ndarray,
+                          lo, hi) -> np.ndarray:
+    """每个格与轴对齐盒 ``[lo, hi]`` 的相交体积分数（解析，向量化）。
+
+    ``x/y/z_edges`` 是格边界坐标表（长度 ni+1/nj+1/nk，米），返回
+    ``(ni, nj, nk)`` 分数表：1.0 = 格完全在盒内，0.0 = 完全在外，
+    中间值 = 按三轴重叠长度比例的乘积（盒面平直切割的精确解）。
+    """
+    x_edges = np.asarray(x_edges, float)
+    y_edges = np.asarray(y_edges, float)
+    z_edges = np.asarray(z_edges, float)
+    lo = np.asarray(lo, float)
+    hi = np.asarray(hi, float)
+
+    def _axis_frac(edges: np.ndarray, a: float, b: float) -> np.ndarray:
+        width = edges[1:] - edges[:-1]
+        width = np.where(width > 0.0, width, 1e-300)
+        ov = np.minimum(edges[1:], b) - np.maximum(edges[:-1], a)
+        return np.clip(ov, 0.0, None) / width
+
+    fx = _axis_frac(x_edges, lo[0], hi[0])
+    fy = _axis_frac(y_edges, lo[1], hi[1])
+    fz = _axis_frac(z_edges, lo[2], hi[2])
+    return fx[:, None, None] * fy[None, :, None] * fz[None, None, :]
+
+
+def classify_part_cells_cut(x_edges: np.ndarray, y_edges: np.ndarray,
+                            z_edges: np.ndarray, lo, hi,
+                            criteria: float = CUTCELL_CRITERIA_DEFAULT
+                            ) -> tuple[np.ndarray, np.ndarray]:
+    """cut-cell 近似分类一个零件（AABB 体积分数）。
+
+    返回 ``(mask, fractions)``：
+
+    - ``fractions`` 为每格体积分数表（见 :func:`cell_volume_fractions`）；
+    - ``mask`` 按手册 [Criteria] 判据二值化：分数 >= 1-criteria 记
+      solid 占用（与 :func:`classify_part_cells` 相同的掩码语义），
+      其余格不占用；``criteria <= 分数 < 1-criteria`` 的格即
+      "cut cell"（部分单元），由分数表承载。
+
+    ``criteria`` 钳制到 [1e-10, 0.9999]；0.5 时退化为中点二值化
+    （楼梯近似），趋近 0 时 solid 掩码只含几乎全满的格。
+    """
+    crit = clamp_cutcell_criteria(criteria)
+    fracs = cell_volume_fractions(x_edges, y_edges, z_edges, lo, hi)
+    return fracs >= (1.0 - crit), fracs
+
+
+def set_part_cutcell(model: StpreModel, part_name: str, enabled: bool
+                     ) -> bool:
+    """注册/取消一个零件的 cut-cell 零件标记（工程级，存 XML）。
+
+    样本 exA23-2b_cut_cell.cab 实证格式：``<parts>`` 下
+    ``<cutcell> T </cutcell>``；取消注册即删除该子节点。
+    返回 False 当零件不存在。panel 零件按手册不支持 cut-cell，
+    调用方负责过滤（本函数不强制）。
+    """
+    import xml.etree.ElementTree as ET
+    p = model.find_part(part_name)
+    if p is None:
+        return False
+    old = p.find("cutcell")
+    if enabled:
+        if old is None:
+            e = ET.SubElement(p, "cutcell")
+            e.tail = "\n         "
+        old = p.find("cutcell")
+        old.text = " T "
+    elif old is not None:
+        p.remove(old)
+    return True
+
+
+def part_cutcell_enabled(model: StpreModel, part_name: str) -> bool:
+    """零件是否注册为 cut-cell 零件（无 <cutcell> 或文本非 T 均为否）。"""
+    p = model.find_part(part_name)
+    if p is None:
+        return False
+    e = p.find("cutcell")
+    return e is not None and (e.text or "").strip().upper() in ("T", "1")
+
 
 def is_panel_part(kind: str = "", attribute: str = "") -> bool:
     """True when the part should use face-thin (open surface) occupancy."""
@@ -426,8 +541,10 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                    element_threshold: float = 0.5,
                    workers: int = 1,
                    coordinate: str = "cartesian",
-                   ) -> tuple[list[tuple[int, int, int, int, int, int]],
-                              dict[str, list[tuple[int, int, int, int, int, int]]]]:
+                   cutcell: bool = False,
+                   cutcell_criteria: float = CUTCELL_CRITERIA_DEFAULT,
+                   return_cutcell: bool = False,
+                   ):
     """Classify every part against the structured grid.
 
     Returns ``(analysis_box, part_boxes)``; boxes are 1-based inclusive
@@ -445,6 +562,19 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
       width), used as the panel band width;
     * ``element_threshold`` — reference point inside a cell (0..1, 0.5 =
       centre); shifts the ray-cast sample along the cell diagonal.
+
+    R9-B cut-cell（Option -> Cut Cell Setting 开启时）：
+
+    * ``cutcell`` — 开启后 solid 零件改走 :func:`classify_part_cells_cut`
+      （零件 AABB 体积分数分类，分数 >= 1-criteria 记 solid），边界格
+      的部分占用由分数表承载；panel 零件与圆柱坐标格不走 cut 路径
+      （手册：panel 不可注册 cut-cell；分数仅对笛卡尔格有解析交）。
+    * ``cutcell_criteria`` — 手册 [Criteria]（默认 0.05，钳制
+      [1e-10, 0.9999]）。
+    * ``return_cutcell`` — True 时返回三元组
+      ``(analysis_box, part_boxes, part_fractions)``，分数表按零件名
+      索引（未走 cut 路径的零件不出现在表中）；False 保持二元组返回
+      （既有调用/e2e 零回归）。
     """
     coord = (coordinate or "cartesian").strip().lower()
     x = np.asarray(axes_mm.get("x", []), float) / 1000.0
@@ -483,6 +613,7 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     part_kinds = part_kinds or {}
     part_attrs = part_attrs or {}
     part_boxes: dict[str, list[tuple[int, int, int, int, int, int]]] = {}
+    cutcell_fracs: dict[str, np.ndarray] = {}   # R9-B: 每零件体积分数表
 
     def _classify_part(part) -> Optional[list[tuple[int, int, int, int, int, int]]]:
         if coord == "cylindrical":
@@ -546,6 +677,12 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
                 xc, yc, zc, pts, tris,
                 cell_range=(i0, i1, j0, j1, k0, k1),
                 face_search=face_search)
+        elif cutcell:
+            # R9-B cut-cell：solid 零件按 AABB 体积分数分类（分数表
+            # 记录边界格的部分占用；分数 >= 1-criteria 记 solid）。
+            mask, fracs = classify_part_cells_cut(
+                x, y, z, lo, hi, criteria=cutcell_criteria)
+            cutcell_fracs[part.name] = fracs
         else:
             mask = classify_part_cells(
                 xc_use, yc_use, zc_use, pts, tris,
@@ -579,6 +716,8 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
             if progress is not None:
                 progress(idx + 1, len(parts_list))
     analysis_box = (1, ni, 1, nj, 1, nk)
+    if return_cutcell:
+        return analysis_box, part_boxes, cutcell_fracs
     return analysis_box, part_boxes
 
 

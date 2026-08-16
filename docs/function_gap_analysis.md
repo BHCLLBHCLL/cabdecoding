@@ -116,7 +116,7 @@ moving body 运动表等低成本深度项。整体完成度 **≈76%**，其中
 ## 七、改进计划 R6-R10（2026-08-16 全面复核后制定，R6/R7 当日完成）
 
 > 复核基线：R1 done（all 模式金标 59/118/121 MATCH）、R2 done、R3 done（blend V37 ABI，test_blend.py 5 passed）。
-> 完成度 约80% -> R6/R7 后 约84% -> R8 后 约87%。按「用户可感知断层 x 性价比」排序。
+> 完成度 约80% -> R6/R7 后 约84% -> R8 后 约87% -> R9 后 约89%。按「用户可感知断层 x 性价比」排序。
 
 ### 维度化完成度（2026-08-16，含 R6/R7 后）
 
@@ -125,15 +125,15 @@ moving body 运动表等低成本深度项。整体完成度 **≈76%**，其中
 | 数据层（cab 容器/XML/材料/单位） | 95% | MSZIP 读写、477 测试、xml 往返稳定 | -- |
 | 几何建模 Part（26 种） | 90% | 26 原语 + sketch/pipe + 五种专用件真参数面（R7） | 其余专用件深字段 |
 | 几何编辑 PK 内核 | 82% | blend/chamfer/delete_2/cut/wrap/boolean/section 全通 | sheet heal、sweep 面深度 |
-| 网格 Gridding/Meshing | 90% | all 金标收敛 + rep/multiblock/圆柱/轴向 | cut-cell 生成器 |
+| 网格 Gridding/Meshing | 93% | all 金标收敛 + rep/multiblock/圆柱/轴向 + cut-cell 体积分数分类（R9，exA23-2b 实证） | .ccel 二进制生成器 |
 | Condition Wizard | 85% | 24/25 类型 + 35 深度页 + 五类深字段页（R8：MC 辐射/MARS/VOF/particle/reaction 多步/output series） | 其余边缘页深字段 |
-| .s 导出 | 92% | 全 section 含 MOVB + PELTIER（R7）+ 常量派生（R8：EQUA 掩码/HSOL/CYC/UNDR/STED/VFEX 门控，295 样本交叉验证） | hdr1 尾列/hdr2 col4-9/VFDE LEAP 无 XML 源（注释已注明证据） |
+| .s 导出 | 93% | 全 section 含 MOVB + PELTIER（R7）+ 常量派生（R8：EQUA 掩码/HSOL/CYC/UNDR/STED/VFEX 门控，295 样本交叉验证）  CUTCELL_OPTION/GAP 段（R9，exA23-2b 实证）| hdr1 尾列/hdr2 col4-9/VFDE LEAP 无 XML 源（注释已注明证据） |
 | 导入导出（9+ 格式） | 85% | x_t/stl/obj/step/sat/ifc/ecxml/dxf/nas | IGES/IDF（决策不做） |
 | COM 自动化桥 | 70% | ComObject.call 全 VB 面 + 显式包装 + 专用件探针实证 | 探针实证方法子集有限 |
 | UI 菜单/对话框 | 90% | 8 菜单全接线无 NYI、90+ 对话框 | Distance/Reference 测量深度 |
 | 求解闭环 | 85% | R6：QProcess 监控 + 日志 tail + exit code + 单实例互斥 | 结果回读/后处理联动 |
 | 高级工具 | 40% | parametric 矩阵 + CSV | PICLS/WindTool/热路径、批量执行闭环 |
-| FEM | 10% | CreateFEM 已包装未调用 | 真单元生成 |
+| FEM | 60% | R9：CreateFEM COM 实证（mesh_body 件 + .xfem kind=4 四面体，米制）+ cabxml parse/build + 离线 Kuhn 四面体生成 + COM e2e 测试 | 壳单元 kind 值；FEM Conversion UI 接线 |
 
 ### 阶段计划
 
@@ -142,7 +142,7 @@ moving body 运动表等低成本深度项。整体完成度 **≈76%**，其中
 | **R6**（2-3 天） | 求解闭环补全 | （done 2026-08-16）cab_solver_proc.py SolverProcess 信号闭环：output_line/progress(cycle/residual/iteration)/success/error(exitCode)；cab_gui 接线按行进 Message pane、状态栏进度、单实例互斥、closeEvent 停进程；stsol 缺失仍走降级路径 | （done）test_m40_solver_monitor.py 4 项全过：正常退出提示/退出码 2 报 ERROR/输出 tail/重复启动拒 |
 | **R7**（3-5 天） | 专用件参数真实化 | （done 2026-08-16）探针 tools/probe_special_parts.py 实证 Peltier `<parts type="peltier">` thick/paramV/paramA/paramQ/paramT/def_axis、Card Guide fin/space/depth/nfin/row_axis；AC 部件级 COM 返 None -> 按条件模型镜像 model/cooling/power/qvn/tmin/tmax；Diffuser 角度存部件 + 风量温度镜像 value type="flux"；Heat Pipe 镜像 K/W,W；cabxml.part_params/set_part_params + PartDialog SpecialParamsPanel + .s PELTIER_OUT/PELTIER_SET（exA22-2 实证；其余四件官方无卡片有据不发射） | （done）test_m41_special_parts.py 12 项全过：五件 XML 往返/diffuser 镜像幂等/校验拒绝/UI 写回重载/.s 发射与有据不发射断言 |
 | **R8**（3-5 天） | CW 深度页 + .s 常量透明化 | （done 2026-08-16）A：五类深字段页（Radiation MC method/calc_cycle/solver_eps/space_cycle/max_particle/max_group_num 实证；Free surface mars/vof 属性集 contact/cutoff/fractional_step 等实证；Particle PCLE_CREATE .s 实证；Reaction 每步 value type=reaction Arrhenius；Output series timeseries_interval/fields TMSR 实证）+ cabxml 存储辅助 + 修蒸发页 apply 提前 return bug；B：EQUA 8 位掩码按轴向区间/heat/湍流/扩散位派生（253/295 命中）、SDAT hdr2 前 3 列、HSOL 门控+thermal_solver 取值、CYCS/CYCT 稳/瞬态、UNDR/STED 松弛、VFEX/HEATPATH 门控——295 对 (.cab,.s) 样本交叉验证，diag_s_constants.py | （done）test_m42 11 项 + test_m43 11 项（ex4 锚点逐行一致 + 变体派生断言）全过 |
-| **R9**（1-2 周） | FEM + cut-cell 深水区 | ① COM CreateFEM 探针：FEM 部件->单元数据->XML 落盘格式；② cut-cell 生成器（Option->Cut Cell -> ExecuteElement cut-cell 模式） | FEM 部件产生真实单元数据；cut-cell 项目 .s 导出 |
+| **R9**（1-2 周） | FEM + cut-cell 深水区 | （done 2026-08-16）A：CreateFEM 4 组合 COM 探针实证——新增 `<parts type="mesh_body">` fem_* 件 + body_files `<file type="fem">` + .xfem（XML，米制，node/element kind=4 四面体）；cabxml fem_parts/part_fem/set_part_fem + parse_femodel/femodel_bytes + build_fem_hexa 离线 Kuhn 四面体生成（体积守恒）；B：手册 Cutcell_Setting.html（criteria 默认 0.05）+ exA23-2b 实证零件级 `<cutcell>T</cutcell>` 注册 + .s CUTCELL_OPTION/GAP 段；cab_mesh cell_volume_fractions/classify_part_cells_cut（AABB 解析交，向量化）+ classify_cells cutcell 参数（off 与缺省逐位一致零回归）+ cab_options Mesh 页开关/criteria + s_export _cutcell | （done）test_m44 11 项（含 COM e2e 实跑：建件->CreateFEM->存->重开->part_fem 读回）+ test_m45 13 项（解析交精确解/守恒/三档二值化/零回归/XML 往返/QSettings/.s 发射与取消回归）全过 |
 | **R10**（按需） | 周边互连 | PICLS 桥、WindTool、热路径视图（HeatPathView）数据接口 | 各互连一次端到端 demo |
 
 依赖与顺序：R6 done / R7 done 已落地；R8 需 2023.2 样本 .s 全集（已有）可立即启动；R9 深水区按需；R10 依赖外部程序接口考证。

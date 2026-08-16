@@ -2224,6 +2224,156 @@ class StpreModel:
             return boxes
         return []
 
+    # -- FEM 单元数据（R9-A, COM-probed 2026-08-16）------------------------
+    #
+    # tools/probe_fem.py 实证（结果存 tools/probe_work/fem_probe.json），
+    # STpre 2025.2 的 Edit→FEM Conversion（Model.CreateFEM(length, scale,
+    # edge)，length=单元尺寸 mm、scale/edge="T"/"F"）落盘格式：
+    #
+    # 1) 主 XML 新增 FEM 部件（原实体件保留不删）：
+    #     <parts type="mesh_body">
+    #        <name> fem_<原名> </name>
+    #        <attribute> fe-model </attribute>
+    #        <color> 191,191,191,255 </color>
+    #        <mode> global </mode> ... <layer> 1 </layer>
+    #        <rad_group_num> 0 </rad_group_num>
+    #        <mesh_divide> none </mesh_divide>
+    #        <heat_balance> F,F </heat_balance>
+    #        <VF_balance> F </VF_balance>
+    #        <file> xfem </file>
+    #     </parts>
+    # 2) <body_files unit="m"> 追加 <file type="fem"> _<工程>_all.xfem
+    #    </file>，cab 包内新增同名成员（全部 FEM 部件的单元数据）。
+    # 3) .xfem 成员为 XML（UTF-8 BOM + CRLF）：
+    #     <femodel>
+    #        <version> 14 </version>
+    #        <unit> m,C </unit>
+    #        <model name="fem_<原名>" temp_type="0">
+    #           <node num="N">
+    #              <n no="1" org="1"> x,y,z,flag </n> ...
+    #           </node>
+    #           <element num="M">
+    #              <e no="1" kind="4"> n1,n2,n3,n4 </e> ...
+    #           </element>
+    #        </model>
+    #     </femodel>
+    #    节点坐标为米（unit=m）；kind="4" = 4 节点四面体（solid）。
+    #    壳单元的 kind 值未实证（降级：不生成壳单元）。
+    # 4) .s 文件无 FEM 段（单元数据只在 .xfem；.s 的 VFEM 是求解器
+    #    开关，与 pre 数据无关）。
+
+    _FEM_PART_TYPE = "mesh_body"
+
+    def fem_parts(self) -> list[str]:
+        """All FEM parts (``type="mesh_body"``) in document order."""
+        out: list[str] = []
+
+        def collect(parent: ET.Element) -> None:
+            for el in _children(parent, "parts"):
+                if el.attrib.get("type") != self._FEM_PART_TYPE:
+                    continue
+                n = _first(el, "name")
+                if n is not None and n.text:
+                    out.append(n.text.strip())
+
+        collect(self.root)
+        for grp in self.groups():
+            collect(grp)
+        return out
+
+    def part_fem(self, name: str,
+                 xfem_data: Optional[bytes] = None) -> Optional[dict]:
+        """Read the FEM element data of part ``name`` (R9-A).
+
+        Returns ``None`` when the part is missing or is not a
+        ``type="mesh_body"`` FEM part.  Otherwise a dict with the part
+        metadata (``name``/``file``) and, when the cab's ``.xfem`` member
+        bytes are supplied via ``xfem_data``, the node coordinates
+        (metres, list index 0 == ``<n no="1">``) and the elements
+        (``(kind, n1, ..., nk)`` 1-based node numbers); without
+        ``xfem_data`` those two keys are ``None`` (unit data lives in a
+        separate cab member, not the main XML).
+        """
+        el = self.find_part(name)
+        if el is None or el.attrib.get("type") != self._FEM_PART_TYPE:
+            return None
+        f = _first(el, "file")
+        out = {
+            "name": name,
+            "type": self._FEM_PART_TYPE,
+            "file": (f.text or "").strip() if f is not None and f.text
+                    else "",
+            "nodes": None,
+            "elements": None,
+            "element_kinds": None,
+        }
+        if xfem_data is None:
+            return out
+        for mdl in parse_femodel(xfem_data):
+            if mdl["name"] != name:
+                continue
+            out["nodes"] = mdl["nodes"]
+            out["elements"] = mdl["elements"]
+            out["element_kinds"] = mdl["element_kinds"]
+            break
+        return out
+
+    def set_part_fem(self, name: str, fem: Optional[dict],
+                     xfem_member: Optional[str] = None) -> bool:
+        """Create/update (dict) or remove (``None``) a FEM part entry.
+
+        ``fem`` may carry ``nodes``/``elements`` (see :func:`femodel_bytes`
+        for the unit format); only the main-XML side is written here —
+        the ``.xfem`` member itself must be packed into the cab archive
+        by the caller (实证存储位置).  ``xfem_member`` defaults to
+        ``_<project>_all.xfem`` and is registered under
+        ``<body_files><file type="fem">``.
+        """
+        if fem is None:
+            return name in self.fem_parts() and self.delete_part(name)
+        if self.find_part(name) is not None:
+            return False
+        parts = ET.Element("parts")
+        parts.attrib["type"] = self._FEM_PART_TYPE
+        fields = [
+            ("name", name),
+            ("attribute", "fe-model"),
+            ("color", "191,191,191,255"),
+            ("mode", "global"),
+            ("visible_count", "1"),
+            ("tree_expand", "F"),
+            ("layer", "1"),
+            ("rad_group_num", "0"),
+            ("mesh_divide", "none"),
+            ("heat_balance", "F,F"),
+            ("VF_balance", "F"),
+            ("file", "xfem"),
+        ]
+        for tag, value in fields:
+            e = ET.SubElement(parts, tag)
+            e.text = f" {value} "
+            e.tail = "\n         "
+        parts.tail = "\n      "
+        self.root.append(parts)
+        # 注册 .xfem 数据成员引用（body_files type="fem"）
+        member = xfem_member or f"_{self.project_name or 'project'}_all.xfem"
+        bf = _first(self.root, "body_files")
+        if bf is None:
+            bf = ET.Element("body_files")
+            bf.attrib["unit"] = "m"
+            bf.text = "\n      "
+            bf.tail = "\n"
+            self.root.append(bf)
+        listed = any(c.attrib.get("type") == "fem"
+                     and (c.text or "").strip() == member
+                     for c in _children(bf, "file"))
+        if not listed:
+            e = ET.SubElement(bf, "file")
+            e.attrib["type"] = "fem"
+            e.text = f" {member} "
+            e.tail = "\n   "
+        return True
+
     def analysis_names(self) -> list[str]:
         """Names of ``element/analysis`` blocks (computational domains)."""
         el = self.elements()
@@ -2637,3 +2787,144 @@ class PropertyModel:
             child = ET.SubElement(ent, key)
             child.text = f" {value} "
         return True
+
+
+# --------------------------------------------------------------------------
+# FEM 单元模型（R9-A）— .xfem 成员解析 / 生成 / 离线六面体网格
+# 存储格式见 StpreModel.part_fem 上方的实证注释（2026-08-16 COM 探针）。
+# --------------------------------------------------------------------------
+
+#: kind="4" = 4 节点四面体（solid，COM 探针实证的唯一 kind）
+FEM_KIND_TET4 = 4
+
+
+def parse_femodel(data: bytes) -> list[dict]:
+    """解析 .xfem 成员 → 每个 ``<model>`` 一个 dict。
+
+    返回 ``[{name, temp_type, nodes, elements, element_kinds}]``：
+    * ``nodes``: ``[(x, y, z), ...]`` 米制坐标，索引 0 对应
+      ``<n no="1">``（1-based 节点号 = 索引 + 1）；
+    * ``elements``: ``[(kind, n1, ..., nk), ...]``，节点号为 1-based；
+    * ``element_kinds``: 出现过的 kind 集合（int 列表）。
+    """
+    root = ET.fromstring(data.decode("utf-8"))
+    out: list[dict] = []
+    for mdl in root.iter("model"):
+        nodes: list[tuple[float, float, float]] = []
+        node_el = _first(mdl, "node")
+        if node_el is not None:
+            for n in _children(node_el, "n"):
+                if not n.text:
+                    continue
+                try:
+                    xyz = tuple(float(v) for v in
+                                n.text.split(",")[:3])
+                except ValueError:
+                    continue
+                if len(xyz) == 3:
+                    nodes.append(xyz)  # type: ignore[arg-type]
+        elements: list[tuple[int, ...]] = []
+        kinds: set[int] = set()
+        el_el = _first(mdl, "element")
+        if el_el is not None:
+            for e in _children(el_el, "e"):
+                if not e.text:
+                    continue
+                try:
+                    ids = [int(v) for v in e.text.split(",")
+                           if v.strip()]
+                except ValueError:
+                    continue
+                if not ids:
+                    continue
+                try:
+                    kind = int(e.attrib.get("kind", FEM_KIND_TET4))
+                except ValueError:
+                    kind = FEM_KIND_TET4
+                kinds.add(kind)
+                elements.append((kind, *ids))
+        out.append({
+            "name": mdl.attrib.get("name", ""),
+            "temp_type": mdl.attrib.get("temp_type", "0"),
+            "nodes": nodes,
+            "elements": elements,
+            "element_kinds": sorted(kinds),
+        })
+    return out
+
+
+def femodel_bytes(name: str, fem: dict, *, temp_type: str = "0") -> bytes:
+    """按实证格式生成一个 ``<model>`` 的 .xfem 成员字节串。
+
+    ``fem`` 取 ``{"nodes": [(x,y,z),...], "elements": [(kind,
+    n1,...,nk),...]}``（坐标米制、节点号 1-based，与
+    :func:`parse_femodel` 输出同构）。UTF-8 BOM + CRLF，与 STpre
+    输出一致（version=14、unit=m,C）。
+    """
+    nodes = fem.get("nodes") or []
+    elements = fem.get("elements") or []
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8" ?>',
+        '<femodel>',
+        '   <version> 14 </version>',
+        '   <unit> m,C </unit>',
+        f'   <model name="{name}" temp_type="{temp_type}">',
+        f'      <node num="{len(nodes)}">',
+    ]
+    for i, (x, y, z) in enumerate(nodes, start=1):
+        lines.append(f'         <n no="{i}" org="{i}"> '
+                     f'{float(x):.15g},{float(y):.15g},'
+                     f'{float(z):.15g},0 </n>')
+    lines.append('      </node>')
+    lines.append(f'      <element num="{len(elements)}">')
+    for i, el in enumerate(elements, start=1):
+        kind = el[0]
+        ids = ",".join(str(v) for v in el[1:])
+        lines.append(f'         <e no="{i}" kind="{kind}"> {ids} </e>')
+    lines.append('      </element>')
+    lines.append('   </model>')
+    lines.append('</femodel>')
+    return b"\xef\xbb\xbf" + "\r\n".join(lines).encode("utf-8") + b"\r\n"
+
+
+def build_fem_hexa(base, size, divide=(1, 1, 1)) -> dict:
+    """离线生成：长方体 → 结构六面体网格 → Kuhn 6 四面体剖分。
+
+    ``base``/``size`` 为 mm（与部件 ``<base>``/``<size>`` 同单位），
+    ``divide`` 为每轴分割数。节点坐标转米输出（实证 unit=m），
+    单元全部为实证的 kind=4 四面体（六面体的 kind 值未实证，故以
+    四面体剖分对齐 STpre 输出结构）。返回与 :func:`parse_femodel`
+    单 model 同构的 dict。
+    """
+    nx, ny, nz = (max(1, int(v)) for v in divide)
+    bx, by, bz = (float(v) for v in base)
+    sx, sy, sz = (float(v) for v in size)
+    # 结构网格节点（相邻六面体共享节点，与 STpre 输出一致）
+    nodes: list[tuple[float, float, float]] = []
+    for k in range(nz + 1):
+        for j in range(ny + 1):
+            for i in range(nx + 1):
+                nodes.append((
+                    (bx + sx * i / nx) / 1000.0,
+                    (by + sy * j / ny) / 1000.0,
+                    (bz + sz * k / nz) / 1000.0,
+                ))
+
+    def vid(i, j, k) -> int:
+        return k * (ny + 1) * (nx + 1) + j * (nx + 1) + i + 1  # 1-based
+
+    # 一个六面体的 Kuhn 剖分：沿体对角线 v0-v6 切 6 个四面体
+    _TETS = ((0, 1, 2, 6), (0, 2, 3, 6), (0, 3, 7, 6),
+             (0, 7, 4, 6), (0, 4, 5, 6), (0, 5, 1, 6))
+    _HEX_V = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
+              (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))
+    elements: list[tuple[int, ...]] = []
+    for k in range(nz):
+        for j in range(ny):
+            for i in range(nx):
+                corner = [vid(i + dv[0], j + dv[1], k + dv[2])
+                          for dv in _HEX_V]
+                for t in _TETS:
+                    elements.append(
+                        (FEM_KIND_TET4, *(corner[v] for v in t)))
+    return {"nodes": nodes, "elements": elements}

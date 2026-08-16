@@ -1230,6 +1230,22 @@ class STpreModel(ComObject):
         return self.call("CreateConvexHull", *args)
 
     def CreateFEM(self, *args):
+        """FEM Conversion（Edit 菜单）：把实体件转成 FEM 单元模型。
+
+        手册签名 ``model.CreateFEM(length, scale, edge)``（VB manual
+        Model class，COM 探针实证 2026-08-16，结果见
+        ``tools/probe_work/fem_probe.json``）：
+
+        * ``length`` — 单元尺寸 (double)。``scale="T"`` 时为部件长度
+          （各轴最大长度）的比例，``"F"`` 时为绝对 mm 尺寸；
+        * ``scale`` — ``"T"/"F"``（同上）；
+        * ``edge``  — ``"T"`` 保留部件棱边 / ``"F"`` 不保留；
+
+        返回新 Model（原实体件保留，主 XML 新增 ``fem_<原名>`` 的
+        ``type="mesh_body"`` 部件，单元数据存 cab 的 ``.xfem`` 成员，
+        4 组合 (2.0,'F','T')/(0.05,'T','T')/(4.0,'F','F')/(0.05,'T','F')
+        全部成功，输出 kind=4 四面体）。
+        """
         return self.call("CreateFEM", *args)
 
     def Deform(self, *args):
