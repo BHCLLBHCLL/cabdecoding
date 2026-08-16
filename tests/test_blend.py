@@ -7,6 +7,29 @@ import cab_blend
 import cab_ps_ops
 
 
+def test_sew_sheet_bodies_stitches_two_triangles():
+    # R3.1a: PK_BODY_sew_bodies helper stitches two sheet triangles.
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    sess = _ps._get_session()
+    pk = sess.pk
+    t1 = cab_ps_ops._triangle_sheet(pk, (0.0, 0, 0), (0.01, 0, 0),
+                                    (0.0, 0.01, 0))
+    t2 = cab_ps_ops._triangle_sheet(pk, (0.005, 0, 0), (0.015, 0, 0),
+                                    (0.005, 0.01, 0))
+    sewn = cab_ps_ops.sew_sheet_bodies(pk, [t1, t2],
+                                       allow_disjoint=True)
+    assert sewn > 0
+    import ctypes as C
+    pk.PK_BODY_ask_faces.restype = C.c_int
+    pk.PK_BODY_ask_faces.argtypes = [
+        C.c_int, C.POINTER(C.c_int), C.POINTER(C.c_void_p)]
+    n = C.c_int(0)
+    arr = C.c_void_p()
+    assert pk.PK_BODY_ask_faces(sewn, C.byref(n), C.byref(arr)) == 0
+    assert n.value == 2
+
 def test_blend_option_structs():
     co = cab_blend.constant_blend_options()
     assert co.o_t_version == 1

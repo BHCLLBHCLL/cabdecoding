@@ -1705,6 +1705,60 @@ def replace_part_from_library(model: StpreModel, name: str, entry: dict
     if size:
         _set('size', ','.join(f'{float(v):.17g}' for v in size))
     return True
+def sew_part_sheets_pk(model: StpreModel, archive, cad_meshes, names,
+                       *, gap: float = 0.0) -> bool:
+    # R3.1a: Edit Solid 'Sew sheets' - stitch N sheet/polygon parts into
+    # one sheet body via PK_BODY_sew_bodies and write x_t back in place of
+    # the first part (the others are removed).
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available() or len(names) < 2:
+        return False
+    tags = []
+    for nm in names:
+        tag, _ = _find_body_tags(model, archive, nm, '')
+        if tag is None:
+            return False
+        tags.append(tag)
+    sess = _ps._get_session()
+    try:
+        sewn = cab_ps_ops.sew_sheet_bodies(
+            sess.pk, tags, gap=gap, allow_disjoint=True)
+        if not sewn:
+            return False
+        xt = cab_ps_ops.transmit_parts([sewn])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    first = names[0]
+    info = next((p for p in model.parts() if p.name == first), None)
+    if info is None:
+        return False
+    el = info.elem
+    member_name = f'{first}.x_t'
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit='m')
+    f_el = _first(el, 'file')
+    if f_el is not None:
+        set_text(f_el, member_name)
+    el.set('type', 'body')
+    for other in names[1:]:
+        model.delete_part(other)
+    if cad_meshes is not None:
+        try:
+            tess = sess.facet_body_stpre(sewn)
+            if tess is not None:
+                tess.name = first
+                keep = [m for m in cad_meshes
+                        if getattr(m, 'name', None) not in names]
+                keep.append(tess)
+                cad_meshes[:] = keep
+        except Exception:
+            pass
+    return True
+
 def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
                         radius: float, edge_index: int = 0, *,
                         chamfer: bool = False,

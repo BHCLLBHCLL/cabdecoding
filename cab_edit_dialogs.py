@@ -1548,6 +1548,30 @@ class EditSolidDialog(_EditDlg):
                 f"Deleted {self.deleted} triangle(s) on '{target}' "
                 f"(tessellation fallback).")
             return
+        if etype == 'Sew sheets':
+            # R3.1a: real PK sew of the target + all sheet/polygon parts.
+            others = [p.name for p in self.model.parts()
+                      if p.name != target and
+                      (p.kind or '').strip().lower() in ('sheet', 'polygon')]
+            if not others:
+                QMessageBox.warning(
+                    self, "Edit Solid",
+                    "Sew sheets needs at least one other sheet/polygon part.")
+                return
+            ok = ops.sew_part_sheets_pk(
+                self.model, self._archive(), self.cad_meshes,
+                [target] + others,
+                gap=self.tolerance.value())
+            if not ok:
+                QMessageBox.warning(
+                    self, "Edit Solid",
+                    "Sew sheets failed (need pskernel + x_t sheet bodies).")
+                return
+            self.applied = True
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"Sewed {len(others) + 1} sheet parts into {target} (x_t member rewritten).")
+            return
         self.applied = True
         QMessageBox.information(
             self, "Edit Solid",

@@ -847,8 +847,40 @@ def _sheet_declare(pk) -> None:
         POINTER(c_void_p), POINTER(c_void_p)]
 
 
+def sew_sheet_bodies(pk, tags, *, gap=0.0, allow_disjoint=False,
+                     manifold=True) -> int:
+    # R3.1a: sew N sheet bodies into one stitched sheet body (Edit Solid
+    # 'Sew sheets').  Returns the sewn body tag or 0 on failure.
+    _sheet_declare(pk)
+    n = len(tags)
+    arr = (c_int * n)(*[int(t) for t in tags])
+    opts = _SheetSewOpts()
+    opts.o_t_version = 1
+    opts.set_global_tolerance = 1
+    opts.allow_disjoint_result = 1 if allow_disjoint else 0
+    opts.treat_as_manifold = 1 if manifold else 0
+    opts.prefered_body_type = 0
+    opts.duplicate_removal = 0
+    opts.number_of_iterations = 0
+
+    n_sewn = c_int(0)
+    sewn_p = c_void_p()
+    n_un = c_int(0)
+    un_p = c_void_p()
+    n_prob = c_int(0)
+    prob_p = c_void_p()
+    rc = pk.PK_BODY_sew_bodies(n, arr, float(gap), byref(opts),
+                               byref(n_sewn), byref(sewn_p),
+                               byref(n_un), byref(un_p),
+                               byref(n_prob), byref(prob_p))
+    if rc != 0 or n_sewn.value <= 0 or not sewn_p.value:
+        return 0
+    bodies = cast(sewn_p, POINTER(c_int * n_sewn.value)).contents
+    return int(bodies[0])
+
 def _triangle_sheet(pk, a, b, c, precision=1e-6) -> int:
     """One trimmed planar sheet body for triangle (a, b, c) in metres."""
+    _sheet_declare(pk)
     import numpy as _np
     a = _np.asarray(a, dtype=_np.float64)
     b = _np.asarray(b, dtype=_np.float64)
