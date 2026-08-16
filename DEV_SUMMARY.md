@@ -2407,3 +2407,18 @@ SaveCabFile → merge_mesh_result`。
   SetUserEntity rc=1 但 cab 中无可见落盘（会话局部）。
 - **R19 壳单元 kind**：CreateFEM 仅产四面体（kind=4），无壳路径可探（无样本/API），保留为剩余项。
 - 回归：**533 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交 94d8034。
+
+## 56. R3.1/R3.5 执行（2026-08-16，每子点独立提交）
+
+- **R3.1a Sew sheets**（fc08ce7）：sew_sheet_bodies（经典 10 参签名）+ sew_part_sheets_pk 原地 x_t 回写 +
+  Edit Solid 接线 + 两三角形缝合测试（2 面）。
+- **R3.1b Fill sheet/Create cover**（b97f7a0）：fill_sheet_body（heal-cap make_solid_bodies），闭合帐幕→4 面实体测试。
+- **R3.1c+d sweep**（cdec423）：PK_BODY_sweep V37 7 参实证（三角形→棱柱 5 面、5e-7 m3）；
+  sweep_body + sweep_part_body_pk + FaceExtrusion PK 优先路径。
+- **R3.5a fan 系**（991a800）：fan/axial_fan/blower_fan 参数面（r1/r2/thickness/t1/t2/axis，
+  STpreBase 字符串实证，Create* 全签名存储待终证已注）+ 面板 + 往返测试。
+- **R3.5b+c**（54c1128）：pin_fin/slit_punching/anemostat 参数面（f1/f2/h1/h2/n1/n2/axis、
+  plane/thick/count、mode/type）+ 面板 + 往返测试。
+- R3.5d CW 边缘页深字段 = 下一批（需官方样本逐页实证，R8 探针模式）。
+- 回归：**539 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交
+  fc08ce7、b97f7a0、cdec423、991a800、54c1128。

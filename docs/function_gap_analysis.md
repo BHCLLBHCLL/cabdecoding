@@ -35,9 +35,9 @@
 | 2 | 网格 Gridding/Meshing | 93% | all/rep 金标 MATCH + multiblock/圆柱/轴向 + cut-cell 体积分数 | .ccel 二进制生成器（无样本可逆） |
 | 3 | .s 导出 | 93% | 全 section + 常量派生（295 样本交叉验证，ex4 逐字节） | hdr1 尾列/hdr2 col4-9/VFDE LEAP 无 XML 源 |
 | 4 | UI 菜单/对话框 | 92% | 8 菜单无 NYI、90+ 对话框、测量四模式（距离/角度/连线链/部件最小距） | Reference 深度、连线链菜单块 |
-| 5 | 几何建模 Part | 90% | 26 原语 + sketch/pipe + 五种专用件真参数面 | 其余专用件深字段（R3.5） |
+| 5 | 几何建模 Part | 93% | 26 原语 + sketch/pipe + 八种专用件参数面（R3.5a-c 新增 fan/axial_fan/blower_fan/pin_fin/slit_punching/anemostat，STpreBase 字符串实证） | 其余专用件/CW 边缘页（R3.5d） |
 | 6 | 求解闭环 | 90% | QProcess 监控 + 结果文件回读 + .pst 预填 Execute Post + 收敛尾部 | 结果回读至场景/收敛曲线图 |
-| 7 | 几何编辑 PK 内核 | 88% | blend/chamfer/G1 链（find_g1_edges 5 参）+ delete_2/cut/wrap/boolean/transform 全通 | sheet heal/sweep 面深度（R3.1） |
+| 7 | 几何编辑 PK 内核 | 91% | blend/chamfer/G1 链 + delete_2/cut/wrap/boolean + R3.1 Sew sheets/Fill sheet/PK_BODY_sweep 全真实算子 | 剩 4 类 sheet 算子（sheet from edges/unify/redundant edges/extract region） | blend/chamfer/G1 链（find_g1_edges 5 参）+ delete_2/cut/wrap/boolean/transform 全通 | sheet heal/sweep 面深度（R3.1） |
 | 8 | Condition Wizard | 86% | 24/25 类型 + 35 深度页 + 五类深字段页 + Boil + 表达式管理器 | 其余边缘页深字段（R3.5） |
 | 9 | 高级工具 | 85% | WindTool 前置 + 批量排队 + 参数化研究×批量联动（案例矩阵→覆盖→求解） | .fld 后处理（scPOST 范畴）、PICLS（无文档） |
 | 10 | 导入导出（9+ 格式） | 85% | x_t/stl/obj/step/sat/ifc/ecxml/dxf/nas 双向 | IGES/IDF（决策不做） |
@@ -54,14 +54,14 @@
 ## 三、剩余差距（按优先级）
 
 ### P1 — 高价值深度
-1. **sheet heal / sweep 面深度（= R3.1）**：见 §五 规划。
+1. ~~**sheet heal / sweep 面深度（= R3.1）**~~ 已完成：Sew sheets/Fill sheet/Create cover/面扫掠（PK_BODY_sweep 7 参实证）均已接真实 PK ；剩余 = 其他 4 类（Create sheet from edges/Unify surfaces/Remove redundant edges/Extract empty region）仍为 intent 占位。
 2. **Reference 深度**：拾取/测量四模式已通（R13），Reference（参考点/面集
    基准定义）未对齐 STpre。
 
 ### P2 — 深度不足
 3. **.ccel 二进制生成器**：调研完——格式由 solver 从 .s CUTCELL 段生成，全盘
    无 .ccel 样本可逆；当前内联 PARTS 盒列表发射为已记录差异。
-4. **专用件/CW 边缘页深字段（= R3.5）**：见 §五 规划。
+4. **专用件/CW 边缘页深字段（= R3.5）**：R3.5a-c 已完成（六种专用件参数面）；R3.5d CW 边缘页深字段仍待官方样本逐页实证（R8 探针模式）。
 
 ### P3 — 低优先级 / 决策性
 5. .fld 后处理（scPOST 范畴）；PICLS（无手册文档，如实降级）。
