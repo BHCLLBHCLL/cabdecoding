@@ -1,0 +1,618 @@
+{
+ "SetSolverParam": {
+  "win_shape": [
+   "steady_convergence",
+   "1e-4"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetSolverParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetSolverParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetSolverParam": {
+  "win_shape": [
+   "steady_convergence"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetSolverParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetSolverParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetEvaporationParam": {
+  "win_shape": [
+   "liquid_temp",
+   "100"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetEvaporationParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetEvaporationParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetEvaporationParam": {
+  "win_shape": [
+   "liquid_temp"
+  ],
+  "val": "0.0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetEvaporationParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetEvaporationParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetSolidMeltParam": {
+  "win_shape": [
+   "liquid_temp",
+   "100"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetSolidMeltParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetSolidMeltParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetSolidMeltParam": {
+  "win_shape": [
+   "liquid_temp"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetSolidMeltParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetSolidMeltParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetPhaseParam": {
+  "win_shape": [
+   "volume_correction",
+   "T"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetPhaseParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetPhaseParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetPhaseParam": {
+  "win_shape": [
+   "volume_correction"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetPhaseParam_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetPhaseParam_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetPorousHeatTransfer": {
+  "win_shape": [
+   "Xmin",
+   "conduction",
+   "10"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetPorousHeatTransfer_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetPorousHeatTransfer_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetPorousHeatTransfer": {
+  "shape_1": "EXC:(-2147352570, '未知名称。', None, None)",
+  "shape_0": "EXC:(-2147352570, '未知名称。', None, None)",
+  "all_failed": true,
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetPorousHeatTransfer_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetPorousHeatTransfer_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetCycle": {
+  "win_shape": [
+   "transient",
+   "100"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetCycle_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetCycle_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetCycle": {
+  "win_shape": [],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetCycle_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetCycle_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetUserEntity": {
+  "win_shape": [
+   "key1",
+   "42"
+  ],
+  "val": "1",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetUserEntity_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetUserEntity_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetUserEntity": {
+  "win_shape": [
+   "key1"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetUserEntity_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetUserEntity_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetScript": {
+  "win_shape": [
+   "E1"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetScript_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetScript_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetExpression": {
+  "win_shape": [
+   "E1"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetExpression_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetExpression_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetReferencedExpression": {
+  "win_shape": [
+   "E1"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetReferencedExpression_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetReferencedExpression_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetUserFunction": {
+  "win_shape": [
+   "F1",
+   "x+y"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetUserFunction_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetUserFunction_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetUserFunction": {
+  "win_shape": [
+   "F1"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetUserFunction_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetUserFunction_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "SetUserData": {
+  "win_shape": [
+   "D1",
+   "3.5"
+  ],
+  "val": "0",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_SetUserData_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_SetUserData_property.xml",
+     false
+    ]
+   ]
+  }
+ },
+ "GetUserData": {
+  "win_shape": [
+   "D1"
+  ],
+  "val": "None",
+  "save_rc": true,
+  "diff": {
+   "/body_files/file": [
+    [
+     "_com_sig_base_all.x_t",
+     false
+    ],
+    [
+     "_com_sig_GetUserData_all.x_t",
+     false
+    ]
+   ],
+   "/property_db/file": [
+    [
+     "_com_sig_base_property.xml",
+     false
+    ],
+    [
+     "_com_sig_GetUserData_property.xml",
+     false
+    ]
+   ]
+  }
+ }
+}

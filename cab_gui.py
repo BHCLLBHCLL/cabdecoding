@@ -348,6 +348,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addSeparator()
         add(m, "Print", self._print_dialog)
         add(m, "Execute Solver", self._execute_solver)
+        add(m, "Batch Execution...", self._batch_execution)
         add(m, "Execute Post", self._execute_post)
         m.addSeparator()
         self._recent_menu = m.addMenu("Recent Files")
@@ -4489,6 +4490,20 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         except Exception as exc:
             self.log(f"Launch failed: {exc}", "ERROR")
             return False
+
+    def _batch_execution(self) -> None:
+        # File -> Batch Execution: sequential multi-project solver queue.
+        if self.model is None:
+            self.log('No project open.', 'WARN')
+            return
+        import cab_batch
+        from cab_options import get_setting
+        dlg = cab_batch.BatchExecutionDialog(
+            self, find_exe=self._find_program,
+            default_workdir=str(get_setting(
+                'solver_workdir',
+                os.path.dirname(self.current_path or '') or os.getcwd())))
+        dlg.exec_()
 
     def _execute_solver(self) -> None:
         """M31 File -> Execute Solver: cwd / restart / env options."""

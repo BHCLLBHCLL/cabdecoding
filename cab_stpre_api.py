@@ -1190,6 +1190,67 @@ class STpreDoc(ComObject):
     def SortModel(self, *args):
         return self.call("SortModel", *args)
 
+    # -- extended surface (2026-08-16 signature sweep, tools/probe_com_sig.py;
+    #    evidence tools/probe_work/com_sig_probe.json) ----------------------
+    def SetSolverParam(self, key: str, value):
+        return self.call("SetSolverParam", key, value)
+
+    def GetSolverParam(self, key: str):
+        return self.call("GetSolverParam", key)
+
+    def SetEvaporationParam(self, key: str, value):
+        return self.call("SetEvaporationParam", key, value)
+
+    def GetEvaporationParam(self, key: str):
+        return self.call("GetEvaporationParam", key)
+
+    def SetSolidMeltParam(self, key: str, value):
+        return self.call("SetSolidMeltParam", key, value)
+
+    def GetSolidMeltParam(self, key: str):
+        return self.call("GetSolidMeltParam", key)
+
+    def SetPhaseParam(self, key: str, value):
+        return self.call("SetPhaseParam", key, value)
+
+    def GetPhaseParam(self, key: str):
+        return self.call("GetPhaseParam", key)
+
+    def SetPorousHeatTransfer(self, region: str, model: str, coeff):
+        return self.call("SetPorousHeatTransfer", region, model, coeff)
+
+    def SetCycle(self, kind: str, ncyc):
+        return self.call("SetCycle", kind, ncyc)
+
+    def GetCycle(self):
+        return self.call("GetCycle")
+
+    def SetUserEntity(self, key: str, value):
+        return self.call("SetUserEntity", key, value)
+
+    def GetUserEntity(self, key: str):
+        return self.call("GetUserEntity", key)
+
+    def GetScript(self, name: str):
+        return self.call("GetScript", name)
+
+    def GetExpression(self, name: str):
+        return self.call("GetExpression", name)
+
+    def GetReferencedExpression(self, name: str):
+        return self.call("GetReferencedExpression", name)
+
+    def SetUserFunction(self, name: str, expr: str):
+        return self.call("SetUserFunction", name, expr)
+
+    def GetUserFunction(self, name: str):
+        return self.call("GetUserFunction", name)
+
+    def SetUserData(self, name: str, value):
+        return self.call("SetUserData", name, value)
+
+    def GetUserData(self, name: str):
+        return self.call("GetUserData", name)
 class STpreModel(ComObject):
     """Model class (part / region / group).  458 members; call()-able."""
 
