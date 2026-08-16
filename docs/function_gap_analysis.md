@@ -60,7 +60,7 @@
 |---|---:|---|---|
 | 数据层（cab 容器/XML/材料/单位） | 95% | MSZIP 读写 + 534 测试 + xml 往返稳定 | -- |
 | 几何建模 Part | 90% | 26 原语 + sketch/pipe + 五种专用件真参数面（R7） | 其余专用件深字段 |
-| 几何编辑 PK 内核 | 85% | blend/chamfer/delete_2/cut/wrap/boolean/section 全通（本轮 +R1） | sheet heal、sweep 面深度 |
+| 几何编辑 PK 内核 | 87% | blend/chamfer + R15 **G1 边链**（PK_EDGE_find_g1_edges V37 5 参）；delete_2/cut/wrap/boolean 全通 | sheet heal、sweep 面深度 | blend/chamfer/delete_2/cut/wrap/boolean/section 全通（本轮 +R1） | sheet heal、sweep 面深度 |
 | 网格 Gridding/Meshing | 93% | all/rep 金标 MATCH + multiblock/圆柱/轴向 + cut-cell 体积分数（R9） | .ccel 二进制生成器 |
 | Condition Wizard | 85% | 24/25 类型 + 35 深度页 + 五类深字段页（R8）+ Boil（本轮） | 其余边缘页深字段 |
 | .s 导出 | 93% | 全 section 含 MOVB/PELTIER/CUTCELL + 常量派生（R8，295 样本） | hdr1 尾列/hdr2 col4-9/VFDE LEAP 无 XML 源（已注明证据） |
@@ -68,8 +68,8 @@
 | COM 自动化桥 | 80% | ComObject.call 全 VB 面 + 专用件/FEM/WindTool 探针实证 + R11 签名扫描 23 方法封装（SolverParam/EvaporationParam/SolidMeltParam/PhaseParam/PorousHeatTransfer/Cycle/UserEntity/Script/Expression/UserFunction/UserData 等，data/com_sig_probe.json 证据） | 存储格式深层实证子集有限 | ComObject.call 全 VB 面 + 专用件/FEM/WindTool 探针实证 | 探针实证方法子集有限 |
 | UI 菜单/对话框 | 92% | 8 菜单全接线、90+ 对话框、R13 测量四模式（距离/角度/连线链/部件最小距） | Reference 深度 | 8 菜单全接线无 NYI、90+ 对话框、无 `lambda: None` 占位 | Distance/Reference 测量深度 |
 | 求解闭环 | 85% | R6：QProcess 监控 + 日志 tail + exit code + 单实例互斥 | 结果回读/后处理联动 |
-| 高级工具 | 78% | R10 WindTool 前置 + R11 批量执行编排（cab_batch：多工程队列、逐案导出 .s/.xemt、顺序 stsol 监控、停即停） | .fld 后处理（scPOST 范畴） | R10：WindTool 前置 16 风向 + info 文件 + 工具定位 | 批量执行编排、.fld 后处理（scPOST 范畴） |
-| FEM | 70% | R9 + R12 FEM Conversion 对话框接线（build_fem_hexa 四面体 → mesh_body 件 + .xfem 成员） | 壳单元 kind 值 | R9：CreateFEM COM 实证 + .xfem 四面体 + 离线 Kuhn 生成 | 壳单元 kind 值、FEM Conversion UI 接线 |
+| 高级工具 | 85% | R11批量排队 + R14 **参数化研究×批量联动**（案例矩阵逐案应用参数覆盖→导出→求解） | .fld 后处理（scPOST 范畴） | R10 WindTool 前置 + R11 批量执行编排（cab_batch：多工程队列、逐案导出 .s/.xemt、顺序 stsol 监控、停即停） | .fld 后处理（scPOST 范畴） | R10：WindTool 前置 16 风向 + info 文件 + 工具定位 | 批量执行编排、.fld 后处理（scPOST 范畴） |
+| FEM | 80% | R9+R12+R14: FEM Conversion 对话框 + **任意几何 Delaunay 四面体化**（scipy 对 tess 点云，体积守恒测试） | 壳单元 kind 值 | R9 + R12 FEM Conversion 对话框接线（build_fem_hexa 四面体 → mesh_body 件 + .xfem 成员） | 壳单元 kind 值 | R9：CreateFEM COM 实证 + .xfem 四面体 + 离线 Kuhn 生成 | 壳单元 kind 值、FEM Conversion UI 接线 |
 
 **深度说明**（与 STpre 逐面对比的关键结论）：
 - **显示 tess 已对齐**：STpre 显示网格 = PK_TOPOL_facet_2 + 六容差配方，

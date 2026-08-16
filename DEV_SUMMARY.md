@@ -2375,3 +2375,20 @@ SaveCabFile → merge_mesh_result`。
   STpreBase IAT 同套函数（无 PK_BODY_fix_general），剩余为 UI 多件流程。
 - 回归：**526 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交
   8bb3935、f8b19cb、6b5adf4。
+
+## 54. 深度扫描与高杠杆措施（R14-R15，2026-08-16）
+
+- **扫描结论**：占位已近清零（生产代码仅 1 处合法
+  lambda: None 默认值、0 TODO、3 intent 提及、4 _nyi 防御回退）——浅点已消耗；
+  剩余提升必须来自「深度联动」而非填空。
+- **R14 FEM 任意几何（FEM 70%→80%）**：cabxml.build_fem_delaunay（scipy Delaunay
+  对部件 tess 点云四面体化，退化回退 hexa）；FEM 对话框优先
+  Delaunay 路径（有 tess 时）；体积守恒 + 平面回退测试。
+- **R14 参数化研究×批量联动（高级工具 78%→85%）**：
+  cab_batch.apply_param_overrides（参数名解析：part.tag / 纯 tag=analysis_set / etc.tag /
+  project.tag）+ prepare_case(overrides) + BatchExecutionDialog.set_queue + ParametricStudyDialog
+  「Batch Solve...」按钮：案例矩阵逐案应用参数→导出 .s/.xemt→顺序求解。
+- **R15 blend G1 边链（PK 内核 85%→87%）**：cab_blend.find_g1_edges（
+  PK_EDGE_find_g1_edges V37 5 参：edge, tolerance, convexity, &n, &edges），切向连续边链倒圆传播。
+- 回归：**530 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交
+  fc8c82d、d12a3b1。
