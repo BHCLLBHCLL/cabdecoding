@@ -635,6 +635,23 @@ class StpreModel:
             "cooling_part": (None, "str"), "heat_release_part": (None, "str"),
             "thermal_resistance": ("K/W", 1), "max_heat_transport": ("W", 1),
         },
+        # R3.5a fan family: field names from STpreBase string evidence
+        # (Create*Model params r1/r2/tk/t1/t2/axis/type/kind); the Create*
+        # COM full-signature storage is not yet terminal-proven (minimal-arg
+        # probe returned no part diff), so these fields use our own part
+        # children like the other special parts.
+        "fan": {
+            "r1": ("mm", 1), "r2": ("mm", 1), "thickness": ("mm", 1),
+            "axis": (None, "str"), "type": (None, "str"),
+        },
+        "axial_fan": {
+            "r1": ("mm", 1), "r2": ("mm", 1), "t1": ("mm", 1),
+            "t2": ("mm", 1), "axis": (None, "str"), "kind": (None, "str"),
+        },
+        "blower_fan": {
+            "r1": ("mm", 1), "r2": ("mm", 1), "thickness": ("mm", 1),
+            "axis": (None, "str"),
+        },
     }
 
     #: 真实 STpre 部件 type 与本项目 kind 的别名

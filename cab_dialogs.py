@@ -812,7 +812,7 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
     _AXIS_ITEMS = ("+X", "-X", "+Y", "-Y", "+Z", "-Z")
     _COMBO_ITEMS = {
         "def_axis": _AXIS_ITEMS, "row_axis": _AXIS_ITEMS,
-        "def_plane": _AXIS_ITEMS,
+        "def_plane": _AXIS_ITEMS, "axis": _AXIS_ITEMS,
         "operation_type": ("cooling", "heating"),
         "t_limit_type": ("none", "min", "max", "minmax"),
     }
@@ -866,6 +866,27 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
              None, 0.05),
             ("f", "Max heat transport (W)", "max_heat_transport",
              None, 50.0),
+        ),
+        "fan": (
+            ("f", "Inner radius r1 (mm)", "r1", None, 5.0),
+            ("f", "Outer radius r2 (mm)", "r2", None, 20.0),
+            ("f", "Thickness (mm)", "thickness", None, 5.0),
+            ("s", "Axis", "axis", None, "+Z"),
+            ("t", "Type", "type", None, ""),
+        ),
+        "axial_fan": (
+            ("f", "Inner radius r1 (mm)", "r1", None, 5.0),
+            ("f", "Outer radius r2 (mm)", "r2", None, 20.0),
+            ("f", "Front thickness t1 (mm)", "t1", None, 5.0),
+            ("f", "Rear thickness t2 (mm)", "t2", None, 5.0),
+            ("s", "Axis", "axis", None, "+Z"),
+            ("t", "Kind", "kind", None, ""),
+        ),
+        "blower_fan": (
+            ("f", "Inner radius r1 (mm)", "r1", None, 5.0),
+            ("f", "Outer radius r2 (mm)", "r2", None, 20.0),
+            ("f", "Thickness (mm)", "thickness", None, 8.0),
+            ("s", "Axis", "axis", None, "+Z"),
         ),
     }
 

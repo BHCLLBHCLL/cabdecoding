@@ -48,6 +48,24 @@ def _model(*specs) -> StpreModel:
 
 # -- cabxml API: peltier -------------------------------------------------------
 
+def test_fan_family_params_roundtrip():
+    # R3.5a: fan/axial_fan/blower_fan parameter faces (r1/r2/thickness).
+    model = _model()
+    for kind, params in (
+            ("fan", {"r1": 5.0, "r2": 20.0, "thickness": 5.0,
+                     "axis": "+Z"}),
+            ("axial_fan", {"r1": 4.0, "r2": 18.0, "t1": 5.0, "t2": 5.0,
+                          "axis": "+X"}),
+            ("blower_fan", {"r1": 6.0, "r2": 22.0, "thickness": 8.0,
+                           "axis": "-Z"})):
+        model.add_part(name="F", kind=kind, attribute="solid")
+        assert model.set_part_params("F", params)
+        got = model.part_params("F")
+        assert got is not None
+        for k, v in params.items():
+            assert got.get(k) == v, (kind, k, got)
+        model.delete_part("F")
+
 def test_peltier_params_roundtrip():
     m = _model(("Peltier1", "peltier"))
     # add_part 默认写入 def_axis=+Z，识别为专用件即返回 dict
