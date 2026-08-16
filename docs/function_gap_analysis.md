@@ -1,10 +1,10 @@
-# STpre 功能完整性与差距 — 全面重评 v4（2026-08-16，R1–R19 + 网格显示修复）
+# STpre 功能完整性与差距 — 全面重评 v5（2026-08-16，R1–R19 + R3.1/R3.5a-c 完成）
 
 > 对比基准：Cradle scSTREAM Pre（C:\Program Files\Cradle\CradleCFD2025.2\
 > Programs_x64\STpre_Bx64net.exe），参考 Pre_eng / Operation_eng /
 > VB_Interface_eng 手册。本版在 v3（R1–R10）基础上纳入 R11–R19（COM 桥
 > 扩展/批量执行/FEM Delaunay/参数化×批量联动/G1 链/求解结果回读/COM 存储
-> 实证）与 post-meshing 显示修复（ce69193）。HEAD ce69193。
+> 实证）、post-meshing 显示修复（ce69193）与 R3.1/R3.5（至 9420da5）。HEAD 9420da5。
 >
 > **假设声明**：用户提及的 R3.1 / R3.5 按 v3 §四剩余项顺序解释为
 > R3.1 = sheet heal/sweep 面深度、R3.5 = 专用件/CW 边缘页深字段（见 §五）；
@@ -14,14 +14,14 @@
 
 ## 一、总体判断（2026-08-16 v4 快照）
 
-- **测试**：全仓 **555 项**（80 个测试文件）；本沙箱实测 **535 passed /
+- **测试**：全仓 **557 项**（80 个测试文件）；本沙箱实测 **539 passed /
   4 skipped / 14 errors**（14 项全部为沙箱 tempfile 权限拒绝，正常环境全过），
   **0 failed**。金标 e2e 原生断言（all 59/118/121、rep 57/91/92 MATCH）。
-- **代码规模**：42 个运行时模块 ≈4.77 万行；新增 cab_batch / cab_solver_proc /
+- **代码规模**：42 个运行时模块 ≈4.80 万行；新增 cab_batch / cab_solver_proc /
   windtool / cab_tools / cab_blend 五个模块（R6–R19）。
 - **pskernel 覆盖**：1204 导出中已引用 **120+**（核心 B-rep 88），含 facet/
   boolean/cut/wrap/transform/blend/chamfer/G1/delete_2/heal-cap/transmit/receive。
-- **总体完成度 ≈92%**（v1 60% → v2 76% → v3 91% → v4 92%）。P0 全清；
+- **总体完成度 ≈93%**（v1 60% → v2 76% → v3 91% → v4 92% → v5 93%）。P0 全清；
   剩余 = 深度长尾（sheet heal/sweep、Reference 深度、.ccel、专用件/CW 边缘
   深字段、.fld/PICLS）。
 
@@ -71,7 +71,7 @@
 
 ## 四、结论
 
-相对 v1（§18 首评 ≈60%）→ v2（≈76%）→ v3（≈91%），本版 **≈92%**：原生网格金标
+相对 v1（§18 首评 ≈60%）→ v2（≈76%）→ v3（≈91%）→ v4（≈92%），本版 **≈93%**：原生网格金标
 全收敛、显示 tess 与 STpre 精确一致、pskernel V37 真实 B-rep 编辑、SCTpre
 VBS/COM 全量桥接、求解→结果回读→后处理入口闭环、FEM 真单元、参数化×批量
 联动均已具备。剩余差距全部为深度/长尾项（R3.1/R3.5 见 §五），无阻塞性缺失。
@@ -131,4 +131,4 @@ R3.1（sheet/sew 接线先行，sweep 后置）与 R3.5（fan 系先行）可并
 不依赖 STpre COM 会话（R3.1 纯 pskernel，R3.5 需 COM 探针但可批处理）。
 
 > 版本轨迹：v1（§18，≈60%）→ §39 专项审计 → v2（2026-08-15，≈76%）→
-> v3（R1–R10，≈91%）→ v4（R11–R19 + 显示修复，≈92%）。
+> v3（R1–R10，≈91%）→ v4（R11–R19 + 显示修复，≈92%）→ v5（R3.1 + R3.5a-c，≈93%）。
