@@ -3750,8 +3750,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             # STpre Line + Element division = structured face mesh on occupancy
             pd_elem_lines = None
             if element_on or wire:
+                # interior_stride=1: full structured volume mesh (STpre
+                # Element division draws every face of every element, so
+                # clipping reveals the 3D interior structure)
                 pd_elem_lines = cab_vtk.element_division_lines(
-                    self.model, box.name)
+                    self.model, box.name, interior_stride=1)
 
             # --- Part geometry (Line / Shading / Translucent) ---
             if wire:
@@ -3852,7 +3855,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                     # Occupancy face grids for Domain after Meshing only
                     pd_dom = cab_vtk.element_division_lines(
                         self.model, boxes=aboxes,
-                        interior_stride=0, surface_eps=0.0)
+                        interior_stride=1, surface_eps=0.0)
                     if pd_dom is not None:
                         dom_edge = cab_vtk.edges_actor(
                             pd_dom, color=(0.42, 0.54, 0.66),
@@ -4082,6 +4085,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self.renderer.SetOcclusionRatio(0.1)
         except Exception:
             pass
+
+    def _enable_element_layer_after_meshing(self) -> None:
+        """Turn on Drawing->Element after Meshing so the structured mesh is
+        visible (STpre shows the element-division volume mesh right after
+        Meshing; the Element checkbox defaults OFF in Show/Select)."""
+        cb = self.control.layer_checks.get("element")
+        if cb is None or cb.isChecked():
+            return
+        cb.blockSignals(True)
+        cb.setChecked(True)
+        cb.blockSignals(False)
 
     def _enable_mesh_layer_after_gridding(self) -> None:
         """Turn on Drawing→Mesh after Gridding so face grids are visible.
@@ -5590,6 +5604,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             cab_mesh.apply_elements(
                 self.model, analysis_name, analysis_box, part_boxes)
             self._push_undo(snap)
+            self._enable_element_layer_after_meshing()
             self._rebuild_scene()
             self._mark_dirty()
             self._update_title()

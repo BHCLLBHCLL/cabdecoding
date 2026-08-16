@@ -97,6 +97,30 @@ def test_classify_box_center_subset():
     assert boxes["box"] == [(1, 10, 1, 10, 1, 10)]
 
 
+def test_element_division_interior_after_meshing():
+    # R: after meshing the element-division overlay must include the
+    # interior grid planes (stride=1) so clipping reveals the 3D mesh.
+    import cab_vtk
+    if not getattr(cab_vtk, "_HAS_VTK", False):
+        return
+    from cab_container import CabArchive
+    archive = CabArchive.parse(BOX.read_bytes())
+    archive.fill_member_data()
+    xml_name = next(m.name for m in archive.members
+                    if m.name.endswith(".xml") and not m.name.startswith("_"))
+    xml_member = next(m for m in archive.members if m.name == xml_name)
+    model = StpreModel(parse_stpre(xml_member.data))
+    axes = {ax: [i * 1.0 for i in range(11)] for ax in "xyz"}
+    model.set_mesh(axes, unit="mm", domain_min=(0, 0, 0),
+                   domain_max=(10, 10, 10))
+    tess = _box_tess()
+    analysis, boxes = cab_mesh.classify_cells(axes, [tess])
+    cab_mesh.apply_elements(model, "Domain(cuboid)", analysis, boxes)
+    surf = cab_vtk.element_division_lines(model, "box", interior_stride=0)
+    vol = cab_vtk.element_division_lines(model, "box", interior_stride=1)
+    assert surf is not None and vol is not None
+    assert vol.GetNumberOfLines() > surf.GetNumberOfLines()
+
 def test_apply_elements_roundtrip():
     from cab_container import CabArchive
     archive = CabArchive.parse(BOX.read_bytes())

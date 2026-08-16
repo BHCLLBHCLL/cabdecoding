@@ -65,6 +65,18 @@ def test_edit_menu_matches_stpre(qapp):
     assert texts == STPRE_EDIT_ITEMS
 
 
+def test_element_layer_auto_enabled_after_meshing(qapp):
+    # R: Meshing turns on Drawing->Element so the structured mesh is
+    # immediately visible (mirrors gridding auto-enabling Drawing->Mesh).
+    viewer = _viewer(qapp)
+    cb = viewer.control.layer_checks.get("element")
+    assert cb is not None
+    cb.blockSignals(True)
+    cb.setChecked(False)
+    cb.blockSignals(False)
+    viewer._enable_element_layer_after_meshing()
+    assert cb.isChecked()
+
 def test_reset_domain_dialog_applies_defaults(qapp):
     import cab_edit_dialogs
     viewer = _viewer(qapp)
