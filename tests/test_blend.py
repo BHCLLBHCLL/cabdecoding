@@ -7,6 +7,67 @@ import cab_blend
 import cab_ps_ops
 
 
+def test_make_sheet_from_face_and_unify():
+    # R3.1e/f: sheet-from-face + PK_EDGE_delete unify on coplanar pair.
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    import ctypes as C
+    sess = _ps._get_session()
+    pk = sess.pk
+    body = cab_ps_ops.create_solid_block((0.01, 0.01, 0.01))
+    pk.PK_BODY_ask_faces.restype = C.c_int
+    pk.PK_BODY_ask_faces.argtypes = [
+        C.c_int, C.POINTER(C.c_int), C.POINTER(C.c_void_p)]
+    n = C.c_int(0)
+    arr = C.c_void_p()
+    pk.PK_BODY_ask_faces(body, C.byref(n), C.byref(arr))
+    faces = [int(C.cast(arr, C.POINTER(C.c_int))[i])
+             for i in range(n.value)]
+    sheet = cab_ps_ops.make_sheet_from_faces(pk, [faces[0]])
+    assert sheet > 0
+    n2 = C.c_int(0)
+    a2 = C.c_void_p()
+    pk.PK_BODY_ask_faces(sheet, C.byref(n2), C.byref(a2))
+    assert n2.value == 1
+    # unify: two coplanar triangles sharing an edge merge to one face
+    t1 = cab_ps_ops._triangle_sheet(pk, (0.0, 0, 0), (0.01, 0, 0),
+                                    (0.0, 0.01, 0))
+    t2 = cab_ps_ops._triangle_sheet(pk, (0.0, 0.01, 0), (0.01, 0, 0),
+                                    (0.01, 0.01, 0))
+    sewn = cab_ps_ops.sew_sheet_bodies(pk, [t1, t2], allow_disjoint=True)
+    pk.PK_BODY_ask_edges.restype = C.c_int
+    pk.PK_BODY_ask_edges.argtypes = [
+        C.c_int, C.POINTER(C.c_int), C.POINTER(C.c_void_p)]
+    ne = C.c_int(0)
+    ae = C.c_void_p()
+    pk.PK_BODY_ask_edges(sewn, C.byref(ne), C.byref(ae))
+    eds = [int(C.cast(ae, C.POINTER(C.c_int))[i])
+           for i in range(ne.value)]
+    merged = False
+    for e in eds:
+        if cab_ps_ops.delete_edges(pk, [e]) == 0:
+            merged = True
+            break
+    assert merged
+    nf = C.c_int(0)
+    fa = C.c_void_p()
+    pk.PK_BODY_ask_faces(sewn, C.byref(nf), C.byref(fa))
+    assert nf.value == 1
+
+
+def test_simplify_and_regions_on_box():
+    # R3.1g/h: simplify rc=0 on a box; region listing works.
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    sess = _ps._get_session()
+    pk = sess.pk
+    body = cab_ps_ops.create_solid_block((0.01, 0.01, 0.01))
+    assert cab_ps_ops.simplify_body_geom(pk, body) == 0
+    regs = cab_ps_ops.ask_regions(pk, body)
+    assert len(regs) >= 1
+
 def test_sweep_body_triangle_to_prism():
     # R3.1c: PK_BODY_sweep in place - sheet triangle -> prism solid.
     if not cab_ps_ops.available():

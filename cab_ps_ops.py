@@ -807,6 +807,15 @@ class _SheetTrimOpts(Structure):
     ]
 
 
+class _EdgeDeleteOpts(Structure):
+    """PK_EDGE_delete_o_t (o_t_version=1)."""
+    _fields_ = [
+        ("o_t_version", c_int),
+        ("update", c_int),
+        ("_pad", c_int * 6),
+    ]
+
+
 class _SheetSewOpts(Structure):
     """PK_BODY_sew_bodies_o_t (generous trailing pad)."""
     _fields_ = [
@@ -846,6 +855,137 @@ def _sheet_declare(pk) -> None:
         c_int, POINTER(c_int), c_int, c_ubyte, POINTER(c_int),
         POINTER(c_void_p), POINTER(c_void_p)]
 
+
+def face_edges(pk, face) -> list:
+    # PK_FACE_ask_edges - edge tags of one face.
+    n = c_int(0)
+    arr = c_void_p()
+    pk.PK_FACE_ask_edges.restype = c_int
+    pk.PK_FACE_ask_edges.argtypes = [
+        c_int, POINTER(c_int), POINTER(c_void_p)]
+    if pk.PK_FACE_ask_edges(int(face), byref(n), byref(arr)) != 0:
+        return []
+    if n.value <= 0 or not arr.value:
+        return []
+    return [int(cast(arr, POINTER(c_int))[i]) for i in range(n.value)]
+
+def make_sheet_from_faces(pk, faces) -> int:
+    # R3.1e: Create sheet from edges - PK_FACE_make_sheet_body (STpreBase
+    # IAT same function): standalone sheet body from the picked faces.
+    n = len(faces)
+    arr = (c_int * n)(*[int(f) for f in faces])
+    body = c_int(0)
+    pk.PK_FACE_make_sheet_body.restype = c_int
+    pk.PK_FACE_make_sheet_body.argtypes = [
+        c_int, POINTER(c_int), POINTER(c_int)]
+    if pk.PK_FACE_make_sheet_body(n, arr, byref(body)) != 0:
+        return 0
+    return int(body.value)
+
+
+def delete_edges(pk, edges) -> int:
+    # R3.1f: Unify surfaces - PK_EDGE_delete merges the adjacent faces
+    # (succeeds when they are coplanar/smooth-compatible).  Returns rc.
+    n = len(edges)
+    arr = (c_int * n)(*[int(e) for e in edges])
+    opts = _EdgeDeleteOpts()
+    opts.o_t_version = 1
+    opts.update = 0
+    track = (c_int * 16)()
+    res = (c_int * 16)()
+    pk.PK_EDGE_delete.restype = c_int
+    pk.PK_EDGE_delete.argtypes = [
+        c_int, POINTER(c_int), POINTER(_EdgeDeleteOpts),
+        c_void_p, c_void_p]
+    return int(pk.PK_EDGE_delete(n, arr, byref(opts),
+                                 cast(track, c_void_p),
+                                 cast(res, c_void_p)))
+
+
+def simplify_body_geom(pk, body) -> int:
+    # R3.1g: Remove redundant edges - PK_BODY_simplify_geom replaces
+    # classic geometry where possible (collinear/smooth runs).  Returns rc.
+    n_geoms = c_int(0)
+    geoms = c_void_p()
+    pk.PK_BODY_simplify_geom.restype = c_int
+    pk.PK_BODY_simplify_geom.argtypes = [
+        c_int, c_ubyte, POINTER(c_int), POINTER(c_void_p)]
+    return int(pk.PK_BODY_simplify_geom(int(body), 0, byref(n_geoms),
+                                         byref(geoms)))
+
+
+def ask_regions(pk, body) -> list:
+    # R3.1h: PK_BODY_ask_regions -> region tags (outer + voids).
+    n = c_int(0)
+    regs = c_void_p()
+    pk.PK_BODY_ask_regions.restype = c_int
+    pk.PK_BODY_ask_regions.argtypes = [
+        c_int, POINTER(c_int), POINTER(c_void_p)]
+    if pk.PK_BODY_ask_regions(int(body), byref(n), byref(regs)) != 0:
+        return []
+    if n.value <= 0 or not regs.value:
+        return []
+    return [int(cast(regs, POINTER(c_int))[i]) for i in range(n.value)]
+
+
+def region_faces(pk, region) -> list:
+    # R3.1h: shell(s) of a region -> oriented faces.
+    ns = c_int(0)
+    sh = c_void_p()
+    pk.PK_REGION_ask_shells.restype = c_int
+    pk.PK_REGION_ask_shells.argtypes = [
+        c_int, POINTER(c_int), POINTER(c_void_p)]
+    if pk.PK_REGION_ask_shells(int(region), byref(ns), byref(sh)) != 0:
+        return []
+    faces = []
+    for i in range(ns.value):
+        shell = int(cast(sh, POINTER(c_int))[i])
+        nf = c_int(0)
+        fc = c_void_p()
+        ori = c_void_p()
+        pk.PK_SHELL_ask_oriented_faces.restype = c_int
+        pk.PK_SHELL_ask_oriented_faces.argtypes = [
+            c_int, POINTER(c_int), POINTER(c_void_p), POINTER(c_void_p)]
+        if pk.PK_SHELL_ask_oriented_faces(shell, byref(nf), byref(fc),
+                                           byref(ori)) != 0:
+            continue
+        faces.extend(int(cast(fc, POINTER(c_int))[j])
+                     for j in range(nf.value))
+    return faces
+
+
+def extract_empty_regions(pk, body) -> list:
+    # R3.1h: Extract empty region - solid bodies from every region's
+    # shell faces (the outer region yields the body duplicate and is
+    # skipped when it matches the body's own faces; voids become solids).
+    _sheet_declare(pk)
+    n = c_int(0)
+    regs = c_void_p()
+    pk.PK_BODY_ask_regions.restype = c_int
+    pk.PK_BODY_ask_regions.argtypes = [
+        c_int, POINTER(c_int), POINTER(c_void_p)]
+    if pk.PK_BODY_ask_regions(int(body), byref(n), byref(regs)) != 0:
+        return []
+    if n.value <= 1 or not regs.value:
+        return []
+    out = []
+    for i in range(n.value):
+        region = int(cast(regs, POINTER(c_int))[i])
+        faces = region_faces(pk, region)
+        if not faces:
+            continue
+        farr = (c_int * len(faces))(*faces)
+        n_sol = c_int(0)
+        sols = c_void_p()
+        checks = c_void_p()
+        r6 = pk.PK_FACE_make_solid_bodies(
+            len(faces), farr, PK_FACE_heal_cap_c, 0, byref(n_sol),
+            byref(sols), byref(checks))
+        if r6 != 0 or n_sol.value == 0 or not sols.value:
+            continue
+        out.extend(int(cast(sols, POINTER(c_int))[j])
+                   for j in range(n_sol.value))
+    return out
 
 def sweep_body(pk, body, vector_m) -> int:
     # R3.1c: PK_BODY_sweep (V37 7-arg, live-kernel verified): sweeps a

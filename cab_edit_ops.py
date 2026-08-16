@@ -1705,6 +1705,183 @@ def replace_part_from_library(model: StpreModel, name: str, entry: dict
     if size:
         _set('size', ','.join(f'{float(v):.17g}' for v in size))
     return True
+def _writeback_body_xt(model, archive, cad_meshes, name, tag) -> bool:
+    # Shared tail: transmit tag -> member -> part file ref + mesh refresh.
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    try:
+        xt = cab_ps_ops.transmit_parts([tag])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    el = info.elem
+    member_name = f'{name}.x_t'
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit='m')
+    f_el = _first(el, 'file')
+    if f_el is not None:
+        set_text(f_el, member_name)
+    if cad_meshes is not None:
+        try:
+            sess = _ps._get_session()
+            tess = sess.facet_body_stpre(tag)
+            if tess is not None:
+                tess.name = name
+                for i, m in enumerate(cad_meshes):
+                    if getattr(m, 'name', None) == name:
+                        cad_meshes[i] = tess
+                        break
+                else:
+                    cad_meshes.append(tess)
+        except Exception:
+            pass
+    return True
+
+
+def sheet_from_face_pk(model, archive, cad_meshes, name, face_tag):
+    # R3.1e: Create sheet from edges - PK_FACE_make_sheet_body on the
+    # picked face -> new sheet part + x_t member.
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return None
+    sess = _ps._get_session()
+    try:
+        sheet = cab_ps_ops.make_sheet_from_faces(sess.pk, [face_tag])
+        if not sheet:
+            return None
+        xt = cab_ps_ops.transmit_parts([sheet])
+    except Exception:
+        return None
+    if not xt:
+        return None
+    new_name = unique_part_name(model, f'{name}_sheet')
+    el = model.add_part(name=new_name, kind='body',
+                        attribute='sheet', file_ref='x_t')
+    if el is None:
+        return None
+    member_name = f'{new_name}.x_t'
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit='m')
+    f_el = _first(el, 'file')
+    if f_el is not None:
+        set_text(f_el, member_name)
+    if cad_meshes is not None:
+        try:
+            tess = sess.facet_body_stpre(sheet)
+            if tess is not None:
+                tess.name = new_name
+                cad_meshes.append(tess)
+        except Exception:
+            pass
+    return new_name
+
+
+def unify_faces_pk(model, archive, cad_meshes, name, face_tag):
+    # R3.1f: Unify surfaces - PK_EDGE_delete on the picked face edges.
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return 0, False
+    tag, _ = _find_body_tags(model, archive, name, '')
+    if tag is None:
+        return 0, False
+    sess = _ps._get_session()
+    try:
+        edges = cab_ps_ops.face_edges(sess.pk, face_tag)
+    except Exception:
+        return 0, False
+    merged = 0
+    for e in edges:
+        try:
+            if cab_ps_ops.delete_edges(sess.pk, [e]) == 0:
+                merged += 1
+        except Exception:
+            continue
+    ok = (_writeback_body_xt(model, archive, cad_meshes, name, tag)
+          if merged else True)
+    return merged, ok
+
+
+def simplify_body_pk(model, archive, cad_meshes, name) -> bool:
+    # R3.1g: Remove redundant edges - PK_BODY_simplify_geom in place.
+    import cab_ps_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return False
+    tag, _ = _find_body_tags(model, archive, name, '')
+    if tag is None:
+        return False
+    sess = _ps._get_session()
+    try:
+        if cab_ps_ops.simplify_body_geom(sess.pk, tag) != 0:
+            return False
+    except Exception:
+        return False
+    return _writeback_body_xt(model, archive, cad_meshes, name, tag)
+
+
+def extract_empty_region_pk(model, archive, cad_meshes, name):
+    # R3.1h: Extract empty region - region solids except the outer.
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return None
+    tag, _ = _find_body_tags(model, archive, name, '')
+    if tag is None:
+        return None
+    sess = _ps._get_session()
+    try:
+        body_vol = None
+        bp = sess.facet_body_stpre(tag)
+        if bp is not None and len(bp.triangles):
+            body_vol = cab_ps_ops.mesh_volume_m3(bp.points, bp.triangles)
+        cands = cab_ps_ops.extract_empty_regions(sess.pk, tag)
+    except Exception:
+        return None
+    created = []
+    for ct in cands:
+        try:
+            cp = sess.facet_body_stpre(ct)
+        except Exception:
+            continue
+        if cp is None or not len(cp.triangles):
+            continue
+        vol = cab_ps_ops.mesh_volume_m3(cp.points, cp.triangles)
+        if vol <= 1e-15:
+            continue
+        if body_vol is not None and abs(vol - body_vol) < 1e-12 * max(1.0, body_vol):
+            continue
+        new_name = unique_part_name(model, f'{name}_void')
+        try:
+            xt = cab_ps_ops.transmit_parts([ct])
+        except Exception:
+            continue
+        if not xt:
+            continue
+        el = model.add_part(name=new_name, kind='body',
+                            attribute='solid', file_ref='x_t')
+        if el is None:
+            continue
+        member_name = f'{new_name}.x_t'
+        cab_import.add_xt_member(archive, xt, name=member_name)
+        model.add_body_file(member_name, unit='m')
+        f_el = _first(el, 'file')
+        if f_el is not None:
+            set_text(f_el, member_name)
+        if cad_meshes is not None:
+            cp.name = new_name
+            cad_meshes.append(cp)
+        created.append(new_name)
+    return created
+
 def sweep_part_body_pk(model: StpreModel, archive, cad_meshes, name,
                        vector_m) -> bool:
     # R3.1c/d: PK_BODY_sweep in place on the part's body (sheet/wire),
