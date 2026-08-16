@@ -37,7 +37,7 @@
 | 4 | UI 菜单/对话框 | 92% | 8 菜单无 NYI、90+ 对话框、测量四模式（距离/角度/连线链/部件最小距） | Reference 深度、连线链菜单块 |
 | 5 | 几何建模 Part | 93% | 26 原语 + sketch/pipe + 八种专用件参数面（R3.5a-c 新增 fan/axial_fan/blower_fan/pin_fin/slit_punching/anemostat，STpreBase 字符串实证） | 其余专用件/CW 边缘页（R3.5d） |
 | 6 | 求解闭环 | 90% | QProcess 监控 + 结果文件回读 + .pst 预填 Execute Post + 收敛尾部 | 结果回读至场景/收敛曲线图 |
-| 7 | 几何编辑 PK 内核 | 91% | blend/chamfer/G1 链 + delete_2/cut/wrap/boolean + R3.1 Sew sheets/Fill sheet/PK_BODY_sweep 全真实算子 | 剩 4 类 sheet 算子（sheet from edges/unify/redundant edges/extract region） | blend/chamfer/G1 链（find_g1_edges 5 参）+ delete_2/cut/wrap/boolean/transform 全通 | sheet heal/sweep 面深度（R3.1） |
+| 7 | 几何编辑 PK 内核 | 93% | **Edit Solid 8 类算子全部真实 PK**：Delete faces/Sew sheets/Fill sheet+cover/Sweep/Create sheet from edges/Unify surfaces/Remove redundant edges/Extract empty region | sheet 几何深度（变半径倒圆/扫掠扭转等二阶参数） | blend/chamfer/G1 链（find_g1_edges 5 参）+ delete_2/cut/wrap/boolean/transform 全通 | sheet heal/sweep 面深度（R3.1） |
 | 8 | Condition Wizard | 86% | 24/25 类型 + 35 深度页 + 五类深字段页 + Boil + 表达式管理器 | 其余边缘页深字段（R3.5） |
 | 9 | 高级工具 | 85% | WindTool 前置 + 批量排队 + 参数化研究×批量联动（案例矩阵→覆盖→求解） | .fld 后处理（scPOST 范畴）、PICLS（无文档） |
 | 10 | 导入导出（9+ 格式） | 85% | x_t/stl/obj/step/sat/ifc/ecxml/dxf/nas 双向 | IGES/IDF（决策不做） |
@@ -54,7 +54,7 @@
 ## 三、剩余差距（按优先级）
 
 ### P1 — 高价值深度
-1. ~~**sheet heal / sweep 面深度（= R3.1）**~~ 已完成：Sew sheets/Fill sheet/Create cover/面扫掠（PK_BODY_sweep 7 参实证）均已接真实 PK ；剩余 = 其他 4 类（Create sheet from edges/Unify surfaces/Remove redundant edges/Extract empty region）仍为 intent 占位。
+1. ~~**sheet heal / sweep 面深度（= R3.1）**~~ 全部完成：8 类 Edit Solid 算子全部接真实 PK（含 R3.1e-h 新增 Create sheet from edges=PK_FACE_make_sheet_body、Unify surfaces=PK_EDGE_delete、Remove redundant edges=PK_BODY_simplify_geom、Extract empty region=ask_regions+shells+make_solid_bodies）。
 2. **Reference 深度**：拾取/测量四模式已通（R13），Reference（参考点/面集
    基准定义）未对齐 STpre。
 
