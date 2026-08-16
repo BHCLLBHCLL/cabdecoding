@@ -2888,6 +2888,28 @@ def femodel_bytes(name: str, fem: dict, *, temp_type: str = "0") -> bytes:
     return b"\xef\xbb\xbf" + "\r\n".join(lines).encode("utf-8") + b"\r\n"
 
 
+def build_fem_delaunay(points_m, *, min_nodes: int = 4):
+    # Offline tetrahedral FEM mesh from an arbitrary point cloud (metres):
+    # scipy Delaunay over the part tessellation points.  For a surface
+    # tessellation the tetrahedralization fills the convex volume;
+    # degenerate inputs return None (caller falls back to build_fem_hexa).
+    import numpy as np
+    from scipy.spatial import Delaunay
+    pts = np.asarray(points_m, dtype=float).reshape(-1, 3)
+    if len(pts) < 4:
+        return None
+    uniq = np.unique(np.round(pts, 9), axis=0)
+    if len(uniq) < 4:
+        return None
+    span = uniq.max(0) - uniq.min(0)
+    if min(span) <= 1e-12:
+        return None
+    tri = Delaunay(uniq)
+    nodes = [tuple(float(v) for v in u) for u in uniq]
+    elements = [(FEM_KIND_TET4,) + tuple(int(i) + 1 for i in s)
+                for s in tri.simplices]
+    return {'nodes': nodes, 'elements': elements}
+
 def build_fem_hexa(base, size, divide=(1, 1, 1)) -> dict:
     """离线生成：长方体 → 结构六面体网格 → Kuhn 6 四面体剖分。
 

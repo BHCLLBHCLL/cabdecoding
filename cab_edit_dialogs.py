@@ -1928,9 +1928,18 @@ class FEMConversionDialog(_EditDlg):
             base = tuple(float(v) for v in pts.min(0))
             size = tuple(float(v) for v in pts.max(0) - pts.min(0))
         es = max(float(self.elem_size.value()), 1e-6)
-        divide = tuple(max(1, int(round(float(l) / es))) for l in size)
-        from cabxml import build_fem_hexa, femodel_bytes
-        fem = build_fem_hexa(base, size, divide)
+        from cabxml import build_fem_delaunay, build_fem_hexa, femodel_bytes
+        fem = None
+        # arbitrary-geometry path: Delaunay tetrahedralization of the part
+        # tessellation (metres); primitives without a tess fall back to the
+        # structured hexa->tetra box mesh.
+        tess = next((m for m in (self.cad_meshes or [])
+                     if getattr(m, 'name', None) == name), None)
+        if tess is not None and getattr(tess, 'points', None) is not None                 and len(tess.points) >= 4:
+            fem = build_fem_delaunay(tess.points)
+        if fem is None:
+            divide = tuple(max(1, int(round(float(l) / es))) for l in size)
+            fem = build_fem_hexa(base, size, divide)
         fem_name = ops.unique_part_name(self.model, f'{name}_fem')
         member_name = f'_{self.model.project_name or "model"}_all.xfem'
         self.model.set_part_fem(fem_name, fem, xfem_member=member_name)

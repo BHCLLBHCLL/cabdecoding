@@ -288,6 +288,27 @@ def _fem_e2e_cab(tmp_path_factory):
 
 
 @pytest.mark.skipif(not _stpre_ready(), reason="STpre COM not registered")
+def test_build_fem_delaunay_volume_conservation():
+    # Delaunay tetra mesh of a cube cloud: hull volume == box volume.
+    import numpy as np
+    from cabxml import build_fem_delaunay, FEM_KIND_TET4
+    pts = np.array([[x, y, z] for x in (0.0, 0.01) for y in (0.0, 0.01)
+                    for z in (0.0, 0.01)], float)
+    fem = build_fem_delaunay(pts)
+    assert fem is not None
+    assert all(e[0] == FEM_KIND_TET4 for e in fem["elements"])
+    vol = 0.0
+    for e in fem["elements"]:
+        a = np.array(fem["nodes"][e[1] - 1])
+        b = np.array(fem["nodes"][e[2] - 1])
+        c = np.array(fem["nodes"][e[3] - 1])
+        d = np.array(fem["nodes"][e[4] - 1])
+        vol += abs(float(np.dot(a - d, np.cross(b - d, c - d)))) / 6.0
+    assert vol == pytest.approx(0.01 ** 3, rel=1e-6)
+    flat = np.array([[x, y, 0.0] for x in (0.0, 0.01)
+                    for y in (0.0, 0.01)], float)
+    assert build_fem_delaunay(flat) is None
+
 def test_fem_e2e_roundtrip(_fem_e2e_cab):
     xml, xfem = _fem_e2e_cab
     m = StpreModel(parse_stpre(xml))

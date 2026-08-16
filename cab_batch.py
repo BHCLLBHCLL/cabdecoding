@@ -43,11 +43,49 @@ def load_models(cab_path):
     return model, props
 
 
-def prepare_case(cab_path, out_dir) -> str:
+def apply_param_overrides(model, overrides) -> int:
+    # Resolve parameter names to model values and apply them (Parametric
+    # Study case matrix -> batch execution).  Resolution order:
+    #   part.tag   -> part child tag (heat_source/temperature/...)
+    #   plain tag  -> analysis_set value
+    #   etc.tag    -> analysis_etc flat value
+    #   project.tag-> project value
+    # Returns the number of applied overrides.
+    applied = 0
+    for name, value in overrides.items():
+        value = str(value)
+        if '.' in name:
+            pname, tag = name.split('.', 1)
+            el = model.find_part(pname)
+            if el is not None:
+                from xml.etree.ElementTree import SubElement
+                from cabxml import _first, set_text
+                c = _first(el, tag)
+                if c is None:
+                    c = SubElement(el, tag)
+                    c.tail = '\n         '
+                set_text(c, value)
+                applied += 1
+                continue
+        if name.startswith('etc.'):
+            model.set_analysis_etc_value(name[4:], value)
+            applied += 1
+        elif name.startswith('project.'):
+            model.set_project_value(name[8:], value)
+            applied += 1
+        else:
+            model.set_analysis_set_value(name, value)
+            applied += 1
+    return applied
+
+
+def prepare_case(cab_path, out_dir, overrides=None) -> str:
     # Export a project's .s/.xemt into out_dir; returns the .s path.
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     model, props = load_models(cab_path)
+    if overrides:
+        apply_param_overrides(model, overrides)
     base = out_dir / (model.project_name or 'model')
     with open(base.with_suffix('.s'), 'w', encoding='utf-8-sig',
               newline='') as fh:
@@ -105,10 +143,13 @@ class BatchRunner(QObject):
 
     def _run_next(self) -> None:
         while self._idx < len(self._cases) and not self._stopped:
-            name, cab = self._cases[self._idx]
+            entry = self._cases[self._idx]
+            name = entry[0]
+            cab = entry[1]
+            overrides = entry[2] if len(entry) > 2 else None
             try:
                 case_dir = Path(self._workdir) / self._safe_name(name)
-                sfile = prepare_case(cab, case_dir)
+                sfile = prepare_case(cab, case_dir, overrides)
             except Exception as exc:
                 self.output_line.emit(
                     f'[batch] {name}: prepare failed: {exc}')
@@ -225,6 +266,18 @@ class BatchExecutionDialog(QDialog):
         brow2.addWidget(cancel)
         root.addLayout(brow2)
 
+    def set_queue(self, cases) -> None:
+        # Pre-fill the queue from the Parametric Study case matrix.
+        # Entries: (name, cab_path) or (name, cab_path, overrides dict).
+        self.listw.clear()
+        for entry in cases:
+            name = entry[0]
+            path = entry[1]
+            overrides = entry[2] if len(entry) > 2 else None
+            it = QListWidgetItem(str(name), self.listw)
+            it.setData(Qt.UserRole, (path, overrides))
+            it.setToolTip(path)
+
     def _add(self) -> None:
         from PyQt5.QtWidgets import QFileDialog
         files, _ = QFileDialog.getOpenFileNames(
@@ -251,9 +304,13 @@ class BatchExecutionDialog(QDialog):
             self.workdir.setText(d)
 
     def _run(self) -> None:
-        cases = [(self.listw.item(i).text(),
-                  self.listw.item(i).data(Qt.UserRole))
-                 for i in range(self.listw.count())]
+        cases = []
+        for i in range(self.listw.count()):
+            data = self.listw.item(i).data(Qt.UserRole)
+            if isinstance(data, tuple):
+                cases.append((self.listw.item(i).text(), data[0], data[1]))
+            else:
+                cases.append((self.listw.item(i).text(), data))
         if not cases:
             QMessageBox.warning(self, 'Batch Execution',
                                 'Add at least one project cab.')

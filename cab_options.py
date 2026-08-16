@@ -672,6 +672,33 @@ class ParametricStudyDialog(QDialog):
                               encoding="utf-8")
         self._refresh_cases()
 
+    def _batch_solve(self) -> None:
+        from pathlib import Path
+        from PyQt5.QtWidgets import QMessageBox
+        names, values = self._rows()
+        if not names:
+            QMessageBox.information(
+                self, "Parametric Study", "Define at least one parameter.")
+            return
+        cases = expand_cases(names, values)
+        parent = self.parent()
+        cab_path = getattr(parent, "current_path", None)
+        if not cab_path or not Path(cab_path).is_file():
+            QMessageBox.warning(
+                self, "Parametric Study",
+                "Open (and save) a project first - the case matrix is "
+                "solved from the current .cab.")
+            return
+        import cab_batch
+        out = str(Path(cab_path).parent / "cases")
+        dlg = cab_batch.BatchExecutionDialog(
+            parent, find_exe=getattr(parent, "_find_program", None),
+            default_workdir=out)
+        stem = Path(cab_path).stem
+        dlg.set_queue([(f"{stem}_case{i:02d}", cab_path, case)
+                       for i, case in enumerate(cases, 1)])
+        dlg.exec_()
+
     def _apply_and_accept(self) -> None:
         names, values = [], []
         for r in range(self.table.rowCount()):

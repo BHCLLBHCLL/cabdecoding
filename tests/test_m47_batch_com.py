@@ -61,6 +61,38 @@ def test_batch_prepare_case_writes_s_and_xemt():
         shutil.rmtree(tmp_path, ignore_errors=True)
 
 
+def test_param_overrides_resolution():
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre, _first
+    import cab_batch
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.add_part(name="P", kind="cube", attribute="solid")
+    n = cab_batch.apply_param_overrides(model, {
+        "ambient_temperature": "25",
+        "project.comment": "case-x",
+        "etc.cutcell_enable": "T",
+        "P.heat_source": "7.5",
+    })
+    assert n == 4
+    assert model.analysis_set_value("ambient_temperature", "") == "25"
+    assert model.project_value("comment") == "case-x"
+    assert model.analysis_etc_value("cutcell_enable", "") == "T"
+    el = model.find_part("P")
+    assert (_first(el, "heat_source").text or "").strip() == "7.5"
+
+
+def test_prepare_case_with_overrides():
+    import shutil
+    import cab_batch
+    out = ROOT / "tests" / "_batch_tmp2"
+    shutil.rmtree(out, ignore_errors=True)
+    out.mkdir()
+    try:
+        sfile = cab_batch.prepare_case(BOX, out, {"ambient_temperature": "99"})
+        head = Path(sfile).read_text(encoding="utf-8-sig")
+        assert "99" in head
+    finally:
+        shutil.rmtree(out, ignore_errors=True)
+
 def test_batch_runner_prepare_failure_paths():
     # Exercises the queue loop's prepare-failure handling without spawning
     # a solver process (sandbox-safe).
