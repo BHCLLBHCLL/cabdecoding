@@ -594,6 +594,21 @@ class FaceExtrusionDialog(_EditDlg):
         if not src:
             QMessageBox.warning(self, "Face Extrusion", "Select a part.")
             return
+        # R3.1d: prefer the real PK_BODY_sweep for sheet/wire bodies
+        # (in-place x_t writeback); fall back to the tess extrusion.
+        _VECS = {'+X': (1.0, 0, 0), '-X': (-1.0, 0, 0),
+                 '+Y': (0, 1.0, 0), '-Y': (0, -1.0, 0),
+                 '+Z': (0, 0, 1.0), '-Z': (0, 0, -1.0)}
+        vec = tuple(v * self.height.value() / 1000.0
+                    for v in _VECS[self.orient.currentText()])
+        parent = self.parent()
+        archive = getattr(parent, "archive", None)
+        if ops.sweep_part_body_pk(
+                self.model, archive, self.cad_meshes, src, vec):
+            self.created_name = src
+            self.applied = True
+            self.accept()
+            return
         name = ops.extrude_part_face(
             self.model, self.cad_meshes, src, self.height.value(),
             cell_id=self.picked_cell,

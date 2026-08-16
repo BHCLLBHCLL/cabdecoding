@@ -1705,6 +1705,54 @@ def replace_part_from_library(model: StpreModel, name: str, entry: dict
     if size:
         _set('size', ','.join(f'{float(v):.17g}' for v in size))
     return True
+def sweep_part_body_pk(model: StpreModel, archive, cad_meshes, name,
+                       vector_m) -> bool:
+    # R3.1c/d: PK_BODY_sweep in place on the part's body (sheet/wire),
+    # x_t writeback + mesh refresh.  Returns False to fall back to tess.
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return False
+    tag, _ = _find_body_tags(model, archive, name, '')
+    if tag is None:
+        return False
+    sess = _ps._get_session()
+    try:
+        rc = cab_ps_ops.sweep_body(sess.pk, tag, vector_m)
+        if rc != 0:
+            return False
+        xt = cab_ps_ops.transmit_parts([tag])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    el = info.elem
+    member_name = f'{name}.x_t'
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit='m')
+    f_el = _first(el, 'file')
+    if f_el is not None:
+        set_text(f_el, member_name)
+    el.set('type', 'body')
+    if cad_meshes is not None:
+        try:
+            tess = sess.facet_body_stpre(tag)
+            if tess is not None:
+                tess.name = name
+                for i, m in enumerate(cad_meshes):
+                    if getattr(m, 'name', None) == name:
+                        cad_meshes[i] = tess
+                        break
+                else:
+                    cad_meshes.append(tess)
+        except Exception:
+            pass
+    return True
+
 def fill_part_sheet_pk(model: StpreModel, archive, cad_meshes, name) -> bool:
     # R3.1b: Edit Solid 'Fill sheet' / 'Create cover' - heal-cap the part's
     # sheet body into a solid and write x_t back in place.

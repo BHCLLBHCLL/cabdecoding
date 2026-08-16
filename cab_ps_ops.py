@@ -847,6 +847,23 @@ def _sheet_declare(pk) -> None:
         POINTER(c_void_p), POINTER(c_void_p)]
 
 
+def sweep_body(pk, body, vector_m) -> int:
+    # R3.1c: PK_BODY_sweep (V37 7-arg, live-kernel verified): sweeps a
+    # minimum/wire/sheet/general body in place along vector_m (metres).
+    # Returns the kernel rc; on success the body tag is the swept result.
+    vec = (c_double * 3)(*[float(v) for v in vector_m])
+    n_lat = c_int(0)
+    lats = c_void_p()
+    bases = c_void_p()
+    check = (c_int * 4)()
+    pk.PK_BODY_sweep.restype = c_int
+    pk.PK_BODY_sweep.argtypes = [
+        c_int, POINTER(c_double), c_ubyte, POINTER(c_int),
+        POINTER(c_void_p), POINTER(c_void_p), c_void_p]
+    return int(pk.PK_BODY_sweep(int(body), vec, 0, byref(n_lat),
+                                byref(lats), byref(bases),
+                                cast(check, c_void_p)))
+
 def sew_sheet_bodies(pk, tags, *, gap=0.0, allow_disjoint=False,
                      manifold=True) -> int:
     # R3.1a: sew N sheet bodies into one stitched sheet body (Edit Solid

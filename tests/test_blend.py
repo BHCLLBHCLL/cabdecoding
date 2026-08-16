@@ -7,6 +7,30 @@ import cab_blend
 import cab_ps_ops
 
 
+def test_sweep_body_triangle_to_prism():
+    # R3.1c: PK_BODY_sweep in place - sheet triangle -> prism solid.
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    import ctypes as C
+    sess = _ps._get_session()
+    pk = sess.pk
+    t1 = cab_ps_ops._triangle_sheet(pk, (0.0, 0, 0), (0.01, 0, 0),
+                                    (0.0, 0.01, 0))
+    rc = cab_ps_ops.sweep_body(pk, t1, (0.0, 0.0, 0.01))
+    assert rc == 0
+    pk.PK_BODY_ask_faces.restype = C.c_int
+    pk.PK_BODY_ask_faces.argtypes = [
+        C.c_int, C.POINTER(C.c_int), C.POINTER(C.c_void_p)]
+    n = C.c_int(0)
+    arr = C.c_void_p()
+    assert pk.PK_BODY_ask_faces(t1, C.byref(n), C.byref(arr)) == 0
+    assert n.value == 5  # 2 caps + 3 lateral quads
+    part = sess.facet_body_stpre(t1)
+    assert part is not None
+    vol = cab_ps_ops.mesh_volume_m3(part.points, part.triangles)
+    assert abs(vol - 5e-7) < 1e-12
+
 def test_fill_sheet_body_caps_closed_tent():
     # R3.1b: four sewn triangles (closed tent) heal-cap into a solid.
     if not cab_ps_ops.available():
