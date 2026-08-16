@@ -34,6 +34,7 @@ from cabxml import (
     PropertyModel, StpreModel, new_property_bytes, new_stpre_bytes,
     parse_property, parse_stpre,
 )
+import s_export
 from s_export import build_sdat
 
 try:
@@ -4453,10 +4454,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 fh.write(xemt_export.build_emt(self.model, self.props))
             wrote.append(out)
         elif "S +" in selected or selected.startswith("S File") or ext == ".s":
+            import os
+            ccel_name = os.path.basename(base) + ".ccel"
             with open(base + ".s", "w", encoding="utf-8-sig",
                       newline="") as fh:
-                fh.write(build_sdat(self.model, self.props))
+                fh.write(build_sdat(self.model, self.props,
+                                    self._cad_meshes, ccel_name))
             wrote.append(base + ".s")
+            ccel_data = s_export.build_ccel(self.model, self._cad_meshes)
+            if ccel_data is not None:
+                with open(base + ".ccel", "wb") as fh:
+                    fh.write(ccel_data)
+                wrote.append(base + ".ccel")
             if "S +" in selected or ext != ".xemt":
                 with open(base + ".xemt", "w", encoding="utf-8-sig",
                           newline="") as fh:
@@ -4613,7 +4622,12 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         base = os.path.join(tmp, self.model.project_name or "model")
         with open(base + ".s", "w", encoding="utf-8-sig",
                   newline="") as fh:
-            fh.write(build_sdat(self.model, self.props))
+            fh.write(build_sdat(self.model, self.props,
+                                self._cad_meshes))
+        ccel_data = s_export.build_ccel(self.model, self._cad_meshes)
+        if ccel_data is not None:
+            with open(base + ".ccel", "wb") as fh:
+                fh.write(ccel_data)
         with open(base + ".xemt", "w", encoding="utf-8-sig",
                   newline="") as fh:
             fh.write(xemt_export.build_emt(self.model, self.props))

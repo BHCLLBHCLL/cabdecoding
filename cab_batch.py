@@ -20,6 +20,7 @@ from PyQt5.QtWidgets import (
 from cab_container import CabArchive
 from cabxml import PropertyModel, StpreModel, parse_property, parse_stpre
 from cab_solver_proc import SolverProcess
+import s_export
 from s_export import build_sdat
 import xemt_export
 
@@ -90,6 +91,11 @@ def prepare_case(cab_path, out_dir, overrides=None) -> str:
     with open(base.with_suffix('.s'), 'w', encoding='utf-8-sig',
               newline='') as fh:
         fh.write(build_sdat(model, props))
+    # R20: cut-cell parts -> geometry container next to the .s
+    ccel_data = s_export.build_ccel(model)
+    if ccel_data is not None:
+        with open(base.with_suffix('.ccel'), 'wb') as fh:
+            fh.write(ccel_data)
     with open(base.with_suffix('.xemt'), 'w', encoding='utf-8-sig',
               newline='') as fh:
         fh.write(xemt_export.build_emt(model, props))

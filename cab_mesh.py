@@ -721,6 +721,22 @@ def classify_cells(axes_mm: dict[str, list[float]], parts: list,
     return analysis_box, part_boxes
 
 
+def _element_list_text(values: list[int]) -> str:
+    """Official 9-tuple text: ``i1,i2,j1,j2,k1,k2,0,1,1``.
+
+    95-sample census: 8526/8526 official lists are 9-tuples (0 six-tuples),
+    so every writer pads 6-int boxes with the constant ``0,1,1`` tail.
+    """
+    vals = [int(v) for v in values[:6]]
+    while len(vals) < 6:
+        vals.append(0)
+    if len(values) >= 9:
+        vals += [int(v) for v in values[6:9]]
+    else:
+        vals += [0, 1, 1]
+    return " " + ",".join(str(v) for v in vals) + " "
+
+
 def apply_elements(model: StpreModel, analysis_name: str,
                    analysis_box: tuple[int, int, int, int, int, int],
                    part_boxes: dict[str, list[tuple[int, int, int, int, int, int]]]
@@ -741,7 +757,7 @@ def apply_elements(model: StpreModel, analysis_name: str,
     body.tail = "\n      "
     lst = ET.SubElement(body, "list")
     lst.attrib["no"] = "1"
-    lst.text = " " + ",".join(str(v) for v in analysis_box) + " "
+    lst.text = _element_list_text(list(analysis_box))
     lst.tail = "\n      "
     for name, boxes in part_boxes.items():
         p = ET.SubElement(el, "parts")
@@ -753,7 +769,7 @@ def apply_elements(model: StpreModel, analysis_name: str,
         for n, box in enumerate(boxes, start=1):
             l = ET.SubElement(pb, "list")
             l.attrib["no"] = str(n)
-            l.text = " " + ",".join(str(v) for v in box) + " "
+            l.text = _element_list_text(list(box))
             l.tail = "\n      "
     model.doc.root.append(el)
 
@@ -784,9 +800,52 @@ def update_part_elements(model: StpreModel, part_name: str,
     for n, box in enumerate(boxes, start=1):
         l = ET.SubElement(pb, "list")
         l.attrib["no"] = str(n)
-        l.text = " " + ",".join(str(v) for v in box) + " "
+        l.text = _element_list_text(list(box))
         l.tail = "\n      "
     return True
+
+
+def update_part_face_elements(model: StpreModel, part_name: str,
+                              faces: list[list[int]]) -> bool:
+    """Create/replace the face lists of one part's element entry.
+
+    Each face item is the official 9-tuple
+    ``code,i1,i2,j1,j2,k1,k2,s1,s2`` (code ±1/±3/±5, see
+    :meth:`StpreModel.part_face_boxes`). Body lists of the part are kept.
+    """
+    import xml.etree.ElementTree as ET
+
+    el = model.elements()
+    if el is None:
+        return False
+    for parts in el.findall("parts"):
+        if parts.attrib.get("name") == part_name:
+            for face in parts.findall("face"):
+                parts.remove(face)
+            _write_face_container(parts, faces)
+            return True
+    p = ET.SubElement(el, "parts")
+    p.attrib["name"] = part_name
+    p.tail = "\n   "
+    _write_face_container(p, faces)
+    return True
+
+
+def _write_face_container(parent: ET.Element, faces: list[list[int]]) -> None:
+    import xml.etree.ElementTree as ET
+
+    if not faces:
+        return
+    face = ET.SubElement(parent, "face")
+    face.attrib["no"] = "1"
+    face.attrib["num"] = str(len(faces))
+    face.tail = "\n      "
+    for n, item in enumerate(faces, start=1):
+        l = ET.SubElement(face, "list")
+        l.attrib["no"] = str(n)
+        vals = [int(v) for v in item[:9]]
+        l.text = " " + ",".join(str(v) for v in vals) + " "
+        l.tail = "\n      "
 
 
 def cell_mask_from_boxes(ni: int, nj: int, nk: int,
@@ -926,11 +985,35 @@ def find_interferences(model: StpreModel) -> list[tuple[str, str]]:
     return out
 
 
-def resolve_interferences(model: StpreModel) -> int:
-    """Trim overlapping cells from lower-priority parts (tree order wins).
+#: kinds that always win interference resolution — Pre_eng "Meshing"
+#: Note 6: centrifugal fan parts and porous plates (fin) have top priority
+_PRIORITY_KINDS = frozenset({"fan", "axial_fan", "blower_fan"})
 
-    Cell-level resolution: for every interfering pair, the later part's
-    boxes are clipped against the earlier part's boxes axis by axis.
+
+def _interference_priority(model: StpreModel) -> dict[str, tuple[int, int]]:
+    """Priority key per part name; smaller tuple wins overlaps.
+
+    (kind_weight, doc_order): fan-family / porous parts get weight 0
+    regardless of tree position, everything else weight 1 in document
+    (= tree DFS) order — Pre_eng Meshing Note 6 + Gridding-Others tree
+    rule, layered over the historical doc-order behaviour.
+    """
+    out: dict[str, tuple[int, int]] = {}
+    for i, p in enumerate(model.parts()):
+        porous = "porous" in (p.attribute or "").lower() \
+            or "porous" in (p.property or "").lower()
+        weight = 0 if (p.kind in _PRIORITY_KINDS or porous) else 1
+        out[p.name] = (weight, i)
+    return out
+
+
+def resolve_interferences(model: StpreModel) -> int:
+    """Trim overlapping cells from lower-priority parts.
+
+    Priority: fan/axial_fan/blower_fan and porous parts first (Pre_eng
+    Meshing Note 6), then document (= tree DFS) order. For every
+    interfering pair the lower-priority part's boxes are clipped against
+    the higher-priority part's boxes axis by axis.
     Returns the number of part entries changed.
     """
     import xml.etree.ElementTree as ET
@@ -939,8 +1022,11 @@ def resolve_interferences(model: StpreModel) -> int:
     if el is None:
         return 0
     order = [p.name for p in model.parts()]
-    prio = {n: i for i, n in enumerate(order)}
+    raw = _interference_priority(model)
+    # element-section entries not present in <parts> keep tree order after
+    prio: dict[str, tuple[int, int]] = dict(raw)
     entries: list[tuple[str, ET.Element, list[list[int]]]] = []
+    extra = 0
     for parts in el.findall("parts"):
         name = parts.attrib.get("name", "")
         body = parts.find("body")
@@ -948,8 +1034,9 @@ def resolve_interferences(model: StpreModel) -> int:
             continue
         boxes = [[int(x) for x in lst.text.split(",")]
                  for lst in body.findall("list") if lst.text]
-        # unregistered parts keep element-section order after real parts
-        prio.setdefault(name, len(order) + len(entries))
+        if name not in prio:
+            prio[name] = (2, extra)
+            extra += 1
         entries.append((name, body, boxes))
     changed = 0
 
@@ -993,7 +1080,7 @@ def resolve_interferences(model: StpreModel) -> int:
     for name, _body, boxes in entries:
         cur = [list(b) for b in boxes]
         for other, _obody, oboxes in entries:
-            if prio.get(other, 0) >= prio.get(name, 0):
+            if prio.get(other, (9, 0)) >= prio.get(name, (9, 0)):
                 continue
             for ob in oboxes:
                 nxt: list[list[int]] = []
@@ -1011,7 +1098,7 @@ def resolve_interferences(model: StpreModel) -> int:
         for n, box in enumerate(fixed[name], start=1):
             l = ET.SubElement(body, "list")
             l.attrib["no"] = str(n)
-            l.text = " " + ",".join(str(v) for v in box) + " "
+            l.text = _element_list_text(box)
             l.tail = "\n      "
         changed += 1
     return changed

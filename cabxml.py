@@ -221,6 +221,8 @@ class PartInfo:
     base: str = ""
     size: str = ""
     group: str = ""
+    mesh_fine_divide: str = ""   # per-axis fine subdivision "x,y,z"
+    divide: str = ""             # radial subdivision (cylinder parts)
 
 
 class StpreModel:
@@ -284,6 +286,8 @@ class StpreModel:
                     base=t("base"),
                     size=t("size"),
                     group=gname,
+                    mesh_fine_divide=t("mesh_fine_divide"),
+                    divide=t("divide"),
                 ))
 
         # box.cab stores <parts> directly under <stpre> with no <group>.
@@ -2235,11 +2239,56 @@ class StpreModel:
         set_text(c, detection)
         return True
 
+    def set_part_mesh_fine_divide(self, name: str, value: str) -> bool:
+        """Per-part fine subdivision ``<mesh_fine_divide>x,y,z</...>``.
+
+        Official samples: exA02-2b fan ``2,0,0`` / exA05-2 fan ``0,5,0``.
+        Empty value removes the element (STpre default = no fine mesh).
+        """
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "mesh_fine_divide")
+        if not value.strip():
+            if c is not None:
+                el.remove(c)
+            return True
+        if c is None:
+            c = ET.SubElement(el, "mesh_fine_divide")
+            c.tail = "\n         "
+        set_text(c, value.strip())
+        return True
+
+    def set_part_divide(self, name: str, value: str) -> bool:
+        """Radial subdivision ``<divide>N</...>`` (cylinder parts, 32/48)."""
+        el = self.find_part(name)
+        if el is None:
+            return False
+        c = _first(el, "divide")
+        if not value.strip():
+            if c is not None:
+                el.remove(c)
+            return True
+        if c is None:
+            c = ET.SubElement(el, "divide")
+            c.tail = "\n         "
+        set_text(c, value.strip())
+        return True
+
     def elements(self) -> Optional[ET.Element]:
         return _first(self.root, "element")
 
     def part_boxes(self, part_name: str) -> list[list[int]]:
-        """i/j/k index boxes of a part from the ``element`` section."""
+        """i/j/k index boxes (6-int) of a part from the ``element`` section.
+
+        Official stores 9-tuples ``i1,i2,j1,j2,k1,k2,0,1,1``; the trailing
+        subdivision counts are exposed via :meth:`part_element_lists`.
+        """
+        return [b[:6] for b in self.part_element_lists(part_name)
+                if len(b) >= 6]
+
+    def part_element_lists(self, part_name: str) -> list[list[int]]:
+        """Raw 9-int body lists of a part (full fidelity roundtrip)."""
         el = self.elements()
         if el is None:
             return []
@@ -2250,10 +2299,30 @@ class StpreModel:
             body = _first(parts, "body")
             if body is None:
                 return []
-            boxes: list[list[int]] = []
+            out: list[list[int]] = []
             for lst in _children(body, "list"):
-                boxes.append([int(x) for x in lst.text.split(",")])
-            return boxes
+                out.append([int(x) for x in lst.text.split(",")])
+            return out
+        return []
+
+    def part_face_boxes(self, part_name: str) -> list[list[int]]:
+        """Raw 9-int face lists of a part.
+
+        Format (exA01-1 human-proofed): ``code,i1,i2,j1,j2,k1,k2,s1,s2``
+        where code = ±(2·axis+1) face id (−1= x-min, +1= x-max, −3/ +3= y,
+        −5/+5= z) and s1/s2 are the face-local subdivision counts.
+        """
+        el = self.elements()
+        if el is None:
+            return []
+        for parts in _children(el, "parts"):
+            if parts.attrib.get("name", "") != part_name:
+                continue
+            out: list[list[int]] = []
+            for face in _children(parts, "face"):
+                for lst in _children(face, "list"):
+                    out.append([int(x) for x in lst.text.split(",")])
+            return out
         return []
 
     # -- FEM 单元数据（R9-A, COM-probed 2026-08-16）------------------------
@@ -2415,8 +2484,11 @@ class StpreModel:
                 if a.attrib.get("name")]
 
     def analysis_boxes(self, name: Optional[str] = None) -> list[list[int]]:
-        """Body index boxes from ``element/analysis`` (Domain occupancy).
+        """Body index boxes (6-int) from ``element/analysis`` (Domain occupancy).
 
+        Official stores 9-tuples ``i1,i2,j1,j2,k1,k2,0,1,1``; the trailing
+        subdivision counts are constant across samples and truncated here
+        (same contract as :meth:`part_boxes`).
         If ``name`` is None, return boxes for the first analysis block.
         """
         el = self.elements()
@@ -2433,7 +2505,8 @@ class StpreModel:
             for lst in _children(body, "list"):
                 if not lst.text:
                     continue
-                boxes.append([int(x) for x in lst.text.split(",")])
+                vals = [int(x) for x in lst.text.split(",")]
+                boxes.append(vals[:6])
             if boxes:
                 return boxes
         return []

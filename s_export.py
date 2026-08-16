@@ -37,6 +37,7 @@ tools/diag_s_constants.py）后，原先写死自 tests/ex4_e.s 的 opaque 常�
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 from cabxml import PropertyModel, StpreModel
 
@@ -47,6 +48,96 @@ def _child_text(el, tag: str, default: str = "") -> str:
         return default
     c = _first(el, tag)
     return c.text.strip() if c is not None and c.text else default
+
+
+def _part_is_cutcell(p) -> bool:
+    """Part carries ``<cutcell> T`` (Option -> Cut Cell Setting, R9-B)."""
+    cc = p.elem.find("cutcell") if getattr(p, "elem", None) is not None else None
+    return cc is not None and (cc.text or "").strip().upper() in ("T", "1")
+
+
+#: part kind → CCEL ``TYPE`` string (official Cube/Cylinder/Sphere kinds)
+_CCEL_TYPE_BY_KIND = {"cube": "Cube", "cylinder": "Cylinder",
+                      "sphere": "Sphere"}
+
+
+def ccel_filename(model: StpreModel) -> str:
+    """Header ``CCEL`` reference: ``<project>.ccel`` (sample convention).
+
+    All official cut-cell samples name the container after the project
+    (exA23-2b_cut_cell_e / exA23-3_e / exA23-4_e); it lives next to the
+    ``.s`` file, outside the .cab archive.
+    """
+    stem = model.project_name
+    if not stem:
+        aset = model.root.find("analysis_set")
+        ro = _child_text(aset.find("file") if aset is not None else None,
+                         "ro", "ex4_e")
+        stem = ro[:-2] if ro.lower().endswith(".r") else ro
+    return stem + ".ccel"
+
+
+def _ccel_faces_for(p, tess) -> list:
+    """CCEL faces of one part: tess mesh → cube corners → empty.
+
+    Tess points are metres + local frame; the part ``<transform>`` is
+    applied before serialisation. Untransformed cubes keep the official
+    six-quad ``TYPE 'Cube'`` layout.
+    """
+    import ccel as _ccel
+
+    pts = tris = None
+    if tess is not None:
+        import numpy as np
+        _pts = np.asarray(getattr(tess, "points", ()), dtype=float)
+        _tris = np.asarray(getattr(tess, "triangles", ()))
+        if _pts.size and _tris.size:
+            pts, tris = _pts, _tris
+    elif p.base and p.size:
+        try:
+            b = [float(v) for v in p.base.split(",")[:3]]
+            s = [float(v) for v in p.size.split(",")[:3]]
+        except ValueError:
+            b = s = []
+        if len(b) == 3 and len(s) == 3:
+            if not (p.transform or "").strip():
+                mn = [v / 1000.0 for v in b]
+                mx = [(b[i] + s[i]) / 1000.0 for i in range(3)]
+                return _ccel.faces_from_box(mn, mx)
+            from cab_parts import cube_tess
+            t = cube_tess(b, s)
+            pts, tris = t.points, t.triangles
+    if pts is None:
+        return []
+    import cab_vtk
+    pts = cab_vtk._apply_transform(pts, p.transform or "")
+    return _ccel.faces_from_triangles(pts, tris)
+
+
+def build_ccel(model: StpreModel, meshes=None) -> Optional[bytes]:
+    """R20: serialise cut-cell registered parts to a ``.ccel`` stream.
+
+    Geometry priority per part: GUI tessellation (``meshes`` items with
+    ``.name/.points/.triangles`` in metres) → cube ``base/size`` corners.
+    Returns None when no part is registered for cut-cell (callers then
+    skip the file; the .s header also omits the CCEL line).
+    """
+    import ccel as _ccel
+
+    infos = [p for p in model.parts() if _part_is_cutcell(p)]
+    if not infos:
+        return None
+    mesh_by_name = {m.name: m for m in (meshes or [])}
+    out = []
+    for p in infos:
+        faces = _ccel_faces_for(p, mesh_by_name.get(p.name))
+        out.append(_ccel.CcelPart(
+            name=p.name,
+            type_str=_CCEL_TYPE_BY_KIND.get((p.kind or "").lower(),
+                                            "Any_Body"),
+            attr="PANEL" if (p.attribute or "").lower() == "panel" else "BODY",
+            faces=faces))
+    return _ccel.write_ccel(out)
 
 
 def _f(v: float, w: int = 26) -> str:
@@ -66,10 +157,13 @@ def _name_key(name: str):
 class SExport:
     """Builds the SDAT text from a project model."""
 
-    def __init__(self, model: StpreModel, props: PropertyModel):
+    def __init__(self, model: StpreModel, props: PropertyModel,
+                 meshes=None, ccel_name: str = ""):
         self.m = model
         self.p = props
         self.lines: list[str] = []
+        self.meshes = list(meshes or [])
+        self.ccel_name = ccel_name
         self.materials = self._material_order()
         self.parts = self._part_list()
 
@@ -97,11 +191,15 @@ class SExport:
         pid = 1
         for p in self.m.parts():
             pid += 1
+            cut = _part_is_cutcell(p)
             out.append({
-                "id": pid, "name": p.name,
+                # R20: cut-cell parts carry a negative id and an empty box
+                # list — their geometry lives in the .ccel container
+                # (exA23-2b / exA23-4 PARTS evidence)
+                "id": -pid if cut else pid, "name": p.name,
                 "material": self.materials.get(p.property, 1),
                 "fraction": 0.0 if p.attribute == "solid" else 1.0,
-                "boxes": self.m.part_boxes(p.name),
+                "boxes": [] if cut else self.m.part_boxes(p.name),
             })
         return out
 
@@ -158,6 +256,17 @@ class SExport:
             fname("ot"),
             "HPT",
             fname("hpt"),
+        ]
+        # R20: cut-cell parts reference their geometry container after
+        # the RO/VF/OT/HPT family (exA23-3_e / exA23-4_e header evidence;
+        # exA23-2b carries CCEL right after RO because it has no
+        # VF/OT/HPT lines at all)
+        if any(_part_is_cutcell(p) for p in self.m.parts()):
+            self.lines += [
+                "CCEL",
+                self.ccel_name or ccel_filename(self.m),
+            ]
+        self.lines += [
             "/",
             _child_text(self.m.project, "comment", ""),
             "           1",
@@ -385,7 +494,9 @@ class SExport:
             self.lines += [
                 f"   {p['name']}   ! {p['name']}",
                 "   V_PRT",
-                f"{_i(p['id'], 15)}",
+                # cut-cell parts register under the absolute id
+                # (exA23-2b: PARTS id -2 -> REGION V_PRT 2)
+                f"{_i(abs(p['id']), 15)}",
                 "   /",
             ]
         ar = self.m.analysis_region()
@@ -848,16 +959,11 @@ class SExport:
         exA23-2b_cut_cell.cab XML 实证）——staircase 对照版虽带相同
         analysis_set 值但不注册零件，其 .s 无本段。
 
-        注：官方开启后 cut-cell 零件的 PARTS 盒列表移入 .ccel 二进制
-        文件（.s 头部 CCEL 行引用）。本仓尚无 .ccel 生成器，故不发
-        CCEL 行、不改 PARTS 段——避免产出引用缺失文件的坏 .s。
+        R20 完整接线：注册零件同时在头部发 CCEL 行（引用 <project>
+        .ccel）、PARTS 段用负 id 空盒列表（几何移入 .ccel 二进制容
+        器，:func:`build_ccel`），导出路径负责把 .ccel 写到 .s 旁。
         """
-        registered = False
-        for p in self.m.parts():
-            cc = p.elem.find("cutcell") if p.elem is not None else None
-            if cc is not None and (cc.text or "").strip().upper() in ("T", "1"):
-                registered = True
-                break
+        registered = any(_part_is_cutcell(p) for p in self.m.parts())
         if not registered:
             return
         aset = self.m.root.find("analysis_set")
@@ -968,8 +1074,16 @@ class SExport:
         return ""
 
 
-def build_sdat(model: StpreModel, props: PropertyModel) -> str:
-    return SExport(model, props).render()
+def build_sdat(model: StpreModel, props: PropertyModel, meshes=None,
+               ccel_name: str = "") -> str:
+    """Render the .s text.
+
+    ``meshes``/``ccel_name`` only affect the R20 cut-cell wiring: the
+    header ``CCEL`` line uses ``ccel_name`` when given (the basename the
+    caller will actually write) instead of the ``<project>.ccel``
+    convention. Pair with :func:`build_ccel` at the write site.
+    """
+    return SExport(model, props, meshes=meshes, ccel_name=ccel_name).render()
 
 
 def validate_sfile(text: str) -> list[tuple[str, str]]:

@@ -2422,3 +2422,26 @@ SaveCabFile → merge_mesh_result`。
 - R3.5d CW 边缘页深字段 = 下一批（需官方样本逐页实证，R8 探针模式）。
 - 回归：**539 passed / 0 failed / 4 skipped / 14 沙箱 tempfile errors**；提交
   fc08ce7、b97f7a0、cdec423、991a800、54c1128。
+## 57. R20 网格缺口清零（2026-08-17）：.ccel/细化往返/9 元组/优先级
+
+- **R20 .ccel 生成器**：ccel.py 新模块——TLV 流式容器读写（大端
+  `[len:4][payload][len:4]` + CODE/VERS/PART/NAME/TYPE/FACE/NODE/CONN/
+  ATTR/ASEM/FSET/EOF，FSET/ASEM 成员为 `PART`+字符串记录），11 份官方
+  样本 rebuild 字节级一致；s_export.build_ccel + 头部 CCEL 行 +
+  cut-cell 零件 PARTS 负 id / REGION 绝对值（exA23-2b/4 实证）；
+  cab_batch 导出 .s 时同步写 .ccel 成员。
+- **R20 部件细化往返**：PartInfo 增 mesh_fine_divide / divide 字段 +
+  set_part_mesh_fine_divide / set_part_divide（exA02-2b `2,0,0`、
+  exA05-2 `0,5,0`、圆柱 32/48 语义对拍）。
+- **R20 element division**：part_element_lists（body 9 元组全保真）/
+  part_face_boxes（face 级）读 + apply_elements / update_part_elements
+  写官方 9 元组（尾 `0,1,1`）+ update_part_face_elements；
+  analysis_boxes / part_boxes 维持 6 位盒契约（本轮修复 analysis_boxes
+  截断，解决 9 元组升级致 3 例旧测试失败）。
+- **R20 优先级消解**：resolve_interferences 按 kind 权重（fan 族与
+  porous 压过文档序，Meshing Note 6）消解重叠单元。
+- 测试：tests/test_m46_ccel_refine.py 15 例；回归 **570 passed /
+  0 failed / 4 skipped**（--basetemp 本地化后 14 沙箱 tempfile 错误
+  清零）。
+- 文档：function_gap_analysis.md 刷新至 v6.1（维度 5 90%→93%，总体
+  完成度 ≈89%）。
