@@ -7,6 +7,8 @@
 > 代码审计（PK 编辑链 / 求解·FEM·工具·COM / CW·网格·.s·导入·数据层，
 > 逐项 file:line 取证）+ 全量测试重跑。核心变化：v5 若干维度按「逻辑存在」
 > 计分，v6 按「用户可用深度」严格复核，修正 3 项高估 / 1 项失实声明。
+> 2026-08-16 晚补：维度 5 三项模糊缺口（refinement/优先级/embedding）
+> 经样例 XML + 手册交叉实证，已定档为精确条目（见 §二 行 5 与 §四.9）。
 
 ---
 
@@ -30,7 +32,7 @@
 | 2 | 几何建模 Part | 93% | **93%** | 26 原语 + sketch/pipe + 八种专用件参数面（fan 系/pin_fin/slit_punching/anemostat，STpreBase 字符串实证） | 其余专用件深字段（R3.5d 滚动） |
 | 3 | UI 菜单/对话框 | 92% | **92%** | 8 菜单无 NYI、90+ 对话框、测量四模式 | Reference 深度、连线链菜单块 |
 | 4 | .s 导出 | 93% | **92%** | 22 section 全发射 + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（hdr2/EQUA/HSOL/CYCS-CYCT/UNDR-STED/VFEX-HEATPATH 全 XML 派生，ex4 逐字节） | hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP 无 XML 源 |
-| 5 | 网格 Gridding/Meshing | 93% | **90%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数 | .ccel 二进制生成器（已获官方样本 10 份可逆，2026-08-16 解除阻断，见 §四.8）；refinement register / voxel 优先级 / mesh embedding 零实现痕迹 |
+| 5 | 网格 Gridding/Meshing | 93% | **90%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；sub-block 细化因子（subblock_factor）与逐件 vertex detection（select_vertex 写路径）已在 | ① .ccel 二进制生成器（已获官方样本 10 份解除阻断，见 §四.8）；② 部件级细化 XML 字段 `mesh_fine_divide`/`divide` 未往返（样例实证：exA02-2b fan `2,0,0`、exA05-2 fan `0,5,0`、圆柱件 `divide=32/48`）；③ `<element>` 块仅读 body 盒，face 级 9 元组分割 list 未解析/未写（exA01-1 有完整样例）；④ 优先级消解未实现（无 XML 字段，纯树层级/件类型规则，见 §四.9） |
 | 6 | Condition Wizard | 86% | **88%** | 24/25 类型 + 35 深度页 + R8 五类深字段页（MC 辐射/MARS-VOF/particle/reaction 多步/output series）+ 表达式管理器（列表/编辑/级联删）+ MOVB 运动表 | R3.5d 边缘页深字段；scFLOW-only 2 项（合理禁用） |
 | 7 | 几何编辑 PK 内核 | 93% | **90%** | Edit Solid 8/8 全真实 PK（delete_2/sew/sweep/make_sheet/simplify_geom/extract 等）+ blend/chamfer/G1 链（golden 530/422）+ boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 变半径倒圆（vary 字段占位未启用）；按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
 | 8 | 求解闭环 | 90% | **80%** | SolverProcess 监控（行流/进度/exit code）100%、结果文件扫描、.pst 预填 scPOST | 收敛曲线图 0%、.pst 解析/结果回读 3D 场景 0%（现仅文件清单+末行日志摘要） |
@@ -93,6 +95,29 @@
    .ccel 二进制格式（cut-cell 零件 PARTS 盒列表从 .s 迁出的落点），
    与配套 (.cab,.s) 对拍后接 cut-cell 发射路径（发 CCEL 行 + 写 .ccel
    成员），网格维度 90%→93% 的主路径。
+9. **部件级细化 + element 分割 + 优先级消解（2026-08-16 实证定档，
+   替代原「refinement register/voxel 优先级/embedding 零痕迹」模糊项）**：
+   样例 XML + Pre_eng 手册交叉实证后，缺口收敛为三个可开工条目：
+   - **部件级细化往返**：`<parts>` 子元素 `mesh_fine_divide`（逐轴
+     细分数，10 处/6 文件：exA02-2b fan `2,0,0`、exA05-2 fan `0,5,0`）
+     与 `divide`（圆柱径向分割，13 处/8 文件，值 32/48）——cabxml
+     parts schema 补字段读写 → classify/grid 按逐轴细分数细分 →
+     PartDialog/Meshing Parameters 表加列 → exA02-2b/exA05-2 对拍
+     `.s` 网格线。块级 `subblock@divide` 与逐件 `select_vertex` 已在，
+     本条补齐最后一层。
+   - **element division 补全**：`<element><analysis><body|face><list>`
+     9 元组（exA01-1 完整样例）——现 `part_boxes()` 只读 body 盒，
+     补 face 级 list 解析与写路径（官方术语对应 Meshing Parameters
+     表的逐件分割数/第一层网格距离列）。
+   - **优先级消解**：实证无 XML 存储字段，纯规则——Layout of Parts
+     树层级越深面优先（Gridding-Others）；离心 fan 件与 porous fin
+     固定最高级（Meshing Note 6）；`.s` material 输出 fluid →
+     solid/obstacle、重叠单元 solid 优先（Meshing Note 5）。落点：
+     `classify_cells` 叠加消解按 kind 权重 + 树深度排序，List of
+     Parts 加只读优先级列。
+   - 佐证：`<color>` 下存在 mesh_fine/mesh_coarse/mesh_derive/
+     mesh_fixed/mesh_select 五态显示色，STpre fine/coarse/派生网格
+     UI 概念齐全；「mesh embedding」官方无此术语，应从差距表中移除。
 
 ---
 
@@ -102,11 +127,12 @@ v6 实证复核确认：MVP 闭环（建模→条件→网格→.s→求解监�
 完整可用，金标与官方逐字节对齐的硬核部分（tess 配方/网格线/.s 常量派生）
 稳固。v5→v6 的 5 个百分点修正集中在「最后一公里」的用户可感知深度
 （结果可视化、外部工具启动、格式双向性），非核心能力缺失。后续按 §四
-顺序推进，R 系列编号延续（R3.5d / R8 残项 / 新增结果可视化与 .ccel 项）。
+顺序推进，R 系列编号延续（R3.5d / R8 残项 / 新增结果可视化、.ccel 与
+部件级细化项）。
 
 > 版本轨迹：v1（§18，≈60%）→ §39 专项审计 → v2（2026-08-15，≈76%）→
 > v3（R1–R10，≈91%）→ v4（R11–R19 + 显示修复，≈92%）→ v5（R3.1 +
-> R3.5a-c，≈93%）→ **v6（实证复核，≈88%）**。
+> R3.5a-c，≈93%）→ **v6（实证复核，≈88%；晚间补网格缺口定档）**。
 
 > ⚠ 注意：`tools/patch_gap_doc.py` 会以脚本内嵌文本重写本文档，运行前先
 > 更新其内嵌内容，避免覆盖手工编辑（2026-08-16 曾因此回退 §七）。
