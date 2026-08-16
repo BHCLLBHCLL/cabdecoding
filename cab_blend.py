@@ -160,6 +160,23 @@ def fix_blends(pk, body: int) -> tuple[int, int, list[int]]:
     return int(rc), int(n_blends.value), faces
 
 
+def find_g1_edges(pk, edge: int) -> list[int]:
+    # Tangent-edge chain of an edge via PK_EDGE_find_g1_edges (blend
+    # propagation: blending one edge of a smooth chain blends the chain).
+    pk.PK_EDGE_find_g1_edges.restype = C.c_int
+    pk.PK_EDGE_find_g1_edges.argtypes = [
+        C.c_int, C.c_double, C.c_ubyte, C.POINTER(C.c_int),
+        C.POINTER(C.c_void_p)]
+    n = C.c_int(0)
+    arr = C.c_void_p()
+    if pk.PK_EDGE_find_g1_edges(int(edge), 0.01, 1, C.byref(n),
+                                C.byref(arr)) != 0:
+        return [int(edge)]
+    if n.value <= 0 or not arr:
+        return [int(edge)]
+    return [int(C.cast(arr, C.POINTER(C.c_int))[i])
+            for i in range(n.value)]
+
 def body_edges(pk, body: int) -> list[int]:
     """All edge tags of a body via PK_BODY_ask_edges."""
     pk.PK_BODY_ask_edges.restype = C.c_int

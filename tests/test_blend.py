@@ -90,6 +90,19 @@ def test_replace_part_from_library():
     assert size == [20.0, 40.0, 20.0]
     # transform untouched (identity default)
     assert '1,0,0,0,0,1,0' in (_first(el, 'transform').text or '')
+def test_find_g1_edges_on_block():
+    # V37 chain helper: PK_EDGE_find_g1_edges returns at least the edge
+    # itself on a box (no tangent neighbours).
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    sess = _ps._get_session()
+    body = cab_ps_ops.create_solid_block((0.04, 0.04, 0.04))
+    edges = cab_blend.body_edges(sess.pk, body)
+    assert len(edges) == 12
+    chain = cab_blend.find_g1_edges(sess.pk, edges[0])
+    assert edges[0] in chain and len(chain) >= 1
+
 def test_blend_part_edge_pk_persists_x_t():
     # M37 wiring: blend an x_t-part edge in place and rewrite the member.
     if not cab_ps_ops.available():
