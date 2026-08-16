@@ -969,6 +969,14 @@ class STpreDoc(ComObject):
     def SetUnit(self, *args):
         return self.call("SetUnit", *args)
 
+    def GetUnit(self, key):
+        """``Doc.GetUnit("length")`` -> "km"/"m"/"cm"/"mm"/"um"。
+
+        WindTool 入口用它做功率律高度（梯度高/参考高）的单位换算：
+        km=0.001 / m=1 / cm=100 / mm=1000 / um=1000000 倍。
+        """
+        return self.call("GetUnit", key)
+
     # -- part creation (Create*Model; the full surface is call()-able) ---
     def CreateCubeModel(self, name, base, size):
         return STpreModel(self.call("CreateCubeModel", name, base, size))
@@ -1098,6 +1106,14 @@ class STpreDoc(ComObject):
         return ComObject(self.call("CreateUserData", name))
 
     # -- conditions (common subset; full Set*/Get* via call()) ----------
+    def SetNorthAngle(self, angle):
+        """``Doc.SetNorthAngle(angle)`` — 设置北向角（度）。
+
+        WindTool 每个风向循环前调用，把入口风向角（相对北向）转到全局
+        坐标：``FlowAngle = NorthAngle + Theta``。
+        """
+        return self.call("SetNorthAngle", angle)
+
     def SetWall(self, region, *args):
         return self.call("SetWall", region, *args)
 
@@ -1109,6 +1125,30 @@ class STpreDoc(ComObject):
 
     def SetFluxOut(self, region, *args):
         return self.call("SetFluxOut", region, *args)
+
+    def SetFluxPower(self, region, *args):
+        return self.call("SetFluxPower", region, *args)
+
+    def SetFluxPower2(self, *args):
+        """幂律风速廓线入口边界条件（WindTool 16 风向入口）。
+
+        与 ``STpre_STsolver_eng.vbs`` 一致，11 参数透传：
+        ``(name, RefVel, "N", Theta, Exponent, GrdHei, RefHei, 0.0,
+        TurbType, KEParam1, KEParam2)``
+
+        * ``name``     — 入口条件名（VBS 用 ``CondIn = "Tool_Flux1_"``）；
+        * ``RefVel``   — 参考高度处的参考风速 (m/s)；
+        * ``"N"``      — 角度基准（"N" 表示以北向为 0°，固定）；
+        * ``Theta``    — 入口风向角（度，风**吹向**，``180 + i*360/16``）；
+        * ``Exponent`` — 幂律指数（默认 3.7037）；
+        * ``GrdHei``   — 梯度高度（默认 0.0，按长度单位换算）；
+        * ``RefHei``   — 参考高度（默认 74.5，按长度单位换算）；
+        * ``0.0``      — 粗糙度（固定 0.0）；
+        * ``TurbType`` — 湍流类型（"zg" 标准）；
+        * ``KEParam1`` — k-ε 参数 1（默认 550，"zg" 时按单位换算）；
+        * ``KEParam2`` — k-ε 参数 2（默认 0）。
+        """
+        return self.call("SetFluxPower2", *args)
 
     def SetTemperatureFix(self, region, *args):
         return self.call("SetTemperatureFix", region, *args)
@@ -1612,8 +1652,10 @@ API_CATALOG: dict[str, list[str]] = {
         "CreateScript", "CreateExpression", "CreateUserFunction", "CreateUserData",
         "SetProjectName", "SetComment", "SetFileName", "SetAmbientTemperature",
         "SetGravity", "SetAnalysisType", "SetCartesianDomain",
-        "SetCylindricalDomain", "SetUnit", "SetWall", "SetFluxFix",
-        "SetFluxPres", "SetFluxOut", "SetTemperatureFix", "SetHeatTransfer",
+        "SetCylindricalDomain", "SetUnit", "GetUnit", "SetNorthAngle",
+        "SetWall", "SetFluxFix",
+        "SetFluxPres", "SetFluxOut", "SetFluxPower", "SetFluxPower2",
+        "SetTemperatureFix", "SetHeatTransfer",
         "SetHeatSource", "SetSymmetry", "SetInitialValue", "SetFanPQcurve", "SetFanConstFlow", "DeleteModel", "DeleteValue", "DeleteTable",
         "DeleteScript", "ClearSelect", "SortModel",
         "SetMoveBodyOption", "GetMoveBodyOption",
