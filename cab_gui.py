@@ -3572,24 +3572,30 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if self.model is None:
             self.log("No project open.", "WARN")
             return
+        from PyQt5.QtCore import Qt
         from PyQt5.QtWidgets import (
             QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
             QPushButton, QHBoxLayout, QHeaderView,
         )
         dlg = QDialog(self)
         dlg.setWindowTitle("List of Part")
-        dlg.resize(560, 360)
+        dlg.resize(640, 360)
         lay = QVBoxLayout(dlg)
         parts = list(self.model.parts())
-        tbl = QTableWidget(len(parts), 4, dlg)
+        import cab_mesh
+        rank = cab_mesh.part_priority_rank(self.model)
+        tbl = QTableWidget(len(parts), 5, dlg)
         tbl.setHorizontalHeaderLabels(
-            ["Name", "Attribute", "Material", "Kind"])
+            ["Name", "Attribute", "Material", "Kind", "Priority"])
         tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        ro = Qt.ItemIsSelectable | Qt.ItemIsEnabled
         for i, p in enumerate(parts):
-            tbl.setItem(i, 0, QTableWidgetItem(p.name))
-            tbl.setItem(i, 1, QTableWidgetItem(p.attribute or ""))
-            tbl.setItem(i, 2, QTableWidgetItem(p.property or ""))
-            tbl.setItem(i, 3, QTableWidgetItem(p.kind or ""))
+            vals = (p.name, p.attribute or "", p.property or "",
+                    p.kind or "", str(rank.get(p.name, "")))
+            for col, text in enumerate(vals):
+                item = QTableWidgetItem(text)
+                item.setFlags(ro)
+                tbl.setItem(i, col, item)
         lay.addWidget(tbl)
 
         def _select() -> None:

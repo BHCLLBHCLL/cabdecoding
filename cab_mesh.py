@@ -1007,6 +1007,13 @@ def _interference_priority(model: StpreModel) -> dict[str, tuple[int, int]]:
     return out
 
 
+def part_priority_rank(model: StpreModel) -> dict[str, int]:
+    """1-based List-of-Part rank; 1 = highest (fan/porous then doc order)."""
+    raw = _interference_priority(model)
+    names = sorted(raw, key=lambda n: raw[n])
+    return {n: i + 1 for i, n in enumerate(names)}
+
+
 def resolve_interferences(model: StpreModel) -> int:
     """Trim overlapping cells from lower-priority parts.
 
