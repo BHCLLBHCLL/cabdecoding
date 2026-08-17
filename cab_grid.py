@@ -832,3 +832,128 @@ def delete_grid_lines(entries: list[tuple[float, str]], target: str,
         else:
             keep.append((val, mark))
     return keep
+
+
+def parse_fine_divide(text: str) -> Optional[tuple[int, int, int]]:
+    """Parse ``<mesh_fine_divide>x,y,z</...>``; 0/1 means no extra split."""
+    if not (text or "").strip():
+        return None
+    parts = [p.strip() for p in text.split(",")]
+    if len(parts) < 3:
+        return None
+    try:
+        return (int(float(parts[0])), int(float(parts[1])),
+                int(float(parts[2])))
+    except ValueError:
+        return None
+
+
+def part_aabb_mm(part, tess=None) -> Optional[tuple[tuple, tuple]]:
+    """Part AABB in millimetres from tessellation (m) or XML base/size."""
+    pts = None
+    if tess is not None:
+        raw = getattr(tess, "points", None)
+        if raw is not None:
+            arr = np.asarray(raw, dtype=float)
+            if arr.size:
+                pts = arr
+    if pts is not None:
+        xf = getattr(part, "transform", "") or ""
+        try:
+            import cab_vtk
+            pts = cab_vtk._apply_transform(pts, xf) * 1000.0
+        except Exception:
+            pts = np.asarray(pts, dtype=float) * 1000.0
+        lo = tuple(float(v) for v in pts.min(axis=0)[:3])
+        hi = tuple(float(v) for v in pts.max(axis=0)[:3])
+        return lo, hi
+    base = (getattr(part, "base", "") or "").strip()
+    size = (getattr(part, "size", "") or "").strip()
+    if not base or not size:
+        return None
+    try:
+        b = [float(v) for v in base.split(",")[:3]]
+        s = [float(v) for v in size.split(",")[:3]]
+    except ValueError:
+        return None
+    if len(b) != 3 or len(s) != 3:
+        return None
+    lo = tuple(b)
+    hi = tuple(b[i] + s[i] for i in range(3))
+    return lo, hi
+
+
+def refine_axes_by_fine_divide(
+        axes: dict[str, list[float]], parts, bounds_by_name=None
+        ) -> dict[str, list[float]]:
+    """Insert grid lines so each part has at least n cells on that axis.
+
+    Official samples: exA02-2b fan ``2,0,0``, exA05-2 fan ``0,5,0``.
+    ``n<=1`` (including 0) is a no-op. Idempotent: a later call skips an
+    axis when the part AABB already spans ``n`` or more cells.
+    """
+    bounds_by_name = bounds_by_name or {}
+    out = {ax: list(vals) for ax, vals in axes.items()}
+    jobs: list[tuple[tuple[int, int, int], tuple, tuple]] = []
+    for p in parts:
+        ns = parse_fine_divide(getattr(p, "mesh_fine_divide", "") or "")
+        if ns is None or max(ns) <= 1:
+            continue
+        aabb = bounds_by_name.get(getattr(p, "name", ""))
+        if aabb is None:
+            aabb = part_aabb_mm(p, None)
+        if aabb is None:
+            continue
+        jobs.append((ns, aabb[0], aabb[1]))
+    for i, ax in enumerate("xyz"):
+        vals = out.get(ax) or []
+        if len(vals) < 2:
+            continue
+        axis_jobs = sorted(
+            ((ns[i], lo, hi) for ns, lo, hi in jobs if ns[i] > 1),
+            key=lambda t: -t[0])
+        for n, lo, hi in axis_jobs:
+            plo, phi = float(lo[i]), float(hi[i])
+            if plo > phi:
+                plo, phi = phi, plo
+            idxs = [j for j in range(len(vals) - 1)
+                    if vals[j + 1] > plo + 1e-9 and vals[j] < phi - 1e-9]
+            if not idxs or len(idxs) >= n:
+                continue
+            span_a = vals[idxs[0]]
+            span_b = vals[idxs[-1] + 1]
+            vals = divide_interval(vals, span_a, span_b, n)
+        out[ax] = vals
+    return out
+
+
+def apply_fine_divide_to_model(model, meshes=None) -> dict[str, list[float]]:
+    """Refine ``mesh_block`` axes from part ``mesh_fine_divide`` and write back."""
+    axes = model.mesh_axes()
+    if not axes or any(len(v) < 2 for v in axes.values()):
+        return axes
+    mesh_by = {getattr(m, "name", ""): m for m in (meshes or [])}
+    bounds = {}
+    parts = list(model.parts())
+    for p in parts:
+        aabb = part_aabb_mm(p, mesh_by.get(p.name))
+        if aabb is not None:
+            bounds[p.name] = aabb
+    refined = refine_axes_by_fine_divide(axes, parts, bounds)
+    for ax in "xyz":
+        old = model.mesh_axis_entries(ax)
+        old_vals = [v for v, _m in old]
+        new_vals = refined.get(ax) or []
+        if len(old_vals) == len(new_vals) and all(
+                abs(a - b) < 1e-9 for a, b in zip(old_vals, new_vals)):
+            continue
+        mark = {round(v, 9): m for v, m in old}
+        n = len(new_vals)
+        entries = []
+        for i, v in enumerate(new_vals):
+            m = mark.get(round(v, 9), "")
+            if i in (0, n - 1) and not m:
+                m = "B"
+            entries.append((v, m or "N"))
+        model.set_mesh_axis(ax, entries)
+    return refined

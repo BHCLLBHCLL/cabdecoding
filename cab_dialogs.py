@@ -3483,6 +3483,14 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
                     p.name: self.model.part_mesh_option(p.name)
                     for p in self.model.parts()
                     if self.model.part_mesh_option(p.name)})
+        bounds = {}
+        for name, pts in part_points.items():
+            arr = np.asarray(pts, dtype=float)
+            if arr.size:
+                bounds[name] = (tuple(float(v) for v in arr.min(axis=0)[:3]),
+                                tuple(float(v) for v in arr.max(axis=0)[:3]))
+        detailed = cab_grid.refine_axes_by_fine_divide(
+            detailed, self.model.parts(), bounds)
         self.model.set_mesh(
             detailed,
             unit="mm",

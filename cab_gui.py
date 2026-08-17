@@ -5571,7 +5571,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             return
         try:
             import cab_mesh
+            import cab_grid
             snap = self._snapshot()
+            axes = cab_grid.apply_fine_divide_to_model(self.model, meshes)
             transforms = {p.name: p.transform for p in self.model.parts()}
 
             def tick(done: int, total: int) -> None:
