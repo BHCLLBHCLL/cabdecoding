@@ -1930,6 +1930,57 @@ def sweep_part_body_pk(model: StpreModel, archive, cad_meshes, name,
             pass
     return True
 
+
+def spin_part_body_pk(model: StpreModel, archive, cad_meshes, name,
+                      origin_m, axis_dir, angle_deg: float) -> bool:
+    # R3.5: PK_BODY_spin in place on the part's sheet/wire body (revolve
+    # to solid), x_t writeback + mesh refresh.  Returns False on failure.
+    import cab_ps_ops
+    import cab_import
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return False
+    tag, _ = _find_body_tags(model, archive, name, '')
+    if tag is None:
+        return False
+    sess = _ps._get_session()
+    try:
+        rc, n_lat, _ = cab_ps_ops.spin_body(sess.pk, tag, origin_m,
+                                            axis_dir, angle_deg)
+        if rc != 0:
+            return False
+        _invalidate_xt_cache(tag)  # spun in place
+        xt = cab_ps_ops.transmit_parts([tag])
+    except Exception:
+        return False
+    if not xt:
+        return False
+    info = next((p for p in model.parts() if p.name == name), None)
+    if info is None:
+        return False
+    el = info.elem
+    member_name = f'{name}.x_t'
+    cab_import.add_xt_member(archive, xt, name=member_name)
+    model.add_body_file(member_name, unit='m')
+    f_el = _first(el, 'file')
+    if f_el is not None:
+        set_text(f_el, member_name)
+    el.set('type', 'body')
+    if cad_meshes is not None:
+        try:
+            tess = sess.facet_body_stpre(tag)
+            if tess is not None:
+                tess.name = name
+                for i, m in enumerate(cad_meshes):
+                    if getattr(m, 'name', None) == name:
+                        cad_meshes[i] = tess
+                        break
+                else:
+                    cad_meshes.append(tess)
+        except Exception:
+            pass
+    return True
+
 def fill_part_sheet_pk(model: StpreModel, archive, cad_meshes, name) -> bool:
     # R3.1b: Edit Solid 'Fill sheet' / 'Create cover' - heal-cap the part's
     # sheet body into a solid and write x_t back in place.
@@ -2031,12 +2082,15 @@ def sew_part_sheets_pk(model: StpreModel, archive, cad_meshes, names,
             pass
     return True
 
+
 def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
-                        radius: float, edge_index: int = 0, *,
-                        chamfer: bool = False,
-                        range1: Optional[float] = None,
-                        chain: bool = False,
-                        tolerance: float = 1e-6) -> bool:
+                       radius: float, edge_index: int = 0, *,
+                       chamfer: bool = False,
+                       range1: Optional[float] = None,
+                       chain: bool = False,
+                       tolerance: float = 1e-6,
+                       variable: bool = False,
+                       radii: Optional[list] = None) -> bool:
     # Blend (or chamfer) one edge of a part's body in place, write x_t back.
     # Decoded V37 blend ABI (cab_blend): PK_EDGE_set_blend_* +
     # PK_BODY_fix_blends, then PK_PART_transmit -> new .x_t member and a
@@ -2055,12 +2109,21 @@ def blend_part_edge_pk(model: StpreModel, archive, cad_meshes, name: str,
     if not edges or not (0 <= edge_index < len(edges)):
         return False
     try:
+
         sel = [edges[edge_index]]
-        if chain:
+        if chain and not variable:
             sel = cab_blend.find_g1_edges(sess.pk, edges[edge_index])
-        rc, n_set = cab_blend.blend_edge(
-            sess.pk, sel, radius, chamfer=chamfer,
-            range1=range1)
+        if variable:
+            # R3.5: PK_EDGE_set_blend_variable legacy v1 ABI - the radius
+            # varies along the edge; radii is [(fraction, radius_m), ...].
+            profile = radii if radii else [(0.0, float(radius)),
+                                           (1.0, float(range1 or radius))]
+            rc, n_set = cab_blend.variable_blend_edge(
+                sess.pk, edges[edge_index], profile)
+        else:
+            rc, n_set = cab_blend.blend_edge(
+                sess.pk, sel, radius, chamfer=chamfer,
+                range1=range1)
         if rc != 0 or n_set < 1:
             return False
         rc2, n_blends, _ = cab_blend.fix_blends(sess.pk, tag)

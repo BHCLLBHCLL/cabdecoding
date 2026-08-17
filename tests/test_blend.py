@@ -224,6 +224,81 @@ def test_replace_part_from_library():
     assert size == [20.0, 40.0, 20.0]
     # transform untouched (identity default)
     assert '1,0,0,0,0,1,0' in (_first(el, 'transform').text or '')
+
+
+def test_variable_blend_cycle_on_block():
+    # R3.5: PK_EDGE_set_blend_variable legacy v1 ABI - variable-radius
+    # round on one edge of a 10 m cube (2.0 m -> 0.5 m linear profile).
+    # Removed material = avg(r^2) * (1 - pi/4) * L with avg(r^2)=1.75 and
+    # L=10, so V = 1000 - 17.5*(1-pi/4) ~= 996.244.
+    if not cab_ps_ops.available():
+        return
+    import ps_facet2_nodes as _ps
+    sess = _ps._get_session()
+    pk = sess.pk
+    body = cab_ps_ops.create_solid_block((10.0, 10.0, 10.0))
+    edges = cab_blend.body_edges(pk, body)
+    assert len(edges) == 12
+    rc, n = cab_blend.variable_blend_edge(pk, edges[0],
+                                          [(0.0, 2.0), (1.0, 0.5)])
+    assert rc == 0 and n == 1
+    rc2, n_blends, faces = cab_blend.fix_blends(pk, body)
+    assert rc2 == 0 and n_blends == 1 and len(faces) == 1
+    part = sess.facet_body_stpre(body)
+    assert part is not None
+    vol = cab_ps_ops.mesh_volume_m3(part.points, part.triangles)
+    assert abs(vol - 996.244) < 0.35
+    # interior-only positions get endpoint radii by linear extrapolation
+    body2 = cab_ps_ops.create_solid_block((10.0, 10.0, 10.0))
+    edges2 = cab_blend.body_edges(pk, body2)
+    rc3, n3 = cab_blend.variable_blend_edge(pk, edges2[0],
+                                            [(0.25, 1.75), (0.75, 0.75)])
+    assert rc3 == 0 and n3 == 1
+
+
+def test_spin_sheet_cone_volume():
+    # R3.5: PK_BODY_spin - off-axis sheet triangle revolved 360 deg about
+    # Z yields the Pappus ring volume 2*pi/3 (area 0.5, centroid dist 2/3).
+    if not cab_ps_ops.available():
+        return
+    import math
+    import ps_facet2_nodes as _ps
+    sess = _ps._get_session()
+    pk = sess.pk
+    sheet = cab_ps_ops._triangle_sheet(pk, (0.5, 0.0, 0.0),
+                                       (1.0, 0.0, 0.0), (0.5, 0.0, 2.0))
+    rc, n_lat, _ = cab_ps_ops.spin_body(pk, sheet, (0.0, 0.0, 0.0),
+                                        (0.0, 0.0, 1.0), 360.0)
+    assert rc == 0 and n_lat >= 1
+    part = sess.facet_body_stpre(sheet)
+    assert part is not None
+    vol = cab_ps_ops.mesh_volume_m3(part.points, part.triangles)
+    assert abs(vol - 2.0 * math.pi / 3.0) < 0.05
+    # zero axis is rejected without touching the kernel
+    rc2, _, _ = cab_ps_ops.spin_body(pk, sheet, (0.0, 0.0, 0.0),
+                                     (0.0, 0.0, 0.0), 90.0)
+    assert rc2 != 0
+
+
+def test_blend_dialog_variable_and_spin_modes():
+    import os
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    from PyQt5.QtWidgets import QApplication
+    from cab_edit_dialogs import BlendEdgeDialog, FaceExtrusionDialog
+    app = QApplication.instance() or QApplication([])
+    model = StpreModel(parse_stpre(new_stpre_bytes()))
+    model.add_part(name="P", kind="cube", attribute="solid")
+    dlg = BlendEdgeDialog(model, [], None)
+    assert hasattr(dlg, "rb_var")
+    assert dlg.rb_var.isChecked() is False
+    assert dlg.var_start.value() > 0 and dlg.var_end.value() > 0
+    fdlg = FaceExtrusionDialog(model, [], None)
+    assert hasattr(fdlg, "rb_spin")
+    assert fdlg.rb_linear.isChecked() is True
+    assert fdlg.angle.value() == 360.0
+
+
 def test_find_g1_edges_on_block():
     # V37 chain helper: PK_EDGE_find_g1_edges returns at least the edge
     # itself on a box (no tangent neighbours).

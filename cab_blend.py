@@ -177,6 +177,154 @@ def find_g1_edges(pk, edge: int) -> list[int]:
     return [int(C.cast(arr, C.POINTER(C.c_int))[i])
             for i in range(n.value)]
 
+
+
+# ---------------------------------------------------------------------------
+# R3.5: second-order geometry - variable-radius blends and spin sweeps.
+#
+# PK_EDGE_set_blend_variable (V37 legacy ABI, live-kernel verified):
+#   options struct version 1 is only {o_t_version, properties} - 52 bytes,
+#   NOT the V35 layout {.., rho_type, xs_shape}.  The kernel requires a
+#   radius position at BOTH endpoints of the (open) edge chain; strictly
+#   interior positions alone fail with rc 920.  With equal ranges off both
+#   faces and all-zero rhos the cross-section stays circular, i.e. a true
+#   variable-radius round whose radius varies smoothly along the edge.
+#
+#   rhos must be non-NULL even when all zero (NULL crashes the kernel).
+# ---------------------------------------------------------------------------
+
+
+class Vector3(C.Structure):
+    """PK_VECTOR_t - Cartesian point / vector (double coord[3])."""
+    _fields_ = [("coord", C.c_double * 3)]
+
+
+class IntervalS(C.Structure):
+    """PK_INTERVAL_t - a real interval (double value[2])."""
+    _fields_ = [("value", C.c_double * 2)]
+
+
+class BlendEdgeShape(C.Structure):
+    """PK_blend_edge_shape_t - variable-radius rolling-ball blend shape.
+
+    ranges_1[i]/ranges_2[i] are the blend ranges off the left/right face
+    at positions[i]; equal ranges plus all-zero rhos give a circular
+    (variable-radius round) cross-section."""
+    _fields_ = [
+        ("n_ranges", C.c_int),
+        ("ranges_1", C.POINTER(C.c_double)),
+        ("ranges_2", C.POINTER(C.c_double)),
+        ("rhos", C.POINTER(C.c_double)),
+        ("positions", C.POINTER(Vector3)),
+    ]
+
+
+class VariableBlendOptions(C.Structure):
+    """PK_EDGE_set_blend_variable_o_t, V37 legacy version 1 (52 bytes)."""
+    _fields_ = [
+        ("o_t_version", C.c_int),
+        ("properties", BlendProperties),
+    ]
+
+
+def _ask_edge_geometry(pk, edge: int):
+    """PK_EDGE_ask_geometry -> (curve, ends, interval, sense) or None."""
+    pk.PK_EDGE_ask_geometry.restype = C.c_int
+    pk.PK_EDGE_ask_geometry.argtypes = [
+        C.c_int, C.c_int, C.POINTER(C.c_int), C.POINTER(C.c_int),
+        C.POINTER(Vector3), C.POINTER(IntervalS), C.POINTER(C.c_int)]
+    curve = C.c_int(0)
+    cls = C.c_int(0)
+    ends = (Vector3 * 2)()
+    tint = IntervalS()
+    sense = C.c_int(0)
+    rc = pk.PK_EDGE_ask_geometry(int(edge), 1, C.byref(curve), C.byref(cls),
+                                 ends, C.byref(tint), C.byref(sense))
+    if rc != 0 or not curve.value:
+        return None
+    return (int(curve.value), [tuple(ends[i].coord) for i in range(2)],
+            (float(tint.value[0]), float(tint.value[1])),
+            int(sense.value))
+
+
+def _curve_point(pk, curve: int, t: float):
+    """Exact point on a curve via PK_CURVE_eval (n_derivs=0)."""
+    pk.PK_CURVE_eval.restype = C.c_int
+    pk.PK_CURVE_eval.argtypes = [
+        C.c_int, C.c_double, C.c_int, C.POINTER(Vector3)]
+    p = Vector3()
+    rc = pk.PK_CURVE_eval(int(curve), float(t), 0, C.byref(p))
+    if rc != 0:
+        return None
+    return tuple(float(v) for v in p.coord)
+
+
+def variable_blend_edge(pk, edge: int, radii, *,
+                        tolerance: float = 1e-5) -> tuple[int, int]:
+    """Variable-radius blend on ONE edge (V37 legacy ABI, verified live).
+
+    radii: sequence of (fraction, radius_m) pairs, 0 <= fraction <= 1
+    measured along the edge from its start vertex to its end vertex.  The
+    kernel demands a radius position at both chain endpoints, so f=0 and
+    f=1 entries are added by linear extrapolation when missing (interior-
+    only positions fail with rc 920).  The radius varies smoothly between
+    the given positions and the cross-section remains circular.
+
+    Returns (rc, n_blend_edges); follow with PK_BODY_fix_blends to make
+    the blend part of the topology.
+    """
+    pts = sorted((float(f), float(r)) for f, r in radii)
+    if len(pts) < 2:
+        return 920, 0
+    seen: list = []
+    for f, r in pts:
+        if not seen or abs(f - seen[-1][0]) > 1e-12:
+            seen.append((f, r))
+    pts = seen
+    if pts[0][0] > 0.0:
+        f0, r0 = pts[0]
+        f1, r1 = pts[1]
+        r = r0 + (0.0 - f0) * (r1 - r0) / (f1 - f0)
+        pts.insert(0, (0.0, r))
+    if pts[-1][0] < 1.0:
+        f0, r0 = pts[-2]
+        f1, r1 = pts[-1]
+        r = r1 + (1.0 - f1) * (r1 - r0) / (f1 - f0)
+        pts.append((1.0, r))
+    geo = _ask_edge_geometry(pk, edge)
+    if geo is None:
+        return -1, 0
+    curve, _ends, (t0, t1), _sense = geo
+    n = len(pts)
+    positions = (Vector3 * n)()
+    for i, (f, _r) in enumerate(pts):
+        p = _curve_point(pk, curve, t0 + f * (t1 - t0))
+        if p is None:
+            return -2, 0
+        positions[i].coord[:] = p
+    r1a = (C.c_double * n)(*[r for _f, r in pts])
+    r2a = (C.c_double * n)(*[r for _f, r in pts])
+    rhoa = (C.c_double * n)(*([0.0] * n))
+    shape = BlendEdgeShape()
+    shape.n_ranges = n
+    shape.ranges_1 = C.cast(r1a, C.POINTER(C.c_double))
+    shape.ranges_2 = C.cast(r2a, C.POINTER(C.c_double))
+    shape.rhos = C.cast(rhoa, C.POINTER(C.c_double))
+    shape.positions = C.cast(positions, C.POINTER(Vector3))
+    opts = VariableBlendOptions()
+    opts.o_t_version = 1
+    opts.properties = _default_properties()
+    opts.properties.tolerance = float(tolerance)
+    pk.PK_EDGE_set_blend_variable.restype = C.c_int
+    pk.PK_EDGE_set_blend_variable.argtypes = [
+        C.c_int, BlendEdgeShape, C.c_void_p,
+        C.POINTER(C.c_int), C.POINTER(C.c_void_p)]
+    n_out = C.c_int(0)
+    edges_out = C.c_void_p()
+    rc = pk.PK_EDGE_set_blend_variable(int(edge), shape, C.byref(opts),
+                                       C.byref(n_out), C.byref(edges_out))
+    return int(rc), int(n_out.value)
+
 def body_edges(pk, body: int) -> list[int]:
     """All edge tags of a body via PK_BODY_ask_edges."""
     pk.PK_BODY_ask_edges.restype = C.c_int

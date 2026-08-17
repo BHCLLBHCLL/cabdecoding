@@ -1004,6 +1004,44 @@ def sweep_body(pk, body, vector_m) -> int:
                                 byref(lats), byref(bases),
                                 cast(check, c_void_p)))
 
+
+
+class _Axis1Sf(Structure):
+    """PK_AXIS1_sf_t - axis location + unit direction (6 doubles)."""
+    _fields_ = [("location", c_double * 3), ("axis", c_double * 3)]
+
+
+def spin_body(pk, body, origin_m, axis_dir, angle_deg,
+              local_check: int = 0) -> tuple:
+    """PK_BODY_spin (V37 8-arg, live-kernel verified): spin a minimum /
+    wire / sheet / general body in place about an axis - a sheet triangle
+    revolved 360 deg about an off-axis line yields the Pappus volume 2pi/3
+    for the test cone.  Returns (rc, n_laterals, check_result); on success
+    the body tag is the spun result (sheet -> solid of revolution).
+    """
+    import math as _m
+    ax = _Axis1Sf()
+    ax.location[:] = [float(v) for v in origin_m]
+    d = [float(v) for v in axis_dir]
+    ln = _m.sqrt(sum(v * v for v in d))
+    if ln < 1e-15:
+        return -1, 0, 0
+    ax.axis[:] = [v / ln for v in d]
+    n_lat = c_int(0)
+    lats = c_void_p()
+    bases = c_void_p()
+    chk = c_int(0)
+    pk.PK_BODY_spin.restype = c_int
+    pk.PK_BODY_spin.argtypes = [
+        c_int, POINTER(_Axis1Sf), c_double, c_int, POINTER(c_int),
+        POINTER(c_void_p), POINTER(c_void_p), POINTER(c_int)]
+    rc = int(pk.PK_BODY_spin(int(body), byref(ax),
+                             float(angle_deg) * _m.pi / 180.0,
+                             int(local_check), byref(n_lat), byref(lats),
+                             byref(bases), byref(chk)))
+    return rc, int(n_lat.value), int(chk.value)
+
+
 def sew_sheet_bodies(pk, tags, *, gap=0.0, allow_disjoint=False,
                      manifold=True) -> int:
     # R3.1a: sew N sheet bodies into one stitched sheet body (Edit Solid

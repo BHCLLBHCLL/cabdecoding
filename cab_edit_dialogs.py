@@ -538,6 +538,19 @@ class FaceExtrusionDialog(_EditDlg):
         self.pick_hint.setWordWrap(True)
         self.body.addWidget(self.pick_hint)
 
+        mode = QGroupBox('Sweep mode', self)
+        ml = QHBoxLayout(mode)
+        self.rb_linear = QRadioButton('Linear sweep', mode)
+        self.rb_spin = QRadioButton('Spin (revolve)', mode)
+        self.rb_linear.setChecked(True)
+        self.rb_spin.setToolTip(
+            'PK_BODY_spin (V37): revolves the part\'s sheet/wire body about '
+            'an axis by the given angle (sheet -> solid of revolution).')
+        ml.addWidget(self.rb_linear)
+        ml.addWidget(self.rb_spin)
+        ml.addStretch(1)
+        self.body.addWidget(mode)
+
         form = QFormLayout()
         self.height = QDoubleSpinBox(self)
         self.height.setRange(0.0, 1e6)
@@ -550,6 +563,35 @@ class FaceExtrusionDialog(_EditDlg):
         form.addRow("Orientation", self.orient)
         self.disp = QCheckBox("Displacement", self)
         form.addRow(self.disp)
+        self.sx = QDoubleSpinBox(self)
+        self.sy = QDoubleSpinBox(self)
+        self.sz = QDoubleSpinBox(self)
+        self.ax = QDoubleSpinBox(self)
+        self.ay = QDoubleSpinBox(self)
+        self.az = QDoubleSpinBox(self)
+        self.angle = QDoubleSpinBox(self)
+        self.angle.setRange(-1e6, 1e6)
+        self.angle.setDecimals(3)
+        self.angle.setValue(360.0)
+
+        for w, v in ((self.sx, 0.0), (self.sy, 0.0), (self.sz, 0.0),
+                     (self.ax, 0.0), (self.ay, 0.0), (self.az, 1.0)):
+            w.setRange(-1e6, 1e6)
+            w.setDecimals(4)
+            w.setValue(float(v))
+        _origin_row = QWidget(self)
+        _ol = QHBoxLayout(_origin_row)
+        _ol.setContentsMargins(0, 0, 0, 0)
+        for _w in (self.sx, self.sy, self.sz):
+            _ol.addWidget(_w)
+        _axis_row = QWidget(self)
+        _al = QHBoxLayout(_axis_row)
+        _al.setContentsMargins(0, 0, 0, 0)
+        for _w in (self.ax, self.ay, self.az):
+            _al.addWidget(_w)
+        form.addRow('Spin origin X/Y/Z (m)', _origin_row)
+        form.addRow('Spin axis X/Y/Z', _axis_row)
+        form.addRow('Angle (deg)', self.angle)
         self.name_edit = QLineEdit(self)
         self.name_edit.setText("extrusion_1")
         form.addRow("Part Name", self.name_edit)
@@ -601,8 +643,26 @@ class FaceExtrusionDialog(_EditDlg):
                  '+Z': (0, 0, 1.0), '-Z': (0, 0, -1.0)}
         vec = tuple(v * self.height.value() / 1000.0
                     for v in _VECS[self.orient.currentText()])
+
         parent = self.parent()
         archive = getattr(parent, "archive", None)
+        if self.rb_spin.isChecked():
+            # R3.5: real PK_BODY_spin (revolve) for sheet/wire bodies.
+            origin = (self.sx.value(), self.sy.value(), self.sz.value())
+            axis = (self.ax.value(), self.ay.value(), self.az.value())
+            if ops.spin_part_body_pk(self.model, archive, self.cad_meshes,
+                                     src, origin, axis, self.angle.value()):
+                self.created_name = src
+                self.applied = True
+                self.accept()
+                return
+            QMessageBox.warning(
+                self, "Face Extrusion",
+                "Spin failed (pskernel missing, no sheet/wire x_t body, "
+                "or invalid axis).")
+            return
+        # R3.1d: prefer the real PK_BODY_sweep for sheet/wire bodies
+        # (in-place x_t writeback); fall back to the tess extrusion.
         if ops.sweep_part_body_pk(
                 self.model, archive, self.cad_meshes, src, vec):
             self.created_name = src
@@ -1187,6 +1247,18 @@ class BlendEdgeDialog(_EditDlg):
         form.addRow('Edge index', erow)
         form.addRow('Radius (range 2)', self.radius_spin)
         form.addRow('Range 1 (chamfer)', self.range_spin)
+        self.var_start = QDoubleSpinBox(self)
+        self.var_start.setRange(0.0001, 100.0)
+        self.var_start.setDecimals(6)
+        self.var_start.setValue(0.005)
+        self.var_start.setSuffix(' m')
+        self.var_end = QDoubleSpinBox(self)
+        self.var_end.setRange(0.0001, 100.0)
+        self.var_end.setDecimals(6)
+        self.var_end.setValue(0.002)
+        self.var_end.setSuffix(' m')
+        form.addRow('Radius at start (variable)', self.var_start)
+        form.addRow('Radius at end (variable)', self.var_end)
         self.body.addLayout(form)
         typ = QGroupBox('Type', self)
         tl = QVBoxLayout(typ)
@@ -1195,6 +1267,12 @@ class BlendEdgeDialog(_EditDlg):
         self.rb_blend.setChecked(True)
         tl.addWidget(self.rb_blend)
         tl.addWidget(self.rb_cham)
+        self.rb_var = QRadioButton('Variable radius blend', typ)
+        self.rb_var.setToolTip(
+            'PK_EDGE_set_blend_variable (V37 legacy ABI): the radius varies '
+            'linearly from the start to the end of the edge (circular '
+            'cross-section), then PK_BODY_fix_blends materialises it.')
+        tl.addWidget(self.rb_var)
         self.chain_chk = QCheckBox(
             'Blend the entire G1 (tangent) edge chain', typ)
         self.chain_chk.setToolTip(
@@ -1244,22 +1322,32 @@ class BlendEdgeDialog(_EditDlg):
                if parent is not None else None)
         archive = (getattr(parent, 'archive', None)
                    if parent is not None else None)
+
         chamfer = self.rb_cham.isChecked()
+        variable = self.rb_var.isChecked()
+        radii = None
+        if variable:
+            radii = [(0.0, self.var_start.value()),
+                     (1.0, self.var_end.value())]
         ok = ops.blend_part_edge_pk(
             self.model, archive, cad, name, self.radius_spin.value(),
             edge_index=self.edge_spin.value(), chamfer=chamfer,
             range1=self.range_spin.value(),
-            chain=self.chain_chk.isChecked())
+            chain=self.chain_chk.isChecked(),
+            variable=variable, radii=radii)
         if not ok:
             QMessageBox.warning(
                 self, 'Blend',
-                'Blend failed (pskernel missing, no x_t body, or the ',
+                'Blend failed (pskernel missing, no x_t body, or the '
                 'radius is too small for the edge precision).')
             return
         self.applied = True
+
+        kind = ('chamfer' if chamfer
+                else 'varblend' if variable else 'blend')
         self.model.set_project_value(
             'blend_edge',
-            f"{'chamfer' if chamfer else 'blend'}:{name}:",
+            f"{kind}:{name}:",
             f'{self.edge_spin.value()}:{self.radius_spin.value():.6g}')
         QMessageBox.information(
             self, 'Blend Edge / Chamfer',
