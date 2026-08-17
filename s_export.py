@@ -869,12 +869,16 @@ class SExport:
         self.lines.append(f"   MPCL{_i(mpcl, 12)}")
         self.lines.append(f"   LEAP{_i(VFDE_LEAP, 9)}")
         self.lines.append(f"   IXYZ{_i(_rad_int(rad, 'space_cycle', 0), 9)}")
-        # MREF/MRCL: Condition Wizard writes max_reflection / smrt_rays
-        # (defaults 100 / MPCL). LEAP/EM1 stay pinned (no XML source).
+
+        # MREF is always written (default 100).  MRCL is written ONLY when
+        # smrt_rays is set in the radiation XML: the golden ex4_e.s emits
+        # MREF but not MRCL (smrt_rays absent -> defaults to MPCL), so
+        # emitting the default breaks .s parity.
         self.lines.append(
             f"   MREF{_i(_rad_int(rad, 'max_reflection', 100), 9)}")
-        mrcl = _rad_int(rad, "smrt_rays", mpcl)
-        self.lines.append(f"   MRCL{_i(mrcl, 9)}")
+        if rad is not None and rad.find("smrt_rays") is not None:
+            mrcl = _rad_int(rad, "smrt_rays", mpcl)
+            self.lines.append(f"   MRCL{_i(mrcl, 9)}")
         self.lines.append(f"   EM1{VFDE_EM1:>9}")
         self.lines.append(
             f"   MAXM{_i(_rad_int(rad, 'max_group_num', 4000), 9)}")

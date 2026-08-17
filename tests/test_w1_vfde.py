@@ -61,6 +61,7 @@ def test_vfde_mrcl_defaults_to_mpcl(ex4_models):
     model.set_radiation_param("max_particle", "20000")
     model.set_radiation_param("max_reflection", "100")
     cards = _vfde_map(s_export.build_sdat(model, props))
+
     assert cards["MREF"] == "100"
-    assert cards["MRCL"] == "20000"
+    assert "MRCL" not in cards  # golden ex4_e.s: MRCL only when smrt_rays set
     assert cards["MPCL"] == "20000"
