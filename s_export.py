@@ -169,6 +169,16 @@ def _i(v: int, w: int = 12) -> str:
     return f"{v:{w}d}"
 
 
+# Pinned .s header / VFDE constants (R8-B, 295 official samples).
+# No XML source: do not invent tags. hdr1 tail is 1,1,0,0,0 in 96% of
+# samples (multiblock/restart flags); hdr2 col4-9 are 0; VFDE LEAP=1,
+# EM1=0.99. W2 locks these; MREF/MRCL are XML-derived.
+HDR1_TAIL = (1, 1, 0, 0, 0)
+HDR2_TAIL = (0, 0, 0, 0, 0, 0)
+VFDE_LEAP = 1
+VFDE_EM1 = 0.99
+
+
 def _name_key(name: str):
     """Sort key that orders Wall1..Wall4 / HeatSource1..8 numerically."""
     m = re.search(r"(\d+)$", name)
@@ -296,12 +306,13 @@ class SExport:
         ni = len(axes.get("x", [])) - 1
         nj = len(axes.get("y", [])) - 1
         nk = len(axes.get("z", [])) - 1
-        # hdr1 后 5 列为多块/重启类标志，295 样本中 96% 恒 1,0,0,0，
-        # 无 XML 对应源，保留常量（R8-B 证据）
+        # hdr1 后 5 列为多块/重启类标志，295 样本中 96% 恒 HDR1_TAIL，
+        # 无 XML 对应源，钉成常量（W2）
         self.lines.append(
-            f"{_i(ni)}{_i(nj)}{_i(nk)}{_i(1)}{_i(1)}{_i(0)}{_i(0)}{_i(0)}")
+            f"{_i(ni)}{_i(nj)}{_i(nk)}"
+            + "".join(_i(v) for v in HDR1_TAIL))
         # hdr2：col1=扩散物种数；col2=辐射面组数（无 0 / flux 2 / 其余 4，
-        # 例外 exA09-3c=12 无 XML 源）；col3=湍流模型号；col4..9 恒 0
+        # 例外 exA09-3c=12 无 XML 源）；col3=湍流模型号；col4..9 = HDR2_TAIL
         rad = aset.find("radiation") if aset is not None else None
         if rad is None:
             rad_groups = 0
@@ -312,8 +323,8 @@ class SExport:
         turb_model = int(_child_text(aset, "turbulence_model", "0") or 0)
         diff_n = len(self.m.root.findall("diffusion"))
         self.lines.append(
-            "".join(_i(v) for v in (diff_n, rad_groups, turb_model,
-                                    0, 0, 0, 0, 0, 0)))
+            "".join(_i(v) for v in (diff_n, rad_groups, turb_model)
+                    + HDR2_TAIL))
 
     def _vfex_unit(self):
         aset = self.m.root.find("analysis_set")
@@ -856,7 +867,7 @@ class SExport:
         rad = aset.find("radiation") if aset is not None else None
         mpcl = _rad_int(rad, "max_particle", 20000)
         self.lines.append(f"   MPCL{_i(mpcl, 12)}")
-        self.lines.append(f"   LEAP{_i(1, 9)}")
+        self.lines.append(f"   LEAP{_i(VFDE_LEAP, 9)}")
         self.lines.append(f"   IXYZ{_i(_rad_int(rad, 'space_cycle', 0), 9)}")
         # MREF/MRCL: Condition Wizard writes max_reflection / smrt_rays
         # (defaults 100 / MPCL). LEAP/EM1 stay pinned (no XML source).
@@ -864,7 +875,7 @@ class SExport:
             f"   MREF{_i(_rad_int(rad, 'max_reflection', 100), 9)}")
         mrcl = _rad_int(rad, "smrt_rays", mpcl)
         self.lines.append(f"   MRCL{_i(mrcl, 9)}")
-        self.lines.append(f"   EM1{0.99:>9}")
+        self.lines.append(f"   EM1{VFDE_EM1:>9}")
         self.lines.append(
             f"   MAXM{_i(_rad_int(rad, 'max_group_num', 4000), 9)}")
         pgn = _child_text(rad, "parts_group_num", "6,-1").split(",")[0]
