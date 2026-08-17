@@ -28,9 +28,11 @@ tools/diag_s_constants.py）后，原先写死自 tests/ex4_e.s 的 opaque 常�
 - CYCS/CYCT/UNDR/STED <- calculation 稳/瞬态 + cycle / time_step（或
   init_time_step+courant 自适应）；UNDR/STED 逐条来自 steady_param 的
   under_relax / conv_check（类型索引 U1 V2 W3 P4 T5 K6 E7）。
-- 仍为常量的行：SDAT 版本行、hdr1 后 5 列（样本中 96% 为 1,0,0,0，
-  语义未知）、VFDE 的 LEAP/EM1、EQUA 后的 TBEC/UPWD 附加卡
-  （无 XML 源，不发射）。MREF/MRCL 已从 radiation XML 派生
+- 仍为常量的行：SDAT 版本行、hdr1 后 5 列中除粒子数外的四列
+  （样本中 96% 为 1,1,0,0,0）、VFDE 的 LEAP/EM1、EQUA 后的
+  TBEC/UPWD 附加卡（无 XML 源，不发射）。hdr1 第 6 列已从
+  ``analysis_etc/particle/max_num`` 派生（exA07-1=10000 /
+  exA07-6=1000000）。MREF/MRCL 已从 radiation XML 派生
   （max_reflection / smrt_rays）。已证无法派生的例外样本清单见
   tools/diag_s_constants.py 输出。
 """
@@ -170,13 +172,33 @@ def _i(v: int, w: int = 12) -> str:
 
 
 # Pinned .s header / VFDE constants (R8-B, 295 official samples).
-# No XML source: do not invent tags. hdr1 tail is 1,1,0,0,0 in 96% of
-# samples (multiblock/restart flags); hdr2 col4-9 are 0; VFDE LEAP=1,
-# EM1=0.99. W2 locks these; MREF/MRCL are XML-derived.
+# hdr1 tail default is 1,1,0,0,0; col 6 (0-based index 2 of the tail)
+# is particle max_num when <analysis_etc>/<particle> is present.
+# hdr2 col4-9 default 0 (W2); later XML overlays live in hdr2_tail().
+# VFDE LEAP=1, EM1=0.99. MREF/MRCL are XML-derived.
 HDR1_TAIL = (1, 1, 0, 0, 0)
 HDR2_TAIL = (0, 0, 0, 0, 0, 0)
 VFDE_LEAP = 1
 VFDE_EM1 = 0.99
+
+
+def hdr1_tail(model: StpreModel) -> tuple:
+    """hdr1 last 5 ints: default HDR1_TAIL, col6 = particle ``max_num``.
+
+    Official 2023.2 ST Example: 229/241 parsed .s files stay
+    ``(1,1,0,0,0)``; the 12 exceptions are particle cases
+    (exA07-1 ``max_num=10000``, exA07-6 ``max_num=1000000``).
+    """
+    a, b, _c, d, e = HDR1_TAIL
+    particle = model.root.find("analysis_etc/particle")
+    max_num = 0
+    if particle is not None:
+        raw = _child_text(particle, "max_num", "0") or "0"
+        try:
+            max_num = int(float(raw.split(",")[0]))
+        except ValueError:
+            max_num = 0
+    return (a, b, max_num, d, e)
 
 
 def _name_key(name: str):
@@ -306,11 +328,10 @@ class SExport:
         ni = len(axes.get("x", [])) - 1
         nj = len(axes.get("y", [])) - 1
         nk = len(axes.get("z", [])) - 1
-        # hdr1 后 5 列为多块/重启类标志，295 样本中 96% 恒 HDR1_TAIL，
-        # 无 XML 对应源，钉成常量（W2）
+        # hdr1 后 5 列默认 HDR1_TAIL；第 6 列（粒子 max_num）见 hdr1_tail
         self.lines.append(
             f"{_i(ni)}{_i(nj)}{_i(nk)}"
-            + "".join(_i(v) for v in HDR1_TAIL))
+            + "".join(_i(v) for v in hdr1_tail(self.m)))
         # hdr2：col1=扩散物种数；col2=辐射面组数（无 0 / flux 2 / 其余 4，
         # 例外 exA09-3c=12 无 XML 源）；col3=湍流模型号；col4..9 = HDR2_TAIL
         rad = aset.find("radiation") if aset is not None else None
