@@ -491,6 +491,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             lambda: self._set_mouse_mode("rubber"))
         m.addSeparator()
         add(m, "Distance…", self._option_distance_dialog)
+        add(m, "Distance Chain…",
+            lambda: self._option_distance_dialog(chain=True))
         add(m, "Reference…", self._option_reference_dialog)
         add(m, "Cut Cell…", self._option_cutcell_dialog)
         add(m, "Selection Mode…", self._option_selection_mode)
@@ -656,7 +658,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if dlg.exec_():
             self._apply_options(dlg.values())
 
-    def _option_distance_dialog(self) -> None:
+    def _option_distance_dialog(self, chain: bool = False) -> None:
         # M25/L10 Option -> Distance: 2-point distance + angle + chain +
         # part-to-part min distance (R13 measurement depth).
         from PyQt5.QtWidgets import (
@@ -664,12 +666,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             QHBoxLayout, QVBoxLayout, QComboBox, QListWidget,
         )
         dlg = QDialog(self)
-        dlg.setWindowTitle('Distance / Measurement')
+        dlg.setWindowTitle('Distance Chain' if chain
+                           else 'Distance / Measurement')
         dlg.setModal(False)
         lay = QVBoxLayout(dlg)
         mode = QComboBox(dlg)
         mode.addItems(['Distance (2 points)', 'Angle (3 points)',
                        'Distance chain (N points)', 'Parts min distance'])
+        if chain:
+            mode.setCurrentIndex(2)
         lay.addWidget(mode)
         form = QFormLayout()
         spins = []
@@ -839,17 +844,21 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         d, _ = tree.query(pa, k=1)
         return float(d.min()) * 1000.0
     def _option_reference_dialog(self) -> None:
-        """M25/L10 Option → Reference (origin pick + axes marker)."""
+        """M25/L10 Option → Reference (named CS + origin pick + axes marker)."""
         from cab_options import get_setting, set_setting
         from PyQt5.QtWidgets import (
             QDialog, QFormLayout, QDoubleSpinBox, QCheckBox, QLabel, QVBoxLayout,
-            QPushButton, QHBoxLayout,
+            QPushButton, QHBoxLayout, QComboBox, QLineEdit,
         )
         dlg = QDialog(self)
         dlg.setWindowTitle("Reference")
         dlg.setModal(False)
         lay = QVBoxLayout(dlg)
         form = QFormLayout()
+        cs_combo = QComboBox(dlg)
+        cs_combo.setEditable(False)
+        name_edit = QLineEdit(dlg)
+        name_edit.setPlaceholderText("CS name (e.g. CS1)")
         ox = QDoubleSpinBox(dlg)
         oy = QDoubleSpinBox(dlg)
         oz = QDoubleSpinBox(dlg)
@@ -859,21 +868,54 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             w.setValue(float(get_setting(key, 0.0)))
         show = QCheckBox("Show reference axes", dlg)
         show.setChecked(str(get_setting("ref_show", "True")) == "True")
+        form.addRow("Named CS", cs_combo)
+        form.addRow("Name", name_edit)
         form.addRow("Origin X (mm)", ox)
         form.addRow("Origin Y (mm)", oy)
         form.addRow("Origin Z (mm)", oz)
         form.addRow(show)
         lay.addLayout(form)
+
+        def _reload_cs() -> None:
+            cs_combo.blockSignals(True)
+            cs_combo.clear()
+            cs_combo.addItem("(session origin)")
+            if self.model is not None:
+                for cs in self.model.coordinate_systems():
+                    cs_combo.addItem(cs["name"])
+            cs_combo.blockSignals(False)
+
+        def _load_named(name: str) -> None:
+            if self.model is None or not name:
+                return
+            cs = self.model.get_coordinate_system(name)
+            if cs is None:
+                return
+            name_edit.setText(cs["name"])
+            ox.setValue(cs["origin"][0])
+            oy.setValue(cs["origin"][1])
+            oz.setValue(cs["origin"][2])
+
+        def _on_cs_changed(i: int) -> None:
+            if i <= 0:
+                return
+            _load_named(cs_combo.currentText())
+
+        _reload_cs()
+        cs_combo.currentIndexChanged.connect(_on_cs_changed)
         hint = QLabel("Click 'Pick origin' then pick a vertex in the Draw "
-                      "Window (Target = Vertices).", dlg)
+                      "Window (Target = Vertices). Save CS stores a named "
+                      "coordinate system on the project.", dlg)
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #555;")
         lay.addWidget(hint)
         row = QHBoxLayout()
         pick = QPushButton("Pick origin", dlg)
+        save_cs = QPushButton("Save CS", dlg)
         ok = QPushButton("OK", dlg)
         cancel = QPushButton("Cancel", dlg)
         row.addWidget(pick)
+        row.addWidget(save_cs)
         row.addStretch(1)
         row.addWidget(ok)
         row.addWidget(cancel)
@@ -887,14 +929,37 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             self._on_sel_target("Vertex")
             hint.setText("Pick the reference origin in the Draw Window…")
 
+        def _save_cs() -> None:
+            nm = name_edit.text().strip()
+            if not nm:
+                hint.setText("Enter a CS name before saving.")
+                return
+            if self.model is None:
+                return
+            self.model.upsert_coordinate_system(
+                nm, origin=(ox.value(), oy.value(), oz.value()))
+            _reload_cs()
+            i = cs_combo.findText(nm)
+            if i >= 0:
+                cs_combo.setCurrentIndex(i)
+            self._mark_dirty()
+            self.log(f"Reference CS '{nm}' origin="
+                     f"({ox.value():g},{oy.value():g},{oz.value():g})")
+
         def _ok() -> None:
             set_setting("ref_ox", ox.value())
             set_setting("ref_oy", oy.value())
             set_setting("ref_oz", oz.value())
             set_setting("ref_show", show.isChecked())
+            nm = name_edit.text().strip()
+            if nm and self.model is not None:
+                self.model.upsert_coordinate_system(
+                    nm, origin=(ox.value(), oy.value(), oz.value()))
+                set_setting("ref_cs", nm)
             self.log(
                 f"Reference origin=({ox.value():g},{oy.value():g},"
-                f"{oz.value():g}) show={show.isChecked()}")
+                f"{oz.value():g}) show={show.isChecked()}"
+                + (f" cs={nm}" if nm else ""))
             dlg.accept()
 
         def _cancel() -> None:
@@ -902,6 +967,7 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             dlg.reject()
 
         pick.clicked.connect(_pick_origin)
+        save_cs.clicked.connect(_save_cs)
         ok.clicked.connect(_ok)
         cancel.clicked.connect(_cancel)
         dlg.finished.connect(lambda _r: self._clear_pick_dialog(dlg))

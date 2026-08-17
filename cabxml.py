@@ -1150,6 +1150,80 @@ class StpreModel:
         return (el.text or "").strip() if el is not None and el.text \
             else default
 
+    def coordinate_systems(self) -> list[dict]:
+        """Named reference CS stored under ``<coordinate_systems>/<cs>``."""
+        root = _first(self.root, "coordinate_systems")
+        if root is None:
+            return []
+        out: list[dict] = []
+        for cs in _children(root, "cs"):
+            name = (cs.attrib.get("name") or "").strip()
+            if not name:
+                n = _first(cs, "name")
+                name = (n.text or "").strip() if n is not None and n.text else ""
+            if not name:
+                continue
+
+            def vec(tag, default):
+                el = _first(cs, tag)
+                parsed = self._parse_vec3(el)
+                return parsed if parsed is not None else default
+
+            out.append({
+                "name": name,
+                "origin": vec("origin", (0.0, 0.0, 0.0)),
+                "axis_x": vec("axis_x", (1.0, 0.0, 0.0)),
+                "axis_y": vec("axis_y", (0.0, 1.0, 0.0)),
+                "axis_z": vec("axis_z", (0.0, 0.0, 1.0)),
+            })
+        return out
+
+    def get_coordinate_system(self, name: str) -> Optional[dict]:
+        for cs in self.coordinate_systems():
+            if cs["name"] == name:
+                return cs
+        return None
+
+    def upsert_coordinate_system(
+            self, name: str,
+            origin: tuple[float, float, float] = (0.0, 0.0, 0.0),
+            axis_x: tuple[float, float, float] = (1.0, 0.0, 0.0),
+            axis_y: tuple[float, float, float] = (0.0, 1.0, 0.0),
+            axis_z: tuple[float, float, float] = (0.0, 0.0, 1.0),
+            ) -> bool:
+        """Create or replace a named reference coordinate system."""
+        name = (name or "").strip()
+        if not name:
+            return False
+        root = _first(self.root, "coordinate_systems")
+        if root is None:
+            root = ET.SubElement(self.root, "coordinate_systems")
+            root.tail = "\n"
+        el = None
+        for cs in _children(root, "cs"):
+            if (cs.attrib.get("name") or "").strip() == name:
+                el = cs
+                break
+        if el is None:
+            el = ET.SubElement(root, "cs")
+            el.tail = "\n   "
+        el.attrib["name"] = name
+        for tag, vals, unit in (
+                ("origin", origin, "mm"),
+                ("axis_x", axis_x, None),
+                ("axis_y", axis_y, None),
+                ("axis_z", axis_z, None)):
+            c = _first(el, tag)
+            if c is None:
+                c = ET.SubElement(el, tag)
+                c.tail = "\n      "
+            set_text(c, ",".join(f"{float(v):.12g}" for v in vals))
+            if unit:
+                c.attrib["unit"] = unit
+            else:
+                c.attrib.pop("unit", None)
+        return True
+
     def set_project_name(self, name: str) -> bool:
         return self.set_project_value("project", name)
 
