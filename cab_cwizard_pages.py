@@ -7852,12 +7852,15 @@ class _CwFusionPage(QWidget if _HAS_GUI else object):
         g = QGroupBox("Solidification/melting", self)
         f = QFormLayout(g)
         self.enable = QCheckBox("Consider solidification/melting", g)
-        aset = (model.analysis_set_value("fusion", "") or "").strip()
-        if aset in ("1", "T", "t"):
+        if model.analysis_etc_section("fusion") is not None:
             self.enable.setChecked(True)
         else:
-            self.enable.setChecked(
-                model.project_value("fusion_enable", "F") == "T")
+            aset = (model.analysis_set_value("fusion", "") or "").strip()
+            if aset in ("1", "T", "t"):
+                self.enable.setChecked(True)
+            else:
+                self.enable.setChecked(
+                    model.project_value("fusion_enable", "F") == "T")
         self.solidus = QDoubleSpinBox(g)
         self.solidus.setRange(-273.15, 10000.0)
         self.solidus.setDecimals(2)
@@ -7871,8 +7874,10 @@ class _CwFusionPage(QWidget if _HAS_GUI else object):
                 ("fusion_solidus", self.solidus, 0.0),
                 ("fusion_liquidus", self.liquidus, 0.0),
                 ("fusion_latent_heat", self.latent, 334000.0)):
+            etc = model.analysis_etc_child("fusion", name.replace("fusion_", ""), "")
+            raw = etc or model.project_value(name, str(default))
             try:
-                w.setValue(float(model.project_value(name, str(default))))
+                w.setValue(float(raw))
             except (TypeError, ValueError):
                 w.setValue(default)
         f.addRow(self.enable)
@@ -7892,6 +7897,17 @@ class _CwFusionPage(QWidget if _HAS_GUI else object):
             "fusion_liquidus", f"{self.liquidus.value():g}")
         self.model.set_project_value(
             "fusion_latent_heat", f"{self.latent.value():g}")
+        if on:
+            self.model.ensure_analysis_etc_section("fusion")
+            self.model.set_analysis_etc_child(
+                "fusion", "solidus", f"{self.solidus.value():g}", unit="C")
+            self.model.set_analysis_etc_child(
+                "fusion", "liquidus", f"{self.liquidus.value():g}", unit="C")
+            self.model.set_analysis_etc_child(
+                "fusion", "latent_heat", f"{self.latent.value():g}",
+                unit="J/kg")
+        else:
+            self.model.remove_analysis_etc_section("fusion")
         self.model.set_analysis_set_value("fusion", "1" if on else "0")
         self.model.upsert_value(
             "fusion", "Fusion_default",
@@ -7914,17 +7930,22 @@ class _CwLampPage(QWidget if _HAS_GUI else object):
         g = QGroupBox("Lamp", self)
         f = QFormLayout(g)
         self.enable = QCheckBox("Consider lamp", g)
-        aset = (model.analysis_set_value("artificial_light", "")
-                or "").strip()
-        if aset in ("1", "T", "t"):
+        if model.analysis_etc_section("artificial_light") is not None:
             self.enable.setChecked(True)
         else:
-            self.enable.setChecked(
-                model.project_value("lamp_enable", "F") == "T")
+            aset = (model.analysis_set_value("artificial_light", "")
+                    or "").strip()
+            if aset in ("1", "T", "t"):
+                self.enable.setChecked(True)
+            else:
+                self.enable.setChecked(
+                    model.project_value("lamp_enable", "F") == "T")
         self.model_type = QComboBox(g)
         self.model_type.addItems([
             "Point source", "Line source", "Area source"])
-        cur = model.project_value("lamp_model", "Point source")
+        cur = (model.analysis_etc_child(
+            "artificial_light", "lamp_model", "")
+            or model.project_value("lamp_model", "Point source"))
         i = self.model_type.findText(cur)
         if i >= 0:
             self.model_type.setCurrentIndex(i)
@@ -7932,7 +7953,10 @@ class _CwLampPage(QWidget if _HAS_GUI else object):
         self.flux.setRange(0.0, 1e9)
         self.flux.setDecimals(2)
         try:
-            self.flux.setValue(float(model.project_value("lamp_flux", "0")))
+            flux_raw = (model.analysis_etc_child(
+                "artificial_light", "lamp_flux", "")
+                or model.project_value("lamp_flux", "0"))
+            self.flux.setValue(float(flux_raw))
         except (TypeError, ValueError):
             self.flux.setValue(0.0)
         f.addRow(self.enable)
@@ -7948,6 +7972,15 @@ class _CwLampPage(QWidget if _HAS_GUI else object):
             "lamp_enable", "T" if on else "F")
         self.model.set_project_value("lamp_model", mtype)
         self.model.set_project_value("lamp_flux", f"{self.flux.value():g}")
+        if on:
+            self.model.ensure_analysis_etc_section("artificial_light")
+            self.model.set_analysis_etc_child(
+                "artificial_light", "lamp_model", mtype)
+            self.model.set_analysis_etc_child(
+                "artificial_light", "lamp_flux", f"{self.flux.value():g}",
+                unit="lm")
+        else:
+            self.model.remove_analysis_etc_section("artificial_light")
         self.model.set_analysis_set_value(
             "artificial_light", "1" if on else "0")
         self.model.upsert_value(

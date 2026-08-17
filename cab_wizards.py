@@ -895,6 +895,9 @@ class _CwAnalysisTypesPage(QWidget if _HAS_GUI_DEPS else object):
         for key, cb in self.types.items():
             if key == "heat":
                 continue
+            if key in self._ALWAYS_DISABLED:
+                self.model.set_analysis_set_value(key, "0")
+                continue
             if key in self._SPECIAL_TAGS:
                 self._apply_special(key, cb.isChecked())
                 continue
