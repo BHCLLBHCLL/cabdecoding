@@ -29,8 +29,9 @@ tools/diag_s_constants.py）后，原先写死自 tests/ex4_e.s 的 opaque 常�
   init_time_step+courant 自适应）；UNDR/STED 逐条来自 steady_param 的
   under_relax / conv_check（类型索引 U1 V2 W3 P4 T5 K6 E7）。
 - 仍为常量的行：SDAT 版本行、hdr1 后 5 列（样本中 96% 为 1,0,0,0，
-  语义未知）、VFDE 的 LEAP/MREF/EM1、EQUA 后的 TBEC/UPWD 附加卡
-  （无 XML 源，不发射）。已证无法派生的例外样本清单见
+  语义未知）、VFDE 的 LEAP/EM1、EQUA 后的 TBEC/UPWD 附加卡
+  （无 XML 源，不发射）。MREF/MRCL 已从 radiation XML 派生
+  （max_reflection / smrt_rays）。已证无法派生的例外样本清单见
   tools/diag_s_constants.py 输出。
 """
 
@@ -48,6 +49,15 @@ def _child_text(el, tag: str, default: str = "") -> str:
         return default
     c = _first(el, tag)
     return c.text.strip() if c is not None and c.text else default
+
+
+def _rad_int(el, tag: str, default: int) -> int:
+    """Integer radiation XML field; first comma-separated token, else default."""
+    raw = _child_text(el, tag, str(default)) or str(default)
+    try:
+        return int(float(raw.split(",")[0]))
+    except ValueError:
+        return int(default)
 
 
 def _part_is_cutcell(p) -> bool:
@@ -833,14 +843,25 @@ class SExport:
         ]
         aset = self.m.root.find("analysis_set")
         rad = aset.find("radiation") if aset is not None else None
-        self.lines.append(f"   MPCL{_i(int(_child_text(rad, 'max_particle', '20000')), 12)}")
+        mpcl = _rad_int(rad, "max_particle", 20000)
+        self.lines.append(f"   MPCL{_i(mpcl, 12)}")
         self.lines.append(f"   LEAP{_i(1, 9)}")
-        self.lines.append(f"   IXYZ{_i(int(_child_text(rad, 'space_cycle', '0')), 9)}")
-        self.lines.append(f"   MREF{_i(100, 9)}")
+        self.lines.append(f"   IXYZ{_i(_rad_int(rad, 'space_cycle', 0), 9)}")
+        # MREF/MRCL: Condition Wizard writes max_reflection / smrt_rays
+        # (defaults 100 / MPCL). LEAP/EM1 stay pinned (no XML source).
+        self.lines.append(
+            f"   MREF{_i(_rad_int(rad, 'max_reflection', 100), 9)}")
+        mrcl = _rad_int(rad, "smrt_rays", mpcl)
+        self.lines.append(f"   MRCL{_i(mrcl, 9)}")
         self.lines.append(f"   EM1{0.99:>9}")
-        self.lines.append(f"   MAXM{_i(int(_child_text(rad, 'max_group_num', '4000')), 9)}")
+        self.lines.append(
+            f"   MAXM{_i(_rad_int(rad, 'max_group_num', 4000), 9)}")
         pgn = _child_text(rad, "parts_group_num", "6,-1").split(",")[0]
-        self.lines.append(f"   MGMI{_i(int(pgn), 9)}")
+        try:
+            mgmi = int(float(pgn))
+        except ValueError:
+            mgmi = 6
+        self.lines.append(f"   MGMI{_i(mgmi, 9)}")
         self.lines.append("/")
 
     def _peltier(self):
