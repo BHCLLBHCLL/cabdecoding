@@ -129,11 +129,19 @@ def _ccel_faces_for(p, tess) -> list:
 
 
 def _ccel_attr(p) -> str:
-    """CCEL ATTR from part attribute/kind: PANEL, FLUID, or BODY."""
+    """CCEL ATTR from part attribute/kind: PANEL, CBODY, FLUID, or BODY.
+
+    Official 22 ``.ccel`` files: BODY (solid cut-cell), PANEL (panel
+    attribute), and one CBODY (exA23-1a extruded sketch with
+    ``attribute=area`` + ``<cutcell>T``). FLUID is kept for
+    ``attribute=fluid`` even though this example set has no FLUID row.
+    """
     a = (getattr(p, "attribute", "") or "").strip().lower()
     k = (getattr(p, "kind", "") or "").strip().lower()
     if a in ("panel", "sheet", "open") or k in ("panel", "quad_panel"):
         return "PANEL"
+    if _part_is_cutcell(p) and a == "area":
+        return "CBODY"
     if a == "fluid" or a.startswith("fluid"):
         return "FLUID"
     return "BODY"

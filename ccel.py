@@ -23,7 +23,7 @@ keyword)::
         NODE   DESC (n, 24) + n × PT    # PT = 3 × float64, metres
         CONN   DESC (m, 16) + m × QUAD  # QUAD = 4 × int32, face-local 0-based,
                                         # -1 pads a degenerate triangle
-      ATTR   DESC (1, N) + STR          # 'BODY' | 'PANEL' | 'FLUID'
+      ATTR   DESC (1, N) + STR          # 'BODY' | 'PANEL' | 'FLUID' | 'CBODY'
     ASEM  NAME '组'  PART _string(member) …        # assembly members
     FSET  NAME  PART _string(member) …  FACE (1,2) DESC (a, b)
                                                        # named face set
@@ -67,7 +67,7 @@ class CcelFace:
 class CcelPart:
     name: str = ""
     type_str: str = "Any_Body"     # Cube | Any_Body | Cylinder | Sphere
-    attr: str = "BODY"             # BODY | PANEL | FLUID
+    attr: str = "BODY"             # BODY | PANEL | FLUID | CBODY
     faces: list[CcelFace] = field(default_factory=list)
 
 
