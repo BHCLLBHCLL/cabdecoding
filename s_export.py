@@ -14,8 +14,10 @@ tools/diag_s_constants.py）后，原先写死自 tests/ex4_e.s 的 opaque 常�
 已改为从 XML 状态派生，或注明保留原因：
 
 - SDAT 第二行 9 列  <- 扩散物种数(根级 <diffusion> 个数) / 辐射面组数
-  (无辐射 0, type=flux 2, 其余 4) / 湍流模型号；col4..col9 在样本中
-  存在 porous/mars/运动件等罕见非零值但无 XML 对应源，恒 0。
+  (无辐射 0, type=flux 2, 其余 4) / 湍流模型号；col4=2 当
+  analysis_etc/fusion 存在（exA11-1）；col6=1 当
+  analysis_etc/free_surf 存在；col8=analysis_set/moving_body
+  计数（exA09-1=1, exA09-2=2）；其余 hdr2 尾列仍无 XML 源，恒 0。
 - VFEX 段           <- radiation 存在且 type != "flux"（flux 法无角系数）
 - HEATPATH 段       <- analysis_set/heat_path = 1
 - EQUA 8 位掩码     <- 位1-3 各轴向网格数>1（2D/1D 关对应动量方程，
@@ -174,8 +176,8 @@ def _i(v: int, w: int = 12) -> str:
 # Pinned .s header / VFDE constants (R8-B, 295 official samples).
 # hdr1 tail default is 1,1,0,0,0; col 6 (0-based index 2 of the tail)
 # is particle max_num when <analysis_etc>/<particle> is present.
-# hdr2 col4-9 default 0 (W2); later XML overlays live in hdr2_tail().
-# VFDE LEAP=1, EM1=0.99. MREF/MRCL are XML-derived.
+# hdr2 col4-9 default 0; overlays: fusion / free_surf / moving_body
+# (see hdr2_tail). VFDE LEAP=1, EM1=0.99. MREF/MRCL are XML-derived.
 HDR1_TAIL = (1, 1, 0, 0, 0)
 HDR2_TAIL = (0, 0, 0, 0, 0, 0)
 VFDE_LEAP = 1
@@ -199,6 +201,31 @@ def hdr1_tail(model: StpreModel) -> tuple:
         except ValueError:
             max_num = 0
     return (a, b, max_num, d, e)
+
+
+def hdr2_tail(model: StpreModel) -> tuple:
+    """hdr2 last 6 ints, overlaid from analysis_etc / moving_body.
+
+    Official 2023.2 ST Example (do not invent remaining columns):
+
+    * col4 = 2 iff ``<analysis_etc>/<fusion>`` exists (exA11-1)
+    * col6 = 1 iff ``<analysis_etc>/<free_surf>`` exists (exA10-*)
+    * col8 = ``<analysis_set>/<moving_body>`` integer (exA09-1=1,
+      exA09-2=2)
+    * col9 ``2``/``42`` still has no unique XML source — stays 0
+    """
+    col4, col5, col6, col7, col8, col9 = HDR2_TAIL
+    if model.root.find("analysis_etc/fusion") is not None:
+        col4 = 2
+    if model.root.find("analysis_etc/free_surf") is not None:
+        col6 = 1
+    aset = model.root.find("analysis_set")
+    raw = _child_text(aset, "moving_body", "0") or "0"
+    try:
+        col8 = int(float(raw.split(",")[0]))
+    except ValueError:
+        col8 = 0
+    return (col4, col5, col6, col7, col8, col9)
 
 
 def _name_key(name: str):
@@ -333,7 +360,8 @@ class SExport:
             f"{_i(ni)}{_i(nj)}{_i(nk)}"
             + "".join(_i(v) for v in hdr1_tail(self.m)))
         # hdr2：col1=扩散物种数；col2=辐射面组数（无 0 / flux 2 / 其余 4，
-        # 例外 exA09-3c=12 无 XML 源）；col3=湍流模型号；col4..9 = HDR2_TAIL
+        # 例外 exA09-3c=12 无 XML 源）；col3=湍流模型号；
+        # col4..9 = hdr2_tail（fusion / free_surf / moving_body）
         rad = aset.find("radiation") if aset is not None else None
         if rad is None:
             rad_groups = 0
@@ -345,7 +373,7 @@ class SExport:
         diff_n = len(self.m.root.findall("diffusion"))
         self.lines.append(
             "".join(_i(v) for v in (diff_n, rad_groups, turb_model)
-                    + HDR2_TAIL))
+                    + hdr2_tail(self.m)))
 
     def _vfex_unit(self):
         aset = self.m.root.find("analysis_set")
