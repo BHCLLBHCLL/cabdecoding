@@ -735,6 +735,190 @@ class ComObject:
         return f"<{type(self).__name__} {self._obj!r}>"
 
 
+class STpreSketch(ComObject):
+    """Sketch class (Doc.GetSketcher). VB_Interface Sketch_Class methods."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetClose(self):
+        return self.call("GetClose")
+
+    def SetClose(self, flag):
+        return self.call("SetClose", flag)
+
+    def GetSystem(self):
+        return self.call("GetSystem")
+
+    def SetSystem(self, origin_uvw):
+        return self.call("SetSystem", origin_uvw)
+
+    def GetTarget(self):
+        return self.call("GetTarget")
+
+    def SetTarget(self, name):
+        return self.call("SetTarget", name)
+
+    def GetVertex(self, index):
+        return self.call("GetVertex", index)
+
+    def SetVertex(self, *args):
+        return self.call("SetVertex", *args)
+
+    def GetVertexKind(self, index):
+        return self.call("GetVertexKind", index)
+
+    def SetCircle(self, *args):
+        return self.call("SetCircle", *args)
+
+    def SetRectangle(self, *args):
+        return self.call("SetRectangle", *args)
+
+    def SetSide(self, direction):
+        return self.call("SetSide", direction)
+
+
+class STpreProperty(ComObject):
+    """Property / PropertyGroup (Doc.GetPropertyEntity)."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetName(self):
+        return self.call("GetName")
+
+    def GetTypeString(self):
+        return self.call("GetTypeString")
+
+    def GetKind(self, key):
+        return self.call("GetKind", key)
+
+    def Get(self, key):
+        return self.call("Get", key)
+
+    def Set(self, key, value):
+        return self.call("Set", key, value)
+
+    def GetNum(self):
+        return self.call("GetNum")
+
+    def SetNum(self, n):
+        return self.call("SetNum", n)
+
+    def GetData(self, index):
+        return self.call("GetData", index)
+
+    def SetData(self, index, data):
+        return self.call("SetData", index, data)
+
+    def GetRadField(self):
+        return self.call("GetRadField")
+
+    def SetRadField(self, flag):
+        return self.call("SetRadField", flag)
+
+    def GetTable(self, key):
+        return STpreTable(self.call("GetTable", key))
+
+    def SetTable(self, key, table):
+        return self.call("SetTable", key, table)
+
+    def GetExpression(self, key):
+        return self.call("GetExpression", key)
+
+    def SetExpression(self, key, expr):
+        return self.call("SetExpression", key, expr)
+
+    def GetScript(self, key):
+        return self.call("GetScript", key)
+
+    def SetScript(self, key, script):
+        return self.call("SetScript", key, script)
+
+    def GetUserFunction(self, key):
+        return self.call("GetUserFunction", key)
+
+    def SetUserFunction(self, key, fn):
+        return self.call("SetUserFunction", key, fn)
+
+    def CreateEntity(self, name):
+        return STpreProperty(self.call("CreateEntity", name))
+
+    def DeleteEntity(self, name):
+        return self.call("DeleteEntity", name)
+
+    def GetEntities(self):
+        return [STpreProperty(p) for p in (self.call("GetEntities") or [])]
+
+
+class STpreTable(ComObject):
+    """Table class (Doc.GetTable / Value.GetTable)."""
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetName(self):
+        return self.call("GetName")
+
+    def SetName(self, name):
+        return self.call("SetName", name)
+
+    def GetNum(self):
+        return self.call("GetNum")
+
+    def GetTypeString(self):
+        return self.call("GetTypeString")
+
+    def SetType(self, type_):
+        return self.call("SetType", type_)
+
+    def GetData(self, index):
+        return self.call("GetData", index)
+
+    def SetData(self, index, value):
+        return self.call("SetData", index, value)
+
+    def GetXUnit(self):
+        return self.call("GetXUnit")
+
+    def GetYUnit(self):
+        return self.call("GetYUnit")
+
+    def SetUnit(self, x_unit, y_unit):
+        return self.call("SetUnit", x_unit, y_unit)
+
+    def GetTableCondParam(self, key):
+        return self.call("GetTableCondParam", key)
+
+    def SetTableCondParam(self, key, value):
+        return self.call("SetTableCondParam", key, value)
+
+
+def pack_set_param(key, *values, slots: int = 3):
+    """Pad Value.SetParam extras with 0 (VB_Interface; unused slots are 0).
+
+    SetParam(key, v1[, v2[, v3]]) — extra components default to 0.
+    SetParam3(v1, v2, v3) is the 3-component form (no key).
+    """
+    vals = list(values) + [0] * max(0, slots - len(values))
+    return (key, *vals[:slots])
+
+
 class STpreApplication(ComObject):
     """Application class (``CreateObject`` / ``GetObject``)."""
 
@@ -874,7 +1058,7 @@ class STpreDoc(ComObject):
         return STpreMesher(self.call("GetMesher"))
 
     def GetSketcher(self):
-        return ComObject(self.call("GetSketcher"))
+        return STpreSketch(self.call("GetSketcher"))
 
     def GetModel(self, name):
         return STpreModel(self.call("GetModel", name))
@@ -898,10 +1082,10 @@ class STpreDoc(ComObject):
         return STpreModel(self.call("GetFluidArea", idx))
 
     def GetTable(self, name):
-        return ComObject(self.call("GetTable", name))
+        return STpreTable(self.call("GetTable", name))
 
     def GetPropertyEntity(self, name):
-        return ComObject(self.call("GetPropertyEntity", name))
+        return STpreProperty(self.call("GetPropertyEntity", name))
 
     def GetNumAllModelArray(self):
         return self.call("GetNumAllModelArray")
@@ -1562,16 +1746,17 @@ class STpreValue(ComObject):
         return self.call("GetParam", key)
 
     def SetParam(self, key, *args):
-        return self.call("SetParam", key, *args)
+        return self.call("SetParam", *pack_set_param(key, *args))
 
     def SetParam3(self, *args):
-        return self.call("SetParam3", *args)
+        vals = list(args) + [0] * max(0, 3 - len(args))
+        return self.call("SetParam3", *vals[:3])
 
     def GetParamString(self, key):
         return self.call("GetParamString", key)
 
     def GetTable(self, key):
-        return ComObject(self.call("GetTable", key))
+        return STpreTable(self.call("GetTable", key))
 
     def SetTable(self, key, table):
         return self.call("SetTable", key, table)
@@ -1696,6 +1881,23 @@ API_CATALOG: dict[str, list[str]] = {
         "GetParentBlock", "GetRange", "RemoveBlock", "SetAttribute",
         "SetDetailGrid", "SetDivideArray", "SetName", "SetParam", "SetRange",
     ],
+    "Sketch": [
+        "GetClose", "SetClose", "GetSystem", "SetSystem", "GetTarget",
+        "SetTarget", "GetVertex", "SetVertex", "GetVertexKind",
+        "SetCircle", "SetRectangle", "SetSide",
+    ],
+    "Property": [
+        "CreateEntity", "DeleteEntity", "Get", "Set", "GetData", "SetData",
+        "GetEntities", "GetExpression", "SetExpression", "GetKind", "GetName",
+        "GetNum", "SetNum", "GetRadField", "SetRadField", "GetScript",
+        "SetScript", "GetTable", "SetTable", "GetTypeString",
+        "GetUserFunction", "SetUserFunction",
+    ],
+    "Table": [
+        "GetData", "SetData", "GetName", "SetName", "GetNum",
+        "GetTableCondParam", "SetTableCondParam", "GetTypeString",
+        "SetType", "GetXUnit", "GetYUnit", "SetUnit",
+    ],
     "Doc_high_value": [
         "OpenCabFile", "SaveCabFile", "SaveSFile", "SaveNfbFile",
         "SaveXmlFile", "SaveParamFile", "SaveConditionFile", "SaveLibraryCabFile",
@@ -1757,7 +1959,7 @@ API_MEMBER_COUNTS = {
     "Value": 272,
     "Mesher": 69,
     "MeshBlock": 88,
-    "Sketch": 0,   # see manual Sketch_Class.html
-    "Property": 0,  # see manual Property_Class.html
-    "Table": 0,     # see manual Table_Class.html
+    "Sketch": 12,   # Get/Set Close/System/Target/Vertex + Circle/Rectangle/Side
+    "Property": 22,  # Get/Set + table/script/expression/entity (VB Property_Class)
+    "Table": 12,     # Get/Set name/type/data/units/cond (VB Table_Class)
 }
