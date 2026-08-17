@@ -501,6 +501,19 @@ def _el_text(el, tag, default):
     return c.text.strip() if c is not None and c.text else default
 
 
+def _el_mm_vals(el, tag):
+    """Numeric child converted to millimetres (``unit=m`` → ×1000)."""
+    from cabxml import _first
+    c = _first(el, tag)
+    if c is None or not c.text:
+        return []
+    vals = [float(x.strip()) for x in c.text.split(",") if x.strip()]
+    unit = (c.attrib.get("unit") or "mm").strip().lower()
+    if unit in ("m", "metre", "meter"):
+        vals = [v * 1000.0 for v in vals]
+    return vals
+
+
 def _el_points(el, tag, n, default_fn):
     from cabxml import _first
     c = _first(el, tag)
@@ -515,10 +528,15 @@ def _el_points(el, tag, n, default_fn):
 
 def tess_for_part(part) -> Optional[PrimitivePart]:
     """Rebuild primitive geometry from a ``PartInfo``-like object."""
-    kind = getattr(part, "kind", "body")
+    from cabxml import canonical_part_kind, _first
+    el = getattr(part, "elem", None)
+    raw = ""
+    if el is not None:
+        raw = el.attrib.get("type", "")
+    kind = canonical_part_kind(
+        raw or getattr(part, "kind", "body"), el)
     if kind not in PRIMITIVE_KINDS:
         return None
-    el = part.elem
     name = getattr(part, "name", "")
     p: Optional[PrimitivePart] = None
 
@@ -553,11 +571,22 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
             "pin_radius": _el_scalar(el, "pin_radius", 1.0),
         })
     elif kind == "hexahedron":
-        pts = _el_points(
-            el, "points", 8,
-            lambda: _hexa_from_base_size(
-                _el_vec(el, "base"), _el_vec(el, "size", (10, 10, 10))))
-        p = hexahedron_tess(pts)
+        pts8 = []
+        if el is not None:
+            for i in range(1, 9):
+                mm = _el_mm_vals(el, f"p{i}")
+                if len(mm) < 3:
+                    pts8 = []
+                    break
+                pts8.append(mm[:3])
+        if len(pts8) == 8:
+            p = hexahedron_tess(pts8)
+        else:
+            pts = _el_points(
+                el, "points", 8,
+                lambda: _hexa_from_base_size(
+                    _el_vec(el, "base"), _el_vec(el, "size", (10, 10, 10))))
+            p = hexahedron_tess(pts)
     elif kind == "cylinder":
         p = cylinder_tess(
             _el_vec(el, "center"), _el_scalar(el, "radius", 5.0),
@@ -591,11 +620,35 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
                 _el_text(el, "direction", "+Z")))
         p = quad_panel_tess(pts)
     elif kind == "revolved":
-        p = revolved_tess(
-            _el_scalar(el, "radius1", 5.0), _el_scalar(el, "radius2", 10.0),
-            _el_scalar(el, "angle1", 0.0), _el_scalar(el, "angle2", 360.0),
-            _el_scalar(el, "z1", 0.0), _el_scalar(el, "z2", 10.0),
-            int(_el_scalar(el, "divisions", 24)))
+        orig = el.attrib.get("type", "") if el is not None else ""
+        if orig == "spin_rectangle" or (
+                el is not None and _first(el, "define") is not None
+                and _first(el, "radius1") is None):
+            define = _el_mm_vals(el, "define") or [0.0, 0.0, 0.0]
+            while len(define) < 3:
+                define.append(0.0)
+            width = (_el_mm_vals(el, "width") or [1000.0])[0]
+            height = (_el_mm_vals(el, "height") or [1000.0])[0]
+            raw_ang = (_el_text(el, "angle", "0,360")
+                       .replace(";", ",")).split(",")
+            try:
+                angs = [float(x.strip()) for x in raw_ang[:2]]
+            except ValueError:
+                angs = [0.0, 360.0]
+            if len(angs) < 2:
+                angs.append(360.0)
+            div = int(_el_scalar(el, "divide", 24) or 24)
+            p = revolved_tess(
+                define[0] - width * 0.5, define[0] + width * 0.5,
+                angs[0], angs[1],
+                define[2] - height * 0.5, define[2] + height * 0.5,
+                max(div, 4))
+        else:
+            p = revolved_tess(
+                _el_scalar(el, "radius1", 5.0), _el_scalar(el, "radius2", 10.0),
+                _el_scalar(el, "angle1", 0.0), _el_scalar(el, "angle2", 360.0),
+                _el_scalar(el, "z1", 0.0), _el_scalar(el, "z2", 10.0),
+                int(_el_scalar(el, "divisions", 24)))
     elif kind == "point":
         p = point_tess(_el_vec(el, "center"),
                        _el_scalar(el, "marker", 1.0))
@@ -624,12 +677,26 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
             center, outer, _el_scalar(el, "inner_radius", 0.0), thick, axis,
             int(_el_scalar(el, "divisions", 24)))
     elif kind == "axial_fan":
+        center = _el_vec(el, "center")
+        outer = _el_scalar(el, "outer_radius", 0.0)
+        if outer <= 1e-12:
+            outer = _el_scalar(el, "r2", 0.0)
+        inner = _el_scalar(el, "inner_radius", 0.0)
+        if inner <= 1e-12:
+            inner = _el_scalar(el, "r1", 0.0)
+        thick = _el_scalar(el, "thickness", 0.0)
+        if thick <= 1e-12:
+            thick = _el_scalar(el, "t1", 0.0)
+        if thick <= 1e-12:
+            thick = _el_scalar(el, "thick", 5.0)
+        if outer <= 1e-12:
+            size = _el_vec(el, "size", (10.0, 10.0, 0.0))
+            inner = min(size[0], size[1]) if inner <= 1e-12 else inner
+            outer = max(size[0], size[1]) if max(size[0], size[1]) > 1e-12 \
+                else 10.0
+        axis = _el_text(el, "direction", "") or _el_text(el, "axis", "+Z")
         p = annulus_disk_tess(
-            _el_vec(el, "center"),
-            _el_scalar(el, "outer_radius", 10.0),
-            _el_scalar(el, "inner_radius", 3.0),
-            _el_scalar(el, "thickness", 5.0),
-            _el_text(el, "direction", "+Z"),
+            center, outer, inner, thick, axis or "+Z",
             int(_el_scalar(el, "divisions", 24)))
     elif kind == "pipe":
         p = pipe_tess(

@@ -205,6 +205,43 @@ def set_text(el: ET.Element, value: str) -> None:
         el.text = value
 
 
+# Official STpre ``parts@type`` → in-tree kind (2023.2 ST Example).
+# XML type is preserved on disk; PartInfo.kind is the canonical name.
+PART_KIND_ALIASES = {
+    "air_outlet": "diffuser",
+    "axial_fan_model": "axial_fan",
+    "spin_rectangle": "revolved",
+    "case_cube": "enclosure",
+    "hexa": "hexahedron",
+}
+
+NETWORK_PACKAGE_KIND = {
+    "TWO_RESIST": "two_resistor",
+    "TWO_RESISTOR": "two_resistor",
+    "MULTI_RESIST": "multi_resistor",
+    "MULTI_RESISTOR": "multi_resistor",
+    "DELPHI": "delphi",
+}
+
+
+def canonical_part_kind(kind: str, elem: Optional[ET.Element] = None) -> str:
+    """Map an official STpre part type onto the in-tree kind name.
+
+    ``type="network"`` uses ``<package>`` (exA22-1 ``TWO_RESIST`` →
+    two_resistor). Unknown network packages default to two_resistor —
+    the only package observed in the 2023.2 ST Example set.
+    """
+    k = (kind or "").strip()
+    if k == "network":
+        pkg = ""
+        if elem is not None:
+            c = _first(elem, "package")
+            if c is not None and c.text:
+                pkg = c.text.strip().upper().replace("-", "_")
+        return NETWORK_PACKAGE_KIND.get(pkg, "two_resistor")
+    return PART_KIND_ALIASES.get(k, k)
+
+
 @dataclass
 class PartInfo:
     """A ``<parts>`` entry with the metadata the GUI edits."""
@@ -290,7 +327,8 @@ class StpreModel:
                     elem=el,
                     name=t("name"),
                     name2=t("name2"),
-                    kind=el.attrib.get("type", "body"),
+                    kind=canonical_part_kind(
+                        el.attrib.get("type", "body"), el),
                     property=t("property"),
                     attribute=t("attribute"),
                     color=t("color"),
@@ -699,16 +737,12 @@ class StpreModel:
         "delphi": {},
     }
 
-    #: 真实 STpre 部件 type 与本项目 kind 的别名
-    _SPECIAL_KIND_ALIAS = {"air_outlet": "diffuser"}
-
     def _special_kind(self, name: str) -> Optional[str]:
         """部件名 → 专用件 kind（非专用件返回 None）。"""
         el = self.find_part(name)
         if el is None:
             return None
-        kind = el.attrib.get("type", "")
-        kind = self._SPECIAL_KIND_ALIAS.get(kind, kind)
+        kind = canonical_part_kind(el.attrib.get("type", ""), el)
         return kind if kind in self._SPECIAL_PARAM_FIELDS else None
 
     def part_params(self, name: str) -> Optional[dict]:
