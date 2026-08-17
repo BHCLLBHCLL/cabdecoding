@@ -11,12 +11,18 @@
 > 经样例 XML + 手册交叉实证，已定档为精确条目（见 §二 行 5 与 §四.9）。
 > 2026-08-17 R20 落地：定档四缺口（.ccel 生成器 / 部件细化往返 /
 > element 9 元组 / 优先级消解）全部实现并测试，维度 5 90%→93%。
+> 2026-08-17 R21 落地：PK 二阶几何缺口清零——变半径倒圆
+> （PK_EDGE_set_blend_variable V37 legacy v1 ABI，端点半径自动外推）
+> + PK_BODY_spin 旋转成体（Pappus 体积实证 2π/3），维度 7 90%→93%；
+> .s VFDE 金标修复（MRCL 仅在 radiation XML 显式 smrt_rays 时发射）。
 
 ---
 
 ## 一、复核基线（2026-08-16 实测；08-17 R20 后复测）
 
 - v6 基线 HEAD `f7d7ed7`；R20 落地后 43 个运行时模块 ≈4.89 万行。
+- v6.2 HEAD `4ac9abd`（R21）：全量测试 **575 passed / 0 failed /
+  4 skipped**（14 个沙箱 tempfile PermissionError 为环境噪音，do-not-fix）。
 - 全量测试（2026-08-17，--basetemp 本地化）：**570 passed / 0 failed /
   4 skipped**（64s；原 14 个沙箱 tempfile 权限错误清零，含 m46 R20 15 例）。
 - 金标维持 MATCH：all `59/118/121`、rep `57/91/92`；blend golden
@@ -26,7 +32,7 @@
 
 ---
 
-## 二、功能完整度与深度百分比清单（12 维，v5 声称 vs v6 复核 vs v6.1）
+## 二、功能完整度与深度百分比清单（12 维，v5 声称 vs v6 复核 vs v6.2）
 
 | # | 维度 | v5 | v6 | v6.1 | 深度依据（实证） | 剩余差距 |
 |---:|---|:---:|:---:|:---:|---|---|
@@ -36,7 +42,7 @@
 | 4 | .s 导出 | 93% | 92% | **92%** | 22 section 全发射 + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（hdr2/EQUA/HSOL/CYCS-CYCT/UNDR-STED/VFEX-HEATPATH 全 XML 派生，ex4 逐字节）；R20 增：cut-cell 零件 CCEL 行 + PARTS 负 id + REGION 绝对值（exA23-2b/4 对拍）、GUI 导出与批量链同步写 .ccel 成员 | hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP 无 XML 源 |
 | 5 | 网格 Gridding/Meshing | 93% | 90% | **93%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；sub-block 细化因子与逐件 vertex detection 已在；**R20（2026-08-17）：.ccel 二进制读写（11 官方样本 rebuild 字节级一致）+ CCEL 行/负 id PARTS 发射；`mesh_fine_divide`/`divide` XML 往返；`<element>` body/face 9 元组全保真读写；interference 按 kind 权重消解** | ccel 面片 ATTR 深字段（PANEL 之外）未发射；细化字段仅存储往返、classify/grid 尚未按逐轴细分数实际细分；List of Parts 优先级只读列未加（规则已入库） |
 | 6 | Condition Wizard | 86% | 88% | **88%** | 24/25 类型 + 35 深度页 + R8 五类深字段页（MC 辐射/MARS-VOF/particle/reaction 多步/output series）+ 表达式管理器（列表/编辑/级联删）+ MOVB 运动表 | R3.5d 边缘页深字段；scFLOW-only 2 项（合理禁用） |
-| 7 | 几何编辑 PK 内核 | 93% | 90% | **90%** | Edit Solid 8/8 全真实 PK（delete_2/sew/sweep/make_sheet/simplify_geom/extract 等）+ blend/chamfer/G1 链（golden 530/422）+ boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 变半径倒圆（vary 字段占位未启用）；按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
+| 7 | 几何编辑 PK 内核 | 93% | 90% | **93%** | Edit Solid 8/8 全真实 PK（delete_2/sew/sweep/make_sheet/simplify_geom/extract 等）+ blend/chamfer/G1 链（golden 530/422）+ **R21：变半径倒圆（PK_EDGE_set_blend_variable legacy v1，52 字节选项，端点自动外推；10 m 方 2.0→0.5 m 体积实证 996.2）+ PK_BODY_spin 旋转成体（Pappus 2π/3 实证，Face Extrusion Spin 模式）** + boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
 | 8 | 求解闭环 | 90% | 80% | **80%** | SolverProcess 监控（行流/进度/exit code）100%、结果文件扫描、.pst 预填 scPOST | 收敛曲线图 0%、.pst 解析/结果回读 3D 场景 0%（现仅文件清单+末行日志摘要） |
 | 9 | COM 自动化桥 | 80% | 78% | **78%** | ComObject.call 泛型全 VB 面 + ~220 typed 包装 + 18 方法签名/存储探针实证（data/com_*_probe.json） | Sketch/Property/Table 类零 typed 包装（GetSketcher/GetTable 返裸 ComObject）；Set*Param 值格式未终证 |
 | 10 | FEM | 80% | 75% | **75%** | CreateFEM COM 实证（.xfem tet4）+ 容器读写往返 + 离线 Delaunay/六面体→tet 剖分 + e2e | 仅 kind=4 四面体；壳/六面体 kind 无证据面（注释明确降级） |
@@ -48,8 +54,15 @@ v6 → v6.1 变更溯源（`f7d7ed7..21cdd7a` 仅 R20 一个代码提交）：�
 REGION 绝对值 / .ccel 成员同步写，百分比维持——hdr 常量三项差距未动）；
 维度 11 证据面微增（批量链 .ccel）。其余 9 维无代码变更、数字不动。
 
-**总体完成度 ≈89%**（v1 60% → v2 76% → v3 91% → v4 92% → v5 93% →
-v6 实证复核 88% → **v6.1 R20 网格缺口清零 89%**）。差距非虚报，而是
+v6.1 → v6.2 变更溯源（`3e35db1` + `4ac9abd`）：维度 7 +3（90→93，变半径
+倒圆与 PK_BODY_spin 两个二阶几何缺口清零，Blend Edge 变半径模式 +
+Face Extrusion Spin 模式接线）；维度 4 金标修复（VFDE MRCL 仅在
+radiation XML 显式 smrt_rays 时发射，ex4_e.s 1021 行金标恢复逐行一致）。
+其余 10 维数字不动。
+
+**总体完成度 ≈90%**（v1 60% → v2 76% → v3 91% → v4 92% → v5 93% →
+v6 实证复核 88% → v6.1 R20 网格缺口清零 89% → **v6.2 R21 PK 二阶几何
+（变半径倒圆 + 旋转成体）清零 90%**）。差距非虚报，而是
 v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按「用户可用深度」
 严格复核后的修正。
 
@@ -89,9 +102,12 @@ v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按「用户
    cab_ifc.py 矩形分支）；STEP 导出（OCC write 一步）。
 4. **.s 尾常量透明化**：hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP——扩样本
    交叉 diff，找到 XML 源或实证为恒常量。
-5. **PK 变半径倒圆**：blend V37 ABI 家族已解（constant 6 参/chamfer 8 参
-   /fix_blends 9 参），set_blend_vary 相邻签名边际成本低；draft/shell/
-   offset 等 STpre 次级算子按需后置。
+5. **PK 变半径倒圆（R21 完成）**：PK_EDGE_set_blend_variable V37 legacy
+   v1 ABI（选项仅 {o_t_version, properties} 52 字节；半径位置须含边链
+   两端、rhos 数组非空）封装为 `variable_blend_edge`，Blend Edge 对话框
+   新增 Variable radius 模式（起/终点半径）；PK_BODY_spin（V37 8 参）
+   封装为 `spin_body`，Face Extrusion 新增 Spin (revolve) 模式。剩余：
+   draft/shell/offset/replace/imprint/midsurface 等商用 CAD 全集。
 6. **COM typed 包装补面**：Sketch/Property/Table 三类（GetSketcher/
    GetTable/GetPropertyEntity 现返裸 ComObject）+ Set*Param 值格式终证。
 7. **FEM 证据补全**：探针实证壳/六面体 kind 值；若 STpre FEM 转换本身
@@ -146,7 +162,8 @@ v6 实证复核确认：MVP 闭环（建模→条件→网格→.s→求解监�
 > 版本轨迹：v1（§18，≈60%）→ §39 专项审计 → v2（2026-08-15，≈76%）→
 > v3（R1–R10，≈91%）→ v4（R11–R19 + 显示修复，≈92%）→ v5（R3.1 +
 > R3.5a-c，≈93%）→ v6（实证复核，≈88%；晚间补网格缺口定档）→
-> **v6.1（2026-08-17，R20 网格缺口清零，≈89%）**。
+> v6.1（2026-08-17，R20 网格缺口清零，≈89%）→
+> **v6.2（2026-08-17，R21 PK 变半径倒圆 + 旋转成体，≈90%）**。
 
 > ⚠ 注意：`tools/patch_gap_doc.py` 会以脚本内嵌文本重写本文档，运行前先
 > 更新其内嵌内容，避免覆盖手工编辑（2026-08-16 曾因此回退 §七）。
