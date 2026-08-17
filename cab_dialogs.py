@@ -907,6 +907,20 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
             ("t", "Mode", "mode", None, ""),
             ("t", "Type", "type", None, ""),
         ),
+        "two_resistor": (
+            ("f", "Rjc (K/W)", "rjc", None, 1.0),
+            ("f", "Rjb (K/W)", "rjb", None, 5.0),
+            ("f", "Package power (W)", "package_power", None, 1.0),
+        ),
+        "multi_resistor": (
+            ("f", "Rjc (K/W)", "rjc", None, 1.0),
+            ("f", "Rjb (K/W)", "rjb", None, 5.0),
+            ("f", "Package power (W)", "package_power", None, 1.0),
+            ("i", "Number of resistors", "n_resistors", None, 2),
+        ),
+        "delphi": (
+            ("t", "Nodes (name,R; …)", "nodes", None, ""),
+        ),
     }
 
     def __init__(self, model, part_name: str, parent=None):
@@ -975,7 +989,10 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
                 if i >= 0:
                     w.setCurrentIndex(i)
             elif isinstance(w, QLineEdit):
-                w.setText(str(value))
+                if key == "nodes" and isinstance(value, (list, tuple)):
+                    w.setText("; ".join(f"{n},{r:g}" for n, r in value))
+                else:
+                    w.setText(str(value))
             elif isinstance(w, QSpinBox):
                 w.setValue(int(value))
             else:
@@ -992,6 +1009,18 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
                 value = w.currentText()
             elif isinstance(w, QLineEdit):
                 value = w.text().strip()
+                if key == "nodes":
+                    nodes = []
+                    for chunk in value.split(";"):
+                        chunk = chunk.strip()
+                        if "," not in chunk:
+                            continue
+                        nm, rs = chunk.split(",", 1)
+                        try:
+                            nodes.append((nm.strip(), float(rs)))
+                        except ValueError:
+                            continue
+                    value = nodes
             elif isinstance(w, QSpinBox):
                 value = w.value()
             else:

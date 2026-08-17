@@ -671,6 +671,19 @@ class StpreModel:
         "anemostat": {
             "mode": (None, "str"), "type": (None, "str"),
         },
+        # W2: compact thermal models. two_resistor / multi_resistor store
+        # JEDEC Rjc/Rjb/power as part children (same tags as cab_parts
+        # _write_part_condition_xml). Delphi node network is
+        # ``<thermal_node no>`` / name / resistance (unit C/W).
+        "two_resistor": {
+            "rjc": ("K/W", 1), "rjb": ("K/W", 1),
+            "package_power": ("W", 1),
+        },
+        "multi_resistor": {
+            "rjc": ("K/W", 1), "rjb": ("K/W", 1),
+            "package_power": ("W", 1), "n_resistors": (None, "int"),
+        },
+        "delphi": {},
     }
 
     #: 真实 STpre 部件 type 与本项目 kind 的别名
@@ -718,6 +731,20 @@ class StpreModel:
                 if not vals:
                     continue
                 out[tag] = vals[0] if fmt == 1 else vals
+        if kind == "delphi":
+            nodes = []
+            for n in el.findall("thermal_node"):
+                nm = _first(n, "name")
+                res = _first(n, "resistance")
+                name_s = (nm.text or "").strip() if nm is not None else ""
+                try:
+                    r = float((res.text or "0").strip()) if res is not None else 0.0
+                except ValueError:
+                    r = 0.0
+                if name_s:
+                    nodes.append((name_s, r))
+            if nodes:
+                out["nodes"] = nodes
         if kind == "diffuser":
             # 风量/温度优先取绑定的 flux 值（实证存储位置）
             val = self._part_flux_value(name)
@@ -770,8 +797,11 @@ class StpreModel:
         if kind is None:
             return False
         spec = self._SPECIAL_PARAM_FIELDS[kind]
+        extra = set()
+        if kind == "delphi":
+            extra.add("nodes")
         for key in params:
-            if key not in spec:
+            if key not in spec and key not in extra:
                 return False
         el = self.find_part(name)
 
@@ -787,7 +817,7 @@ class StpreModel:
                 c.attrib.pop("unit", None)
 
         for tag, value in params.items():
-            if value is None:
+            if value is None or tag in extra:
                 continue
             unit, fmt = spec[tag]
             if fmt == "str":
@@ -824,6 +854,24 @@ class StpreModel:
                 return False
             if not self.bind_condition("parts", name, vname):
                 return False
+        if kind == "delphi" and "nodes" in params:
+            for child in list(el.findall("thermal_node")):
+                el.remove(child)
+            for i, item in enumerate(params["nodes"] or [], start=1):
+                if isinstance(item, (tuple, list)) and len(item) >= 2:
+                    nm, r = item[0], item[1]
+                else:
+                    continue
+                n = ET.SubElement(el, "thermal_node")
+                n.attrib["no"] = str(i)
+                n.tail = "\n         "
+                name_el = ET.SubElement(n, "name")
+                name_el.text = f" {nm} "
+                name_el.tail = "\n            "
+                res_el = ET.SubElement(n, "resistance")
+                res_el.text = f" {float(r):.12g} "
+                res_el.attrib["unit"] = "C/W"
+                res_el.tail = "\n         "
         return True
 
     def reorder_parts(self, names: list[str], anchor: str, *,
