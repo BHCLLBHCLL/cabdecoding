@@ -250,6 +250,19 @@ class StpreModel:
             return {}
         return {c.tag: (c.text or "").strip() for c in u}
 
+    def set_unit(self, tag: str, text: str) -> bool:
+        """Set ``<unit>/<tag>`` (display / geometry / ...)."""
+        u = _first(self.root, "unit")
+        if u is None:
+            u = ET.SubElement(self.root, "unit")
+            u.tail = "\n"
+        el = _first(u, tag)
+        if el is None:
+            el = ET.SubElement(u, tag)
+            el.tail = "\n      "
+        set_text(el, text)
+        return True
+
     # -- parts -------------------------------------------------------------
 
     def groups(self) -> list[ET.Element]:
