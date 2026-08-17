@@ -26,22 +26,27 @@
 
 ---
 
-## 二、功能完整度与深度百分比清单（12 维，v5 声称 vs v6 复核）
+## 二、功能完整度与深度百分比清单（12 维，v5 声称 vs v6 复核 vs v6.1）
 
-| # | 维度 | v5 | v6 | 深度依据（实证） | 剩余差距 |
-|---:|---|:---:|:---:|---|---|
-| 1 | 数据层（cab 容器/XML/材料/单位） | 95% | **95%** | MSZIP 读写、239 条目材料库与 STpre 同源（vendored standard_property_ENG.xml）、XML 往返稳定 | — |
-| 2 | 几何建模 Part | 93% | **93%** | 26 原语 + sketch/pipe + 八种专用件参数面（fan 系/pin_fin/slit_punching/anemostat，STpreBase 字符串实证） | 其余专用件深字段（R3.5d 滚动） |
-| 3 | UI 菜单/对话框 | 92% | **92%** | 8 菜单无 NYI、90+ 对话框、测量四模式 | Reference 深度、连线链菜单块 |
-| 4 | .s 导出 | 93% | **92%** | 22 section 全发射 + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（hdr2/EQUA/HSOL/CYCS-CYCT/UNDR-STED/VFEX-HEATPATH 全 XML 派生，ex4 逐字节） | hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP 无 XML 源 |
-| 5 | 网格 Gridding/Meshing | 93% | **93%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；sub-block 细化因子与逐件 vertex detection 已在；**R20（2026-08-17）：.ccel 二进制读写（11 官方样本 rebuild 字节级一致）+ CCEL 行/负 id PARTS 发射；`mesh_fine_divide`/`divide` XML 往返；`<element>` body/face 9 元组全保真读写；interference 按 kind 权重消解** | ccel 面片 ATTR 深字段（PANEL 之外）未发射；细化字段仅存储往返、classify/grid 尚未按逐轴细分数实际细分；List of Parts 优先级只读列未加（规则已入库） |
-| 6 | Condition Wizard | 86% | **88%** | 24/25 类型 + 35 深度页 + R8 五类深字段页（MC 辐射/MARS-VOF/particle/reaction 多步/output series）+ 表达式管理器（列表/编辑/级联删）+ MOVB 运动表 | R3.5d 边缘页深字段；scFLOW-only 2 项（合理禁用） |
-| 7 | 几何编辑 PK 内核 | 93% | **90%** | Edit Solid 8/8 全真实 PK（delete_2/sew/sweep/make_sheet/simplify_geom/extract 等）+ blend/chamfer/G1 链（golden 530/422）+ boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 变半径倒圆（vary 字段占位未启用）；按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
-| 8 | 求解闭环 | 90% | **80%** | SolverProcess 监控（行流/进度/exit code）100%、结果文件扫描、.pst 预填 scPOST | 收敛曲线图 0%、.pst 解析/结果回读 3D 场景 0%（现仅文件清单+末行日志摘要） |
-| 9 | COM 自动化桥 | 80% | **78%** | ComObject.call 泛型全 VB 面 + ~220 typed 包装 + 18 方法签名/存储探针实证（data/com_*_probe.json） | Sketch/Property/Table 类零 typed 包装（GetSketcher/GetTable 返裸 ComObject）；Set*Param 值格式未终证 |
-| 10 | FEM | 80% | **75%** | CreateFEM COM 实证（.xfem tet4）+ 容器读写往返 + 离线 Delaunay/六面体→tet 剖分 + e2e | 仅 kind=4 四面体；壳/六面体 kind 无证据面（注释明确降级） |
-| 11 | 高级工具 | 85% | **70%** | Parametric Study 90%（矩阵/CSV/批量联动）+ Batch 队列 95%（QProcess 状态机）+ WindTool 前置逻辑（风向/Weibull/power-law） | WindTool.exe / PICLS / scPOST 仅路径定位器（cab_tools.py），EXE 从未带参启动 |
-| 12 | 导入导出 | 85% | **80%** | x_t/stl/obj/dxf/mdl/ecxml 双向 + IFC 导入 3 profile（rect/circle/polygon） | v5「nas 双向」失实（cab_import.py 显式 raise ValueError）；STEP/SAT 仅导入；IFC 导出仅矩形 profile；IGES/IDF 决策不做（合理） |
+| # | 维度 | v5 | v6 | v6.1 | 深度依据（实证） | 剩余差距 |
+|---:|---|:---:|:---:|:---:|---|---|
+| 1 | 数据层（cab 容器/XML/材料/单位） | 95% | 95% | **95%** | MSZIP 读写、239 条目材料库与 STpre 同源（vendored standard_property_ENG.xml）、XML 往返稳定 | — |
+| 2 | 几何建模 Part | 93% | 93% | **93%** | 26 原语 + sketch/pipe + 八种专用件参数面（fan 系/pin_fin/slit_punching/anemostat，STpreBase 字符串实证） | 其余专用件深字段（R3.5d 滚动） |
+| 3 | UI 菜单/对话框 | 92% | 92% | **92%** | 8 菜单无 NYI、90+ 对话框、测量四模式 | Reference 深度、连线链菜单块 |
+| 4 | .s 导出 | 93% | 92% | **92%** | 22 section 全发射 + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（hdr2/EQUA/HSOL/CYCS-CYCT/UNDR-STED/VFEX-HEATPATH 全 XML 派生，ex4 逐字节）；R20 增：cut-cell 零件 CCEL 行 + PARTS 负 id + REGION 绝对值（exA23-2b/4 对拍）、GUI 导出与批量链同步写 .ccel 成员 | hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP 无 XML 源 |
+| 5 | 网格 Gridding/Meshing | 93% | 90% | **93%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；sub-block 细化因子与逐件 vertex detection 已在；**R20（2026-08-17）：.ccel 二进制读写（11 官方样本 rebuild 字节级一致）+ CCEL 行/负 id PARTS 发射；`mesh_fine_divide`/`divide` XML 往返；`<element>` body/face 9 元组全保真读写；interference 按 kind 权重消解** | ccel 面片 ATTR 深字段（PANEL 之外）未发射；细化字段仅存储往返、classify/grid 尚未按逐轴细分数实际细分；List of Parts 优先级只读列未加（规则已入库） |
+| 6 | Condition Wizard | 86% | 88% | **88%** | 24/25 类型 + 35 深度页 + R8 五类深字段页（MC 辐射/MARS-VOF/particle/reaction 多步/output series）+ 表达式管理器（列表/编辑/级联删）+ MOVB 运动表 | R3.5d 边缘页深字段；scFLOW-only 2 项（合理禁用） |
+| 7 | 几何编辑 PK 内核 | 93% | 90% | **90%** | Edit Solid 8/8 全真实 PK（delete_2/sew/sweep/make_sheet/simplify_geom/extract 等）+ blend/chamfer/G1 链（golden 530/422）+ boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 变半径倒圆（vary 字段占位未启用）；按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
+| 8 | 求解闭环 | 90% | 80% | **80%** | SolverProcess 监控（行流/进度/exit code）100%、结果文件扫描、.pst 预填 scPOST | 收敛曲线图 0%、.pst 解析/结果回读 3D 场景 0%（现仅文件清单+末行日志摘要） |
+| 9 | COM 自动化桥 | 80% | 78% | **78%** | ComObject.call 泛型全 VB 面 + ~220 typed 包装 + 18 方法签名/存储探针实证（data/com_*_probe.json） | Sketch/Property/Table 类零 typed 包装（GetSketcher/GetTable 返裸 ComObject）；Set*Param 值格式未终证 |
+| 10 | FEM | 80% | 75% | **75%** | CreateFEM COM 实证（.xfem tet4）+ 容器读写往返 + 离线 Delaunay/六面体→tet 剖分 + e2e | 仅 kind=4 四面体；壳/六面体 kind 无证据面（注释明确降级） |
+| 11 | 高级工具 | 85% | 70% | **70%** | Parametric Study 90%（矩阵/CSV/批量联动）+ Batch 队列 95%（QProcess 状态机，R20 起批量案例同步落 .ccel）+ WindTool 前置逻辑（风向/Weibull/power-law） | WindTool.exe / PICLS / scPOST 仅路径定位器（cab_tools.py），EXE 从未带参启动 |
+| 12 | 导入导出 | 85% | 80% | **80%** | x_t/stl/obj/dxf/mdl/ecxml 双向 + IFC 导入 3 profile（rect/circle/polygon） | v5「nas 双向」失实（cab_import.py 显式 raise ValueError）；STEP/SAT 仅导入；IFC 导出仅矩形 profile；IGES/IDF 决策不做（合理） |
+
+v6 → v6.1 变更溯源（`f7d7ed7..21cdd7a` 仅 R20 一个代码提交）：维度 5
++3（90→93，四缺口清零）；维度 4 证据面增补（CCEL 行 / PARTS 负 id /
+REGION 绝对值 / .ccel 成员同步写，百分比维持——hdr 常量三项差距未动）；
+维度 11 证据面微增（批量链 .ccel）。其余 9 维无代码变更、数字不动。
 
 **总体完成度 ≈89%**（v1 60% → v2 76% → v3 91% → v4 92% → v5 93% →
 v6 实证复核 88% → **v6.1 R20 网格缺口清零 89%**）。差距非虚报，而是
