@@ -124,6 +124,17 @@ def _ccel_faces_for(p, tess) -> list:
     return _ccel.faces_from_triangles(pts, tris)
 
 
+def _ccel_attr(p) -> str:
+    """CCEL ATTR from part attribute/kind: PANEL, FLUID, or BODY."""
+    a = (getattr(p, "attribute", "") or "").strip().lower()
+    k = (getattr(p, "kind", "") or "").strip().lower()
+    if a in ("panel", "sheet", "open") or k in ("panel", "quad_panel"):
+        return "PANEL"
+    if a == "fluid" or a.startswith("fluid"):
+        return "FLUID"
+    return "BODY"
+
+
 def build_ccel(model: StpreModel, meshes=None) -> Optional[bytes]:
     """R20: serialise cut-cell registered parts to a ``.ccel`` stream.
 
@@ -145,7 +156,7 @@ def build_ccel(model: StpreModel, meshes=None) -> Optional[bytes]:
             name=p.name,
             type_str=_CCEL_TYPE_BY_KIND.get((p.kind or "").lower(),
                                             "Any_Body"),
-            attr="PANEL" if (p.attribute or "").lower() == "panel" else "BODY",
+            attr=_ccel_attr(p),
             faces=faces))
     return _ccel.write_ccel(out)
 
