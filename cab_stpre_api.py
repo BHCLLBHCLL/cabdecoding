@@ -1963,3 +1963,318 @@ API_MEMBER_COUNTS = {
     "Property": 22,  # Get/Set + table/script/expression/entity (VB Property_Class)
     "Table": 12,     # Get/Set name/type/data/units/cond (VB Table_Class)
 }
+
+
+# ── W5: typelib authoritative enumeration + per-class coverage metric ────
+#
+# Layered closure plan (function_gap_analysis.md §四.6): layer A (wrapper
+# coverage) can reach 100% once every typelib member has a typed wrapper;
+# layer B (live semantic proof per member) has a hard headless ceiling.
+# These helpers turn "~220/1409" into a measurable per-class metric and
+# replace manual-count cross-checks with the registered type library as
+# the authoritative member source (flowviewer com_typelib methodology).
+
+_TYPELIB_CACHE = Path(__file__).resolve().parent / "data" / "com_typelib_members.json"
+
+_TYPED_BY_VB: dict = {}  # populated below from the typed wrapper classes
+
+
+def typelib_member_table(progid: str = PROGID) -> dict:
+    """Authoritative member table from STpre's registered type library.
+
+    Walks HKCR\\<progid>\\CLSID -> TypeLib (+Version), loads the typelib via
+    ``pythoncom.LoadRegTypeLib`` and enumerates every type info's function
+    and variable member names. Returns ``{type_name: sorted members}``.
+
+    Requires STpre installed (pywin32 + registry); raises RuntimeError with
+    the offending step otherwise. Cache the result with
+    :func:`save_typelib_cache` so :func:`coverage_report` works offline.
+    """
+    import winreg
+
+    import pythoncom
+
+    def _reg(path: str) -> str:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, path) as k:
+                return winreg.QueryValueEx(k, "")[0]
+        except OSError as exc:
+            raise RuntimeError(f"registry {path}: {exc}") from exc
+
+    clsid = _reg(progid + r"\CLSID")
+    tlid = _reg(rf"CLSID\{clsid}\TypeLib")
+    try:
+        ver = _reg(rf"CLSID\{clsid}\Version")  # e.g. "1.0"
+        major, minor = (int(x) for x in ver.split("."))
+    except RuntimeError:
+        major, minor = 1, 0
+    try:
+        lib = pythoncom.LoadRegTypeLib(pythoncom.MakeIID(tlid), major, minor, 0)
+    except Exception as exc:  # pythoncom raises raw com_error
+        raise RuntimeError(f"LoadRegTypeLib {tlid} {major}.{minor}: {exc}") from exc
+
+    table: dict[str, list[str]] = {}
+    for i in range(lib.GetTypeInfoCount()):
+        tinfo = lib.GetTypeInfo(i)
+        attr = tinfo.GetTypeInfoAttr()
+        name = tinfo.GetDocumentation(-1)[0]
+        members: set = set()
+        for f in range(attr.cFuncs):
+            fd = tinfo.GetFuncDesc(f)
+            try:
+                members.add(tinfo.GetNames(fd.memid)[0])
+            except Exception:
+                continue
+        for v in range(attr.cVars):
+            vd = tinfo.GetVarDesc(v)
+            try:
+                members.add(tinfo.GetNames(vd.memid)[0])
+            except Exception:
+                continue
+        if name and members:
+            table[name] = sorted(members)
+    if not table:
+        raise RuntimeError("typelib enumerated zero members")
+    return table
+
+
+_MANUAL_DIR = Path(
+    r"C:\Program Files\Cradle\CradleCFD2025.2\Manuals\ST\HTML\VB_Interface_eng")
+
+# "Appliation" is Cradle's own typo in the shipped filename — do not fix.
+_MANUAL_PAGES = {
+    "Application": "St_vb_Preprocessor_Appliation_Class.html",
+    "Doc": "St_vb_Preprocessor_Doc_Class.html",
+    "Model": "St_vb_Preprocessor_Model_Class.html",
+    "Value": "St_vb_Preprocessor_Value_Class.html",
+    "Mesher": "St_vb_Preprocessor_Mesher_Class.html",
+    "Sketch": "St_vb_Preprocessor_Sketch_Class.html",
+    "Property": "St_vb_Preprocessor_Property_Class.html",
+    "Table": "St_vb_Preprocessor_Table_Class.html",
+    "AirconModel": "St_vb_Preprocessor_AirconModel_Class.html",
+    "Femodel": "St_vb_Preprocessor_Femodel_Class.html",
+    "GerberModel": "St_vb_Preprocessor_GerberModel_Class.html",
+}
+
+_MANUAL_STRUCTURAL_IDS = {
+    "container", "contents", "toc", "toctitle", "Property", "Method",
+    "Note", "Example", "See_also", "SeeAlso", "top",
+}
+
+
+def manual_member_table(manual_dir: Path | None = None) -> dict:
+    """Member table parsed from the VB_Interface_eng manual class pages.
+
+    Empirical chain (2026-08-18): this STpre registers no TypeLib and its
+    IDispatch raises on GetTypeInfo, so the *manual* is the only
+    authoritative member source on this machine. Every documented member
+    has an ``id="Name"`` heading anchor (verified: heading ids == TOC
+    level-2 anchors on every page); structural anchors (toc/Property/
+    Method group headers) are excluded. Raises RuntimeError when the
+    manual directory is absent.
+    """
+    import re
+
+    root = Path(manual_dir) if manual_dir else _MANUAL_DIR
+    if not root.is_dir():
+        raise RuntimeError(f"manual dir not found: {root}")
+    table: dict[str, list[str]] = {}
+    for label, filename in _MANUAL_PAGES.items():
+        page = root / filename
+        if not page.exists():
+            continue
+        try:
+            text = page.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        ids = set(re.findall(r'id="([A-Za-z_]\w*)"', text))
+        members = sorted(ids - _MANUAL_STRUCTURAL_IDS)
+        if members:
+            table[label] = members
+    if not table:
+        raise RuntimeError(f"no member anchors parsed under {root}")
+    return table
+
+
+def save_typelib_cache(path: Path | None = None) -> Path:
+    """Enumerate members and persist as JSON for offline reuse.
+
+    Provenance chain, first success wins (recorded in ``_source``):
+    registry typelib → VB manual heading anchors. (``dispatch_member_table``
+    is deliberately off the automatic chain: it launches STpre only to find
+    IDispatch::GetTypeInfo unsupported on this build.)
+    """
+    import json
+
+    target = Path(path) if path else _TYPELIB_CACHE
+    target.parent.mkdir(parents=True, exist_ok=True)
+    table = None
+    source = ""
+    for fn, src in ((typelib_member_table, "typelib"),
+                    (manual_member_table, "manual")):
+        try:
+            table = fn()
+            source = src
+            break
+        except RuntimeError:
+            continue
+    if table is None:
+        raise RuntimeError("no member source available")
+    table["_source"] = source
+    table["_generated"] = "2026-08-18"
+    target.write_text(json.dumps(table, indent=1, sort_keys=True), encoding="utf-8")
+    return target
+
+
+def load_typelib_cache(path: Path | None = None) -> dict:
+    """Load a previously saved member table; {} when the cache is absent."""
+    import json
+
+    target = Path(path) if path else _TYPELIB_CACHE
+    if not target.exists():
+        return {}
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {}
+        # member lists become lists; provenance stamps (str) stay verbatim
+        return {k: (v if isinstance(v, str) else list(v))
+                for k, v in data.items()}
+    except (OSError, ValueError):
+        return {}
+
+
+def coverage_report(table: dict | None = None) -> dict:
+    """Per-class typed-wrapper coverage against the typelib member table.
+
+    Typed wrappers expose VB member names verbatim (``OpenCabFile`` etc.), so
+    coverage is an exact-name intersection. With no typelib table available
+    the report still lists typed counts against the manual
+    :data:`API_MEMBER_COUNTS` baseline (``pct`` then None).
+    """
+    if table is None:
+        table = load_typelib_cache()
+    rows: dict[str, dict] = {}
+    tot_lib = tot_typed = 0
+    for vb, cls in _TYPED_BY_VB.items():
+        wrapped = {n for n in dir(cls) if not n.startswith("_")}
+        members = sorted(set(table.get(vb, [])))
+        hit = [m for m in members if m in wrapped]
+        missing = [m for m in members if m not in wrapped]
+        manual = API_MEMBER_COUNTS.get(vb, 0)
+        rows[vb] = {
+            "typelib": len(members),
+            "manual": manual,
+            "typed": len(hit),
+            "pct": round(100.0 * len(hit) / len(members), 1) if members else None,
+            "missing_head": missing[:8],
+        }
+        tot_lib += len(members)
+        tot_typed += len(hit)
+    rows["TOTAL"] = {
+        "typelib": tot_lib,
+        "manual": sum(API_MEMBER_COUNTS.values()),
+        "typed": tot_typed,
+        "pct": round(100.0 * tot_typed / tot_lib, 1) if tot_lib else None,
+        "missing_head": [],
+    }
+    return rows
+
+
+_TYPED_BY_VB = {
+    "Application": STpreApplication,
+    "Doc": STpreDoc,
+    "Model": STpreModel,
+    "Value": STpreValue,
+    "Mesher": STpreMesher,
+    "MeshBlock": STpreMeshBlock,
+    "Sketch": STpreSketch,
+    "Property": STpreProperty,
+    "Table": STpreTable,
+}
+
+
+def _members_of_dispatch(obj) -> list[str]:
+    """Function + variable member names of a live IDispatch object."""
+    if obj is None:
+        return []
+    try:
+        tinfo = obj._oleobj_.GetTypeInfo()
+        attr = tinfo.GetTypeInfoAttr()
+    except Exception:
+        return []
+    names: set = set()
+    for f in range(attr.cFuncs):
+        try:
+            names.add(tinfo.GetNames(tinfo.GetFuncDesc(f).memid)[0])
+        except Exception:
+            continue
+    for v in range(attr.cVars):
+        try:
+            names.add(tinfo.GetNames(tinfo.GetVarDesc(v).memid)[0])
+        except Exception:
+            continue
+    return sorted(names)
+
+
+def dispatch_member_table(cab_path: Path | None = None) -> dict:
+    """Member table from a live STpre via IDispatch::GetTypeInfo.
+
+    This machine's STpre registers no TypeLib (HKCR CLSID has only
+    LocalServer32/ProgID/InprocHandler32), so ``typelib_member_table``
+    cannot resolve a library — but every automation object still carries
+    its own type info. This starts a private hidden STpre, opens a cab
+    project (default ``tests/box.cab``) so the model/value/mesher routes
+    return live objects, walks the documented getter routes and collects
+    per-class members. Raises RuntimeError when STpre cannot be started;
+    per-route failures degrade to skipped classes (recorded as []).
+    """
+    import win32com.client
+
+    cab = str(Path(cab_path) if cab_path
+              else Path(__file__).resolve().parent / "tests" / "box.cab")
+    try:
+        app = win32com.client.Dispatch(PROGID)
+    except Exception as exc:
+        raise RuntimeError(f"Dispatch {PROGID}: {exc}") from exc
+    table: dict[str, list[str]] = {}
+    try:
+        table["Application"] = _members_of_dispatch(app)
+        doc = _invoke(app, "GetDocument")
+        table["Doc"] = _members_of_dispatch(doc)
+        routes = [
+            ("Mesher", lambda: _invoke(doc, "GetMesher")),
+            ("Sketch", lambda: _invoke(doc, "GetSketcher")),
+            ("Table", lambda: _invoke(doc, "GetTable")),
+            ("Model", lambda: (_invoke(doc, "GetAllModelArray") or [None])[0]),
+            ("Value", lambda: (_invoke(doc, "GetAllValueArray") or [None])[0]),
+            ("Property", lambda: _invoke(doc, "GetPropertyEntity", 0)),
+        ]
+        for label, route in routes:
+            try:
+                table[label] = _members_of_dispatch(route())
+            except Exception:
+                table[label] = []
+        try:
+            mesher = _invoke(doc, "GetMesher")
+            for getter, args in (("GetRootBlock", ()), ("GetBlock", (0,))):
+                try:
+                    blk = _invoke(mesher, getter, *args)
+                    members = _members_of_dispatch(blk)
+                    if members:
+                        table["MeshBlock"] = members
+                        break
+                except Exception:
+                    continue
+            table.setdefault("MeshBlock", [])
+        except Exception:
+            table["MeshBlock"] = []
+    finally:
+        try:
+            _invoke(app, "Quit")
+        except Exception:
+            pass
+    live = {k: v for k, v in table.items() if v}
+    if not live:
+        raise RuntimeError("dispatch routes returned zero members")
+    return table

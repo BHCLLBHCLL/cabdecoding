@@ -3,7 +3,7 @@
 > 对比基准：Cradle scSTREAM Pre（`C:\Program Files\Cradle\CradleCFD2025.2\
 > Programs_x64\STpre_Bx64net.exe`），参考 `Pre_eng` / `Operation_eng` /
 > `VB_Interface_eng` 手册。
-> 本版在 v5（R1–R19 + R3.1/R3.5a-c）基础上做**全面实证复核**：三路并行
+> 本版在 v5（R1–R19 + R3.5a-c）基础上做**全面实证复核**：三路并行
 > 代码审计（PK 编辑链 / 求解·FEM·工具·COM / CW·网格·.s·导入·数据层，
 > 逐项 file:line 取证）+ 全量测试重跑。核心变化：v5 若干维度按「逻辑存在」
 > 计分，v6 按「用户可用深度」严格复核，修正 3 项高估 / 1 项失实声明。
@@ -15,16 +15,23 @@
 > （PK_EDGE_set_blend_variable V37 legacy v1 ABI，端点半径自动外推）
 > + PK_BODY_spin 旋转成体（Pappus 体积实证 2π/3），维度 7 90%→93%；
 > .s VFDE 金标修复（MRCL 仅在 radiation XML 显式 smrt_rays 时发射）。
+> 2026-08-17/18 W1–W4 波次落地：细化实际细分/ccel ATTR/优先级列/
+> Reference·连线链/专用件深字段/hdr 常量定档+派生/typed COM 包装
+> 六维残项清零（见 §二 v6.3 列与 v6.2→v6.3 溯源）。
+> 2026-08-18 配套仓复核：求解结果可视化断层减半——3D 结果回读已由
+> ../flowviewer（FPH/FLD/CGNS 后处理查看器，348 tests 绿）承接，
+> 维度 8 80%→82%；收敛残差曲线仍属本仓（见 §四.1）。
 
 ---
 
-## 一、复核基线（2026-08-16 实测；08-17 R20 后复测）
+## 一、复核基线（2026-08-16 实测；08-18 W4 后复测）
 
-- v6 基线 HEAD `f7d7ed7`；R20 落地后 43 个运行时模块 ≈4.89 万行。
-- v6.2 HEAD `4ac9abd`（R21）：全量测试 **575 passed / 0 failed /
-  4 skipped**（14 个沙箱 tempfile PermissionError 为环境噪音，do-not-fix）。
-- 全量测试（2026-08-17，--basetemp 本地化）：**570 passed / 0 failed /
-  4 skipped**（64s；原 14 个沙箱 tempfile 权限错误清零，含 m46 R20 15 例）。
+- v6 基线 HEAD `f7d7ed7`；v6.3 HEAD `993cdd8`（W4），43 个运行时模块
+  ≈4.99 万行。
+- 全量测试（2026-08-18，--basetemp 本地化）：**614 passed / 0 failed /
+  4 skipped**（71s；v6.1 时 570 → v6.3 增 44 例：W1/W2/W3/W4 波次）。
+- 配套仓 `../flowviewer` HEAD `d7bb223`（348 passed，后处理查看器），
+  用于维度 8 结果回读能力判定。
 - 金标维持 MATCH：all `59/118/121`、rep `57/91/92`；blend golden
   facets 530/422（`tests/test_blend.py`）。
 - 审计方法：三个并行只读审计（编辑 PK / 求解闭环·FEM·高级工具·COM /
@@ -32,22 +39,22 @@
 
 ---
 
-## 二、功能完整度与深度百分比清单（12 维，v5 声称 vs v6 复核 vs v6.2）
+## 二、功能完整度与深度百分比清单（12 维，v5 vs v6 vs v6.2 vs v6.3）
 
-| # | 维度 | v5 | v6 | v6.1 | 深度依据（实证） | 剩余差距 |
-|---:|---|:---:|:---:|:---:|---|---|
-| 1 | 数据层（cab 容器/XML/材料/单位） | 95% | 95% | **95%** | MSZIP 读写、239 条目材料库与 STpre 同源（vendored standard_property_ENG.xml）、XML 往返稳定 | — |
-| 2 | 几何建模 Part | 93% | 93% | **93%** | 26 原语 + sketch/pipe + 八种专用件参数面（fan 系/pin_fin/slit_punching/anemostat，STpreBase 字符串实证） | 其余专用件深字段（R3.5d 滚动） |
-| 3 | UI 菜单/对话框 | 92% | 92% | **92%** | 8 菜单无 NYI、90+ 对话框、测量四模式 | Reference 深度、连线链菜单块 |
-| 4 | .s 导出 | 93% | 92% | **92%** | 22 section 全发射 + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（hdr2/EQUA/HSOL/CYCS-CYCT/UNDR-STED/VFEX-HEATPATH 全 XML 派生，ex4 逐字节）；R20 增：cut-cell 零件 CCEL 行 + PARTS 负 id + REGION 绝对值（exA23-2b/4 对拍）、GUI 导出与批量链同步写 .ccel 成员 | hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP 无 XML 源 |
-| 5 | 网格 Gridding/Meshing | 93% | 90% | **93%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；sub-block 细化因子与逐件 vertex detection 已在；**R20（2026-08-17）：.ccel 二进制读写（11 官方样本 rebuild 字节级一致）+ CCEL 行/负 id PARTS 发射；`mesh_fine_divide`/`divide` XML 往返；`<element>` body/face 9 元组全保真读写；interference 按 kind 权重消解** | ccel 面片 ATTR 深字段（PANEL 之外）未发射；细化字段仅存储往返、classify/grid 尚未按逐轴细分数实际细分；List of Parts 优先级只读列未加（规则已入库） |
-| 6 | Condition Wizard | 86% | 88% | **88%** | 24/25 类型 + 35 深度页 + R8 五类深字段页（MC 辐射/MARS-VOF/particle/reaction 多步/output series）+ 表达式管理器（列表/编辑/级联删）+ MOVB 运动表 | R3.5d 边缘页深字段；scFLOW-only 2 项（合理禁用） |
-| 7 | 几何编辑 PK 内核 | 93% | 90% | **93%** | Edit Solid 8/8 全真实 PK（delete_2/sew/sweep/make_sheet/simplify_geom/extract 等）+ blend/chamfer/G1 链（golden 530/422）+ **R21：变半径倒圆（PK_EDGE_set_blend_variable legacy v1，52 字节选项，端点自动外推；10 m 方 2.0→0.5 m 体积实证 996.2）+ PK_BODY_spin 旋转成体（Pappus 2π/3 实证，Face Extrusion Spin 模式）** + boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
-| 8 | 求解闭环 | 90% | 80% | **80%** | SolverProcess 监控（行流/进度/exit code）100%、结果文件扫描、.pst 预填 scPOST | 收敛曲线图 0%、.pst 解析/结果回读 3D 场景 0%（现仅文件清单+末行日志摘要） |
-| 9 | COM 自动化桥 | 80% | 78% | **78%** | ComObject.call 泛型全 VB 面 + ~220 typed 包装 + 18 方法签名/存储探针实证（data/com_*_probe.json） | Sketch/Property/Table 类零 typed 包装（GetSketcher/GetTable 返裸 ComObject）；Set*Param 值格式未终证 |
-| 10 | FEM | 80% | 75% | **75%** | CreateFEM COM 实证（.xfem tet4）+ 容器读写往返 + 离线 Delaunay/六面体→tet 剖分 + e2e | 仅 kind=4 四面体；壳/六面体 kind 无证据面（注释明确降级） |
-| 11 | 高级工具 | 85% | 70% | **70%** | Parametric Study 90%（矩阵/CSV/批量联动）+ Batch 队列 95%（QProcess 状态机，R20 起批量案例同步落 .ccel）+ WindTool 前置逻辑（风向/Weibull/power-law） | WindTool.exe / PICLS / scPOST 仅路径定位器（cab_tools.py），EXE 从未带参启动 |
-| 12 | 导入导出 | 85% | 80% | **80%** | x_t/stl/obj/dxf/mdl/ecxml 双向 + IFC 导入 3 profile（rect/circle/polygon） | v5「nas 双向」失实（cab_import.py 显式 raise ValueError）；STEP/SAT 仅导入；IFC 导出仅矩形 profile；IGES/IDF 决策不做（合理） |
+| # | 维度 | v5 | v6 | v6.2 | v6.3 | 深度依据（实证） | 剩余差距 |
+|---:|---|:---:|:---:|:---:|:---:|---|---|
+| 1 | 数据层（cab 容器/XML/材料/单位） | 95% | 95% | 95% | **95%** | MSZIP 读写、239 条目材料库与 STpre 同源（vendored standard_property_ENG.xml）、XML 往返稳定；W3 锁 cab/材料/单位往返测试 | — |
+| 2 | 几何建模 Part | 93% | 93% | 93% | **94%** | 26 原语 + sketch/pipe + 八种专用件参数面（fan 系/pin_fin/slit_punching/anemostat，STpreBase 字符串实证）；W2 增：heat_pipe/delphi/双阻·多阻/card_guide 深字段持久化；W4 增：cab 读入时官方 part type → in-tree kind 映射 | R3.5d 其余边缘深字段滚动 |
+| 3 | UI 菜单/对话框 | 92% | 92% | 92% | **94%** | 8 菜单无 NYI、90+ 对话框、测量四模式；W2 增：命名 Reference 坐标系 + 独立 Distance Chain（连线链）菜单块 | — |
+| 4 | .s 导出 | 93% | 92% | 92% | **94%** | 22 section 全发射 + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（ex4 逐字节）；R20 增：CCEL 行 + PARTS 负 id + REGION 绝对值、.ccel 成员同步写；W1/W2 增：VFDE MREF/MRCL 从 radiation XML 派生（MRCL 仅 smrt_rays，金标修复）；hdr1 尾/hdr2 col4-9/VFDE LEAP·EM1 钉为命名常量（测试锁定）；W4 增：hdr1 粒子数从 analysis_etc/particle/max_num 派生、hdr2 fusion/free-surface/moving-body 三标志从 XML 派生 | hdr1 少数尾列仍为常量（已命名+295 样本锁定，非盲值） |
+| 5 | 网格 Gridding/Meshing | 93% | 90% | 93% | **95%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；R20：.ccel 读写（11 官方样本字节级一致）+ 细化 XML 往返 + element 9 元组全保真 + kind 权重消解；W1 增：mesh_fine_divide 在 Gridding/Meshing 实际细分（refine_axes_by_fine_divide，幂等）、ccel ATTR 按零件属性发射（PANEL/BODY/FLUID）、List of Part 只读 Priority 列；W4 增：attribute=area 的 cut-cell 件发 ATTR CBODY | — |
+| 6 | Condition Wizard | 86% | 88% | 88% | **89%** | 24/25 类型 + 35 深度页 + R8 五类深字段页 + 表达式管理器 + MOVB 运动表；W2 增：lamp/fusion 持久化到 analysis_etc，CoSim/BCI-ROM 保持禁用（scFLOW-only 语义正确） | R3.5d 边缘页残余深字段；scFLOW-only 2 项（合理禁用） |
+| 7 | 几何编辑 PK 内核 | 93% | 90% | 93% | **93%** | Edit Solid 8/8 全真实 PK + blend/chamfer/G1 链（golden 530/422）+ R21：变半径倒圆（PK_EDGE_set_blend_variable legacy v1，52 字节选项；10 m 方 2.0→0.5 m 体积实证 996.2）+ PK_BODY_spin 旋转成体（Pappus 2π/3 实证）+ boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
+| 8 | 求解闭环 | 90% | 80% | 80% | **82%** | SolverProcess 监控（行流/进度/exit code）100%、结果文件扫描、.pst 预填 scPOST；v6.3 复核（2026-08-18）：3D 结果回读由配套仓 ../flowviewer 承接（CRDL/FPH/FLD 大端容器+mmap 解析、CGNS ADF 合并、nastran/op2/xdmf/marc/pph 加载器；VTK 渲染 25 模块：Surface/Plane/Particle/streamline/isosurface/pathline/oilflow；scPOST 式三对话框全 tab；HEAD d7bb223，348 tests 绿）——scSTREAM 求解器输出 FPH/FLD 即其原生输入 | 收敛残差曲线图 0%（本仓 SolverProcess 行流已就绪未接绘图）；cab_gui → flowviewer 跳转入口未接（全仓无引用）；.pst 会话解析不做（结果文件直读更本质） |
+| 9 | COM 自动化桥 | 80% | 78% | 78% | **82%** | ComObject.call 泛型全 VB 面 + ~220 typed 包装 + 18 方法签名/存储探针实证；W3 增：typed Sketch/Property/Table 包装类 + Set*Param 值 padding 终证；W5 增：成员权威源三通路（typelib 注册表→live dispatch→VB 手册锚点解析，实证前两路在本机不可用、手册为唯一权威源）+ 逐类覆盖率计量（coverage_report，typed 命名=VB 原名精确匹配，缓存 data/com_typelib_members.json _source=manual）；实测手册锚点 696（11 类），typed 类口径 653、已覆盖 268（41.0%）；分层定档见 §四.6：A 层包装覆盖可达 100%，B 层语义终证存 headless 硬上限，目标档 95%± | A 层缺 385 包装（Doc 259/Model 119/Value 4/Application 2/Sketch 1）；B 层 live probe 滚动（破坏性成员隔离、live-GUI-only 成员 headless 不可终证）；低频成员 Set*Param 值格式 |
+| 10 | FEM | 80% | 75% | 75% | **75%** | CreateFEM COM 实证（.xfem tet4）+ 容器读写往返 + 离线 Delaunay/六面体→tet 剖分 + e2e | 仅 kind=4 四面体；壳/六面体 kind 无证据面（注释明确降级） |
+| 11 | 高级工具 | 85% | 70% | 70% | **70%** | Parametric Study 90%（矩阵/CSV/批量联动）+ Batch 队列 95%（QProcess 状态机，R20 起批量案例同步落 .ccel）+ WindTool 前置逻辑（风向/Weibull/power-law） | WindTool.exe / PICLS / scPOST 仅路径定位器（cab_tools.py），EXE 从未带参启动 |
+| 12 | 导入导出 | 85% | 80% | 80% | **80%** | x_t/stl/obj/dxf/mdl/ecxml 双向 + IFC 导入 3 profile（rect/circle/polygon） | v5「nas 双向」失实（cab_import.py 显式 raise ValueError）；STEP/SAT 仅导入；IFC 导出仅矩形 profile；IGES/IDF 决策不做（合理） |
 
 v6 → v6.1 变更溯源（`f7d7ed7..21cdd7a` 仅 R20 一个代码提交）：维度 5
 +3（90→93，四缺口清零）；维度 4 证据面增补（CCEL 行 / PARTS 负 id /
@@ -60,11 +67,25 @@ Face Extrusion Spin 模式接线）；维度 4 金标修复（VFDE MRCL 仅在
 radiation XML 显式 smrt_rays 时发射，ex4_e.s 1021 行金标恢复逐行一致）。
 其余 10 维数字不动。
 
-**总体完成度 ≈90%**（v1 60% → v2 76% → v3 91% → v4 92% → v5 93% →
-v6 实证复核 88% → v6.1 R20 网格缺口清零 89% → **v6.2 R21 PK 二阶几何
-（变半径倒圆 + 旋转成体）清零 90%**）。差距非虚报，而是
-v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按「用户可用深度」
-严格复核后的修正。
+v6.2 → v6.3 变更溯源（`4ac9abd..993cdd8`，W1–W4 波次 15 个代码提交；
+v6.2 表未及折叠的 W1/W2 残项清零一并列本列）：维度 2 +1（专用件深字段
+持久化 + 官方类型映射）；维度 3 +2（Reference/连线链两残项清零）；
+维度 4 +2（hdr 常量定档命名 + hdr1 粒子数/hdr2 三标志 XML 派生 +
+VFDE MREF/MRCL 派生）；维度 5 +2（细化实际细分 + ATTR 发射 + 优先级
+列三残项清零）；维度 6 +1（lamp/fusion 边缘字段）；维度 9 +4（typed
+Sketch/Property/Table 三类包装 + SetParam padding）。维度 1 证据加固
+（往返锁测试）。其余 5 维不动。
+
+v6.3 内复核（2026-08-18，文档级评估、本仓无代码变更，HEAD 维持
+`993cdd8`）：维度 8 80%→82%——「结果回读 3D 场景 0%」改判为由配套仓
+../flowviewer 解决（求解器输出 FPH/FLD 即其原生输入，非 .pst 会话间接
+路径）；收敛残差曲线仍属本仓 SolverProcess 范围，维持开项。
+
+**总体完成度 ≈91%**（v1 60% → v2 76% → v3 91% → v4 92% → v5 93% →
+v6 实证复核 88% → v6.1 R20 网格缺口清零 89% → v6.2 R21 PK 二阶几何
+清零 90% → **v6.3 W1–W4 六维残项清零 + flowviewer 结果回读承接 91%**）。
+差距非虚报，而是 v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按
+「用户可用深度」严格复核后的修正。
 
 ---
 
@@ -76,12 +97,15 @@ v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按「用户
 2. **求解闭环 90% → 80%**：结果回读 = 文件清单 + 末 40 行日志摘要
    （cab_gui `_scan_solver_results` / `_read_back_solver_results`）；
    收敛曲线图、.pst 二进制解析、结果回读 3D 场景均为 0。
+   （v6.3 注：3D 结果回读已由配套仓 flowviewer 承接、维度 8 上调至
+   82%，见 §二 行 8；收敛曲线仍开。）
 3. **导入导出「nas 双向」失实**：`cab_import.py` 对 .nas 显式
    `raise ValueError(unsupported)`，全仓无 Nastran 解析。
 4. **FEM 80% → 75%**：仅 kind=4 四面体（唯一实证 kind）；壳/六面体
    kind 值无证据面，代码注释明确降级不生成。
 5. **COM 80% → 78%**：泛型面（ComObject.call）覆盖属实，但 typed 层
    Sketch/Property/Table 三类零包装（API_MEMBER_COUNTS 记 0）。
+   （v6.3 注：W3 已补齐三类 typed 包装，见 §二 行 9。）
 6. **CW 86% → 88%（上调）**：表达式管理器（cab_cwizard_pages.py
    `_manage_expressions`：列表/编辑/引用追踪/级联删）与 MOVB 运动表
    （cab_dialogs.MotionPanel + s_export `_movb_parts`/`_movb_control`）
@@ -91,62 +115,105 @@ v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按「用户
 
 ## 四、重点提升方向（按 用户可感知断层 × 性价比 排序）
 
-1. **求解结果可视化闭环**（最大断层）：收敛残差曲线图——SolverProcess
-   行流信号已就绪，接 pyqtgraph/matplotlib 实时绘制即可；进一步做
-   .pst 结果回读为 3D 切片着色，把闭环从「日志尾部」变成「看得见的结果」。
+1. **求解结果可视化闭环（断层已减半，2026-08-18 复核）**：
+   - **3D 结果回读——已由配套仓 ../flowviewer 承接**：CRDL/FPH/FLD
+     原生解析（大端节结构 + mmap 大文件 + 载入优化 57%）+ CGNS ADF +
+     nastran/op2/xdmf/marc/pph 加载器；VTK 渲染 25 模块（Surface/
+     Plane/Particle/streamline/isosurface/pathline/oilflow/vector/
+     volume/mirror）；scPOST 式三对象对话框全 tab；348 tests 绿
+     （HEAD d7bb223）。本仓残项仅**跳转接线**：cab_gui 求解完成扫描
+     到 FPH/FLD 后加「用 flowviewer 打开」入口（子进程 fv_gui.py +
+     结果文件直传，低成本）。
+   - **收敛残差曲线图——仍属本仓**：SolverProcess 行流信号已就绪，
+     接 pyqtgraph/matplotlib 实时绘制即可。
 2. **外部工具 EXE 接线**（低成本高感知）：cab_tools 定位器已就绪，补
    WindTool_Bx64.exe 带参启动（windtool.info 已生成）、scPOST 深化
    .pst 参数启动、PICLS 探测——高级工具 70%→85% 的短路径。
 3. **导入导出纠偏**：NAS 读入（Nastran bulk data 网格解析直接）或文档
    纠正失实声明；IFC 导出补 circle/polygon（导入侧已支持，导出仅剩
    cab_ifc.py 矩形分支）；STEP 导出（OCC write 一步）。
-4. **.s 尾常量透明化**：hdr1 尾 5 列 / hdr2 col4-9 / VFDE LEAP——扩样本
-   交叉 diff，找到 XML 源或实证为恒常量。
+4. **.s 尾常量透明化（W2/W4 完成）**：hdr1 尾/hdr2 col4-9/VFDE LEAP·EM1
+   经 295 样本交叉定档为命名常量（`test_w2_s_constants` 锁定）；hdr1
+   粒子数与 hdr2 fusion/free-surface/moving-body 三标志升级为 XML 派生
+   （`test_w4_hdr1_particle` / `test_w4_hdr2_etc`）；VFDE MREF/MRCL 从
+   radiation XML 派生。残项：hdr1 少数尾列仍为常量（已命名非盲值）。
 5. **PK 变半径倒圆（R21 完成）**：PK_EDGE_set_blend_variable V37 legacy
    v1 ABI（选项仅 {o_t_version, properties} 52 字节；半径位置须含边链
    两端、rhos 数组非空）封装为 `variable_blend_edge`，Blend Edge 对话框
    新增 Variable radius 模式（起/终点半径）；PK_BODY_spin（V37 8 参）
    封装为 `spin_body`，Face Extrusion 新增 Spin (revolve) 模式。剩余：
    draft/shell/offset/replace/imprint/midsurface 等商用 CAD 全集。
-6. **COM typed 包装补面**：Sketch/Property/Table 三类（GetSketcher/
-   GetTable/GetPropertyEntity 现返裸 ComObject）+ Set*Param 值格式终证。
+6. **COM 分层结论与 95% 路径（2026-08-18 定档，参考 ../flowviewer COM
+   服务器层方法论）**：本仓为客户端方向（late-binding 驱动真
+   STpre.exe），flowviewer 为服务器方向（pywin32 ConnectableServer +
+   自建 typelib + IConnectionPoint 事件，其 coverage 100% 为构造性
+   可达）——两者「100%」含义不同，本仓分层如下（W5 实测权威口径：
+   VB 手册 11 个类页的成员标题锚点共 **696**（Doc 389 / Model 151 /
+   GerberModel 25 / Value 24 / Property 24 / Application 17 / Sketch 15 /
+   Table 14 / Mesher 19 / AirconModel 7 / Femodel 11；旧 ≈1409 估计把
+   类型参数表行/重载也计入，锚点口径才是可逐项核对的成员清单。
+   MeshBlock 无独立类页——Mesher GetBlock 返回对象的成员待 live 探针
+   补档）：
+   - **A 层（包装覆盖）——可达 100%**：W5 落地三通路权威源
+     `cab_stpre_api`——`typelib_member_table`（注册表 HKCR ProgID→
+     CLSID→TypeLib；实证本机 CLSID 无 TypeLib 子键，不可用）、
+     `dispatch_member_table`（live IDispatch::GetTypeInfo；实证本 build
+     返回「无效索引」，不可用，留作跨机探针）、`manual_member_table`
+     （手册类页 heading id 解析，**本机唯一权威源**，已验证
+     heading id ≡ TOC level-2 锚点；注意 Application 页文件名是 Cradle
+     自带拼写错误 Appliation）；`save_typelib_cache` 按
+     typelib→manual 链落盘 data/com_typelib_members.json（含 _source
+     溯源戳）。`coverage_report` 实测（2026-08-18）：Mesher/Property/
+     Table 已 100%，Sketch 93.3%、Application 88.2%、Value 83.3%、
+     Doc 33.4%、Model 21.2%，typed 类合计 **268/653 = 41.0%**；
+     A 层清零需补 385 个包装（Doc 259 / Model 119 / Value 4 /
+     Application 2 / Sketch 1），纯机械 codegen 体量。
+   - **B 层（语义终证）——存在硬上限**：每成员 live probe（现 18 个）
+     滚动补；破坏性成员（Quit/文件覆写）隔离探针；live-GUI-only 成员
+     （flowviewer 05da721 GetDockableWindow 双态教训）headless 结构性
+     不可终证——**「验证 100%」不可达，「包装 100%」可达**。
+   - **C 层（事件）**：typelib 不存在可枚举事件面、VB 手册无事件
+     章节——按 N/A 定档。
+   - 目标档 **95%±**（A 层全量 + B 层高价值成员终证）；最后一截到
+     100% 需 ~650 次 live probe，性价比低于 §四.1/四.2。断言语义
+     对齐真行为（flowviewer 0d7dfb5 r26/r121 教训）适用于 Set*Param。
+   - W3 已完成：typed Sketch/Property/Table 包装类 + SetParam padding
+     （`test_w3_com_wrappers`）。
 7. **FEM 证据补全**：探针实证壳/六面体 kind 值；若 STpre FEM 转换本身
    仅 tet4 则 75% 应上调。
-8. **.ccel 生成器（2026-08-16 解除阻断 → 2026-08-17 R20 完成）**：
+8. **.ccel 生成器（2026-08-16 解除阻断 → R20 完成 → W1/W4 ATTR 补全）**：
    TLV 流式容器逆向定档——大端 `[len:4][payload][len:4]` 帧 +
    CODE/VERS/PART/NAME/TYPE/FACE/NODE/CONN/ATTR/ASEM/FSET/EOF 标签
    语义，FSET/ASEM 成员以 `PART`+字符串记录存储。`ccel.py` 读写器对
-   11 份官方样本（exA02-3 / exA02-4a/b/c / exA07-5 / exA08-3 / exA15-8 /
-   exA23-1 / exA23-2b_cut_cell / exA23-3 / exA23-4，10KB–2MB）rebuild
-   **字节级一致**；`s_export.build_ccel` 从零件 tessellation（无 tess 时
-   base/size 立方体回退）生成，`_header` 发 CCEL 行（`<project>.ccel`）、
-   cut-cell 零件 PARTS 负 id + REGION 绝对值引用（exA23-2b/4 实证），
-   cab 批量导出同步写 `.ccel` 成员（cab_batch）。残项：面片 ATTR 深字段
-   （PANEL 之外）未发射。
-9. **部件级细化 + element 分割 + 优先级消解（2026-08-16 实证定档 →
-   2026-08-17 R20 全部落地，替代原「refinement register/voxel 优先级/
-   embedding 零痕迹」模糊项）**：
-   - **部件级细化往返（已实现）**：`cabxml.PartInfo` 增
-     `mesh_fine_divide`（逐轴细分数）/`divide`（圆柱径向分割）字段，
-     配套 `set_part_mesh_fine_divide`/`set_part_divide` 写路径；官方
-     语义对拍 exA02-2b fan `2,0,0`、exA05-2 fan `0,5,0`、圆柱件 32/48。
+   11 份官方样本（10KB–2MB）rebuild **字节级一致**；`s_export.build_ccel`
+   从零件 tessellation 生成，`_header` 发 CCEL 行、cut-cell 零件 PARTS
+   负 id + REGION 绝对值引用（exA23-2b/4 实证），cab 批量导出同步写
+   `.ccel` 成员。ATTR 面片级发射：W1 按零件属性 PANEL/BODY/FLUID
+   （`test_w1_ccel_attr`）、W4 补 attribute=area 的 cut-cell 件 CBODY
+   （`test_w4_ccel_cbody`）。ATTR 深字段残项清零。
+9. **部件级细化 + element 分割 + 优先级消解（R20 落地 → W1 残项清零）**：
+   - **部件级细化（存储 R20 / 实际细分 W1）**：`cabxml.PartInfo`
+     `mesh_fine_divide`/`divide` 往返（exA02-2b `2,0,0`、exA05-2 `0,5,0`、
+     圆柱 32/48 对拍）；W1 `cab_grid.refine_axes_by_fine_divide` 在
+     Gridding 详细网格与 Meshing（`apply_fine_divide_to_model`）路径
+     实际细分——与零件 AABB 重叠的区间按逐轴数加密，幂等可重入
+     （`test_w1_fine_divide`：fan `2,0,0`/`0,5,0` 样本实际加格）。
      块级 `subblock@divide` 与逐件 `select_vertex` 早已在，三层细化
-     存储全通。残项：classify/grid 按逐轴细分数实际细分 +
-     Meshing Parameters 表加列（UI）。
-   - **element division 补全（已实现）**：`part_element_lists`（body
+     全通。
+   - **element division 补全（R20）**：`part_element_lists`（body
      9 元组全保真读）+ `part_face_boxes`（face 级解析）+
      `apply_elements`/`update_part_elements` 写官方 9 元组（尾 `0,1,1`
      恒定，exA01-1 对拍）+ `update_part_face_elements` 换 face 列表保
      body 列表；`analysis_boxes`/`part_boxes` 维持 6 位盒契约。
-   - **优先级消解（已实现）**：`resolve_interferences` 按 kind 权重
-     （fan/axial_fan/blower_fan 与 porous 属性件压过文档序，Meshing
-     Note 6）消解重叠单元；测试覆盖 fan vs body、porous vs plain。
-     残项：List of Parts 只读优先级列（规则已入库，纯 UI）。
-   - 佐证：`<color>` 下存在 mesh_fine/mesh_coarse/mesh_derive/
-     mesh_fixed/mesh_select 五态显示色，STpre fine/coarse/派生网格
-     UI 概念齐全；「mesh embedding」官方无此术语，已从差距表移除。
-   - 测试：`tests/test_m46_ccel_refine.py` 15 例（容器往返/.s 接线/
-     细化往返/9 元组/优先级），全量 570 passed 零失败。
+   - **优先级消解（R20 规则 / W1 UI）**：`resolve_interferences` 按
+     kind 权重（fan/axial_fan/blower_fan 与 porous 属性件压过文档序，
+     Meshing Note 6）消解重叠单元；W1 List of Part 增只读 Priority
+     列（`test_w1_part_priority`）。
+   - 佐证：`<color>` 下 mesh_fine/mesh_coarse/mesh_derive/mesh_fixed/
+     mesh_select 五态显示色，STpre fine/coarse/派生网格 UI 概念齐全；
+     「mesh embedding」官方无此术语，已从差距表移除。
+   - 测试：`tests/test_m46_ccel_refine.py` 15 例 + W1 三件套
+     （fine_divide/ccel_attr/part_priority），全量 614 passed 零失败。
 
 ---
 
@@ -155,15 +222,19 @@ v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按「用户
 v6 实证复核确认：MVP 闭环（建模→条件→网格→.s→求解监控→后处理入口）
 完整可用，金标与官方逐字节对齐的硬核部分（tess 配方/网格线/.s 常量派生）
 稳固。v5→v6 的 5 个百分点修正集中在「最后一公里」的用户可感知深度
-（结果可视化、外部工具启动、格式双向性），非核心能力缺失。后续按 §四
-顺序推进，R 系列编号延续（R3.5d / R8 残项 / 新增结果可视化项）；
-.ccel 与部件级细化已作为 R20 于 2026-08-17 落地（维度 5 90%→93%）。
+（结果可视化、外部工具启动、格式双向性），非核心能力缺失。R20/R21 与
+W1–W4 波次已把网格、PK、UI、COM、专用件字段六个维度的残项清零；结果
+回读 3D 场景经配套仓 flowviewer 复核改判已解决。当前最大断层收敛为：
+收敛残差曲线绘制（本仓 SolverProcess）、cab_gui→flowviewer 跳转接线、
+外部 EXE 启动（§四.2）三条。
 
 > 版本轨迹：v1（§18，≈60%）→ §39 专项审计 → v2（2026-08-15，≈76%）→
 > v3（R1–R10，≈91%）→ v4（R11–R19 + 显示修复，≈92%）→ v5（R3.1 +
 > R3.5a-c，≈93%）→ v6（实证复核，≈88%；晚间补网格缺口定档）→
 > v6.1（2026-08-17，R20 网格缺口清零，≈89%）→
-> **v6.2（2026-08-17，R21 PK 变半径倒圆 + 旋转成体，≈90%）**。
+> v6.2（2026-08-17，R21 PK 变半径倒圆 + 旋转成体，≈90%）→
+> **v6.3（2026-08-18，W1–W4 六维残项清零 + flowviewer 结果回读承接，
+> ≈91%）**。
 
 > ⚠ 注意：`tools/patch_gap_doc.py` 会以脚本内嵌文本重写本文档，运行前先
 > 更新其内嵌内容，避免覆盖手工编辑（2026-08-16 曾因此回退 §七）。
