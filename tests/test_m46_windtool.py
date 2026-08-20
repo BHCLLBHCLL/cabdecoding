@@ -200,7 +200,7 @@ def test_stpre_doc_windtool_wrappers_exist():
     doc_methods = vars(cab_stpre_api.STpreDoc)
     for name in ("GetUnit", "SetNorthAngle", "SetFluxPower", "SetFluxPower2"):
         assert name in doc_methods, name
-        assert name in cab_stpre_api.API_CATALOG["Doc_high_value"]
+        assert name in cab_stpre_api.API_CATALOG["Doc"]
 
 
 def test_stpre_doc_windtool_call_passthrough():

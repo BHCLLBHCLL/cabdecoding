@@ -25,6 +25,11 @@ cab_gui and stpre_probe) and adds:
 * typed wrappers :class:`STpreApplication`, :class:`STpreDoc`, :class:`STpreModel`,
   :class:`STpreMesher`, :class:`STpreMeshBlock`, :class:`STpreValue` for the
   high-value members;
+* W5 layer-A closure: every remaining :data:`API_CATALOG` member (the full
+  manual snapshot, 12 classes) is attached generically at import — methods
+  forward to :meth:`ComObject.call`, the documented property names
+  (ErrorCode/ErrorString/Visible/UserControl) become real properties — so
+  typed-wrapper name coverage reaches 100% (see :func:`coverage_report`);
 * :class:`STpreSession` now *attaches* to an already-running STpre by default
   (``attach=True``) instead of refusing — the old safety policy is unfrozen,
   while the ownership guard (never ``Visible=False`` / ``Quit`` a user-open
@@ -909,6 +914,60 @@ class STpreTable(ComObject):
         return self.call("SetTableCondParam", key, value)
 
 
+class STpreAirconModel(ComObject):
+    """AirconModel class (Doc.CreateAirconModel).
+
+    VB_Interface AirconModel_Class — 7 members; the remaining members are
+    attached generically from API_CATALOG at import (W5 A-layer).
+    """
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+
+class STpreFemodel(ComObject):
+    """Femodel class (Doc.GetFemodel).
+
+    VB_Interface Femodel_Class — 11 members; the remaining members are
+    attached generically from API_CATALOG at import (W5 A-layer).
+    """
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+    def GetModel(self, *args):
+        return STpreModel(self.call("GetModel", *args))
+
+    def GetValueArray(self):
+        return [STpreValue(v) for v in self.call("GetValueArray")]
+
+
+class STpreGerberModel(ComObject):
+    """GerberModel class (Doc.GetGerberModel / Model.CreateGerberModel).
+
+    VB_Interface GerberModel_Class — 25 members; the remaining members are
+    attached generically from API_CATALOG at import (W5 A-layer).
+    """
+
+    @property
+    def ErrorCode(self):
+        return self.prop("ErrorCode")
+
+    @property
+    def ErrorString(self):
+        return self.prop("ErrorString")
+
+
 def pack_set_param(key, *values, slots: int = 3):
     """Pad Value.SetParam extras with 0 (VB_Interface; unused slots are 0).
 
@@ -1081,6 +1140,18 @@ class STpreDoc(ComObject):
     def GetFluidArea(self, idx=0):
         return STpreModel(self.call("GetFluidArea", idx))
 
+    def GetGerberModel(self):
+        return STpreGerberModel(self.call("GetGerberModel"))
+
+    def SetGerberModel(self, gerber):
+        return self.call("SetGerberModel", gerber)
+
+    def GetFemodel(self):
+        return STpreFemodel(self.call("GetFemodel"))
+
+    def GetAirconModel(self, *args):
+        return STpreAirconModel(self.call("GetAirconModel", *args))
+
     def GetTable(self, name):
         return STpreTable(self.call("GetTable", name))
 
@@ -1196,7 +1267,7 @@ class STpreDoc(ComObject):
         return STpreModel(self.call("CreateBlowerFanModel", name, *args))
 
     def CreateAirconModel(self, name, *args):
-        return STpreModel(self.call("CreateAirconModel", name, *args))
+        return STpreAirconModel(self.call("CreateAirconModel", name, *args))
 
     def CreateAnemoModel(self, name, *args):
         return STpreModel(self.call("CreateAnemoModel", name, *args))
@@ -1541,6 +1612,15 @@ class STpreModel(ComObject):
         """
         return self.call("CreateFEM", *args)
 
+    def CreateGerberModel(self, *args):
+        return STpreGerberModel(self.call("CreateGerberModel", *args))
+
+    def GetGerberModel(self, *args):
+        return STpreGerberModel(self.call("GetGerberModel", *args))
+
+    def GetAirconModel(self, *args):
+        return STpreAirconModel(self.call("GetAirconModel", *args))
+
     def Deform(self, *args):
         return self.call("Deform", *args)
 
@@ -1859,94 +1939,218 @@ def headless_roundtrip(cab_in: str | Path, cab_out: str | Path, *,
 # Full method catalog (names only) for discovery.  Every member below (and
 # every member in the manual) is reachable via ``ComObject.call(name, ...)``.
 API_CATALOG: dict[str, list[str]] = {
-    "Application": [
-        "ErrorCode", "ErrorString", "Visible", "UserControl",
-        "WriteBackToEnvFile", "BeginViewerMode", "ClearDocument",
-        "CreateDrawWnd", "GetDocument", "GetEnvFilePath", "GetFileVersion",
-        "GetHomeFolder", "GetProcessID", "GetVersionNo", "IsViewerMode",
-        "Quit", "UpdateAll",
+    # Authoritative manual snapshot (W5, 2026-08-18): the heading
+    # anchors of all 11 VB_Interface_eng class pages, exported from
+    # manual_member_table() into data/com_typelib_members.json
+    # (_source=manual). MeshBlock has no manual class page; its list
+    # is the hand-collected catalog kept from earlier audits.
+    "AirconModel": [
+        "ErrorCode", "ErrorString", "GetName", "GetParam",
+        "GetParamString", "SetName", "SetParam"
     ],
-    "Mesher": [
-        "CreateBlock", "DeleteBlock", "ExecuteGrid", "ExecuteElement",
-        "ExecutePartsElement", "GetActiveBlock", "GetBlock", "GetGridParam",
-        "GetNumEdgeContact", "GetNumElements", "GetRootBlock", "GetSelectGrid",
-        "RemoveEdgeContact", "SetActiveBlock", "SetGridParam", "SetSelectGrid",
-        "Update",
+    "Application": [
+        "BeginViewerMode", "ClearDocument", "CreateDrawWnd", "ErrorCode",
+        "ErrorString", "GetDocument", "GetEnvFilePath", "GetFileVersion",
+        "GetHomeFolder", "GetProcessID", "GetVersionNo", "IsViewerMode",
+        "Quit", "UpdateAll", "UserControl", "Visible",
+        "WriteBackToEnvFile"
+    ],
+    "Doc": [
+        "ClearSelect", "CloseCutcellCheck", "ContactElementParts", "ContactParts",
+        "CreateAbsorptionProperty", "CreateAirconModel", "CreateAnemoModel", "CreateAxialFanModel",
+        "CreateBlowerFanModel", "CreateCardGuideModel", "CreateCaseModel", "CreateConeModel",
+        "CreateConnectedRegion", "CreateCubeModel", "CreateCylinderModel", "CreateDelphiModel",
+        "CreateExpression", "CreateExtrudeModel", "CreateFaceListSet", "CreateFanModel",
+        "CreateFeedingModel", "CreateFemFacePair", "CreateFemFaceSet", "CreateFinModel",
+        "CreateFluidMaterial", "CreateGerberGroup", "CreateGroup", "CreateHexaModel",
+        "CreateHoleModel", "CreateLinearDiffuserModel", "CreatePanelModel", "CreatePeltierModel",
+        "CreatePinFinModel", "CreatePipeModel", "CreatePointModel", "CreatePropertyGroup",
+        "CreateQuadPanelModel", "CreateRadiationProperty", "CreateReactiveFormula", "CreateRegionPair",
+        "CreateRevolveModel", "CreateScript", "CreateSlitPunchingModel", "CreateSolidMaterial",
+        "CreateSphereModel", "CreateSpinRectangleSimpleModel", "CreateSweepModel", "CreateTwoResistanceModel",
+        "CreateUserData", "CreateUserFunction", "DeleteFemodel", "DeleteGerberGroup",
+        "DeleteModel", "DeletePropertyGroup", "DeleteScript", "DeleteTable",
+        "DeleteValue", "DeleteVariableName", "EditSolidModel", "ErrorCode",
+        "ErrorString", "ExecuteCutcellCheck", "FitDomainToDrawWnd", "FitPartsToDrawWnd",
+        "GetAirconModel", "GetAllFemFacePairArray", "GetAllFemFaceSetArray", "GetAllModelArray",
+        "GetAllPartsBoundingBox", "GetAllTableArray", "GetAllValueArray", "GetAmbientTemperature",
+        "GetAnalysisParam", "GetAnalysisType", "GetBKColor", "GetBKColorBottom",
+        "GetBKColorMode", "GetBKColorTop", "GetCabVersion", "GetComment",
+        "GetConditionControl", "GetContactElementModelArray", "GetCsvMappingParam", "GetCurrentParam",
+        "GetCutcellParam", "GetCycle", "GetDefaultRadCoefficient", "GetDemForce",
+        "GetDemParam", "GetDemVar", "GetDomain", "GetDrawOption",
+        "GetDtsrParam", "GetEquationLoop", "GetEvaporationParam", "GetExpression",
+        "GetFemodel", "GetFileName", "GetFluidArea", "GetFmiParam",
+        "GetFormattedScript", "GetFreeSurfaceParam", "GetGerberModel", "GetGravity",
+        "GetHeatSolver", "GetHumidityCoefficient", "GetHumidityParam", "GetHumidityTransferParam",
+        "GetLastSelectEntity", "GetLibraryFolder", "GetListControl", "GetLuminanceParam",
+        "GetLuminanceVariable", "GetMappingParam", "GetMesher", "GetMode",
+        "GetModel", "GetMoveBodyOption", "GetNonlinearParam", "GetNorthAngle",
+        "GetNumAllModelArray", "GetNumFluidArea", "GetNumSelectPoint", "GetNumTotalRadGroup",
+        "GetOption", "GetOutputParam", "GetPartialFldParam", "GetParticleKind",
+        "GetParticleParam", "GetPerspectiveProjectionParameter", "GetPhaseCondition", "GetPhaseDiagram",
+        "GetPhaseParam", "GetPostFile", "GetPostParam", "GetPostVariable",
+        "GetProjectName", "GetPropertyDiffusion", "GetPropertyEntity", "GetPropertyGroup",
+        "GetPropertyGroupArray", "GetPropertyMaterial", "GetRadParam", "GetReactiveFormula",
+        "GetReactiveParticle", "GetRootModelArray", "GetRotationalSystem", "GetScript",
+        "GetSelectEntity", "GetSelectPoint", "GetSelectedFacesArray", "GetSelectedPartsArray",
+        "GetSketcher", "GetSolarParam", "GetSolidInitTemperature", "GetSolidMeltFluid",
+        "GetSolidMeltParam", "GetSolidMeltProperty", "GetSolidMeltWall", "GetSolverParam",
+        "GetSteadyParam", "GetStratification", "GetTable", "GetTopOptParam",
+        "GetTransientParam", "GetTurbulenceModel", "GetUndefinedRegion", "GetUndrParam",
+        "GetUnit", "GetUserData", "GetUserFunction", "GetVFParam",
+        "GetVFfileInout", "GetValue", "GetVariableValue", "GetVentilationParam",
+        "GetVentilationStage", "GetViewPoint", "GetWbgtParam", "GetWizardOption",
+        "GetWorkFolder", "GetZoomingCondition", "Intersect", "LoadCutcellCheck",
+        "OpenCabFile", "OpenCadFile", "OpenCsvFile", "OpenDxfFile",
+        "OpenLibraryCabFile", "OpenNasFile", "OpenTextFile", "OpenXmlFile",
+        "ReleaseDispatch", "ResetView", "ResetVisible", "SaveCabFile",
+        "SaveConditionFile", "SaveDrawWndImage", "SaveLibraryCabFile", "SaveNfbFile",
+        "SaveParamFile", "SaveSFile", "SaveXmlFile", "Section",
+        "SelectSolidModel", "SetAirconCondition", "SetAirconModel", "SetAmbientTemperature",
+        "SetAnalysisParam", "SetAnalysisType", "SetAxialFan", "SetBKColor",
+        "SetBKColorBottom", "SetBKColorMode", "SetBKColorTop", "SetBlowerPQcurve",
+        "SetCartesianDomain", "SetCaseBoundary", "SetComment", "SetConditionControl",
+        "SetCsvMappingParam", "SetCurrentCondition", "SetCurrentParam", "SetCutcellParam",
+        "SetCycle", "SetCylindricalDomain", "SetDefaultRadCoefficient", "SetDemBoundary",
+        "SetDemCondition", "SetDemConnection", "SetDemForce", "SetDemParam",
+        "SetDemParticle", "SetDemProperty", "SetDemVar", "SetDiffusionCondition",
+        "SetDiffusionNumber", "SetDrawOption", "SetDtsrParam", "SetDynamicalCondition",
+        "SetEquationLoop", "SetEsFieldCondition", "SetEvaporationParam", "SetExpression",
+        "SetFaceListCondition", "SetFanConstFlow", "SetFanPQcurve", "SetFeedingCondition",
+        "SetFileName", "SetFluidArea", "SetFluxFix", "SetFluxFlow",
+        "SetFluxInout", "SetFluxOut", "SetFluxPower", "SetFluxPower2",
+        "SetFluxPres", "SetFluxRadialFlow", "SetFluxTotalPres", "SetFluxTotalTempPres",
+        "SetFmiDefine", "SetForce", "SetFormattedScript", "SetFreeSurfaceCondition",
+        "SetFreeSurfaceParam", "SetGerberModel", "SetGlobalSolarRadiation", "SetGravity",
+        "SetHeatFaceSource", "SetHeatResistance", "SetHeatSolver", "SetHeatSource",
+        "SetHeatTransfer", "SetHumidityCoefficient", "SetHumidityCondition", "SetHumidityParam",
+        "SetHumidityTransferParam", "SetInitialValue", "SetLesDriver", "SetLesInitial",
+        "SetLightCondition", "SetListCondition", "SetListControl", "SetListParam",
+        "SetListVar", "SetListVariable", "SetLuminanceParam", "SetLuminanceVariable",
+        "SetMappingParam", "SetMarangoniCondition", "SetMarkerParticle", "SetMassParticle",
+        "SetMode", "SetMoveBodyFlow", "SetMoveBodyFlux", "SetMoveBodyHeatTransfer",
+        "SetMoveBodyHumidity", "SetMoveBodyOption", "SetNonlinearParam", "SetNormalizeConcentration",
+        "SetNorthAngle", "SetNumFluidArea", "SetOption", "SetOrthographicProjection",
+        "SetOutputParam", "SetPartialFldCondition", "SetPartialFldParam", "SetParticleCondition",
+        "SetParticleForce", "SetParticleKind", "SetParticleParam", "SetPdfCondition",
+        "SetPdfCoposition", "SetPdfParam", "SetPerforatedPlate", "SetPerspectiveProjection",
+        "SetPerspectiveProjectionParameter", "SetPhaseCondition", "SetPhaseDiagram", "SetPhaseInterfaceCondition",
+        "SetPhaseParam", "SetPhaseTransition", "SetPlantResistance", "SetPorousHeatTransfer",
+        "SetPorousMedia", "SetPostFile", "SetPostParam", "SetPostVariable",
+        "SetPressureDrop", "SetProjectName", "SetPropertyDiffusion", "SetPropertyMaterial",
+        "SetRadBoundary", "SetRadGroupNumByArea", "SetRadMeanTemperature", "SetRadParam",
+        "SetReactiveCondition", "SetReactiveParticle", "SetRestartParam", "SetRotationalSystem",
+        "SetScalarSource", "SetScript", "SetSelectEntity", "SetSolarAshrae",
+        "SetSolarCondition", "SetSolarParam", "SetSolidInitTemperature", "SetSolidMeltFluid",
+        "SetSolidMeltParam", "SetSolidMeltProperty", "SetSolidMeltWall", "SetSolidificationMelting",
+        "SetSolverParam", "SetSprayParticle", "SetSteadyParam", "SetStratification",
+        "SetSurfacePorous", "SetSymmetry", "SetTable", "SetTemperatureFix",
+        "SetThermalTransport", "SetTopOptCondition", "SetTopOptParam", "SetTransientParam",
+        "SetTurbulenceModel", "SetUndefinedCondition", "SetUndrParam", "SetUnit",
+        "SetUserData", "SetUserFunction", "SetVFParam", "SetVFfileInout",
+        "SetVariableCondition", "SetVariableName", "SetVelocityFix", "SetVentilationCondition",
+        "SetVentilationParam", "SetVentilationStage", "SetViewCenter", "SetViewPoint",
+        "SetWall", "SetWaveGenerate", "SetWbgtParam", "SetWeldType",
+        "SetWizardOption", "SetWorkFolder", "SortModel", "Subtract",
+        "Unite"
+    ],
+    "Femodel": [
+        "AppendFaceSet", "AppendValue", "ErrorCode", "ErrorString",
+        "GetFaceSet", "GetModel", "GetName", "GetValueArray",
+        "RemoveFaceSet", "RemoveValue", "SetName"
+    ],
+    "GerberModel": [
+        "Apply", "ClearCurrentMesh", "ErrorCode", "ErrorString",
+        "ExecuteCurrentElement", "ExecuteCurrentSolver", "GetCurrentCondition", "GetCurrentParam",
+        "GetHoleParam", "GetThickness", "GetWireParam", "GetWirePartsName",
+        "SetApertureFile", "SetCurrentCondition", "SetCurrentParam", "SetDrillFile",
+        "SetEvaluateMethod", "SetHoleFile", "SetHoleParam", "SetMaterial",
+        "SetSystem", "SetThickness", "SetWireFile", "SetWireParam",
+        "Translate"
     ],
     "MeshBlock": [
         "AppendBlock", "CreateBlock", "CreateConnectedBlock", "DeleteGrid",
-        "GetAspectRatio", "GetAttribute", "GetChildBlockArray",
-        "GetDependentBlockArray", "GetDivideArray", "GetName",
-        "GetNumBlockArray", "GetNumDivision", "GetNumElements", "GetParam",
-        "GetParentBlock", "GetRange", "RemoveBlock", "SetAttribute",
-        "SetDetailGrid", "SetDivideArray", "SetName", "SetParam", "SetRange",
+        "GetAspectRatio", "GetAttribute", "GetChildBlockArray", "GetDependentBlockArray",
+        "GetDivideArray", "GetName", "GetNumBlockArray", "GetNumDivision",
+        "GetNumElements", "GetParam", "GetParentBlock", "GetRange",
+        "RemoveBlock", "SetAttribute", "SetDetailGrid", "SetDivideArray",
+        "SetName", "SetParam", "SetRange"
     ],
-    "Sketch": [
-        "GetClose", "SetClose", "GetSystem", "SetSystem", "GetTarget",
-        "SetTarget", "GetVertex", "SetVertex", "GetVertexKind",
-        "SetCircle", "SetRectangle", "SetSide",
+    "Mesher": [
+        "CreateBlock", "DeleteBlock", "ErrorCode", "ErrorString",
+        "ExecuteElement", "ExecuteGrid", "ExecutePartsElement", "GetActiveBlock",
+        "GetBlock", "GetGridParam", "GetNumEdgeContact", "GetNumElements",
+        "GetRootBlock", "GetSelectGrid", "RemoveEdgeContact", "SetActiveBlock",
+        "SetGridParam", "SetSelectGrid", "Update"
+    ],
+    "Model": [
+        "AppendFace", "AppendFaceByBoundingBox", "AppendFreeSurfaceOutput", "AppendModel",
+        "AppendPressureFix", "AppendStopVariable", "AppendTimeSeries", "AppendValue",
+        "ConvertModel", "Copy", "CreateConvexHull", "CreateFEM",
+        "CreateGerberModel", "Deform", "ErrorCode", "GetAbsorptionGroup",
+        "GetAbsorptionProbe", "GetAbsorptionProperty", "GetAirconModel", "GetAllThermalCircuitNodeArray",
+        "GetAllThermalCircuitResistanceArray", "GetAttribute", "GetAxisPlaneFace", "GetBoolModelArray",
+        "GetBoundingBox", "GetColor", "GetCsvVariable", "GetCutcell",
+        "GetEmissivity", "GetEntrance", "GetFaceArray", "GetFaceNormalVector",
+        "GetFaceReverse", "GetFacetParam", "GetFoutControl", "GetGerberModel",
+        "GetHeatSource", "GetHeatSourceUnit", "GetInitTemperature", "GetLayerNo",
+        "GetListHeatBalance", "GetListHeatTransfer", "GetListVFBalance", "GetMaterial",
+        "GetMeshDivideType", "GetMeshOnSurface", "GetMeshParam", "GetMeshVolume",
+        "GetModelType", "GetMonitor", "GetNTopParam", "GetName",
+        "GetNormalVectorType", "GetOff", "GetOnFace", "GetOwnValue",
+        "GetPanelThick", "GetParam", "GetParent", "GetPercent",
+        "GetProbeFace", "GetRadEdgeOption", "GetRadGroup", "GetRadiationProperty",
+        "GetRegionOutput", "GetSelect", "GetSubModelArray", "GetSurfaceThermalParam",
+        "GetSystem", "GetThermalCircuitCondition", "GetThermalCircuitNode", "GetTransform",
+        "GetTypeKey", "GetVFProbe", "GetValueArray", "GetVolume",
+        "RemoveFace", "RemoveGerberModel", "RemoveModel", "RemoveThermalCircuitModel",
+        "RemoveValue", "Rotate", "SaveStlFile", "SaveXtFile",
+        "SetAbsorptionProbe", "SetAbsorptionProperty", "SetAbsorpyonGroup", "SetAircon",
+        "SetAttribute", "SetBoolModel", "SetColor", "SetCsvVariable",
+        "SetCutcell", "SetCutoutTarget", "SetDeforme", "SetDrawType",
+        "SetDynamicalMotion", "SetEmissivity", "SetEntrance", "SetFaceReverse",
+        "SetFacetParam", "SetFemParam", "SetFmiCondition", "SetFoutControl",
+        "SetHeatPipeCondition", "SetHeatSource", "SetInitTemperature", "SetLayerNo",
+        "SetListHeatBalance", "SetListHeatTransfer", "SetListSummary", "SetListVFBalance",
+        "SetMaterial", "SetMeshDivide", "SetMeshDivideType", "SetMeshOnSurface",
+        "SetMeshParam", "SetMonitor", "SetMoveBodyCondition", "SetMoveBodyControl",
+        "SetNTopParam", "SetName", "SetNormalVectorType", "SetOff",
+        "SetOnFace", "SetOpen", "SetPanelDirection", "SetPanelOption",
+        "SetPanelProperty", "SetParam", "SetParticleDivide", "SetPercent",
+        "SetProbeFace", "SetRadEdgeOption", "SetRadGroup", "SetRadiationProperty",
+        "SetRange", "SetRegionOutput", "SetSelect", "SetSurfaceThermalParam",
+        "SetSystem", "SetThermalCircuitCondition", "SetThermalCircuitModel", "SetThermalCircuitNode",
+        "SetTransform", "SetUndefinedValue", "SetVFProbe", "Translate",
+        "UpdateBoolParts", "Visible", "Wrap"
     ],
     "Property": [
-        "CreateEntity", "DeleteEntity", "Get", "Set", "GetData", "SetData",
-        "GetEntities", "GetExpression", "SetExpression", "GetKind", "GetName",
-        "GetNum", "SetNum", "GetRadField", "SetRadField", "GetScript",
-        "SetScript", "GetTable", "SetTable", "GetTypeString",
-        "GetUserFunction", "SetUserFunction",
+        "CreateEntity", "DeleteEntity", "ErrorCode", "ErrorString",
+        "Get", "GetData", "GetEntities", "GetExpression",
+        "GetKind", "GetName", "GetNum", "GetRadField",
+        "GetScript", "GetTable", "GetTypeString", "GetUserFunction",
+        "Set", "SetData", "SetExpression", "SetNum",
+        "SetRadField", "SetScript", "SetTable", "SetUserFunction"
+    ],
+    "Sketch": [
+        "ErrorCode", "ErrorString", "GetClose", "GetSystem",
+        "GetTarget", "GetVertex", "GetVertexKind", "SetCircle",
+        "SetClose", "SetRectangle", "SetSide", "SetSystem",
+        "SetTarget", "SetVertex", "Visible"
     ],
     "Table": [
-        "GetData", "SetData", "GetName", "SetName", "GetNum",
-        "GetTableCondParam", "SetTableCondParam", "GetTypeString",
-        "SetType", "GetXUnit", "GetYUnit", "SetUnit",
+        "ErrorCode", "ErrorString", "GetData", "GetName",
+        "GetNum", "GetTableCondParam", "GetTypeString", "GetXUnit",
+        "GetYUnit", "SetData", "SetName", "SetTableCondParam",
+        "SetType", "SetUnit"
     ],
-    "Doc_high_value": [
-        "OpenCabFile", "SaveCabFile", "SaveSFile", "SaveNfbFile",
-        "SaveXmlFile", "SaveParamFile", "SaveConditionFile", "SaveLibraryCabFile",
-        "OpenCadFile", "OpenDxfFile", "OpenNasFile", "OpenXmlFile",
-        "OpenTextFile", "OpenCsvFile", "OpenLibraryCabFile",
-        "Intersect", "Subtract", "Unite", "Section", "EditSolidModel",
-        "GetMesher", "GetSketcher", "GetModel", "GetAllModelArray",
-        "GetValue", "GetAllValueArray", "GetDomain", "GetFluidArea",
-        "GetTable", "GetPropertyEntity", "GetAllPartsBoundingBox",
-        "CreateCubeModel", "CreateCylinderModel", "CreateSphereModel",
-        "CreateConeModel", "CreatePanelModel", "CreateHexaModel",
-        "CreatePipeModel", "CreateFinModel", "CreateFanModel",
-        "CreateAxialFanModel", "CreateBlowerFanModel", "CreateAirconModel",
-        "CreateAnemoModel", "CreateCardGuideModel", "CreateCaseModel",
-        "CreateDelphiModel", "CreateExtrudeModel", "CreateHoleModel",
-        "CreateLinerDiffuserModel", "CreatePeltierModel", "CreatePinFinModel",
-        "CreatePointModel", "CreateQuadPanelModel", "CreateRevolveModel",
-        "CreateSlitPunchingModel", "CreateSpinRectangleSimpleModel",
-        "CreateSweepModel", "CreateTwoResistanceModel", "CreateGroup",
-        "CreateFaceListSet", "CreateRegionPair", "CreateConnectedRegion",
-        "CreateFluidMaterial", "CreateSolidMaterial", "CreateAbsorptionProperty",
-        "CreateRadiationProperty", "CreatePropertyGroup", "CreateReactiveFormula",
-        "CreateScript", "CreateExpression", "CreateUserFunction", "CreateUserData",
-        "SetProjectName", "SetComment", "SetFileName", "SetAmbientTemperature",
-        "SetGravity", "SetAnalysisType", "SetCartesianDomain",
-        "SetCylindricalDomain", "SetUnit", "GetUnit", "SetNorthAngle",
-        "SetWall", "SetFluxFix",
-        "SetFluxPres", "SetFluxOut", "SetFluxPower", "SetFluxPower2",
-        "SetTemperatureFix", "SetHeatTransfer",
-        "SetHeatSource", "SetSymmetry", "SetInitialValue", "SetFanPQcurve", "SetFanConstFlow", "DeleteModel", "DeleteValue", "DeleteTable",
-        "DeleteScript", "ClearSelect", "SortModel",
-        "SetMoveBodyOption", "GetMoveBodyOption",
-    ],
-    "Model_high_value": [
-        "Copy", "Rotate", "Move", "ConvertModel", "CreateConvexHull",
-        "CreateFEM", "Deform", "GetBoundingBox", "GetVolume", "GetColor",
-        "SetColor", "GetMaterial", "SetMaterial", "GetTransform",
-        "GetParam", "SetParam", "SaveStlFile", "SaveXtFile", "GetFaceArray",
-        "GetSubModelArray", "GetValueArray", "AppendValue", "RemoveValue",
-        "SetMeshDivide", "SetMeshDivideType", "GetMeshParam", "SetFacetParam",
-        "GetFacetParam", "SetAircon", "SetHeatSource", "SetEmissivity",
-        "SetLayerNo", "SetDrawType", "SetCutcell", "GetName", "GetModelType",
-        "SetMoveBodyControl",
-    ],
-    "Value_high_value": [
-        "GetName", "SetName", "GetTypeKey", "GetSubTypeKey", "GetParam",
-        "SetParam", "SetParam3", "GetParamString", "GetTable", "SetTable",
-        "GetScript", "SetScript", "GetExpression", "SetExpression",
-        "GetUserFunction", "SetUserFunction", "GetMapping", "SetMapping",
+    "Value": [
+        "ErrorCode", "ErrorString", "GetCsvMappingParam", "GetExpression",
+        "GetFormattedScript", "GetMapping", "GetName", "GetParam",
+        "GetParamString", "GetScript", "GetSubTypeKey", "GetTable",
+        "GetTypeKey", "GetUserFunction", "SetCsvMapping", "SetExpression",
+        "SetFormattedScript", "SetMapping", "SetName", "SetParam",
+        "SetParam3", "SetScript", "SetTable", "SetUserFunction"
     ],
 }
 
@@ -1962,6 +2166,10 @@ API_MEMBER_COUNTS = {
     "Sketch": 12,   # Get/Set Close/System/Target/Vertex + Circle/Rectangle/Side
     "Property": 22,  # Get/Set + table/script/expression/entity (VB Property_Class)
     "Table": 12,     # Get/Set name/type/data/units/cond (VB Table_Class)
+    # W5 manual snapshot classes (heading anchors, 2026-08-18):
+    "AirconModel": 7,
+    "Femodel": 11,
+    "GerberModel": 25,
 }
 
 
@@ -2154,6 +2362,12 @@ def coverage_report(table: dict | None = None) -> dict:
     """
     if table is None:
         table = load_typelib_cache()
+        # The manual snapshot has no MeshBlock class page; the
+        # hand-collected API_CATALOG list is the authoritative denominator
+        # for classes the member table does not cover.
+        if table:
+            for vb, members in API_CATALOG.items():
+                table.setdefault(vb, members)
     rows: dict[str, dict] = {}
     tot_lib = tot_typed = 0
     for vb, cls in _TYPED_BY_VB.items():
@@ -2191,7 +2405,62 @@ _TYPED_BY_VB = {
     "Sketch": STpreSketch,
     "Property": STpreProperty,
     "Table": STpreTable,
+    "AirconModel": STpreAirconModel,
+    "Femodel": STpreFemodel,
+    "GerberModel": STpreGerberModel,
 }
+
+
+# ── W5 layer-A closure: attach every remaining catalog member ─────────────
+#
+# The typed classes above wrap the high-value members with explicit
+# signatures and typed returns. Every *other* API_CATALOG member (the full
+# manual snapshot) is attached generically at import so the wrapper layer
+# reaches 100% name coverage (function_gap_analysis.md §四.6 layer A):
+# methods forward to ComObject.call (the _FlagAsMethod dance); the four
+# documented property names (ErrorCode/ErrorString/Visible/UserControl)
+# become real property objects. Attached members are ordinary class
+# attributes, so ``dir(cls)`` — and therefore coverage_report — sees them.
+
+_GENERIC_PROP_NAMES = frozenset(
+    {"ErrorCode", "ErrorString", "Visible", "UserControl"})
+
+
+def _make_generic_prop(name: str):
+    def getter(self):
+        return self.prop(name)
+
+    def setter(self, value):
+        self.set_prop(name, value)
+
+    return property(getter, setter)
+
+
+def _make_generic_method(name: str):
+    def method(self, *args):
+        return self.call(name, *args)
+
+    method.__name__ = name
+    method.__doc__ = f"VB member ``{name}`` (generic W5 layer-A wrapper)."
+    return method
+
+
+def _attach_catalog_members() -> None:
+    """Attach every API_CATALOG member not already typed on its class."""
+    for vb, cls in _TYPED_BY_VB.items():
+        wrapped = {n for n in dir(cls) if not n.startswith("_")}
+        for name in API_CATALOG.get(vb, []):
+            if name in wrapped:
+                continue
+            if name in _GENERIC_PROP_NAMES:
+                setattr(cls, name, _make_generic_prop(name))
+            else:
+                method = _make_generic_method(name)
+                method.__qualname__ = f"{cls.__name__}.{name}"
+                setattr(cls, name, method)
+
+
+_attach_catalog_members()
 
 
 def _members_of_dispatch(obj) -> list[str]:

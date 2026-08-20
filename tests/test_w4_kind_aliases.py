@@ -92,7 +92,7 @@ def test_tess_axial_fan_model_size_thick():
     xy = np.linalg.norm(tess.points[:, :2], axis=1)
     assert xy.max() == pytest.approx(0.4, rel=1e-3)
     assert xy.min() == pytest.approx(0.1, rel=1e-2)
-    assert tess.points[:, 2].ptp() == pytest.approx(0.15, rel=1e-3)
+    assert np.ptp(tess.points[:, 2]) == pytest.approx(0.15, rel=1e-3)
 
 
 def test_tess_spin_rectangle_half_cylinder():

@@ -2445,3 +2445,43 @@ SaveCabFile → merge_mesh_result`。
   清零）。
 - 文档：function_gap_analysis.md 刷新至 v6.1（维度 5 90%→93%，总体
   完成度 ≈89%）。
+
+## 58. W5 COM A 层包装全量闭环（2026-08-18 分析定档 + 2026-08-20 落地）
+
+- **W5 权威源与计量（2026-08-18）**：cab_stpre_api 成员权威源三通路
+  ——`typelib_member_table`（注册表 HKCR ProgID→CLSID→TypeLib，实证
+  本机 CLSID 无 TypeLib 子键）、`dispatch_member_table`（live
+  IDispatch::GetTypeInfo，实证本 build 返回「无效索引」，留作跨机
+  探针）、`manual_member_table`（VB 手册 11 个类页 heading id 解析，
+  **本机唯一权威源**）；`save_typelib_cache` 按 typelib→manual 链落盘
+  data/com_typelib_members.json（`_source` 溯源戳）；`coverage_report`
+  逐类精确匹配计量（typed 命名=VB 原名）。新增 STpreAirconModel /
+  STpreFemodel / STpreGerberModel 三类包装；API_CATALOG 升级为手册
+  全量快照（tools/_gen_catalog.py 生成，12 类 719 成员，MeshBlock
+  保留手工目录 23）。
+- **W5 A 层闭环（2026-08-20）**：`_attach_catalog_members` 导入期把
+  API_CATALOG 剩余成员泛型挂到 12 个 typed 类——方法转发
+  `ComObject.call`（_FlagAsMethod 通路），ErrorCode/ErrorString/
+  Visible/UserControl 四个文档属性名挂真 property（含 setter）；
+  typed getter 路由补 Doc.GetAirconModel / Model.GetAirconModel /
+  Model.GetGerberModel / Femodel.GetModel / Femodel.GetValueArray；
+  `coverage_report` 默认表对缓存缺失类（MeshBlock 无手册类页）回落
+  API_CATALOG。复测 12 类 **719/719 = 100%**（Doc 389 / Model 151 /
+  Value 24 / Application 17 / Sketch 15 / Mesher 19 / Property 24 /
+  Table 14 / MeshBlock 23 / AirconModel 7 / Femodel 11 / GerberModel
+  25），API_MEMBER_COUNTS 补记三个新类。
+- **分层结论（function_gap_analysis.md §四.6）**：A 层（包装覆盖）
+  100% 已达；B 层（语义终证）存 headless 硬上限（live probe 现 18
+  个滚动补，「验证 100%」不可达）；C 层（事件）N/A。维度 9
+  82%→90%，总体 ≈91%→≈92%（v6.4）。
+- 测试：test_w5_com_typelib.py 13 例（权威源/计量/缓存往返 6 例 +
+  A 层闭环 7 例：全目录挂载、100% 计量、泛型方法转发 fake 断言、
+  property 挂载、MeshBlock 目录回落、新类 typed getter 路由）；另修
+  上会话遗留 2 处旧 `Doc_high_value` 目录键断言
+  （test_stpre_com_wrappers / test_m46_windtool）与 numpy2
+  `ndarray.ptp` 移除兼容 1 处（test_w4_kind_aliases）。回归
+  **626 passed / 0 failed / 5 skipped**（--basetemp 本地化，57s）。
+- 文档：function_gap_analysis.md 刷新至 v6.4（§二 表加 v6.4 列、维度 9
+  82%→90%、复核基线补 W5 复测、§四.6 A 层 100% 达成记录、溯源段与
+  版本轨迹）。注：该文档处于 IDE 粘滞缓冲（Edit 工具写入不落盘），
+  本次经临时补丁脚本直改磁盘后清理（同 R20 处理方式）。

@@ -60,7 +60,8 @@ def test_coverage_report_manual_baseline_without_table():
         assert rows[vb]["pct"] is None
         assert rows[vb]["manual"] == api.API_MEMBER_COUNTS[vb]
     # documented manual denominator: 12+459+458+272+69+88+12+22+12
-    assert rows["TOTAL"]["manual"] == 1404
+    # + AirconModel 7 + Femodel 11 + GerberModel 25 (W5 snapshot classes)
+    assert rows["TOTAL"]["manual"] == sum(api.API_MEMBER_COUNTS.values())
     assert rows["TOTAL"]["pct"] is None
 
 
@@ -111,3 +112,106 @@ def test_typelib_cache_roundtrip(tmp_path):
     assert api.load_typelib_cache(tmp_path / "bad.json") == {}
     # default cache path is a committed data/ sibling
     assert api._TYPELIB_CACHE.name == "com_typelib_members.json"
+
+
+# ── W5 layer-A closure: 100% wrapper coverage over the full catalog ────────
+
+
+def test_layer_a_catalog_fully_wrapped():
+    # every API_CATALOG member is reachable as a class attribute (explicit
+    # typed wrapper or generically attached at import)
+    for vb, cls in api._TYPED_BY_VB.items():
+        wrapped = {n for n in dir(cls) if not n.startswith("_")}
+        missing = [m for m in api.API_CATALOG.get(vb, []) if m not in wrapped]
+        assert not missing, f"{vb}: {missing[:5]}"
+
+
+def test_coverage_report_full_catalog_table_100():
+    rows = api.coverage_report(api.API_CATALOG)
+    for vb in api._TYPED_BY_VB:
+        assert rows[vb]["pct"] == pytest.approx(100.0), (vb, rows[vb])
+    total = rows["TOTAL"]
+    assert total["typelib"] == sum(len(v) for v in api.API_CATALOG.values())
+    assert total["pct"] == pytest.approx(100.0)
+
+
+def test_coverage_report_cache_layer_a_100():
+    table = api.load_typelib_cache()
+    if not table:
+        pytest.skip("no committed member cache")
+    # committed cache + MeshBlock catalog fallback -> full 100% report
+    rows = api.coverage_report()
+    for vb, row in rows.items():
+        if vb != "TOTAL":
+            assert row["pct"] == pytest.approx(100.0), (vb, row)
+    assert rows["TOTAL"]["typed"] == rows["TOTAL"]["typelib"]
+    assert rows["MeshBlock"]["typelib"] == len(api.API_CATALOG["MeshBlock"])
+
+
+def test_attached_method_forwards_to_call():
+    calls = []
+
+    class FakeDispatch:
+        def _FlagAsMethod(self, name):
+            calls.append(("flag", name))
+
+        def __getattr__(self, name):
+            def invoke(*args):
+                calls.append(("call", name, args))
+                return 42
+            return invoke
+
+    doc = api.STpreDoc(FakeDispatch())
+    # generically attached member (was missing before the W5 closure)
+    assert doc.SetWall("region", "T") == 42
+    assert ("flag", "SetWall") in calls
+    assert ("call", "SetWall", ("region", "T")) in calls
+
+
+def test_attached_property_is_property():
+    class FakeDispatch:
+        def _FlagAsMethod(self, name):
+            raise AssertionError("property read must not flag a method")
+
+        def __getattr__(self, name):
+            assert name == "Visible"
+            return 99
+
+    # Sketch.Visible: manual member wrapped as a real property, not a method
+    assert isinstance(getattr(api.STpreSketch, "Visible"), property)
+    assert api.STpreSketch(FakeDispatch()).Visible == 99
+
+
+def test_meshblock_generic_members_attached():
+    # MeshBlock members beyond the typed wrappers come from API_CATALOG
+    for name in ("GetDependentBlockArray", "GetNumBlockArray"):
+        assert hasattr(api.STpreMeshBlock, name)
+
+
+def test_new_class_typed_getter_routes():
+    class FakeDispatch:
+        def __init__(self, ret):
+            self._ret = ret
+
+        def _FlagAsMethod(self, name):
+            pass
+
+        def __getattr__(self, name):
+            def invoke(*args):
+                return self._ret
+            return invoke
+
+    sentinel = object()
+    doc = api.STpreDoc(FakeDispatch(sentinel))
+    assert isinstance(doc.GetAirconModel(), api.STpreAirconModel)
+    assert doc.GetAirconModel().raw is sentinel
+    model = api.STpreModel(FakeDispatch(sentinel))
+    assert isinstance(model.GetAirconModel(), api.STpreAirconModel)
+    assert isinstance(model.GetGerberModel(), api.STpreGerberModel)
+    fem = api.STpreFemodel(FakeDispatch(sentinel))
+    assert isinstance(fem.GetModel(), api.STpreModel)
+    pair = [object(), object()]
+    vals = api.STpreFemodel(FakeDispatch(pair)).GetValueArray()
+    assert len(vals) == 2
+    assert all(isinstance(v, api.STpreValue) and v.raw is pair[i]
+               for i, v in enumerate(vals))

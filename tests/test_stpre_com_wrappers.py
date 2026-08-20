@@ -68,9 +68,12 @@ def test_typed_doc_create_and_save():
 
 
 def test_catalog_populated():
-    assert "Doc_high_value" in cab_stpre_api.API_CATALOG
-    assert "CreateCubeModel" in cab_stpre_api.API_CATALOG["Doc_high_value"]
-    assert "SaveCabFile" in cab_stpre_api.API_CATALOG["Doc_high_value"]
+    # W5: the old hand-collected "Doc_high_value" list was replaced by the
+    # full manual snapshot under the verbatim VB class key "Doc".
+    assert "Doc" in cab_stpre_api.API_CATALOG
+    assert "CreateCubeModel" in cab_stpre_api.API_CATALOG["Doc"]
+    assert "SaveCabFile" in cab_stpre_api.API_CATALOG["Doc"]
+    assert len(cab_stpre_api.API_CATALOG["Doc"]) >= 380
     assert cab_stpre_api.API_MEMBER_COUNTS["Doc"] == 459
 
 
