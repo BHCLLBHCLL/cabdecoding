@@ -2485,3 +2485,35 @@ SaveCabFile → merge_mesh_result`。
   82%→90%、复核基线补 W5 复测、§四.6 A 层 100% 达成记录、溯源段与
   版本轨迹）。注：该文档处于 IDE 粘滞缓冲（Edit 工具写入不落盘），
   本次经临时补丁脚本直改磁盘后清理（同 R20 处理方式）。
+
+## 59. v6.5 全面复核勘误（2026-08-20，无代码变更）
+
+- **动机**：对当前代码做三路并行只读审计（编辑 PK / 求解·FEM·工具·COM /
+  CW·网格·.s·导入·数据层），逐项 file:line 取证，刷新功能完整度与深度。
+- **结论**：12 维百分比全部维持 v6.4（无调档），总体完成度 ≈92%。全量
+  复测 **626 passed / 5 skipped**（77s），43 模块 ≈5.04 万行。
+- **六处措辞/口径/归属勘误**（纯文档，无代码变更）：
+  1. 维度 2：「26 原语」→ 25 原语 + sketch/pipe（`cab_parts.py:77-85`
+     `PRIMITIVE_KINDS` 实为 27 项）；专用件参数面「八种」→ 14 kind
+     （`cabxml.py:693-724` `_SPECIAL_PARAM_FIELDS`）。
+  2. 维度 4：「22 section」→ 24 section 方法派发（`s_export.py:296-322`
+     `render()` 24 个方法，MOVB parts/control 两卡片族统计口径差异）。
+  3. 维度 6：剩余差距「R3.5d 边缘页残余深字段」实为维度 2 专用件字段
+     （ac_unit/diffuser/delphi，`cabxml.py:655-660/795-807/737`），交叉引用
+     修正。
+  4. 维度 10：FEM 模块归属纠正为 `cabxml.py`（`FEM_KIND_TET4` `:3072`、
+     `parse_femodel` `:3076`、`build_fem_delaunay` `:3165`），原误列
+     `cab_occ.py`（STEP/SAT 三角化）/`xemt_export.py`（EMT 材料映射）。
+  5. 维度 11：「scPOST 从未带参启动」拆分——scPOST 已由 `cab_gui.py:4924-4972`
+     Execute Post 带参启动（`_launch_program`）；仅 WindTool.exe/PICLS
+     从未启动。
+  6. 维度 12：「obj/dxf/mdl 双向」失实纠正为仅导入——`cab_import.py:243/255/274`
+     `_tris_to_obj/dxf/mdl_bytes` 导出 helper 无任何调用点，GUI 导出对话框
+     亦未列出；实际双向仅 x_t/stl/ecxml（+ Property XML）。
+- 附带发现（非调档依据，供后续）：`cab_edit_dialogs.py:1546-1550/1744-1748`
+  Edit Solid 能力提示文案陈旧（「project intent only」），与 `_exec`
+  实际 8/8 PK 实现矛盾，兜底分支已成死代码。
+- 文档：function_gap_analysis.md 刷新至 v6.5（§二 表加 v6.5 列、六处措辞
+  勘误、复核基线补 v6.5 全面复核、v6.4→v6.5 溯源段、总体完成度 ≈92% 与
+  版本轨迹；顺带修复 v6.4 溯源段漏改的开头「≈91%」→「≈92%」）。仍经临时
+  补丁脚本直改磁盘后清理（粘滞缓冲同前）。
