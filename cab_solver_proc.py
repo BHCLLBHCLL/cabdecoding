@@ -10,7 +10,8 @@
 
 from __future__ import annotations
 
-from typing import Optional
+import re
+from typing import Optional, Tuple
 
 from PyQt5.QtCore import QObject, QProcess, pyqtSignal
 
@@ -20,12 +21,34 @@ MAX_TAIL_LINES = 2000
 # 迭代/残差特征词 (小写包含匹配), 命中的行额外发 progress 信号
 _PROGRESS_KEYWORDS = ("cycle", "residual", "iteration")
 
+# P1-1 收敛曲线: 从一行求解器输出提取 (cycle, residual)。
+# cycle 标签缺失时用 -1 (由调用方按序号绘); 只认 residual 关键字后的首个数。
+_CYCLE_RE = re.compile(r"\b(?:cycle|iteration)\D*?(\d+)", re.IGNORECASE)
+_RESID_RE = re.compile(
+    r"\bresidual\D*?(\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)", re.IGNORECASE)
+
+
+def parse_residual_line(line: str) -> Optional[Tuple[int, float]]:
+    """解析一行输出中的 (cycle, residual); 无残差值时返回 None。
+
+    容错设计: 求解器输出格式不受控 (stsol 本机可能不存在),
+    任何解析失败都静默返回 None, 不影响 tail/progress 链路。
+    """
+    m = _RESID_RE.search(line)
+    if m is None:
+        return None
+    value = float(m.group(1))
+    c = _CYCLE_RE.search(line)
+    cycle = int(c.group(1)) if c else -1
+    return (cycle, value)
+
 
 class SolverProcess(QObject):
     """求解器进程封装: 启动 / 输出 tail / 退出码 / 异常检测 / stop。"""
 
     output_line = pyqtSignal(str)   # 每行输出 (stdout+stderr 合并)
     progress = pyqtSignal(str)      # 含迭代/残差特征的输出行
+    residual_point = pyqtSignal(int, float)  # P1-1: (cycle, residual)
     launched = pyqtSignal()         # 进程已成功启动
     success = pyqtSignal()          # 正常退出 (exitCode == 0)
     error = pyqtSignal(int, str)    # 异常终态: (exitCode, 说明)
@@ -41,6 +64,7 @@ class SolverProcess(QObject):
         self._tail: list[str] = []
         self._partial = ""      # 尚未遇到换行的残余片段
         self._reported = False  # 终态 (success/error) 只报告一次
+        self._residuals: list[tuple] = []  # P1-1 收敛曲线点
 
     # ------------------------------------------------------------------ API
 
@@ -52,6 +76,7 @@ class SolverProcess(QObject):
         self._reported = False
         self._tail = []
         self._partial = ""
+        self._residuals = []
         if cwd:
             self._proc.setWorkingDirectory(cwd)
         self._proc.start(exe, args or [])
@@ -76,6 +101,10 @@ class SolverProcess(QObject):
     def tail_lines(self, n: int = 50) -> list[str]:
         """最近 n 行输出 (失败摘要 / 调试用)。"""
         return list(self._tail[-max(1, n):])
+
+    def residual_points(self) -> list[tuple]:
+        """P1-1: 本次运行累积的 (cycle, residual) 序列。"""
+        return list(self._residuals)
 
     # ------------------------------------------------------------------ 槽
 
@@ -131,3 +160,8 @@ class SolverProcess(QObject):
         low = line.lower()
         if any(k in low for k in _PROGRESS_KEYWORDS):
             self.progress.emit(line)
+            # P1-1 收敛曲线: 同一行尝试提取 (cycle, residual)
+            pt = parse_residual_line(line)
+            if pt is not None:
+                self._residuals.append(pt)
+                self.residual_point.emit(pt[0], pt[1])

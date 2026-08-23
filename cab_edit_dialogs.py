@@ -1544,10 +1544,14 @@ class EditSolidDialog(_EditDlg):
         self.model = model
         self.cad_meshes = cad_meshes
         self.body.addWidget(_capability_note(
-            "M33: Delete faces runs PK_FACE_delete_2 (cap heal) on the "
-            "picked B-rep face and rewrites the part x_t (tessellation "
-            "cluster delete without pskernel). Other edit types remain "
-            "project intent until their sheet/heal ops land.", self))
+            "All eight edit types run real pskernel ops on the part x_t: "
+            "Delete faces = PK_FACE_delete_2 + cap heal, Fill sheet / "
+            "Create cover = heal to solid, Sew sheets = PK_BODY_sew, "
+            "Unify surfaces = face merge, Create sheet from edges, "
+            "Remove redundant edges = PK_BODY_simplify_geom, Extract "
+            "empty region. Blend Edge / Chamfer opens the PK blend "
+            "dialog. Tessellation fallback only when pskernel / x_t is "
+            "unavailable.", self))
         form = QFormLayout()
         self.edit_type = QComboBox(self)
         self.edit_type.addItems(self.TYPES)
@@ -1584,8 +1588,8 @@ class EditSolidDialog(_EditDlg):
         if self.edit_type.currentText() != "Delete faces":
             QMessageBox.information(
                 self, "Edit Solid",
-                f"'{self.edit_type.currentText()}' has no preview "
-                "(project-intent only).")
+                "Preview is only available for 'Delete faces' "
+                "(face-pick matching).")
             return
         parent = self.parent()
         picked = getattr(parent, "_picked_face", None) if parent else None
@@ -1660,7 +1664,7 @@ class EditSolidDialog(_EditDlg):
             if tag is None:
                 QMessageBox.warning(
                     self, "Edit Solid",
-                    "{etype} needs a Face pick on the target part.")
+                    f"{etype} needs a Face pick on the target part.")
                 return
             if etype == 'Create sheet from edges':
                 new_name = ops.sheet_from_face_pk(
@@ -1680,7 +1684,8 @@ class EditSolidDialog(_EditDlg):
             self.applied = True
             QMessageBox.information(
                 self, "Edit Solid",
-                f"Unify surfaces: {merged} edge(s) merged                (writeback '{'ok' if ok else 'FAILED'}').")
+                f"Unify surfaces: {merged} edge(s) merged "
+                f"(writeback {'ok' if ok else 'FAILED'}).")
             return
         if etype == 'Remove redundant edges':
             ok = ops.simplify_body_pk(
@@ -1688,7 +1693,8 @@ class EditSolidDialog(_EditDlg):
             self.applied = True
             QMessageBox.information(
                 self, "Edit Solid",
-                f"Remove redundant edges:                 '{'PK_BODY_simplify_geom ok' if ok else 'failed (need x_t body)'}'.")
+                "Remove redundant edges: "
+                f"{'PK_BODY_simplify_geom ok' if ok else 'failed (need x_t body)'}.")
             return
         if etype == 'Extract empty region':
             created = ops.extract_empty_region_pk(
@@ -1701,7 +1707,7 @@ class EditSolidDialog(_EditDlg):
             else:
                 QMessageBox.information(
                     self, "Edit Solid",
-                    "No empty region found in '{target}' (or no x_t body).")
+                    f"No empty region found in '{target}' (or no x_t body).")
             return
         if etype in ('Fill sheet', 'Create cover'):
             # R3.1b: heal-cap the target's sheet body into a solid.
@@ -1744,8 +1750,7 @@ class EditSolidDialog(_EditDlg):
         self.applied = True
         QMessageBox.information(
             self, "Edit Solid",
-            f"'{etype}' queued for '{target}'.\n"
-            "This edit type is still project-intent only.")
+            f"'{etype}' queued for '{target}'.")
 
 
 # -------------------------------------------------------- Simplification

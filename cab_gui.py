@@ -28,7 +28,8 @@ from cab_container import (
     CabArchive, CabFolder, CabMember, restore_members, snapshot_members)
 from cab_icons import AppIcons
 from cab_panes import (
-    ControlWindow, MessageWindow, PaneFrame, TreeListView,
+    ConvergenceWindow, ControlWindow, MessageWindow, PaneFrame,
+    TreeListView,
 )
 from cabxml import (
     PropertyModel, StpreModel, new_property_bytes, new_stpre_bytes,
@@ -196,6 +197,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._stpre_session = None
         # R6 求解闭环监控: 当前/最近一次求解器进程 (同一时刻仅允许一个)
         self._solver_proc = None
+        self._solver_run = (None, None)
+        self._last_result_pst = None
         self._paneling_mode = False
         self._paneling_faces: list = []
         self._act_paneling_esc = None
@@ -290,12 +293,19 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self.message_win = MessageWindow(self)
         msg_pane = PaneFrame("Message", self.message_win)
 
+        # P1-1 收敛曲线窗格: 默认隐藏, 求解器输出首个残差时自动显示
+        self.conv_win = ConvergenceWindow(self)
+        self.conv_pane = PaneFrame("Convergence", self.conv_win)
+        self.conv_pane.setVisible(False)
+
         right = QSplitter(Qt.Vertical, self)
         right.addWidget(self.draw_pane)
+        right.addWidget(self.conv_pane)
         right.addWidget(msg_pane)
         self.msg_pane = msg_pane
         right.setStretchFactor(0, 5)
-        right.setStretchFactor(1, 1)
+        right.setStretchFactor(1, 2)
+        right.setStretchFactor(2, 1)
         right.setSizes([640, 140])
 
         main = QSplitter(Qt.Horizontal, self)
@@ -441,6 +451,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._act_msg.setChecked(True)
         self._act_msg.triggered.connect(self._toggle_message_window)
         m.addAction(self._act_msg)
+        self._act_conv = QAction("Show Convergence Graph", self)
+        self._act_conv.setCheckable(True)
+        self._act_conv.setChecked(False)
+        self._act_conv.triggered.connect(self._toggle_convergence_window)
+        m.addAction(self._act_conv)
         self._act_status = QAction("Show Status Bar", self)
         self._act_status.setCheckable(True)
         self._act_status.setChecked(True)
@@ -503,6 +518,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         m.addSeparator()
         add(m, "Environment Settings", self._environment_settings)
         add(m, "Detailed Program Settings", self._detailed_settings)
+
+        m = mb.addMenu("Tools(&T)")
+        # P1-2: 结果回读跳转; P2 批次将在此追加 Execute WindTool / PICLS。
+        add(m, "Open Result in flowviewer…", self._open_in_flowviewer)
 
         m = mb.addMenu("Help(&H)")
         add(m, "User's Guide", self._open_manual)
@@ -630,6 +649,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _toggle_message_window(self, on: bool) -> None:
         if hasattr(self, "msg_pane"):
             self.msg_pane.setVisible(on)
+
+    def _toggle_convergence_window(self, on: bool) -> None:
+        if hasattr(self, "conv_pane"):
+            self.conv_pane.setVisible(on)
 
     def _toggle_status_bar(self, on: bool) -> None:
         self.statusBar().setVisible(on)
@@ -4471,7 +4494,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         path, selected = QFileDialog.getSaveFileName(
             self, "Export", self.model.project_name or "export",
             "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*);;"
-            "STL (*.stl);;Parasolid XT (*.x_t);;"
+            "STL (*.stl);;Wavefront OBJ (*.obj);;DXF (*.dxf);;"
+            "Cradle MDL (*.mdl);;Parasolid XT (*.x_t);;"
             "IFC Building (*.ifc);;ECXML Components (*.ecxml);;"
             "Property XML (*_property.xml);;All files (*)")
         if not path:
@@ -4483,6 +4507,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         if "STL" in selected or ext.lower() == ".stl":
             out = base + ".stl"
             self._export_stl(out)
+            wrote.append(out)
+        elif ext.lower() in (".obj", ".dxf", ".mdl") or any(
+                k in selected for k in ("OBJ", "DXF", "MDL")):
+            # P1-3: 网格文本出口 (E1 helpers 接线); 键入无扩展名时默认 obj
+            if ext.lower() not in (".obj", ".dxf", ".mdl"):
+                ext = ".obj"
+            out = base + ext.lower()
+            self._export_mesh_ascii(out, ext.lower())
             wrote.append(out)
         elif "IFC" in selected or ext.lower() == ".ifc":
             out = base + ".ifc"
@@ -4526,7 +4558,6 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 fh.write(xemt_export.build_emt(self.model, self.props))
             wrote.append(out)
         elif "S +" in selected or selected.startswith("S File") or ext == ".s":
-            import os
             ccel_name = os.path.basename(base) + ".ccel"
             with open(base + ".s", "w", encoding="utf-8-sig",
                       newline="") as fh:
@@ -4550,9 +4581,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             wrote.append(base + ".xemt")
         self.log("Exported " + ", ".join(wrote))
 
-    def _export_stl(self, path: str) -> None:
-        """M26: dump current CAD tessellations as binary STL."""
-        import cab_import
+    def _merged_tess(self):
+        """合并当前 CAD tessellation 为 (points, triangles) 网格出口共用。"""
         meshes = list(self._cad_meshes or [])
         if not meshes:
             raise RuntimeError("no tessellation to export")
@@ -4564,10 +4594,24 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             for t in np.asarray(m.triangles):
                 tris.append([int(t[0]) + off, int(t[1]) + off,
                              int(t[2]) + off])
-        raw = cab_import._tris_to_stl_bytes(
-            np.asarray(pts), np.asarray(tris), Path(path).stem)
+        return np.asarray(pts), np.asarray(tris)
+
+    def _export_stl(self, path: str) -> None:
+        """M26: dump current CAD tessellations as binary STL."""
+        import cab_import
+        pts, tris = self._merged_tess()
+        raw = cab_import._tris_to_stl_bytes(pts, tris, Path(path).stem)
         with open(path, "wb") as fh:
             fh.write(raw)
+
+    def _export_mesh_ascii(self, path: str, ext: str) -> None:
+        """P1-3: dump CAD tessellations as OBJ / DXF / MDL (E1 helpers)."""
+        import cab_import
+        fn = {".obj": cab_import._tris_to_obj_bytes,
+              ".dxf": cab_import._tris_to_dxf_bytes,
+              ".mdl": cab_import._tris_to_mdl_bytes}[ext]
+        pts, tris = self._merged_tess()
+        Path(path).write_bytes(fn(pts, tris, Path(path).stem))
 
     def _export_xt(self, path: str) -> None:
         """M26: export XT archive member (prefer first CAD .x_t payload)."""
@@ -4822,8 +4866,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         proc = SolverProcess()
         proc.output_line.connect(self._on_solver_output)
         proc.progress.connect(self._on_solver_progress)
+        proc.residual_point.connect(self._on_solver_residual)
         proc.success.connect(self._on_solver_success)
         proc.error.connect(self._on_solver_error)
+        # 新一次求解: 清空上次的收敛曲线
+        self.conv_win.clear()
         if not proc.start(exe, args, cwd):
             return False
         self._solver_proc = proc
@@ -4839,6 +4886,15 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
     def _on_solver_progress(self, line: str) -> None:
         # 迭代/残差行: 额外刷新状态栏显示运行进度
         self.statusBar().showMessage(f"Solver: {line[:120]}", 8000)
+
+    def _on_solver_residual(self, cycle: int, value: float) -> None:
+        # P1-1: 残差点进收敛曲线; 首个点时自动显示窗格
+        # (isHidden 而非 isVisible: 父窗口未 show 时后者恒 False)
+        self.conv_win.add_point(cycle, value)
+        if self.conv_pane.isHidden():
+            self.conv_pane.setVisible(True)
+            if getattr(self, "_act_conv", None) is not None:
+                self._act_conv.setChecked(True)
 
     def _on_solver_success(self) -> None:
         self.log("Solver finished: exitCode=0 (success).")
@@ -4970,6 +5026,43 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ok.clicked.connect(_run)
         cancel.clicked.connect(dlg.reject)
         dlg.exec_()
+
+    # ------------------------------------------------- Tools: flowviewer
+
+    def _find_flowviewer_entry(self) -> Optional[str]:
+        """P1-2: 定位 flowviewer 入口 (设置项优先; 默认兄弟仓 fv_gui.py)。"""
+        try:
+            from cab_options import get_setting
+            entry = str(get_setting("flowviewer_entry", "") or "").strip()
+        except Exception:
+            entry = ""
+        if entry and Path(entry).is_file():
+            return entry
+        cand = Path(__file__).resolve().parent.parent / "flowviewer" / \
+            "fv_gui.py"
+        return str(cand) if cand.is_file() else None
+
+    def _open_in_flowviewer(self) -> None:
+        """Tools -> Open Result in flowviewer: 最新 .fld/.pst 结果传参启动。"""
+        entry = self._find_flowviewer_entry()
+        if entry is None:
+            self.log("flowviewer entry not found (sibling ../flowviewer/"
+                     "fv_gui.py or Environment Settings "
+                     "'flowviewer_entry').", "WARN")
+            return
+        # 结果文件: 上次求解目录中最新的 .fld 优先, 回退最近 .pst
+        result = getattr(self, "_last_result_pst", None)
+        cwd, sfile = getattr(self, "_solver_run", (None, None))
+        try:
+            flds = [f for f in self._scan_solver_results(cwd, sfile)
+                    if f.suffix.lower() == ".fld"]
+            if flds:
+                result = str(max(flds, key=lambda f: f.stat().st_mtime))
+        except Exception:
+            pass
+        args = [entry] + ([result] if result else [])
+        if self._launch_program(sys.executable, args):
+            self.log(f"flowviewer: {result or 'started (no result file)'}")
 
     def _wizard_initial(self) -> None:
         """Wizard → Initial Setting (also auto-shown on startup / File→New).

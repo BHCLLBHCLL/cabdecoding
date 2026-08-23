@@ -1855,6 +1855,169 @@ tessellation，属独立长期项。
   Study 案例矩阵 + CSV 导出；DomainDialog 圆柱 R/θ/Z 列（round 23）。
 - 全仓 **433 passed / 0 failed**（8 既有沙箱 error），提交
   334b5ee…db7bb05。
+
+---
+
+## 22. STpre 对标「功能完整度与深度 100%」冲刺计划（2026-08-23，v7.0）
+
+> 基线：HEAD `0c937b0`（gap analysis v6.5 复核后），总体 ≈92%，
+> 全量测试 626 passed / 5 skipped，43 模块 ≈5.04 万行。
+> 本计划覆盖 v6.5 十二维全部残项，每项给出代码锚点、实现要点、验收口径。
+> 图例：规模 S/M/L；口径 A=开发清零 · B=实证定档 · C=结构性封顶声明（§22.0）。
+
+### 22.0 「100%」三级口径定义（先立规则，禁止虚报）
+
+| 口径 | 含义 | 达成形式 |
+|---|---|---|
+| **A 清零** | 缺口功能开发实现并通过验收 | 计入 100%，附测试证据 |
+| **B 实证定档** | 探针/手册/样本实证 STpre 自身无该能力或不可观测，或盲值派生不可行 | 视为对标完成，附官方证据归档 |
+| **C 结构性封顶** | headless 自动化环境结构性不可终证（仅 COM B 层 live-GUI-only 成员适用） | 包装覆盖 100% + 终证率公示 + 隔离探针报告 |
+
+每一维的 100% 必须落到 A/B/C 之一并有证据链；B/C 级项在 gap analysis 升版时
+以「定档声明」附录固化，接受审计。
+
+### 22.1 缺口全景表（12 维 × 残项 × 对标点）
+
+| # | 维度 | 现状 | 残项（对标 STpre） | 批次 | 目标口径 |
+|---|---|---|---|---|---|
+| D1 | 数据层 | 95% | 残余未命名成员/深字段滚动 | P4 滚动 | A+B |
+| D2 | 几何 Part | 94% | R3.5d 边缘页深字段（ac_unit/diffuser/delphi 参数面） | P4 | A |
+| D3 | UI 菜单 | 94% | 菜单长尾对齐 + Edit Solid 陈旧文案 | P1 | A |
+| D4 | .s 导出 | 94% | hdr1 少数尾列常量（已命名+295 样本锁定非盲值） | P5 | A/B |
+| D5 | 网格 | 95% | auto1/scheme 长尾（stpre_rules 闭式公式扩展） | 滚动 | A |
+| D6 | CW | 89% | R3.5d 边缘页残余深字段；scFLOW-only 2 项合理禁用 | P4 | A+B(禁用声明) |
+| D7 | PK 内核 | 93% | draft/shell/offset/replace/imprint/midsurface 六算子（商用 CAD 全集口径 ~65%） | P6 | A/B(逐算子) |
+| D8 | 求解闭环 | 82% | 收敛残差曲线图 0%、cab_gui→flowviewer 跳转未接、.pst 会话解析不做 | P1 | A+B(.pst 声明) |
+| D9 | COM 桥 | 90% | B 层 ~650 次 live probe 未跑；破坏性成员隔离；live-GUI-only headless 不可终证 | P8 | A+C |
+| D10 | FEM | 75% | 仅 kind=4 四面体；壳/六面体 kind 无证据面 | P7 | A/B 双分支 |
+| D11 | 高级工具 | 70% | WindTool/PICLS 从未带参启动（scPOST 已修）；scConverter/HeatPathView 出口 | P2 | A(+B PICLS 参数) |
+| D12 | 导入导出 | 80% | NAS 读入 raise、IFC 导出仅矩形 profile、STEP 仅导入、obj/dxf/mdl helper 死代码 | P1+P3 | A(B STEP 兜底) |
+
+### 22.2 批次详情
+
+#### P1 快赢批（规模 S，零外部依赖，先行）
+
+| 子项 | 锚点（已验证） | 实现要点 | 验收 |
+|---|---|---|---|
+| P1-1 收敛残差曲线图 | `cab_solver_proc.py:21` `_PROGRESS_KEYWORDS=("cycle","residual","iteration")`；`SolverProcess(QObject)` :24；`cab_gui.py:4896-4908` 收敛尾摘要 | SolverProcess 新增 residual 解析器（regex 抓 cycle 号 + 残差浮点值）聚合为 (cycle,value) 序列 → Qt signal → cab_gui 新增 QDockWidget 曲线面板；绘图走 **QPainter 自绘折线**（仓库既有惯例 `cab_dialogs.py:163`，**不引入 matplotlib/pyqtgraph**）；对数 Y 轴 | test_m40 扩展：合成行流断言解析点数/末值；GUI 冒烟渲染 |
+| P1-2 flowviewer 跳转入口 | 全仓仅 `cab_stpre_api.py` 提及 flowviewer，cab_gui 无引用；配套仓 `../flowviewer`（348 tests 绿） | Tools 菜单 "Open Result in flowviewer"：定位入口（子进程），传当前 .fld/.pst/.cab 路径；路径缺失时 WARN + cab_options 提供可配置项 | mock 子进程断言命令行参数；无环境降级提示 |
+| P1-3 obj/dxf/mdl 出口接线 | `cab_import.py:243/255/274` `_tris_to_obj_bytes/_tris_to_dxf_bytes/_tris_to_mdl_bytes` 为 E1 成品 helper（提交 `1552833` 有往返测试），**无 GUI 调用点** | 在现有 Export 对话框（x_t/stl/ecxml 出口处）加三格式选项调用 helper；File→Export 子菜单同步 | GUI 导出→re-import 往返绿；E1 测试不回退 |
+| P1-4 Edit Solid 陈旧文案 | `cab_edit_dialogs.py:1546-1550/1744-1748` 死分支文案（§59 附带发现） | 更新为实际能力提示 | grep 无陈旧措辞 |
+
+**状态（2026-08-24）：P1 全部完成。** 实现落点：
+- P1-1：`cab_solver_proc.py` 新增 `parse_residual_line` + `residual_point` 信号；`cab_panes.py` 新增 `ConvergenceWindow`（QPainter 对数 Y 轴折线）；`cab_gui.py` conv_pane 窗格 + View 菜单勾选 + `_on_solver_residual` 自动弹出。
+- P1-2：`cab_gui.py` `_find_flowviewer_entry`（设置项 `flowviewer_entry` 优先，回退兄弟仓 `../flowviewer/fv_gui.py`）+ `_open_in_flowviewer`（最新 .fld 优先回退 .pst 传参启动）；flowviewer 仓 `fv_gui.py` main 透传文件参数。
+- P1-3：Export 对话框新增 OBJ/DXF/MDL 过滤器 → `_export_mesh_ascii` 接线 `cab_import._tris_to_obj_bytes/_tris_to_dxf_bytes/_tris_to_mdl_bytes`；键入扩展名优先，无扩展名默认 .obj。
+- P1-4：`cab_edit_dialogs.py` `_capability_note` 更新为 PK 内核实际能力文案。
+- 测试：`tests/test_p1_quick_wins.py` 17 用例（解析器/信号/渲染/GUI 闭环/跳转/导出）。
+完成后预期：D8 82→90，D12 80→84，D3 94→96，总体 ≈93.5%。
+
+#### P2 外部工具批（规模 S，复用 scPOST 模板）
+
+| 子项 | 锚点 | 实现要点 | 验收 |
+|---|---|---|---|
+| P2-1 WindTool 带参启动 | 模板 `cab_gui.py:4924-4972` `_execute_post`（`_find_program`+`_launch_program`+设置持久化）；EXE 定位 `cab_tools.py:18` `WindTool_Bx64.exe`；info 生成器 `windtool.py:134` | Tools 菜单 Execute WindTool：args=[project.cab, windtool.info]（info 由既有生成器产出），路径持久化进 cab_options | mock `_launch_program` 断言 exe/args；STpre 环境冒烟一次 |
+| P2-2 PICLS 启动 | `cab_tools.py:20` `PICLS_Bx64net.exe`；CLI 参数无公开文档（`windtool.py:11` 注明） | 同模板；先空参/工程目录注入启动实测进程行为，再定参数集；若不可知 → **B 级定档**（拉起+目录注入） | 同上 + 行为记录归档 |
+| P2-3 scConverter / HeatPathView 出口 | `cab_tools.py:3-4` 定位族清单 | 同模板接入（格式转换/热路查看两个出口），清零维度 11 长尾 | 同上 |
+
+完成后预期：D11 70→95+，总体 ≈95%。
+
+#### P3 导入导出批（规模 M–L）
+
+| 子项 | 现状锚点 | 实现要点 | 验收 |
+|---|---|---|---|
+| P3-1 NAS 读入 | 现对 `.nas` 显式 raise ValueError | 最小 Nastran Bulk Data 解析器（GRID/CTRIA3/CQUAD4/PSHELL；自由域+小域两种格式）→ 面片 → 复用 add member 路径 | 样例 nas 往返 + 单元计数断言 |
+| P3-2 IFC 导出 profile 扩展 | 导出侧仅矩形 profile（圆形/多段线为导入侧已有，round 26-28） | IfcCircleProfileDef（圆柱管）/IfcArbitraryClosedProfileDef（棱柱件）导出 | 结构校验 profile 类型 + 往返 |
+| P3-3 STEP 导出 | pskernel 无 `PK_BODY_EXPORT`（§21.1 已枚举确认） | 三分支递降：(a) x_t 中转+本机 CAD CLI；(b) pythonocc（若环境可用）；(c) 均不可用 → **B 级定档**（STEP/SAT 导入已通，STpre 自身导出同样依赖许可链路） | 分支落地即测；定档则附录声明 |
+| P3-4 全矩阵回归扩 CI | §20 E2 🟡 | 导入导出全矩阵纳入常规回归 | CI 绿 |
+
+完成后预期：D12 80→95+（视 STEP 分支），总体 ≈97%。
+
+#### P4 CW/R3.5d 深字段批（规模 M，滚动）
+
+| 子项 | 锚点 | 要点 | 验收 |
+|---|---|---|---|
+| P4-1 cabxml 深字段滚动 | `cabxml.py:655-660/795-807/737` 区域 R3.5d 边缘页 | ac_unit/diffuser/delphi 参数面对齐 Pre_eng 手册逐字段命名+往返 | 每字段 XML 往返测试 |
+| P4-2 CW 页同步 | `cab_cwizard_pages.py` R3.5d 边缘页 | UI 与 XML 字段一一对应 | docs/cw_matrix.md 同步 |
+| P4-3 scFLOW-only 2 项 | CW 支持矩阵 23/25 | 保持禁用 + tooltip 声明归档 | **B 级**禁用声明 |
+
+完成后预期：D2 94→98+，D6 89→97+，总体 ≈97.5%（叠加 P3 后）。
+
+#### P5 .s 尾列批（规模 M）
+
+| 子项 | 现状 | 双分支 | 验收 |
+|---|---|---|---|
+| P5-1 hdr1 少数尾列常量 | 已命名 + 295 样本锁定非盲值 | (a) 样本统计出与可变字段的函数关系 → 派生公式（A级）；(b) 黑盒差异实验（改模型特征观察位翻转）无果 → **B 级定档**（风险可控声明） | box_bm.s CXYZ 54×54×54 金标逐点不回退 + 新增字段回归 |
+
+#### P6 PK 内核六算子批（规模 L，最高技术风险）
+
+| 子项 | 方法论（先例齐备） | 步骤 | 验收 |
+|---|---|---|---|
+| P6-1 家族存在性枚举 | lief 过滤 `docs/pskernel_exports.txt` 中 draft/offset/shell/imprint/midsurface/replace 关键字 | 确认 V37 导出面，逐算子登记有无 | 枚举报告 |
+| P6-2 逐算子 ABI 校准 | 四步循环已固化（§21.5 方法沉淀）：V35/V37 头起点 → capstone 反汇编 prologue 定签名 → ctypes 绑定 → 黑盒探针；参照 blend 家族、`PK_TRANSF_t` 32 位 tag（提交 `50b2acc`）、frustrum 写回调（pphdecoding 对照移植）先例 | 逐算子实现 + GUI Edit 菜单挂接 + Undo↔PS 快照一致（`snapshot_members` 已有） | PK_TOPOL_facet_2 golden facets 对拍（blend 530/422 先例）|
+| P6-3 无导出算子处置 | — | pskernel 确无对应家族者 **B 级定档** | 定档附录 |
+
+完成后预期：D7 93→99~100，总体 ≈99%。
+
+#### P7 FEM kind 实证批（规模 M，双分支，需 STpre 许可窗口）
+
+| 步骤 | 内容 |
+|---|---|
+| P7-1 探针先行 | SCTpre COM Model.CreateFEM/Mesher 黑盒探测壳/六面体 kind 枚举 + Pre_eng 手册 FEM 章 + 官方样例 cab 的 fem kind 分布扫描 |
+| 分支 A（有壳/六面体证据） | 实现写出路径 + 往返测试 → D10 75→100（**A 级**） |
+| 分支 B（仅 tet4） | 官方证据归档定档 → 口径修正至 100%（**B 级**） |
+
+附带：tr03 对拍以 B5 修复后基线重跑钉住。
+
+#### P8 COM B 层滚动批（规模 L，长期滚动，需许可窗口）
+
+| 子项 | 内容 | 口径 |
+|---|---|---|
+| P8-1 ~650 次 live probe | 按 API_CATALOG 12 类分片滚动；每片产出报告 JSON 入库 data/probes/（成员→XML 落盘证据行） | A |
+| P8-2 破坏性成员隔离 | Delete*/Close*/Save 覆盖类在沙箱副本工程上探针 | A |
+| P8-3 低频 Set*Param 值格式 | 科学计数法/单位后缀逐个 XML 对拍 | A |
+| P8-4 live-GUI-only 成员 | 弹对话框类 headless 结构性不可终证 → 终证率公示 + 定档声明 | **C** |
+
+达成形式：A 层包装维持 100% 不回退；typed 类 653 成员终证率 X% 公示；
+维度 9 以 C 级口径闭环——这是 headless 自动化对标 VB_Interface_eng 手册
+所能达到的可审计上限，属诚实声明而非能力缺口。
+
+### 22.3 执行顺序与依赖
+
+```
+主线串行：P1 → P2 → P4 → P3 → P5 → P6 → P7 → P8(滚动至收尾)
+并行机会：P1/P2/P4 相互独立；P6 与 P3 分属不同模块可并行
+许可窗口：P7/P8 需 STpre 实机 COM，集中同一窗口期执行
+```
+
+每个子项遵循既定流程：实现 → pytest 全量 → 回填本节状态 → commit/push。
+
+### 22.4 回归门槛（全程不变）
+
+- pytest ≥ 626 passed 基线不减、5 skipped 不增；
+- 金标不回退：box_bm.s CXYZ 54³ 逐点一致、blend golden facets 530/422、
+  tr03 黑盒计数钉住、.ccel 11 份官方样本字节级一致；
+- 每批次完成：function_gap_analysis.md 升版（v6.6→…→v7.0）、DEV_PLAN 回填、
+  gap analysis 总表刷新。
+
+### 22.5 完成度轨迹与发布门
+
+| 节点 | 总体完成度 |
+|---|---|
+| 基线 v6.5 | ≈92% |
+| P1 后 | ≈93.5% |
+| P2 后 | ≈95% |
+| P4 后 | ≈96% |
+| P3 后 | ≈97% |
+| P5 后 | ≈97.5% |
+| P6 后 | ≈99% |
+| P7+P8 后 | **100%**（含 B/C 级定档声明附录） |
+
+最终发布门：① 12 维全部闭环（A 清零或 B/C 定档有据）；
+② gap analysis 总表 100% + 定档声明附录；③ 全量绿 + 金标全保。
+
+---
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py

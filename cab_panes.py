@@ -92,6 +92,99 @@ class MessageWindow(QWidget):
         self.text.clear()
 
 
+class ConvergenceWindow(QWidget):
+    """P1-1 Convergence Window: solver residual curve.
+
+    QPainter 自绘 (仓库惯例, 不引 matplotlib/pyqtgraph):
+      - Y 轴 log10 刻度 (残差跨数量级);
+      - X 轴为点序号, 两端标注 cycle 号 (标签缺失时按序绘);
+      - 少于 2 点时显示占位提示。
+    """
+
+    _MARGIN_L, _MARGIN_R, _MARGIN_T, _MARGIN_B = 46, 14, 10, 18
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._points = []  # [(cycle, residual), ...]
+        self.setMinimumHeight(110)
+
+    # ------------------------------------------------------------- data API
+
+    def set_points(self, points) -> None:
+        self._points = [(int(c), float(v)) for c, v in points]
+        self.update()
+
+    def add_point(self, cycle: int, value: float) -> None:
+        self._points.append((int(cycle), float(value)))
+        self.update()
+
+    def clear(self) -> None:
+        self._points = []
+        self.update()
+
+    def points(self) -> list:
+        return list(self._points)
+
+    # ------------------------------------------------------------- painting
+
+    def paintEvent(self, event) -> None:
+        from PyQt5.QtGui import QPainter, QPen, QColor
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        p.fillRect(self.rect(), QColor(255, 255, 255))
+        left = self._MARGIN_L
+        top = self._MARGIN_T
+        plot_w = max(10, self.width() - left - self._MARGIN_R)
+        plot_h = max(10, self.height() - top - self._MARGIN_B)
+        pts = self._points
+        if len(pts) < 2:
+            p.setPen(QColor(130, 130, 130))
+            p.drawText(self.rect(), Qt.AlignCenter,
+                       "Convergence graph — no residual data yet")
+            return
+        import math
+        # log10 映射; 非正值钳到极小, 保证跨零/负残差不崩
+        logs = [math.log10(v) if v > 0 else -300.0 for _, v in pts]
+        lo, hi = min(logs), max(logs)
+        if hi - lo < 1e-9:            # 全等值: 留出上下边距
+            hi = lo + 1.0
+        span = hi - lo
+
+        def _x(i: float) -> float:
+            return left + plot_w * (i / (len(pts) - 1))
+
+        def _y(lv: float) -> float:
+            return top + plot_h * (1.0 - (lv - lo) / span)
+
+        # 框架: 边框 + 中值横网格线
+        p.setPen(QPen(QColor(190, 190, 190), 1))
+        p.drawRect(int(left), int(top), int(plot_w), int(plot_h))
+        mid = _y((lo + hi) / 2.0)
+        p.drawLine(int(left), int(mid), int(left + plot_w), int(mid))
+        # 曲线
+        p.setPen(QPen(QColor(31, 78, 148), 2))
+        poly = []
+        for i, lv in enumerate(logs):
+            poly.append((_x(i), _y(lv)))
+        for k in range(len(poly) - 1):
+            p.drawLine(*[int(round(v)) for v in poly[k]],
+                       *[int(round(v)) for v in poly[k + 1]])
+        # 末点标记
+        p.setBrush(QColor(31, 78, 148))
+        p.drawEllipse(int(poly[-1][0]) - 3, int(poly[-1][1]) - 3, 6, 6)
+        # 轴标注: Y 首末数量级, X 首末 cycle 号
+        p.setPen(QColor(90, 90, 90))
+        p.drawText(4, int(top + 10), f"1e{lo:.0f}")
+        p.drawText(4, int(top + plot_h), f"1e{hi:.0f}")
+        first_c = pts[0][0] if pts[0][0] >= 0 else 1
+        last_c = pts[-1][0] if pts[-1][0] >= 0 else len(pts)
+        p.drawText(int(left), self.height() - 4, str(first_c))
+        label = str(last_c)
+        p.drawText(int(left + plot_w - 8 * len(label)),
+                   self.height() - 4, label)
+        p.drawText(4, int(top + plot_h / 2) + 4, "res")
+
+
 class TreeListView(QWidget):
     """Tree/List View Window: Layout of Parts / Conditions / Archive.
 
