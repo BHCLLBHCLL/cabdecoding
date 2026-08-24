@@ -138,6 +138,10 @@ def import_file_with_payload(path: str | Path, **kw
         raw = cab_occ.triangles_to_stl(
             pts, tris, name=Path(path).stem)
         return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
+    if suffix == ".nas":
+        pts, tris, _props = parse_nas_bytes(Path(path).read_bytes())
+        raw = _tris_to_stl_bytes(pts, tris, Path(path).stem)
+        return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
     if suffix == ".obj":
         pts, tris = parse_obj_file(Path(path))
         raw = _tris_to_stl_bytes(pts, tris, Path(path).stem)
@@ -218,6 +222,118 @@ def parse_dxf_meshish(path: Path):
     arr = np.asarray(faces, dtype=np.float64).reshape(-1, 3)
     uniq, inv = np.unique(np.round(arr, 9), axis=0, return_inverse=True)
     return uniq, inv.reshape(-1, 3).astype(np.int64)
+
+
+def _nas_split(line: str) -> list:
+    """Split a Nastran bulk-data line into field tokens.
+
+    Handles free-field (comma separated, blanks as empty fields) and fixed
+    small-field (8-column) layouts.  Fixed-format cards always left-justify
+    the card name in columns 1-8, so plain whitespace splitting works for
+    the usual padded layouts; a fixed-width fallback covers tightly packed
+    lines.
+    """
+    s = line.rstrip("\n").rstrip("\r")
+    if "," in s:
+        return [f.strip() for f in s.split(",")]
+    toks = s.split()
+    if len(toks) > 1 or len(s) <= 8:
+        return toks
+    return [s[i:i + 8].strip() for i in range(0, len(s), 8)]
+
+
+def _nas_float(s: str) -> float:
+    """Parse a Nastran number, tolerating D exponent and no-E scientific
+    notation (``1.0D+05`` / ``1.0+05``)."""
+    s = s.strip().replace('D', 'E').replace('d', 'e')
+    if 'e' not in s and 'E' not in s and len(s) >= 3 \
+            and s[-3] in '+-' and s[-2:].isdigit():
+        s = s[:-3] + 'E' + s[-3:]
+    return float(s)
+
+
+def parse_nas_bytes(raw: bytes):
+    """Parse Nastran bulk-data (.nas/.bdf) into a triangle mesh (metres).
+
+    ``GRID`` cards define nodes; ``CTRIA3``/``CTRIAR`` and ``CQUAD4``/
+    ``CQUADR`` elements become triangles (quads split along the diagonal).
+    ``PSHELL`` property cards are collected so the ``pid -> mid`` material
+    map can drive part materials later.  Comment lines (``$``) and the
+    ``BEGIN BULK`` / ``ENDDATA`` delimiters are honoured.
+
+    Returns ``(points, triangles, props)`` where ``props`` maps property id
+    to material id (an empty dict when no PSHELL cards are present).  Only
+    nodes referenced by an element are kept, so stray GRID cards are
+    ignored.
+    """
+    text = raw.decode("latin-1", "replace")
+    points: dict[int, tuple[float, float, float]] = {}
+    tris: list[tuple[int, int, int]] = []
+    props: dict[int, int] = {}
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("$"):
+            continue
+        up = s.upper()
+        if up.startswith("ENDDATA") or up.startswith("END BULK"):
+            break
+        if up.startswith("BEGIN BULK"):
+            continue
+        fields = _nas_split(line)
+        if not fields:
+            continue
+        card = fields[0].upper()
+        if card == "GRID" and len(fields) >= 5:
+            try:
+                gid = int(fields[1])
+                xyz = (_nas_float(fields[2]), _nas_float(fields[3]),
+                       _nas_float(fields[4]))
+            except ValueError:
+                continue
+            points[gid] = xyz
+        elif card == "PSHELL" and len(fields) >= 3:
+            try:
+                props[int(fields[1])] = int(fields[2])
+            except ValueError:
+                continue
+        elif card in ("CTRIA3", "CTRIAR") and len(fields) >= 6:
+            try:
+                g = tuple(int(fields[i]) for i in (3, 4, 5))
+            except ValueError:
+                continue
+            tris.append(g)
+        elif card in ("CQUAD4", "CQUADR") and len(fields) >= 7:
+            try:
+                g = tuple(int(fields[i]) for i in (3, 4, 5, 6))
+            except ValueError:
+                continue
+            tris.append((g[0], g[1], g[2]))
+            tris.append((g[0], g[2], g[3]))
+    if not points or not tris:
+        raise ValueError("no Nastran GRID/CTRIA3/CQUAD4 data found")
+    used = {g for tri in tris for g in tri}
+    ids = [i for i in points if i in used]
+    remap = {old: new for new, old in enumerate(ids)}
+    pts = np.asarray([points[i] for i in ids], dtype=np.float64)
+    tris_arr = np.asarray([[remap[g] for g in tri] for tri in tris],
+                          dtype=np.int64)
+    return pts, tris_arr, props
+
+
+def import_nas_bytes(raw: bytes, name: str = "nas_part",
+                     **kw) -> list[ImportedBody]:
+    """Import Nastran bulk-data bytes as a polygon body (native parse)."""
+    if not available():
+        raise RuntimeError("Cradle pskernel.dll not found; set CRADLE_PROGRAMS")
+    pts, tris, _props = parse_nas_bytes(raw)
+    part = _ps_facet2.TessPart(
+        name=name, points=pts, triangles=tris.astype(np.int32), tag=0)
+    return [ImportedBody(name=name, tag=0, tess=part)]
+
+
+def import_nas_file(path: str | Path, **kw) -> list[ImportedBody]:
+    path = Path(path)
+    return import_nas_bytes(path.read_bytes(), name=path.stem, **kw)
 
 
 def _tris_to_stl_bytes(pts, tris, name: str) -> bytes:

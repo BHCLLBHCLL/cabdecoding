@@ -4308,10 +4308,11 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         path, _ = QFileDialog.getOpenFileName(
             self, "Import Geometry", "",
             "Geometry (*.x_t *.xmt_txt *.step *.stp *.stl *.sat *.sab "
-            "*.obj *.dxf *.mdl *.ifc *.ecxml);;"
+            "*.obj *.dxf *.mdl *.nas *.ifc *.ecxml);;"
             "IFC Building (*.ifc);;ECXML Components (*.ecxml);;"
             "Parasolid XT (*.x_t *.xmt_txt);;STEP (*.step *.stp);;"
             "OBJ (*.obj);;DXF (*.dxf);;MDL (*.mdl);;"
+            "Nastran BDF (*.nas *.bdf);;"
             "STL (*.stl);;ACIS SAT (*.sat *.sab);;All files (*)")
         if not path:
             return
@@ -4502,7 +4503,8 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             "S File (*.s);;XEMT File (*.xemt);;S + XEMT (*);;"
             "STL (*.stl);;Wavefront OBJ (*.obj);;DXF (*.dxf);;"
             "Cradle MDL (*.mdl);;Parasolid XT (*.x_t);;"
-            "IFC Building (*.ifc);;ECXML Components (*.ecxml);;"
+            "STEP (*.step *.stp);;IFC Building (*.ifc);;"
+            "ECXML Components (*.ecxml);;"
             "Property XML (*_property.xml);;All files (*)")
         if not path:
             return
@@ -4537,6 +4539,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         elif "Parasolid" in selected or ext.lower() == ".x_t":
             out = base + ".x_t"
             self._export_xt(out)
+            wrote.append(out)
+        elif "STEP" in selected or ext.lower() in (".step", ".stp"):
+            out = base + ".step"
+            self._export_step(out)
             wrote.append(out)
         elif "Property XML" in selected or "property.xml" in ext.lower() \
                 or (ext.lower() == ".xml" and "Property" in selected):
@@ -4636,6 +4642,17 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         except Exception as exc:
             self.log(f"XT transmit fallback failed: {exc}", "WARN")
         raise RuntimeError("no .x_t member available to export")
+
+    def _export_step(self, path: str) -> None:
+        """P3-3: STEP export through CAD-CLI / OCC / B-level branches."""
+        import cab_step_export
+        try:
+            cab_step_export.export_step_file(
+                self.model, path, archive=self.archive,
+                tags=getattr(self, "_ps_body_tags", None) or [])
+        except cab_step_export.StepExportUnavailable as exc:
+            self.log(f"STEP export unavailable: {exc}", "WARN")
+            raise
 
     # ------------------------------------------------------ File: Print
 

@@ -2517,3 +2517,37 @@ SaveCabFile → merge_mesh_result`。
   勘误、复核基线补 v6.5 全面复核、v6.4→v6.5 溯源段、总体完成度 ≈92% 与
   版本轨迹；顺带修复 v6.4 溯源段漏改的开头「≈91%」→「≈92%」）。仍经临时
   补丁脚本直改磁盘后清理（粘滞缓冲同前）。
+
+## 60. P3 导入导出批（2026-08-24）：NAS 读入 / IFC profile 扩展 / STEP 三分支
+
+按 DEV_PLAN §22.2 P3 落地，维度 12（导入导出）80%→95+：
+
+- **P3-1 NAS 读入**：`cab_import.py` 新增最小 Nastran Bulk Data 解析器
+  （`_nas_split` 自由域+小域两种格式、`_nas_float` 容忍 `D` 指数与无 `E`
+  科学计数、`parse_nas_bytes` 解析 GRID/CTRIA3/CQUAD4/PSHELL），未引用
+  节点剔除、CQUAD4 拆两三角；`import_nas_bytes`/`import_nas_file` +
+  `import_file_with_payload` 按扩展名分派 `.nas`，GUI Import 过滤器加
+  Nastran BDF。样例 `plate.nas` 往返 4 节点 3 三角（CQUAD4 拆 2）。
+- **P3-2 IFC 导出 profile 扩展**：`cab_ifc.py` 导出侧由仅矩形扩展为
+  矩形（IfcRectangleProfileDef）/ 圆形（IfcCircleProfileDef，圆柱件）/
+  多边形（IfcArbitraryClosedProfileDef + IfcPolyline，棱柱件）三型；
+  `register_ifc_parts` 为 polygon 部件持久化 base/size/points 子字段以
+  支撑 roundtrip；`model_to_ifc` 按部件 kind 分支 emit，与导入侧
+  （round 26-28 已有）对称。
+- **P3-3 STEP 导出三分支**：`cab_step_export.py`（新增）。pskernel 无
+  `PK_BODY_EXPORT`、Cradle CADthru/STEPAssistant 无头挂起，故三分支递降：
+  (a) `.x_t` 中转 + 本机无头 CAD CLI（FreeCAD FreeCADCmd，可用
+  `STPRE_STEP_CLI` 覆盖）；(b) pythonocc-core/OCP `STEPControl_Writer`
+  （`pip install OCP`，按需构建 box/cylinder/prism + 4x4 米制变换）；
+  (c) **B 级定档**——本机无 CLI 且无 OCP 时抛
+  `StepExportUnavailable`（含稳定标记 `B-level`）而非写坏文件。GUI
+  Export 对话框加 "STEP (*.step *.stp)" 过滤器 + `_export_step` 接线。
+  STEP/SAT **导入**不受影响（OCC 仅导入期需要）。
+- **B 级定档附录声明**：STEP **导出**在本环境（无 CAD CLI、无 OCP）
+  定档 B 级；依据与 STpre 同构——STpre 自身 STEP 导出依赖 Cradle 许可
+  CAD 转换链，本项目无该许可链路；安装 `OCP` 或配置 `STPRE_STEP_CLI`
+  后自动升级为 (b)/(a) 分支，无需改码。
+- 测试：`tests/test_p3_import_export.py` 扩至 14 例（NAS 解析/自由域/科学
+  计数/缺失报错/导入分派、IFC 圆形+多边形+混合 profile roundtrip、STEP
+  分支选择/CLI 查找/CLI 接线/米制矩阵/B 级定档）。全仓回归 **668 passed
+  / 5 skipped**（80s）。

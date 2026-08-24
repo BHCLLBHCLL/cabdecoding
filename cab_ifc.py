@@ -422,6 +422,12 @@ def register_ifc_parts(model, solids, kind_map=None, archive=None) -> list:
                     f = ET.SubElement(el, 'file')
                     f.tail = '\n         '
                 set_text(f, member)
+                # P3-2: persist the prism footprint so the IFC export can
+                # write an IfcArbitraryClosedProfileDef round-trip.
+                _set_part_child(el, 'base', _fmt_xyz(s.base))
+                _set_part_child(el, 'size', _fmt_xyz(s.size))
+                _set_part_child(el, 'points',
+                                ' '.join(f'{x},{y}' for x, y in s.points))
             names.append(name)
             continue
         params = {'base': s.base, 'size': s.size}
@@ -437,6 +443,22 @@ def register_ifc_parts(model, solids, kind_map=None, archive=None) -> list:
 
 def _fmt(v) -> str:
     return format(v, '.12g')
+
+
+def _fmt_xyz(v) -> str:
+    """Format a 3-tuple of mm values as a comma list (part XML)."""
+    return ','.join(format(float(x), '.12g') for x in v)
+
+
+def _set_part_child(el, tag: str, value: str) -> None:
+    """Create-or-set a child element's text on a ``<parts>`` element."""
+    import xml.etree.ElementTree as ET
+    from cabxml import _first
+    c = _first(el, tag)
+    if c is None:
+        c = ET.SubElement(el, tag)
+        c.tail = '\n         '
+    c.text = f' {value} '
 
 
 class _IfcWriter:
@@ -501,6 +523,19 @@ def _part_box(p):
     m = np.asarray(t[:16], dtype=np.float64).reshape(4, 4)
     return base, size, m
 
+def _part_matrix(p) -> np.ndarray:
+    t = _parse_triple(p.transform, (1.0, 0.0, 0.0))
+    while len(t) < 16:
+        t.append(0.0)
+    return np.asarray(t[:16], dtype=np.float64).reshape(4, 4)
+
+
+def _part_child_text(p, tag: str) -> str:
+    from cabxml import _first
+    c = _first(p.elem, tag)
+    return c.text.strip() if c is not None and c.text else ''
+
+
 def model_to_ifc(model) -> str:
     w = _IfcWriter()
     g = '0' * 22
@@ -510,12 +545,9 @@ def model_to_ifc(model) -> str:
     bld = w.add('IFCBUILDING', [g, 'Building'] + ['$'] * 11)
     storey = w.add('IFCBUILDINGSTOREY', [g, 'Storey'] + ['$'] * 9)
     contained = []
-    for p in model.parts():
-        box = _part_box(p)
-        if box is None:
-            continue
-        base, size, m = box
-        name = p.name
+
+    def emit(name, base, size, m, profile) -> None:
+        """Emit one swept product sharing placement/representation."""
         ox, oy, oz = base
         zx, zy, zz = float(m[0, 2]), float(m[1, 2]), float(m[2, 2])
         xx, xy, xz = float(m[0, 0]), float(m[1, 0]), float(m[2, 0])
@@ -524,14 +556,8 @@ def model_to_ifc(model) -> str:
         axis = w.add('IFCAXIS2PLACEMENT3D', ['#' + str(pt),
                                              [zx, zy, zz], [xx, xy, xz]])
         loc = w.add('IFCLOCALPLACEMENT', ['#' + str(axis)])
-        p2 = w.add('IFCCARTESIANPOINT', [[0, 0]])
-        pos2 = w.add('IFCAXIS2PLACEMENT2D', ['#' + str(p2)])
-        prof = w.add('IFCRECTANGLEPROFILEDEF', ['.RECTANGLE.', '$',
-                                                '#' + str(pos2),
-                                                size[0] / 1000.0,
-                                                size[1] / 1000.0])
-        extr = w.add('IFCEXTRUDEDAREASOLID', ['#' + str(prof), '$',
-                                              [0, 0, 1], size[2] / 1000.0])
+        extr = w.add('IFCEXTRUDEDAREASOLID',
+                     ['#' + str(profile), '$', [0, 0, 1], size[2] / 1000.0])
         ctx = w.add('IFCREPRESENTATIONCONTEXT', ['Body', 'Body', 'Model',
                                                  '$', '$'])
         rep = w.add('IFCSHAPEREPRESENTATION', ['#' + str(ctx), 'Body',
@@ -550,6 +576,62 @@ def model_to_ifc(model) -> str:
         prod = w.add(ent, [g, name, '$', '$', '$', '#' + str(loc),
                            '#' + str(shape), '$', '$', '$', '$'])
         contained.append(prod)
+
+    for p in model.parts():
+        name = p.name
+        m = _part_matrix(p)
+        if p.kind == 'cylinder':
+            center = _parse_triple(_part_child_text(p, 'center'),
+                                   (0.0, 0.0, 0.0))
+            try:
+                radius = float(_part_child_text(p, 'radius'))
+                height = float(_part_child_text(p, 'height'))
+            except ValueError:
+                continue
+            if radius <= 0 or height <= 0:
+                continue
+            p2 = w.add('IFCCARTESIANPOINT', [[0, 0]])
+            pos2 = w.add('IFCAXIS2PLACEMENT2D', ['#' + str(p2)])
+            prof = w.add('IFCCIRCLEPROFILEDEF', ['.CIRCLE.', '$',
+                                                 '#' + str(pos2),
+                                                 radius / 1000.0])
+            emit(name, tuple(center), (2.0 * radius, 2.0 * radius, height),
+                 m, prof)
+            continue
+        if p.kind == 'polygon':
+            base = _parse_triple(_part_child_text(p, 'base'),
+                                 (0.0, 0.0, 0.0))
+            size = _parse_triple(_part_child_text(p, 'size'),
+                                 (0.0, 0.0, 0.0))
+            fp = []
+            for tok in _part_child_text(p, 'points').split():
+                try:
+                    x, y = tok.split(',')
+                    fp.append((float(x), float(y)))
+                except ValueError:
+                    continue
+            if len(fp) < 3:
+                continue
+            if fp[-1] != fp[0]:
+                fp.append(fp[0])
+            pref = [w.add('IFCCARTESIANPOINT', [[x / 1000.0, y / 1000.0]])
+                    for x, y in fp]
+            pline = w.add('IFCPOLYLINE', [['#' + str(i) for i in pref]])
+            prof = w.add('IFCARBITRARYCLOSEDPROFILEDEF',
+                         ['.AREA.', '$', '#' + str(pline)])
+            emit(name, tuple(base), tuple(size), m, prof)
+            continue
+        box = _part_box(p)
+        if box is None:
+            continue
+        base, size, m = box
+        p2 = w.add('IFCCARTESIANPOINT', [[0, 0]])
+        pos2 = w.add('IFCAXIS2PLACEMENT2D', ['#' + str(p2)])
+        prof = w.add('IFCRECTANGLEPROFILEDEF', ['.RECTANGLE.', '$',
+                                                '#' + str(pos2),
+                                                size[0] / 1000.0,
+                                                size[1] / 1000.0])
+        emit(name, base, size, m, prof)
     w.add('IFCRELAGGREGATES', [g, '$', '$', '$', '#' + str(proj),
                                ['#' + str(site), '#' + str(bld),
                                 '#' + str(storey)]])
