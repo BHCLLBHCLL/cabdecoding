@@ -50,6 +50,14 @@ def _parts_box_list(path: Path) -> list[int] | None:
     return None
 
 
+def _sfile_hdr1_line(path: Path) -> str:
+    """The 8-column SDAT count row following the '1' comment terminator."""
+    lines = [ln.rstrip() for ln in path.read_text(
+        encoding="utf-8-sig").splitlines()]
+    marker = next(i for i, ln in enumerate(lines) if ln.strip() == "1")
+    return lines[marker + 1]
+
+
 def test_box_new_matches_stpre_golden_coordinates():
     """box_new.s (cabdecoding) vs box_bm.s (STpre): CXYZ identical."""
     assert BOX_NEW.is_file() and BOX_BM.is_file()
@@ -59,6 +67,13 @@ def test_box_new_matches_stpre_golden_coordinates():
     for i in range(3):
         assert len(a[i]) == 55 and len(b[i]) == 55  # 54 cells -> 55 points
         np.testing.assert_allclose(a[i], b[i], rtol=0.0, atol=1e-15)
+
+
+def test_box_new_matches_stpre_golden_hdr1():
+    """P5: hdr1 row (ni,nj,nk + tail) identical to the STpre golden."""
+    assert _sfile_hdr1_line(BOX_NEW) == _sfile_hdr1_line(BOX_BM)
+    assert _sfile_hdr1_line(BOX_BM).split() == [
+        "54", "54", "54", "1", "1", "0", "0", "0"]
 
 
 def test_box_new_matches_stpre_golden_occupancy():

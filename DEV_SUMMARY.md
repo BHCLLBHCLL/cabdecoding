@@ -2581,3 +2581,28 @@ D6 89→97+（叠加 P3 后总体 ≈97.5%）。
   `docs/cw_matrix.md` 归档 B 级禁用声明。
 - 测试：P4 新增 3 例（test_m41 +2、test_wizards +1）+ 1 处断言补强。
   全仓回归 **671 passed / 5 skipped**（87s）。
+
+## 62. P5 .s 尾列批（2026-08-24）：hdr1 col4/col5 reaction 标志派生
+
+按 DEV_PLAN §22.2 P5 落地，双分支走通分支 (a)：黑盒差异实验统计出
+hdr1 少数尾列与 XML 可变字段的函数关系，派生公式 A 级实现，无需
+B 级定档声明。
+
+- **P5-1a 黑盒差异实验**（`tools/diag_hdr1_tail.py` + 入库证据
+  `data/diag_hdr1_tail.json`）：全库扫描 CradleCFD_2023.2_ST_Example
+  295 对 (.cab,.s) 及 scFLOW 2023/2025、tests/box 共 299 个 .s——仅
+  exB12/exB12_e 偏离默认尾列 (1,1,0,0,0)，其 hdr1 = (1,1,10000,**1,1**)。
+  交叉表逐一排除候选特征（type/turbulence/diffusion/calculation/heat/
+  moving_body/mesh_kind 均有反例），锁定唯一驱动特征
+  `<analysis_etc><particle><kind>`：**col4 = col5 = 1 iff
+  kind == "reaction"**；marker/mass 或无粒子项目均为 0。假设回验
+  295/295 零失配。
+- **P5-1b 派生公式落地**（`s_export.py:hdr1_tail`）：reaction 判定并入
+  尾列组装，模块 docstring 与 HDR1_TAIL 注释同步新口径——hdr1 八列
+  （ni,nj,nk 计数 + 五列尾）至此全部从 XML 派生，`.s` 头部无盲值。
+- 测试：新增 2 例——test_w4_hdr1_particle 补
+  test_hdr1_particle_reaction_kind_sets_cols4_5（reaction→(1,1)、
+  marker/mass→(0,0)，build_sdat 全链路断言）；test_golden_reference
+  新增 hdr1 行级金标守卫 test_box_new_matches_stpre_golden_hdr1
+  （box_bm.s `54 54 54 1 1 0 0 0` 逐 token 对比）。验收达成：金标
+  逐点不回退。全仓回归 **673 passed / 5 skipped**（86s）。

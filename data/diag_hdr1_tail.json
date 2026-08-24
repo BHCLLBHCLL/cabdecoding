@@ -1,0 +1,64 @@
+{
+ "dist_hdr1": {
+  "(1, 1, 0, 0, 0)": 285,
+  "(1, 1, 10000, 0, 0)": 10,
+  "(1, 1, 1000000, 0, 0)": 2,
+  "(1, 1, 10000, 1, 1)": 2
+ },
+ "dist_hdr2": {
+  "(0, 0, 0, 0, 0, 0)": 253,
+  "(0, 0, 0, 0, 0, 2)": 10,
+  "(0, 0, 0, 0, 0, 42)": 4,
+  "(0, 0, 0, 0, 1, 0)": 10,
+  "(0, 0, 0, 0, 2, 0)": 8,
+  "(0, 0, 1, 0, 0, 0)": 6,
+  "(2, 0, 0, 0, 0, 0)": 2,
+  "(1, 0, 0, 0, 0, 0)": 6
+ },
+ "deviations": [
+  {
+   "sample": "CradleCFD_2023.2_ST_Example/Exercise\\Validation\\exB12\\exB12.s",
+   "hdr1_tail": [
+    1,
+    1,
+    10000,
+    1,
+    1
+   ],
+   "xml": {
+    "type": "compressive",
+    "heat": "1",
+    "turbulence": "3",
+    "calculation": "transient",
+    "moving_body": "",
+    "mesh_kind": "",
+    "particle": true,
+    "free_surf": false,
+    "fusion": false,
+    "diffusion": 3
+   }
+  },
+  {
+   "sample": "CradleCFD_2023.2_ST_Example/Exercise_e\\Validation\\exB12\\exB12_e.s",
+   "hdr1_tail": [
+    1,
+    1,
+    10000,
+    1,
+    1
+   ],
+   "xml": {
+    "type": "compressive",
+    "heat": "1",
+    "turbulence": "3",
+    "calculation": "transient",
+    "moving_body": "",
+    "mesh_kind": "",
+    "particle": true,
+    "free_surf": false,
+    "fusion": false,
+    "diffusion": 3
+   }
+  }
+ ]
+}

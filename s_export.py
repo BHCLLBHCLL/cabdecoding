@@ -30,11 +30,13 @@ tools/diag_s_constants.py）后，原先写死自 tests/ex4_e.s 的 opaque 常�
 - CYCS/CYCT/UNDR/STED <- calculation 稳/瞬态 + cycle / time_step（或
   init_time_step+courant 自适应）；UNDR/STED 逐条来自 steady_param 的
   under_relax / conv_check（类型索引 U1 V2 W3 P4 T5 K6 E7）。
-- 仍为常量的行：SDAT 版本行、hdr1 后 5 列中除粒子数外的四列
-  （样本中 96% 为 1,1,0,0,0）、VFDE 的 LEAP/EM1、EQUA 后的
-  TBEC/UPWD 附加卡（无 XML 源，不发射）。hdr1 第 6 列已从
-  ``analysis_etc/particle/max_num`` 派生（exA07-1=10000 /
-  exA07-6=1000000）。MREF/MRCL 已从 radiation XML 派生
+- 仍为常量的行：SDAT 版本行、VFDE 的 LEAP/EM1、EQUA 后的
+  TBEC/UPWD 附加卡（无 XML 源，不发射）。hdr1 尾列已全部从
+  XML 派生（P5-1，295 样本零失配）：第 6 列 =
+  ``analysis_etc/particle/max_num``（exA07-1=10000 /
+  exA07-6=1000000），第 7/8 列 = 1 当且仅当
+  ``particle/kind == "reaction"``（exB12；marker/mass 恒 0）。
+  MREF/MRCL 已从 radiation XML 派生
   （max_reflection / smrt_rays）。已证无法派生的例外样本清单见
   tools/diag_s_constants.py 输出。
 """
@@ -182,10 +184,11 @@ def _i(v: int, w: int = 12) -> str:
 
 
 # Pinned .s header / VFDE constants (R8-B, 295 official samples).
-# hdr1 tail default is 1,1,0,0,0; col 6 (0-based index 2 of the tail)
-# is particle max_num when <analysis_etc>/<particle> is present.
-# hdr2 col4-9 default 0; overlays: fusion / free_surf / moving_body
-# (see hdr2_tail). VFDE LEAP=1, EM1=0.99. MREF/MRCL are XML-derived.
+# hdr1 tail default is 1,1,0,0,0; overlays from <particle>:
+# col3 = max_num, col4 = col5 = 1 iff kind == "reaction" (P5-1,
+# see hdr1_tail). hdr2 col4-9 default 0; overlays: fusion /
+# free_surf / moving_body (see hdr2_tail). VFDE LEAP=1, EM1=0.99.
+# MREF/MRCL are XML-derived.
 HDR1_TAIL = (1, 1, 0, 0, 0)
 HDR2_TAIL = (0, 0, 0, 0, 0, 0)
 VFDE_LEAP = 1
@@ -193,11 +196,16 @@ VFDE_EM1 = 0.99
 
 
 def hdr1_tail(model: StpreModel) -> tuple:
-    """hdr1 last 5 ints: default HDR1_TAIL, col6 = particle ``max_num``.
+    """hdr1 last 5 ints: default HDR1_TAIL, cols 3-5 from <particle>.
 
-    Official 2023.2 ST Example: 229/241 parsed .s files stay
-    ``(1,1,0,0,0)``; the 12 exceptions are particle cases
-    (exA07-1 ``max_num=10000``, exA07-6 ``max_num=1000000``).
+    Official 2023.2 ST Example (295 pairs, P5-1 black-box sweep over
+    all local libraries incl. scFLOW 2023/2025 + tests/box, zero
+    mismatches, tools/diag_hdr1_tail.py):
+
+    * col3 = ``analysis_etc/particle/max_num`` when <particle> exists
+      (exA07-1=10000 / exA07-6=1000000)
+    * col4 = col5 = 1 iff ``particle/kind == "reaction"`` (exB12);
+      marker/mass kinds and non-particle projects stay 0
     """
     a, b, _c, d, e = HDR1_TAIL
     particle = model.root.find("analysis_etc/particle")
@@ -208,6 +216,8 @@ def hdr1_tail(model: StpreModel) -> tuple:
             max_num = int(float(raw.split(",")[0]))
         except ValueError:
             max_num = 0
+        if (_child_text(particle, "kind") or "").strip() == "reaction":
+            d = e = 1
     return (a, b, max_num, d, e)
 
 

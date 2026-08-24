@@ -56,7 +56,7 @@
 | 1 | 数据层（cab 容器/XML/材料/单位） | 95% | 95% | 95% | 95% | 95% | **95%** | MSZIP 读写、239 条目材料库与 STpre 同源（vendored standard_property_ENG.xml）、XML 往返稳定；W3 锁 cab/材料/单位往返测试 | — |
 | 2 | 几何建模 Part | 93% | 93% | 93% | 94% | 94% | **94%** | 25 原语 + sketch/pipe（PRIMITIVE_KINDS 27 项）+ 14 kind 专用件参数面（fan 系/pin_fin/slit_punching/anemostat，STpreBase 字符串实证）；W2 增：heat_pipe/delphi/双阻·多阻/card_guide 深字段持久化；W4 增：cab 读入时官方 part type → in-tree kind 映射 | R3.5d 其余边缘深字段滚动 |
 | 3 | UI 菜单/对话框 | 92% | 92% | 92% | 94% | 94% | **94%** | 8 菜单无 NYI、90+ 对话框、测量四模式；W2 增：命名 Reference 坐标系 + 独立 Distance Chain（连线链）菜单块 | — |
-| 4 | .s 导出 | 93% | 92% | 92% | 94% | 94% | **94%** | 24 section 方法派发（MOVB parts/control 两卡片族） + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（ex4 逐字节）；R20 增：CCEL 行 + PARTS 负 id + REGION 绝对值、.ccel 成员同步写；W1/W2 增：VFDE MREF/MRCL 从 radiation XML 派生（MRCL 仅 smrt_rays，金标修复）；hdr1 尾/hdr2 col4-9/VFDE LEAP·EM1 钉为命名常量（测试锁定）；W4 增：hdr1 粒子数从 analysis_etc/particle/max_num 派生、hdr2 fusion/free-surface/moving-body 三标志从 XML 派生 | hdr1 少数尾列仍为常量（已命名+295 样本锁定，非盲值） |
+| 4 | .s 导出 | 93% | 92% | 92% | 94% | 94% | **94%** | 24 section 方法派发（MOVB parts/control 两卡片族） + MOVB/PELTIER/CUTCELL 卡片 + 295 样本交叉验证（ex4 逐字节）；R20 增：CCEL 行 + PARTS 负 id + REGION 绝对值、.ccel 成员同步写；W1/W2 增：VFDE MREF/MRCL 从 radiation XML 派生（MRCL 仅 smrt_rays，金标修复）；hdr1 尾/hdr2 col4-9/VFDE LEAP·EM1 钉为命名常量（测试锁定）；W4 增：hdr1 粒子数从 analysis_etc/particle/max_num 派生、hdr2 fusion/free-surface/moving-body 三标志从 XML 派生；P5 增：hdr1 col4/col5 从 particle/kind=="reaction" 派生（黑盒差异实验 295 对样本零失配，tools/diag_hdr1_tail.py 归档）——hdr1 八列计数行至此全部派生 | — |
 | 5 | 网格 Gridding/Meshing | 93% | 90% | 93% | 95% | 95% | **95%** | 6 模式金标全收敛 + multiblock/圆柱/轴向 + cut-cell 体积分数；R20：.ccel 读写（11 官方样本字节级一致）+ 细化 XML 往返 + element 9 元组全保真 + kind 权重消解；W1 增：mesh_fine_divide 在 Gridding/Meshing 实际细分（refine_axes_by_fine_divide，幂等）、ccel ATTR 按零件属性发射（PANEL/BODY/FLUID）、List of Part 只读 Priority 列；W4 增：attribute=area 的 cut-cell 件发 ATTR CBODY | — |
 | 6 | Condition Wizard | 86% | 88% | 88% | 89% | 89% | **89%** | 24/25 类型 + 35 深度页 + R8 五类深字段页 + 表达式管理器 + MOVB 运动表；W2 增：lamp/fusion 持久化到 analysis_etc，CoSim/BCI-ROM 保持禁用（scFLOW-only 语义正确） | 专用件边缘深字段见维度 2；scFLOW-only 2 项（合理禁用） |
 | 7 | 几何编辑 PK 内核 | 93% | 90% | 93% | 93% | 93% | **93%** | Edit Solid 8/8 全真实 PK + blend/chamfer/G1 链（golden 530/422）+ R21：变半径倒圆（PK_EDGE_set_blend_variable legacy v1，52 字节选项；10 m 方 2.0→0.5 m 体积实证 996.2）+ PK_BODY_spin 旋转成体（Pappus 2π/3 实证）+ boolean/transform/cut/wrap + x_t 写回缓存逐出接线；编辑模块无假 UI | 按商用 CAD 全集（draft/shell/offset/replace/imprint/midsurface）约 65% |
@@ -160,11 +160,13 @@ v6.4 W5 COM A 层包装全量闭环 92% →
 3. **导入导出纠偏**：NAS 读入（Nastran bulk data 网格解析直接）或文档
    纠正失实声明；IFC 导出补 circle/polygon（导入侧已支持，导出仅剩
    cab_ifc.py 矩形分支）；STEP 导出（OCC write 一步）。
-4. **.s 尾常量透明化（W2/W4 完成）**：hdr1 尾/hdr2 col4-9/VFDE LEAP·EM1
+4. **.s 尾常量透明化（W2/W4/P5 完成）**：hdr1 尾/hdr2 col4-9/VFDE LEAP·EM1
    经 295 样本交叉定档为命名常量（`test_w2_s_constants` 锁定）；hdr1
    粒子数与 hdr2 fusion/free-surface/moving-body 三标志升级为 XML 派生
    （`test_w4_hdr1_particle` / `test_w4_hdr2_etc`）；VFDE MREF/MRCL 从
-   radiation XML 派生。残项：hdr1 少数尾列仍为常量（已命名非盲值）。
+   radiation XML 派生；P5 黑盒差异实验锁定 hdr1 col4/col5 =
+   particle kind=="reaction" 标志位（295 对样本零失配），hdr1 尾列
+   至此全部派生、残项清零。
 5. **PK 变半径倒圆（R21 完成）**：PK_EDGE_set_blend_variable V37 legacy
    v1 ABI（选项仅 {o_t_version, properties} 52 字节；半径位置须含边链
    两端、rhos 数组非空）封装为 `variable_blend_edge`，Blend Edge 对话框

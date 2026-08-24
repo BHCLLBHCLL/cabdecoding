@@ -37,7 +37,7 @@ def _hdr1(sdat: str) -> list[int]:
     return _ints(lines[marker + 1])
 
 
-def _set_particle(model, max_num: int) -> None:
+def _set_particle(model, max_num: int, kind: str | None = None) -> None:
     aet = model.root.find("analysis_etc")
     if aet is None:
         aet = ET.SubElement(model.root, "analysis_etc")
@@ -48,6 +48,11 @@ def _set_particle(model, max_num: int) -> None:
     if mx is None:
         mx = ET.SubElement(particle, "max_num")
     mx.text = f" {max_num} "
+    kd = particle.find("kind")
+    if kind is not None:
+        if kd is None:
+            kd = ET.SubElement(particle, "kind")
+        kd.text = f" {kind} "
 
 
 def test_hdr1_default_without_particle(ex4_models):
@@ -71,3 +76,16 @@ def test_hdr1_particle_max_num_1e6(ex4_models):
     assert s_export.hdr1_tail(model) == (1, 1, 1000000, 0, 0)
     assert tuple(_hdr1(s_export.build_sdat(model, props))[-5:]) == (
         1, 1, 1000000, 0, 0)
+
+
+def test_hdr1_particle_reaction_kind_sets_cols4_5(ex4_models):
+    """P5-1: col4=col5=1 iff particle/kind=="reaction" (exB12 evidence)."""
+    model, props = ex4_models
+    _set_particle(model, 10000, kind="reaction")
+    assert s_export.hdr1_tail(model) == (1, 1, 10000, 1, 1)
+    assert tuple(_hdr1(s_export.build_sdat(model, props))[-5:]) == (
+        1, 1, 10000, 1, 1)
+    # marker / mass kinds stay 0 (exA07-* evidence)
+    for kind in ("marker", "mass"):
+        _set_particle(model, 10000, kind=kind)
+        assert s_export.hdr1_tail(model) == (1, 1, 10000, 0, 0), kind
