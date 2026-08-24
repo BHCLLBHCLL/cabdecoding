@@ -520,8 +520,14 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Detailed Program Settings", self._detailed_settings)
 
         m = mb.addMenu("Tools(&T)")
-        # P1-2: 结果回读跳转; P2 批次将在此追加 Execute WindTool / PICLS。
+        # P1-2: 结果回读跳转; P2: Cradle 外部工具批次 (WindTool/PICLS/
+        # scConverter/HeatPathView)。
         add(m, "Open Result in flowviewer…", self._open_in_flowviewer)
+        m.addSeparator()
+        add(m, "Execute WindTool…", self._execute_windtool)
+        add(m, "Execute PICLS…", self._execute_picls)
+        add(m, "Execute scConverter…", self._execute_scconverter)
+        add(m, "Execute HeatPathView…", self._execute_heatpathview)
 
         m = mb.addMenu("Help(&H)")
         add(m, "User's Guide", self._open_manual)
@@ -5063,6 +5069,277 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         args = [entry] + ([result] if result else [])
         if self._launch_program(sys.executable, args):
             self.log(f"flowviewer: {result or 'started (no result file)'}")
+
+    # ------------------------------------------- P2 external Cradle tools
+
+    _EXTERNAL_TOOL_FILES = {
+        "windtool": "WindTool_Bx64.exe",
+        "picls": "PICLS_Bx64net.exe",
+        "scconverter": "scConverter_Sx64net.exe",
+        "heatpathview": "HeatPathView_Bx64.exe",
+    }
+
+    def _external_tool_exe(self, key: str) -> Optional[str]:
+        """P2: 定位 Cradle 外部工具 EXE (cab_tools 安装目录扫描优先)。"""
+        try:
+            from cab_tools import find_cradle_tool
+            hit = find_cradle_tool(key)
+            if hit is not None:
+                return str(hit)
+        except Exception:
+            pass
+        return self._find_program([self._EXTERNAL_TOOL_FILES[key]])
+
+    def _run_windtool(self, project: str, fld_paths) -> bool:
+        """P2-1: 生成 windtool.info 并以 [project, info] 启动 WindTool。
+
+        16 个风向 .fld 缺失/超限时返回 False (不启动); info 写入临时目录,
+        由 windtool.build_windtool_info 产出 (AUTO 阵风 + 默认 5.0 m/s 廓线)。
+        """
+        if len(fld_paths) != 16:
+            return False
+        import windtool
+        try:
+            info = windtool.build_windtool_info(
+                list(fld_paths), gust_factor="AUTO",
+                boundary_velocity=5.0, reference_velocity=5.0)
+        except Exception:
+            return False
+        info_dir = tempfile.mkdtemp(prefix="cab_windtool_")
+        info_path = os.path.join(info_dir, "windtool.info")
+        try:
+            with open(info_path, "w", encoding="utf-8") as fh:
+                fh.write(info)
+        except OSError:
+            return False
+        exe = self._external_tool_exe("windtool")
+        return self._launch_program(exe, [project, info_path])
+
+    def _execute_windtool(self) -> None:
+        """Tools -> Execute WindTool: 项目 + 16 风向 .fld -> info -> 启动。"""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QLineEdit, QVBoxLayout, QPushButton,
+            QHBoxLayout, QFileDialog as _FD, QMessageBox,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Execute WindTool")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        project = QLineEdit(str(get_setting(
+            "windtool_project", self.current_path or "")), dlg)
+        brow = QHBoxLayout()
+        brow.addWidget(project, 1)
+        bp = QPushButton("…", dlg)
+        bp.clicked.connect(lambda: project.setText(
+            _FD.getOpenFileName(dlg, "Project", "",
+                                "Project (*.cab);;All (*.*)")[0]
+            or project.text()))
+        brow.addWidget(bp)
+        form.addRow("Project", brow)
+        flds = QLineEdit("", dlg)
+        brow2 = QHBoxLayout()
+        brow2.addWidget(flds, 1)
+        bf = QPushButton("…", dlg)
+
+        def _pick():
+            files, _ = _FD.getOpenFileNames(
+                dlg, "Wind results (16 .fld)", "",
+                "Field (*.fld);;All (*.*)")
+            if files:
+                flds.setText(",".join(files))
+
+        bf.clicked.connect(_pick)
+        brow2.addWidget(bf)
+        form.addRow("Wind results (16 .fld)", brow2)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("Execute", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _run():
+            proj = project.text().strip()
+            set_setting("windtool_project", proj)
+            paths = [p.strip() for p in flds.text().split(",") if p.strip()]
+            if not proj or not Path(proj).is_file():
+                self.log("Execute WindTool: project file not found.", "WARN")
+                return
+            if len(paths) != 16:
+                QMessageBox.warning(
+                    self, "Execute WindTool",
+                    "WindTool 需要 16 个风向结果 (.fld)。")
+                return
+            if self._run_windtool(proj, paths):
+                dlg.accept()
+            else:
+                QMessageBox.warning(self, "Execute WindTool",
+                                    "未找到 WindTool。")
+
+        ok.clicked.connect(_run)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _run_picls(self, workdir: str) -> bool:
+        """P2-2: PICLS 拉起 + 工作目录注入 (CLI 参数无公开文档, B 级定档)。"""
+        exe = self._external_tool_exe("picls")
+        return self._launch_program(exe, [], workdir or None)
+
+    def _execute_picls(self) -> None:
+        """Tools -> Execute PICLS: 仅拉起并注入工程目录 (B 级定档)。"""
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QLineEdit, QVBoxLayout, QPushButton,
+            QHBoxLayout, QFileDialog as _FD, QMessageBox,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Execute PICLS")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        work = QLineEdit(str(get_setting(
+            "picls_workdir",
+            os.path.dirname(self.current_path or "") or os.getcwd())), dlg)
+        brow = QHBoxLayout()
+        brow.addWidget(work, 1)
+        bw = QPushButton("…", dlg)
+        bw.clicked.connect(lambda: work.setText(
+            _FD.getExistingDirectory(dlg, "Working directory")
+            or work.text()))
+        brow.addWidget(bw)
+        form.addRow("Working directory", brow)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("Execute", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _run():
+            workdir = work.text().strip()
+            set_setting("picls_workdir", workdir)
+            if self._run_picls(workdir):
+                dlg.accept()
+            else:
+                QMessageBox.warning(self, "Execute PICLS", "未找到 PICLS。")
+
+        ok.clicked.connect(_run)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _run_scconverter(self, src: str, dst: str) -> bool:
+        """P2-3: scConverter 格式转换入口 [src, dst]。"""
+        exe = self._external_tool_exe("scconverter")
+        return self._launch_program(exe, [src, dst])
+
+    def _execute_scconverter(self) -> None:
+        """Tools -> Execute scConverter: 选择输入/输出文件启动转换。"""
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QLineEdit, QVBoxLayout, QPushButton,
+            QHBoxLayout, QFileDialog as _FD, QMessageBox,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Execute scConverter")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+
+        def _row(label, key, default):
+            fld = QLineEdit(str(get_setting(key, default)), dlg)
+            hb = QHBoxLayout()
+            hb.addWidget(fld, 1)
+            bb = QPushButton("…", dlg)
+            bb.clicked.connect(lambda: fld.setText(
+                _FD.getOpenFileName(dlg, label, "",
+                                    "All (*.*)")[0] or fld.text()))
+            hb.addWidget(bb)
+            form.addRow(label, hb)
+            return fld
+
+        src = _row("Input", "scconverter_src", "")
+        dst = _row("Output", "scconverter_dst", "")
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("Execute", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _run():
+            s, d = src.text().strip(), dst.text().strip()
+            set_setting("scconverter_src", s)
+            set_setting("scconverter_dst", d)
+            if not s or not d:
+                self.log("Execute scConverter: need input and output.", "WARN")
+                return
+            if self._run_scconverter(s, d):
+                dlg.accept()
+            else:
+                QMessageBox.warning(self, "Execute scConverter",
+                                    "未找到 scConverter。")
+
+        ok.clicked.connect(_run)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
+
+    def _run_heatpathview(self, target: str) -> bool:
+        """P2-3: HeatPathView 热路查看入口 [target]。"""
+        exe = self._external_tool_exe("heatpathview")
+        return self._launch_program(exe, [target] if target else [])
+
+    def _execute_heatpathview(self) -> None:
+        """Tools -> Execute HeatPathView: 默认传最近求解结果文件。"""
+        from cab_options import get_setting, set_setting
+        from PyQt5.QtWidgets import (
+            QDialog, QFormLayout, QLineEdit, QVBoxLayout, QPushButton,
+            QHBoxLayout, QFileDialog as _FD, QMessageBox,
+        )
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Execute HeatPathView")
+        lay = QVBoxLayout(dlg)
+        form = QFormLayout()
+        last = getattr(self, "_last_result_pst", None)
+        target = QLineEdit(str(get_setting(
+            "heatpathview_target", last or "")), dlg)
+        brow = QHBoxLayout()
+        brow.addWidget(target, 1)
+        bt = QPushButton("…", dlg)
+        bt.clicked.connect(lambda: target.setText(
+            _FD.getOpenFileName(dlg, "Result", "",
+                                "Field (*.fld);;Post (*.pst);;All (*.*)")[0]
+            or target.text()))
+        brow.addWidget(bt)
+        form.addRow("Result", brow)
+        lay.addLayout(form)
+        row = QHBoxLayout()
+        ok = QPushButton("Execute", dlg)
+        cancel = QPushButton("Cancel", dlg)
+        row.addStretch(1)
+        row.addWidget(ok)
+        row.addWidget(cancel)
+        lay.addLayout(row)
+
+        def _run():
+            tgt = target.text().strip()
+            set_setting("heatpathview_target", tgt)
+            if self._run_heatpathview(tgt):
+                dlg.accept()
+            else:
+                QMessageBox.warning(self, "Execute HeatPathView",
+                                    "未找到 HeatPathView。")
+
+        ok.clicked.connect(_run)
+        cancel.clicked.connect(dlg.reject)
+        dlg.exec_()
 
     def _wizard_initial(self) -> None:
         """Wizard → Initial Setting (also auto-shown on startup / File→New).

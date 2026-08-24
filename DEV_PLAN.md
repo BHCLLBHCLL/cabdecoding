@@ -1920,6 +1920,18 @@ tessellation，属独立长期项。
 | P2-2 PICLS 启动 | `cab_tools.py:20` `PICLS_Bx64net.exe`；CLI 参数无公开文档（`windtool.py:11` 注明） | 同模板；先空参/工程目录注入启动实测进程行为，再定参数集；若不可知 → **B 级定档**（拉起+目录注入） | 同上 + 行为记录归档 |
 | P2-3 scConverter / HeatPathView 出口 | `cab_tools.py:3-4` 定位族清单 | 同模板接入（格式转换/热路查看两个出口），清零维度 11 长尾 | 同上 |
 
+**状态（2026-08-24）：P2 全部完成。** 实现落点（均复用 `_launch_program` 模板，
+EXE 定位 `_external_tool_exe` → `cab_tools.find_cradle_tool` 安装目录扫描优先，
+回退 `_find_program`）：
+- P2-1：`_run_windtool` 校验 16 个风向 .fld → `windtool.build_windtool_info`
+  生成临时 windtool.info → 以 `[project.cab, info]` 启动；对话框收集项目 + 16 fld
+  （多选），项目路径持久化进 `windtool_project`。
+- P2-2：`_run_picls` 空参拉起 + 工作目录注入（PICLS CLI 无公开文档 → **B 级定档**
+  「拉起 + 目录注入」），目录持久化进 `picls_workdir`。
+- P2-3：`_run_scconverter(src,dst)` 格式转换出口（输入/输出可配、持久化）与
+  `_run_heatpathview(target)` 热路查看出口（默认最近求解结果文件）。
+- Tools 菜单四项 + 分隔线；测试 `tests/test_p2_external_tools.py` 11 用例
+  （菜单接线 / EXE 定位优先与回退 / 各工具 args+cwd 断言 / 缺 EXE 降级日志）。
 完成后预期：D11 70→95+，总体 ≈95%。
 
 #### P3 导入导出批（规模 M–L）
