@@ -439,13 +439,15 @@ def test_condition_wizard_stpre_etc_analysis_pages(pieces):
     w.p_topopt.enable.setChecked(False)
     w.p_topopt.apply()
     assert model.analysis_etc_section("topology_optimize") is None
-    # Air conditioner -> analysis_set/aircon_model
+    # Air conditioner -> analysis_set/aircon_model (+ project flag 1:1)
     w.p_aircon.enable.setChecked(True)
     w.p_aircon.apply()
     assert model.analysis_set_value("aircon_model") == "T"
+    assert model.project_value("aircon_model_enable") == "T"
     w.p_aircon.enable.setChecked(False)
     w.p_aircon.apply()
     assert model.analysis_set_value("aircon_model") == "F"
+    assert model.project_value("aircon_model_enable") == "F"
     w.close()
 
 
@@ -485,6 +487,21 @@ def test_analysis_types_page_special_tags(pieces):
     assert not w2.types["marangoni"].isChecked()
     assert not w2.types["moving_body"].isChecked()
     w.close()
+
+
+def test_scflow_only_types_disabled_with_tooltip(pieces):
+    """P4-3: MSC CoSim / BCI-ROM stay disabled + honest tooltip (B 级)."""
+    import cab_wizards
+    _a, model, _p, _v = pieces
+    page = cab_wizards._CwAnalysisTypesPage(model)
+    tip = cab_wizards._CwAnalysisTypesPage._DISABLED_TIP
+    for key in ("msc_cosim", "bci_rom"):
+        cb = page.types[key]
+        assert not cb.isEnabled(), key
+        assert not cb.isChecked(), key
+        assert cb.toolTip() == tip, key
+        assert "scFLOW" in cb.toolTip()
+    page.close()
 
 
 def test_diffusion_boundary_page_present(pieces):

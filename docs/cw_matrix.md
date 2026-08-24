@@ -6,7 +6,7 @@
 > `禁用` = 无产品页，显式禁用 + 诚实 tooltip（非伪成功）。
 > 生成时间：2026-08-14（HEAD 见 git log）。
 
-## 1. Analysis Types（25 项）
+## 1. Analysis Types（25 项复选框 + Flow 基础）
 
 | 分析类型 | key | 状态 | 说明 |
 |---|---|---|---|
@@ -37,7 +37,19 @@
 | MSC CoSim | msc_cosim | 禁用(scFLOW) | scFLOW-only 连成分析（scFLOW 工程设置中配置）；scSTREAM .cab 不承载 |
 | BCI-ROM | bci_rom | 禁用(scFLOW) | scFLOW-only ROM 导出；scSTREAM .cab 不承载 |
 
-统计：支持 24（含 Flow）/ 禁用(scFLOW-only) 2。
+统计：复选框 25 项 = 支持 21 + 支持(FS 门控) 2（蒸发/沸腾）+ 禁用(scFLOW-only) 2；另 Flow 基础常开（不属复选框）。
+
+> **R3.5d 边缘页深字段（P4-1，cabxml）**：ac_unit/diffuser/delphi 专用件参数面
+> 与 Pre_eng 手册逐字段对齐并往返测试。AC 机组部件参数（能力/风量/温限等）以
+> 同名部件子元素镜像存储（`cabxml.py:655-660`），风量/温度按实证格式以 `m3/s`/`C`
+> 记录；diffuser 风量/温度镜像到绑定的 outlet flux 值（`<value type="flux">`，
+> `cabxml.py:795-807`）；delphi 参数面为节点网络
+> （`<thermal_node no>`/name/resistance，unit `C/W`，`cabxml.py:737` 空字段表 +
+> 节点专用读写路径）。
+
+> **scFLOW-only 禁用声明（P4-3，B 级）**：MSC CoSim / BCI-ROM 无产品页，
+> 显式禁用 + 诚实 tooltip（`cab_wizards.py:646-650`），scSTREAM .cab 不承载其
+> 配置（scFLOW 工程设置中配置）；**B 级禁用声明**归档于本矩阵。
 
 > STpre 存储实证（2026-08-15 COM 探针 tools/probe_cw_types.py）：
 > SetAnalysisType("plant_resistance"/"marangoni"/"topopt"/"move_body"/"aircon", "T")

@@ -2551,3 +2551,33 @@ SaveCabFile → merge_mesh_result`。
   计数/缺失报错/导入分派、IFC 圆形+多边形+混合 profile roundtrip、STEP
   分支选择/CLI 查找/CLI 接线/米制矩阵/B 级定档）。全仓回归 **668 passed
   / 5 skipped**（80s）。
+
+## 61. P4 CW/R3.5d 深字段批（2026-08-24）：ac_unit/diffuser/delphi 参数面
+
+按 DEV_PLAN §22.2 P4 落地。P4 聚焦 R3.5d 边缘页深字段（ac_unit/diffuser/
+delphi，v6.5 勘误已将该残项归入维度 2 专用件字段），完成后 D2 94→98+、
+D6 89→97+（叠加 P3 后总体 ≈97.5%）。
+
+- **P4-1 cabxml 深字段滚动**（`cabxml.py:655-660/795-807/737`）：
+  - ac_unit 参数面（10 字段，镜像 analysis_air_etc/aircon 条件模型容器）
+    逐字段 XML 往返——新增 `test_ac_unit_extra_fields_roundtrip` 覆盖此前
+    未测的 `ac_kind`(int) / `flow_type` / `h_limit_type` + 部分写入不动
+    其它字段 + serialize 往返。
+  - diffuser 参数面（`supply_air_angle` 部件子元素 + 风量/温度镜像绑定的
+    outlet flux 值）已有往返测试（test_m41）。
+  - delphi 参数面 = 节点网络（`<thermal_node no>`/name/resistance，unit
+    `C/W`；`_SPECIAL_PARAM_FIELDS` 空字段表 + 节点专用读写路径）——新增
+    `test_delphi_params_nodes_roundtrip`：set→read→serialize→re-read、
+    重写清旧重建、未知字段拒绝。
+- **P4-2 CW 页同步**：`_CwAirconPage`（`cab_cwizard_pages.py` R3.5d 边缘页）
+  UI↔XML 1:1——1 控件（enable）写 `analysis_set/aircon_model` + project
+  `aircon_model_enable`；test_wizards 补强两处 project 标志断言；
+  `docs/cw_matrix.md` 同步（统计口径修正为「复选框 25 = 支持 21 + FS 门控
+  2 + 禁用 2；另 Flow 基础常开」+ R3.5d 边缘页存储映射注）。
+- **P4-3 scFLOW-only 2 项**（B 级禁用声明）：MSC CoSim / BCI-ROM 无产品页
+  保持禁用 + 诚实 tooltip（`cab_wizards.py:646-650`）；新增
+  `test_scflow_only_types_disabled_with_tooltip`（offscreen 断言
+  isEnabled=False / isChecked=False / toolTip==_DISABLED_TIP 且含 "scFLOW"）；
+  `docs/cw_matrix.md` 归档 B 级禁用声明。
+- 测试：P4 新增 3 例（test_m41 +2、test_wizards +1）+ 1 处断言补强。
+  全仓回归 **671 passed / 5 skipped**（87s）。

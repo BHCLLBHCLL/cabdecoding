@@ -184,6 +184,60 @@ def test_diffuser_params_flux_mirror():
     assert again.condition_value("parts", "Supply") == "_outlet1_flux"
 
 
+def test_ac_unit_extra_fields_roundtrip():
+    # P4-1: ac_unit 参数面剩余字段逐字段往返（ac_kind/flow_type/h_limit_type）
+    m = _model(("ACUnit1", "ac_unit"))
+    assert m.set_part_params("ACUnit1", {
+        "ac_model": "ACModel1", "ac_kind": 2,
+        "operation_type": "cooling", "flow_type": "area",
+        "capability": 2500.0, "flow_rate": 15.0,
+        "t_limit_type": "minmax", "tmin": 16.0, "tmax": 30.0,
+        "h_limit_type": "no"})
+    p = m.part_params("ACUnit1")
+    assert p["ac_kind"] == 2 and isinstance(p["ac_kind"], int)
+    assert p["flow_type"] == "area"
+    assert p["h_limit_type"] == "no"
+    # 部分写入：只改 ac_kind，其余字段不动
+    assert m.set_part_params("ACUnit1", {"ac_kind": 3})
+    p = m.part_params("ACUnit1")
+    assert p["ac_kind"] == 3
+    assert p["flow_type"] == "area"
+    assert p["capability"] == 2500.0
+    # serialize 往返
+    again = StpreModel(parse_stpre(m.doc.serialize()))
+    p2 = again.part_params("ACUnit1")
+    assert p2["ac_kind"] == 3
+    assert p2["flow_type"] == "area"
+    assert p2["h_limit_type"] == "no"
+
+
+def test_delphi_params_nodes_roundtrip():
+    # P4-1: delphi 参数面 = 节点网络（<thermal_node no>/name/resistance,
+    # unit C/W）——空字段表，节点经 set/read 专用路径
+    m = _model(("Delphi1", "delphi"))
+    # 无节点：返回空 dict
+    assert m.part_params("Delphi1") == {}
+    assert m.set_part_params("Delphi1", {"nodes": [
+        ("Top", 2.5), ("Bottom", 3.0), ("Leads", 8.0), ("Sides", 12.0)]})
+    p = m.part_params("Delphi1")
+    assert p["nodes"] == [("Top", 2.5), ("Bottom", 3.0),
+                          ("Leads", 8.0), ("Sides", 12.0)]
+    el = m.find_part("Delphi1")
+    nodes = el.findall("thermal_node")
+    assert [n.attrib.get("no") for n in nodes] == ["1", "2", "3", "4"]
+    assert _first(nodes[0], "resistance").attrib["unit"] == "C/W"
+    # serialize 往返
+    again = StpreModel(parse_stpre(m.doc.serialize()))
+    assert again.part_params("Delphi1")["nodes"] == [
+        ("Top", 2.5), ("Bottom", 3.0), ("Leads", 8.0), ("Sides", 12.0)]
+    # 重写节点集：旧节点清空后重建
+    assert m.set_part_params("Delphi1", {"nodes": [("Die", 1.2)]})
+    p = m.part_params("Delphi1")
+    assert p["nodes"] == [("Die", 1.2)]
+    # 未知字段仍拒绝
+    assert m.set_part_params("Delphi1", {"voltage": 12.0}) is False
+
+
 def test_heat_pipe_params_roundtrip():
     m = _model(("HeatPipe1", "heat_pipe"), ("Sink", "cube"))
     assert m.set_part_params("HeatPipe1", {
