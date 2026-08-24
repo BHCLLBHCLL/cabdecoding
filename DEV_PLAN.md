@@ -1969,6 +1969,12 @@ EXE 定位 `_external_tool_exe` → `cab_tools.find_cradle_tool` 安装目录扫
 | P6-2 逐算子 ABI 校准 | 四步循环已固化（§21.5 方法沉淀）：V35/V37 头起点 → capstone 反汇编 prologue 定签名 → ctypes 绑定 → 黑盒探针；参照 blend 家族、`PK_TRANSF_t` 32 位 tag（提交 `50b2acc`）、frustrum 写回调（pphdecoding 对照移植）先例 | 逐算子实现 + GUI Edit 菜单挂接 + Undo↔PS 快照一致（`snapshot_members` 已有） | PK_TOPOL_facet_2 golden facets 对拍（blend 530/422 先例）|
 | P6-3 无导出算子处置 | — | pskernel 确无对应家族者 **B 级定档** | 定档附录 |
 
+**✅ 已完成（2026-08-24，提交待定）**：`cab_p6_ops.py` 封装 4 个 A 级
+算子（hollow/offset/replace/imprint，rc=0 + facet 几何对拍实证），
+draft/midsurface B 级定档（`KernelNotSupportedError`）。imprint 1043
+卡点破解：options 0x08 置 NULL。测试 `test_p6_operators.py` 8 例，
+全仓 681 passed / 5 skipped。GUI Edit 菜单挂接列待后续。
+
 完成后预期：D7 93→99~100，总体 ≈99%。
 
 #### P7 FEM kind 实证批（规模 M，双分支，需 STpre 许可窗口）

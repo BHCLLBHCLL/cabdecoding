@@ -2606,3 +2606,32 @@ B 级定档声明。
   新增 hdr1 行级金标守卫 test_box_new_matches_stpre_golden_hdr1
   （box_bm.s `54 54 54 1 1 0 0 0` 逐 token 对比）。验收达成：金标
   逐点不回退。全仓回归 **673 passed / 5 skipped**（86s）。
+
+## 63. P6 PK 内核六算子批（2026-08-24）：A 级 4/6 + B 级 2/6 定档
+
+按 DEV_PLAN §22.2 P6 落地：draft/shell/offset/replace/imprint/
+midsurface 六算子的 ABI 校准（四步循环：V35 头起点 → capstone 反汇编
+prologue 定签名 → ctypes 绑定 → 黑盒探针），新增 `cab_p6_ops.py`。
+
+- **imprint 1043 卡点破解（本批最大突破）**：此前 3 天 `PK_BODY_
+  imprint_faces_2` 恒返 `PK_ERROR_bad_tolerance(1043)`。用
+  `PK_ERROR_ask_last` 定案错误语义后，反汇编转换器（0x7ff9acffe7e0）
+  确认 public options 偏移 0x08 的 qword 被当作「工具体列表指针」，
+  且枚举字段直接拷贝无翻译。**把 0x08 置 NULL 即成功**（工具面经
+  `faces[]` 参数传入）；`o_t_version=1`，complete/extend/dir/update
+  填 token（0x58fc/0x5906/0x60ff/0x616d）。results 实测布局为
+  `{ptr,count}` 对 ×4（edges/vertices/target_faces/tool_faces），
+  与 V35 文档 `{count,ptr}` 相反——n_edges 在偏移 0x08 而非 0x00。
+- **A 级 4/6（rc=0 + facet 几何对拍）**：hollow=`PK_BODY_hollow_2`
+  （1 m 方块 -0.1 抽壳，体积 1.000→0.488）；offset=`PK_BODY_offset_2`
+  （+0.05 → 1.331=1.1³ 精确）；replace=`PK_FACE_replace_surfs_2`
+  （顶面替换为 z=1.2 平面实证）；imprint=`PK_BODY_imprint_faces_2`
+  （重叠方块压印 12→20 边、6→8 面，results 返回 7 条新边标签）。
+- **B 级 2/6（无可用导出，定档）**：draft=`PK_BODY_taper` 全 9 配置
+  （miter×method×引用数）返 `PK_ERROR_not_implemented(5000)`、
+  `PK_FACE_taper` 全版本 `PK_ERROR_o_t_version_unknown(5022)`；
+  midsurface=pskernel 无导出。均以 `KernelNotSupportedError` 定档，
+  GUI 挂接时走既有 Edit Solid 面操作代替。
+- 测试：`tests/test_p6_operators.py` 8 例（含 1043 回归：非 NULL
+  工具列表 → rc≠0，置 NULL → rc=0）。全仓回归 **681 passed / 5
+  skipped**（111s），金标不回退。

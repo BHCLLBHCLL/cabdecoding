@@ -258,6 +258,31 @@ v6.4 W5 COM A 层包装全量闭环 92% →
    - 测试：`tests/test_m46_ccel_refine.py` 15 例 + W1 三件套
      （fine_divide/ccel_attr/part_priority），全量 614 passed 零失败。
 
+10. **P6 PK 内核六算子批（2026-08-24 完成 A/B 定档）**：draft/shell/
+    offset/replace/imprint/midsurface 逐算子 ABI 校准（四步循环：
+    V35 头起点 → capstone 反汇编 prologue 定签名 → ctypes 绑定 →
+    黑盒探针）。
+    - **A 级 4/6（rc=0 + facet 几何对拍实证）**：
+      cab_p6_ops.py 封装 PK_BODY_hollow_2（1 m 方块 -0.1 抽壳
+      体积 1.000→0.488）、PK_BODY_offset_2（+0.05 → 1.331=1.1^3
+      精确）、PK_FACE_replace_surfs_2（顶面换到 z=1.2 平面实证）、
+      PK_BODY_imprint_faces_2（重叠方块压印 12→20 边、6→8 面，
+      results 返回 7 条新边标签）。
+    - **imprint 关键破解（1043 根因）**：本内核 public options 偏移
+      0x08 的 qword 被当作「工具体列表指针」；传任何列表/标签都触发
+      PK_ERROR_bad_tolerance(1043)（此前 3 天卡点）。**置 NULL 即
+      成功**（工具面经 aces[] 传入）；o_t_version=1，枚举字段
+      直接填 token（0x58fc/0x5906/0x60ff/0x616d，无翻译）。results
+      实测布局为 {ptr,count} 对 x4（edges/vertices/target_faces/
+      tool_faces），与 V35 文档 {count,ptr} 相反。
+    - **B 级 2/6（无可用导出，定档）**：draft=PK_BODY_taper 全
+      配置（miter x method x 引用数 9 组合）返回
+      PK_ERROR_not_implemented(5000)、PK_FACE_taper 全版本
+      PK_ERROR_o_t_version_unknown(5022)；midsurface=pskernel 无
+      导出。均以 KernelNotSupportedError 定档。
+    - 测试：	ests/test_p6_operators.py 8 例（含 1043 回归断言：
+      非 NULL 工具列表 → rc!=0，置 NULL → rc=0）。
+
 ---
 
 ## 五、结论
