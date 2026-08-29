@@ -1525,6 +1525,44 @@ def _picked_face_to_tag(model, archive, cad_meshes, target, picked):
         tag, tuple(n / ln), tuple((a + b + c) / 3.0))
 
 
+def _picked_face_plane(model, archive, cad_meshes, target, picked):
+    """Map a Draw-window triangle pick to ``(face_tag, location, normal)``.
+
+    Mirrors :func:`_picked_face_to_tag` but also returns the picked
+    triangle's centroid + normal (metres) for P6 replace-face plane
+    creation.  Returns ``(None, None, None)`` when there is no pick or no
+    matching B-rep face.
+    """
+    import cab_ps_ops
+    if not picked or picked[0] != target:
+        return None, None, None
+    tess = next((m for m in (cad_meshes or [])
+                 if getattr(m, "name", None) == target), None)
+    tris = getattr(tess, "triangles", None)
+    pts = getattr(tess, "points", None)
+    cell = picked[1]
+    if tris is None or pts is None or cell >= len(tris):
+        return None, None, None
+    p = np.asarray(pts, dtype=np.float64)
+    tri = np.asarray(tris)[int(cell)]
+    a, b, c = p[tri[0]], p[tri[1]], p[tri[2]]
+    n = np.cross(b - a, c - a)
+    ln = np.linalg.norm(n)
+    if ln < 1e-18:
+        return None, None, None
+    tag, _ = ops._find_body_tags(model, archive, target, "")
+    if tag is None:
+        return None, None, None
+    face = cab_ps_ops.match_face_by_plane(
+        tag, tuple(n / ln), tuple((a + b + c) / 3.0))
+    if face is None:
+        return None, None, None
+    loc = tuple(float(v) for v in ((a + b + c) / 3.0))
+    nrm = tuple(float(v) for v in (n / ln))
+    return int(face), loc, nrm
+
+
+
 class EditSolidDialog(_EditDlg):
     """[Edit Solid] — 8 edit types (STpre)."""
 
@@ -1537,6 +1575,10 @@ class EditSolidDialog(_EditDlg):
         "Create sheet from edges",
         "Delete faces",
         "Remove redundant edges",
+        "Hollow shell",
+        "Offset body",
+        "Replace face",
+        "Imprint faces",
     )
 
     def __init__(self, model: StpreModel, cad_meshes=None, parent=None):
@@ -1564,6 +1606,11 @@ class EditSolidDialog(_EditDlg):
         self.tolerance.setDecimals(6)
         self.tolerance.setValue(0.0)
         form.addRow("Tolerance", self.tolerance)
+        self.offset = QDoubleSpinBox(self)
+        self.offset.setRange(-1e3, 1e3)
+        self.offset.setDecimals(6)
+        self.offset.setValue(0.0)
+        form.addRow("Offset", self.offset)
         self.out_name = QLineEdit(self)
         form.addRow("Part name", self.out_name)
         self.thickness = QDoubleSpinBox(self)
@@ -1571,6 +1618,10 @@ class EditSolidDialog(_EditDlg):
         self.thickness.setDecimals(3)
         self.thickness.setValue(1.0)
         form.addRow("Thickness", self.thickness)
+        self.tool_part = QComboBox(self)
+        self.tool_part.addItem("(none)")
+        self.tool_part.addItems(_part_names(model))
+        form.addRow("Tool part", self.tool_part)
         self.body.addLayout(form)
         self._root.addLayout(_bottom_buttons(self, (
             ('Preview', self._preview),
@@ -1579,6 +1630,7 @@ class EditSolidDialog(_EditDlg):
             ('Close', self.accept),
         )))
         self.deleted = 0
+        self.result_msg = ""
 
     def _archive(self):
         parent = self.parent()
@@ -1746,6 +1798,86 @@ class EditSolidDialog(_EditDlg):
             QMessageBox.information(
                 self, "Edit Solid",
                 f"Sewed {len(others) + 1} sheet parts into {target} (x_t member rewritten).")
+            return
+        if etype == 'Hollow shell':
+            rc = ops.hollow_part_pk(
+                self.model, self._archive(), self.cad_meshes, target,
+                self.thickness.value(), self.tolerance.value())
+            if not rc.get("ok"):
+                QMessageBox.warning(
+                    self, "Edit Solid", rc.get("msg", "Hollow failed."))
+                return
+            self.applied = True
+            self.result_msg = (
+                f"Hollow '{target}' shelled by {self.thickness.value():g} m.")
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"Hollow: '{target}' shelled by {self.thickness.value():g} m "
+                f"({rc.get('msg', 'ok')}).")
+            return
+        if etype == 'Offset body':
+            rc = ops.offset_part_pk(
+                self.model, self._archive(), self.cad_meshes, target,
+                self.offset.value(), self.tolerance.value())
+            if not rc.get("ok"):
+                QMessageBox.warning(
+                    self, "Edit Solid", rc.get("msg", "Offset failed."))
+                return
+            self.applied = True
+            self.result_msg = (
+                f"Offset '{target}' by {self.offset.value():g} m.")
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"Offset: '{target}' offset by {self.offset.value():g} m "
+                f"({rc.get('msg', 'ok')}).")
+            return
+        if etype == 'Replace face':
+            parent = self.parent()
+            picked = getattr(parent, '_picked_face', None) if parent else None
+            face_tag, loc, nrm = _picked_face_plane(
+                self.model, self._archive(), self.cad_meshes, target, picked)
+            if face_tag is None:
+                QMessageBox.warning(
+                    self, "Edit Solid",
+                    "Replace face needs a Face pick on the target part.")
+                return
+            rc = ops.replace_face_pk(
+                self.model, self._archive(), self.cad_meshes, target,
+                face_tag, loc, nrm, self.tolerance.value())
+            if not rc.get("ok"):
+                QMessageBox.warning(
+                    self, "Edit Solid", rc.get("msg", "Replace failed."))
+                return
+            self.applied = True
+            self.result_msg = (
+                f"Replace face flattened face {face_tag} on '{target}'.")
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"Replace face: flattened face {face_tag} on '{target}' "
+                f"({rc.get('msg', 'ok')}).")
+            return
+        if etype == 'Imprint faces':
+            tool = self.tool_part.currentText()
+            if not tool or tool == target:
+                QMessageBox.warning(
+                    self, "Edit Solid",
+                    "Imprint needs a Tool part different from the target.")
+                return
+            rc = ops.imprint_part_pk(
+                self.model, self._archive(), self.cad_meshes, target,
+                tool, self.tolerance.value())
+            if not rc.get("ok"):
+                QMessageBox.warning(
+                    self, "Edit Solid", rc.get("msg", "Imprint failed."))
+                return
+            self.applied = True
+            self.result_msg = (
+                f"Imprinted {rc.get('n_edges', 0)} edge(s) from '{tool}' "
+                f"on '{target}'.")
+            QMessageBox.information(
+                self, "Edit Solid",
+                f"Imprint: {rc.get('n_edges', 0)} edge(s) from '{tool}' "
+                f"imprinted on '{target}' ({rc.get('msg', 'ok')}).")
             return
         self.applied = True
         QMessageBox.information(

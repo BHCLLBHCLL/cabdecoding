@@ -1908,8 +1908,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg.exec_()
         if dlg.applied:
             n = getattr(dlg, "deleted", 0) or 0
-            msg = ("Edit Solid finished."
-                   if not n else f"Edit Solid: deleted {n} triangle(s).")
+            msg = getattr(dlg, "result_msg", "") or (
+                "Edit Solid finished."
+                if not n else f"Edit Solid: deleted {n} triangle(s).")
             self._edit_finish(snap, msg)
 
     def _part_simplification_dialog(self) -> None:

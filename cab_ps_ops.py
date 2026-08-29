@@ -856,6 +856,43 @@ def _sheet_declare(pk) -> None:
         POINTER(c_void_p), POINTER(c_void_p)]
 
 
+def create_plane_normal(location, normal, x_axis=None) -> int:
+    """``PK_PLANE_create`` a plane surf from a point + normal (metres).
+
+    Returns the surface tag. P6 replace-face / plane primitives rely on it.
+    ``x_axis`` (an in-plane vector) is auto-derived when omitted.
+    """
+    if not available():
+        raise RuntimeError("pskernel not available")
+    pk = _ps._get_session().pk
+    n = np.asarray(normal, dtype=np.float64)
+    nn = float(np.linalg.norm(n))
+    if nn < 1e-12:
+        raise ValueError("zero normal")
+    n = n / nn
+    loc = np.asarray(location, dtype=np.float64)
+    if x_axis is None:
+        ref = np.array([1.0, 0.0, 0.0])
+        if abs(float(np.dot(n, ref))) > 0.9:
+            ref = np.array([0.0, 1.0, 0.0])
+        xax = np.cross(ref, n)
+        xax = xax / np.linalg.norm(xax)
+    else:
+        xax = np.asarray(x_axis, dtype=np.float64)
+        xax = xax - np.dot(xax, n) * n
+        xax = xax / np.linalg.norm(xax)
+    sf = _SheetPlaneSf()
+    sf.data[0:3] = loc
+    sf.data[3:6] = n
+    sf.data[6:9] = xax
+    _sheet_declare(pk)
+    plane = c_int(0)
+    rc = pk.PK_PLANE_create(byref(sf), byref(plane))
+    if rc != 0:
+        raise RuntimeError(f"PK_PLANE_create failed: {rc}")
+    return int(plane.value)
+
+
 def face_edges(pk, face) -> list:
     # PK_FACE_ask_edges - edge tags of one face.
     n = c_int(0)

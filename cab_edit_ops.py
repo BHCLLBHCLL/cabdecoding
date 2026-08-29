@@ -1743,6 +1743,131 @@ def _writeback_body_xt(model, archive, cad_meshes, name, tag) -> bool:
     return True
 
 
+def hollow_part_pk(model, archive, cad_meshes, name, thickness,
+                   tolerance=1e-4) -> dict:
+    """P6 shell: ``PK_BODY_hollow_2`` — thickness>0 removes the interior
+    (offset=-thickness, inward), then rewrites the part's x_t body."""
+    import cab_ps_ops
+    import cab_p6_ops
+    if archive is None or not cab_ps_ops.available():
+        return {"rc": -1, "ok": False,
+                "msg": "Hollow needs pskernel + a saved (x_t) body."}
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return {"rc": -1, "ok": False,
+                "msg": "No B-rep body for the target part."}
+    try:
+        rc = cab_p6_ops.hollow_body(tag, -float(thickness), tolerance)
+    except Exception as e:
+        return {"rc": -1, "ok": False,
+                "msg": f"PK_BODY_hollow_2 error: {e}"}
+    if rc != 0:
+        return {"rc": rc, "ok": False,
+                "msg": f"PK_BODY_hollow_2 rc={rc} (need a closed solid)."}
+    _invalidate_xt_cache(tag)
+    ok = _writeback_body_xt(model, archive, cad_meshes, name, tag)
+    return {"rc": rc, "ok": ok,
+            "msg": "x_t rewritten" if ok else "writeback FAILED"}
+
+
+def offset_part_pk(model, archive, cad_meshes, name, offset,
+                   tolerance=1e-4) -> dict:
+    """P6: ``PK_BODY_offset_2`` — offset>0 grow outward, offset<0 inward."""
+    import cab_ps_ops
+    import cab_p6_ops
+    if archive is None or not cab_ps_ops.available():
+        return {"rc": -1, "ok": False,
+                "msg": "Offset needs pskernel + a saved (x_t) body."}
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return {"rc": -1, "ok": False,
+                "msg": "No B-rep body for the target part."}
+    try:
+        rc = cab_p6_ops.offset_body(tag, float(offset), tolerance)
+    except Exception as e:
+        return {"rc": -1, "ok": False,
+                "msg": f"PK_BODY_offset_2 error: {e}"}
+    if rc != 0:
+        return {"rc": rc, "ok": False,
+                "msg": f"PK_BODY_offset_2 rc={rc} (check offset magnitude)."}
+    _invalidate_xt_cache(tag)
+    ok = _writeback_body_xt(model, archive, cad_meshes, name, tag)
+    return {"rc": rc, "ok": ok,
+            "msg": "x_t rewritten" if ok else "writeback FAILED"}
+
+
+def replace_face_pk(model, archive, cad_meshes, name, face_tag,
+                    location, normal, tolerance=1e-4) -> dict:
+    """P6: ``PK_FACE_replace_surfs_2`` — flatten one face to a plane through
+    ``location`` (metres) with ``normal``, then rewrite the part's x_t."""
+    import cab_ps_ops
+    import cab_p6_ops
+    if archive is None or not cab_ps_ops.available():
+        return {"rc": -1, "ok": False,
+                "msg": "Replace needs pskernel + a saved (x_t) body."}
+    tag, _ = _find_body_tags(model, archive, name, "")
+    if tag is None:
+        return {"rc": -1, "ok": False,
+                "msg": "No B-rep body for the target part."}
+    try:
+        surf = cab_ps_ops.create_plane_normal(location, normal)
+    except Exception as e:
+        return {"rc": -1, "ok": False,
+                "msg": f"PK_PLANE_create error: {e}"}
+    try:
+        rc = cab_p6_ops.replace_faces(
+            tag, [int(face_tag)], [surf], [1], tolerance)
+    except Exception as e:
+        return {"rc": -1, "ok": False,
+                "msg": f"PK_FACE_replace_surfs_2 error: {e}"}
+    if rc != 0:
+        return {"rc": rc, "ok": False,
+                "msg": f"PK_FACE_replace_surfs_2 rc={rc}."}
+    _invalidate_xt_cache(tag)
+    ok = _writeback_body_xt(model, archive, cad_meshes, name, tag)
+    return {"rc": rc, "ok": ok,
+            "msg": "x_t rewritten" if ok else "writeback FAILED"}
+
+
+def imprint_part_pk(model, archive, cad_meshes, target, tool_name,
+                    tolerance=0.0) -> dict:
+    """P6: ``PK_BODY_imprint_faces_2`` — imprint every B-rep face of ``tool``
+    onto ``target`` (same live session), then rewrite target's x_t."""
+    import cab_ps_ops
+    import cab_p6_ops
+    import ps_facet2_nodes as _ps
+    if archive is None or not cab_ps_ops.available():
+        return {"rc": -1, "ok": False,
+                "msg": "Imprint needs pskernel + saved (x_t) bodies."}
+    ttag, _ = _find_body_tags(model, archive, target, "")
+    tool_tag, _ = _find_body_tags(model, archive, tool_name, "")
+    if ttag is None or tool_tag is None:
+        return {"rc": -1, "ok": False,
+                "msg": "Both target and tool need B-rep bodies (x_t)."}
+    try:
+        sess = _ps._get_session()
+        tool_faces = list(sess.body_faces(tool_tag) or [])
+    except Exception as e:
+        return {"rc": -1, "ok": False,
+                "msg": f"tool face query error: {e}"}
+    if not tool_faces:
+        return {"rc": -1, "ok": False,
+                "msg": "Tool body has no B-rep faces."}
+    try:
+        out = cab_p6_ops.imprint_faces(ttag, tool_faces, False, tolerance)
+    except Exception as e:
+        return {"rc": -1, "ok": False,
+                "msg": f"PK_BODY_imprint_faces_2 error: {e}"}
+    rc = int(out.get("rc", -1))
+    if rc != 0:
+        return {"rc": rc, "ok": False,
+                "msg": f"PK_BODY_imprint_faces_2 rc={rc}."}
+    _invalidate_xt_cache(ttag)
+    ok = _writeback_body_xt(model, archive, cad_meshes, target, ttag)
+    return {"rc": rc, "ok": ok, "n_edges": int(out.get("n_edges", 0)),
+            "msg": "x_t rewritten" if ok else "writeback FAILED"}
+
+
 def sheet_from_face_pk(model, archive, cad_meshes, name, face_tag):
     # R3.1e: Create sheet from edges - PK_FACE_make_sheet_body on the
     # picked face -> new sheet part + x_t member.
