@@ -2036,6 +2036,130 @@ draft/midsurface B 级定档（`KernelNotSupportedError`）。imprint 1043
 
 ---
 
+## 23. Condition 缺口页排期（2026-08-28，按 Pre_eng 手册页口径）
+
+> 背景：§22 的 D6 89–90% 按「CW 向导类型清单 24/25」口径计分。2026-08-28
+> 按 Pre_eng 手册页口径全面复核（727 页基线）发现：`St_pre_Condition_*`
+> 共 **128 页**，本仓覆盖 65 页 / 部分覆盖 19 页 / **缺失 46 页
+> （约 35 个功能族）**——页级覆盖 51%，全功能加权约 66%。缺失页数经
+> 2026-08-29 逐名核对修正（审计初值 44 低估多页族：Generation_Timing×3、
+> Spray×2、Force_between×4、Output_Passage×2、Mass_Transfer_Boundary×2）。
+> 本节把缺口按功能族拆成 C1–C8 批排期，全部 **A 级口径**（开发清零），
+> 无许可窗口依赖，可与 P7/P8 并行。审计证据：手册文件名归类 + 逐族关键词
+> 全仓 grep（命中数 0 计缺失；anchor 见各批）。
+> 排期原则：每族先做 `.s` section 影响评估（现 24-section 派发器扩展点
+> `s_export.py:307-330`），再 cabxml 字段往返 → CW 页/对话框 → 测试。
+> 验收统一口径：XML 往返 + `.s` 结构 parity（ex4_e 金标不回退）+ 对话框/
+> 向导页测试；全量 pytest 基线（§22.4）不减。
+
+### 23.1 批次总表（46 页缺失 + 19 页部分覆盖补全 → C1–C8）
+
+| 批 | 功能族（缺失页数 + 部分补全） | 规模 | 主锚点 | 依赖 | 优先级 |
+|---|---|:---:|---|---|---|
+| C1 | 粒子/DEM 细分（16） | L | `cab_cwizard_pages.py` `_CwParticlePage`；`s_export._vfem_vfde` | 粒子 .s 基础已在（VFDE） | 中 |
+| C2 | 传质/湿度（4） | S | `_CwHumidityPage`；moisture_source | — | **高** |
+| C3 | 接触/电（4 + 静电 2 部分补全） | M | 新增页；cabxml 字段 | — | 中 |
+| C4 | 输出/收敛（6 + Pathline 1 部分补全） | M | `s_export` `_fout/_meix_var/_balances` 族 | — | **高** |
+| C5 | 边界类型补全（4 + 2 部分补全） | S–M | `cab_wizards.py` 边界创建 + `_Cw*Page` | — | **高** |
+| C6 | 物理/材料族（7） | M–L | 新增 CW 页 + 材料/属性对话框 | C4（部分共用 section） | 中 |
+| C7 | 运动/耦合（4） | M | `cab_dialogs.MotionPanel`（MOVB 已有） | MOVB 卡片已在 | 中 |
+| C8 | 零散（1） | S | 逐项评估 | — | 低 |
+
+缺失合计 46 页；部分覆盖 19 页并入对应批补全（DEM Generation/Restitution、
+静电 Electric_Potential 系 2 页、Fixed_Pressure、Fan_Boundary、Porous 子
+类型 4 页、Particle Heat Source / Fixed Velocity / Motion User-defined /
+Statistics 4 页、Pathline_Output、MO-Humidity、MO_Co-sim、Objective
+Function 2 页）。
+
+### 23.2 逐批明细
+
+#### C1 粒子/DEM 细分批（16 页，规模 L，最大簇）
+
+| 手册页（逐名核对） | 现状（grep=0） | 落点 |
+|---|---|---|
+| Particle_Generation_Timing ×3（marker/mass/reactive） | generation_timing 0 | `_CwParticlePage` 加 timing 子页 ×3 |
+| Particle_Rebound | rebound 0 | wall restitution 已有 → 扩 rebound 系数字段 |
+| Particle_Sedimentation | sedimentation 0 | 新 CW 页 |
+| Particle_Spray ×2（mass/reactive） | spray 2（仅图标） | 新 CW 页 ×2 |
+| Particle_Vanishment | vanish 0 | 新 CW 页（消失条件） |
+| Particle_External_Force | external_force 0 | 新 CW 页 |
+| Between_Particles_-_Heat_Transfer | p2f 0 | 新 CW 页 + .s 粒子间换热卡片 |
+| Force_between_Particles（Contact/Lubrication/VdW/User_Def，4 页） | contact_force/lubrication/van_der_waals 0 | 粒子间力模型页 ×4 |
+| DEM_Particle_-_Symmetry | dem+symmetry 0 | DEM 对称页 |
+| Reaction_of_Particle | 粒子反应 0 | 粒子反应页（对接 `_CwReactionPage` 骨架） |
+| （部分补全）DEM_Particle-Generation / -Restitution | 通用粒子页已有 | 拆 DEM 专属字段 |
+
+#### C2 传质/湿度批（4 页，规模 S）
+
+| 手册页 | 落点 |
+|---|---|
+| Mass_Transfer_Boundary | 新边界条件页（cab_wizards 边界族） |
+| Mass_Transfer_Boundary(Free_Surface) | 同上，Free_Surface 分支（对接 MARS 组） |
+| Constant_Moisture_Flux | `_CwHumidityPage` 加 flux 型 source |
+| Initial_Moisture | 初值页字段补全 |
+
+#### C3 接触/电批（4 页缺失 + 2 页部分补全，规模 M）
+
+缺失：Contact_Angle、Contact_Thermal_Resistance、Electrical_Contact_
+Resistance、Electric_Potential——全部新增页。部分补全：Electrostatic_
+Field-Electric_Potential / Fixed_Electric_Potential（`_CwElectrostaticPage`
+已有骨架，补对话框字段）。接触热阻与 Two-Resistor 材料属性区分命名空间
+（现有 thermal_resistance 命中均属 Two-Resistor，避免字段冲突）。
+
+#### C4 输出/收敛批（6 页缺失 + 1 页部分补全，规模 M）
+
+缺失：Sum_of_Pressure_Output、Output_Passage、Output_Passage_MARS_Method、
+Termination_Variable、Standardized_Concentration_in_Living_Space、
+Parts'_Internal_Variables；部分补全：Pathline_Output——主体是 `s_export`
+输出 section 族扩展（`_fout/_meix_var/_balances` 派发器加卡片）+ 对应
+CW 输出页。验收带 `.s` 结构 parity 逐行断言。
+
+#### C5 边界类型补全批（4 页缺失 + 2 页部分补全，规模 S–M，优先级最高簇）
+
+缺失：Total_Temperature,_Total_Pressure_Boundary（CFD 常用入口，最先做）、
+Power-law/Rough/Smooth_Wall_Shear_Stress（3 页共用 wall-shear 框架页）。
+部分补全：Fixed_Pressure（has_types 识别已有 → 独立对话框）、Fan_Boundary
+（→ 独立页）。
+
+#### C6 物理/材料族批（7 页，规模 M–L）
+
+Wave_Generation、Wave_Energy_Attenuation_Zone、Fluid_Interface、
+Foaming_Resin、Permeable_Object、Laser、Reaction-PDF——自由面/波动族与
+MARS/VOF 组（cab_cwizard_pages:8492 已有组骨架）对接；Laser/Foaming 为
+新增物理开关 + 深字段页。
+
+#### C7 运动/耦合批（4 页，规模 M）
+
+Moving_Object-6DOF_Rigid-body_Motion、Moving_Object-Repulsion、
+Moving_Object-Mass_Transfer、Condition_Settings_(Structural_Analysis)——
+前三挂 MOVB 运动表（`cab_dialogs.MotionPanel` + `s_export._movb_parts/
+_movb_control` 已在）；Structural_Analysis 与（部分补全声明）MO_Co-sim
+保持**禁用 + tooltip 声明**（scFLOW-only 语义，B 级禁用声明沿用 P4-3）。
+
+#### C8 零散批（1 页，规模 S）
+
+Design_Space（拓扑优化设计空间，与 `_CwTopologyOptiPage` 对接）。
+
+### 23.3 执行顺序与口径
+
+```
+顺序：C5 → C4 → C2 → C3 → C6 → C1 → C7 → C8（感知价值优先，C1 最大簇殿后）
+并行：C 批全部无许可窗口依赖，可与 P7/P8（COM/FEM 实机批）穿插
+每批收尾：function_gap_analysis.md 页级口径列回填（65→…→128 页覆盖）
+```
+
+### 23.4 完成度口径（双轨）
+
+- **类型清单口径**（gap analysis 12 维现行）：D6 维持 89–90%，C 批不虚增。
+- **手册页口径**（本节新增）：Condition 页覆盖 65/128（51%）→ C1–C8
+  完成后 111/128（86.7%）全页覆盖，其余 17 页为部分覆盖页（随批补全，
+  §23.1 清单）；连同部分补全后 128 页全闭合，Structural Analysis /
+  Co-sim 等联动页以 B 级禁用声明定档。
+- gap analysis 下次升版（v6.6/v7.0）在 §二 行 6 附页级口径脚注，引用本节。
+
+---
+
+
 ## 7. 关键接口设计（草案）
 
 ### 7.1 cab_import.py
