@@ -2159,6 +2159,97 @@ Design_Space（拓扑优化设计空间，与 `_CwTopologyOptiPage` 对接）。
 
 ---
 
+## 24. 结构性残项排期：Auto Meshing / Multiblock / 格式边角 / Sketch（2026-08-29）
+
+> 来源：2026-08-28 全面对比报告中与条件页（§23）并列的四类代际差距。
+> 批次码 AM / MB / FMT / SK；全部 **A 级口径**（开发清零）+ 个别 B 级
+> 定档声明（FMT-3/4/5），无许可窗口依赖，可与 §23 C 批、P7/P8 并行。
+
+### 24.1 现状澄清（报告口径修正，逐锚点复核）
+
+2026-08-28 报告按 grep 表面命中曾称「Auto Meshing 完全没有 / Multiblock
+不可用」。逐锚点复核修正：
+
+- **Auto Meshing 引擎已存在**：auto1（指定单元总数）闭式公式已实现并对拍
+  13/13（`stpre_rules.py:30` `auto1_per_axis_counts`、`:189`
+  `auto1_axis_layout`；`cab_grid.py:203`；STPRE_GRID_RULES §2.6/§7）；
+  auto3（每轴 cell 数）严格 21 点已在；「标准长 + 几何比 + 目标比」的
+  数据模型与 UI 字段均已在（`cab_grid.py:54-71`
+  `standard_length/geometric_ratio/geometric_ratio_external` +
+  `cab_dialogs.py:2280` std/ratio/ratio_ext spinboxes）。
+- **Multiblock 引擎已存在**：嵌套块网格 `cab_grid.build_axes_multiblock`
+  （L7.6，`tests/test_multiblock.py`）+ child_block XML 往返
+  （`cabxml.py:2300`）。残项是 GriddingDialog 两个**禁用复选框**
+  （`cab_dialogs.py:2295/2298`，注释 multiblock NYI）与结构 UI/限制规则。
+- **Sketch** 与报告一致：图元 3 种（`cab_sketch.py:248-254`，circle 为
+  24 边形逼近）、无约束/标注系统、成体模型类型 6/9。
+- **格式边角** 与报告一致：.xemt 只出不进（`xemt_export.py:13`
+  `build_emt`，无读取器）、.bdf 过滤器与调度不一致（`cab_gui.py:4316`
+  vs `cab_import.py:144`）、MDL 导入半 stub（`cab_import.py:147-155`）、
+  SAT 无导出、CGNS 无实现（Pre_eng 手册亦无 CGNS 页 → 非对标项）。
+
+### 24.2 批次总表
+
+| 批 | 内容 | 规模 | 主锚点 | 优先级 |
+|---|---|:---:|---|---|
+| FMT | 格式边角 ×5（bdf 修正 / xemt 导入 / MDL 往返 / SAT 导出 / CGNS 定档） | S×5 | `cab_import.py` `xemt_export.py` `cab_step_export.py` | **高**（性价比最高，先行） |
+| AM | Auto Meshing 闭环（2 手册模式端到端 + 负面结论清障 ×4） | M | `stpre_rules.py` `cab_grid.py` `cab_dialogs.GriddingDialog` | **高** |
+| MB | Multiblock 补全（2 复选框接线 + 结构 UI + 限制规则） | S–M | `cab_dialogs.py:2295` `cab_grid.build_axes_multiblock` | 中 |
+| SK | Sketch 补全（图元/工具/标注/3 模型类型） | M–L | `cab_sketch.py` `cab_parts.py` | 中（体量最大，殿后） |
+
+### 24.3 逐批明细
+
+#### FMT 格式边角批（规模 S×5）
+
+| 子项 | 现状锚点 | 实现要点 | 验收 |
+|---|---|---|---|
+| FMT-1 .bdf 后缀修正 | `cab_gui.py:4316` 过滤器含 `*.bdf`，`cab_import.py:144-148` 调度仅匹配 `.nas` | `import_file_with_payload` 增 `.bdf`（Nastran bulk 同格式） | bdf 样例导入 + 矩阵测试更新 |
+| FMT-2 .xemt 导入 | 无读取器；样例 `tests/ex4_e.xemt`（EMT XML：Version/Material/Parts/group.expand） | `xemt_export.py` 增 `parse_emt`：EMT XML → StpreModel 部件名/材料号/group 结构（不含网格——xemt 本就无） | ex4_e.xemt 解析金标 + export→import→export 往返（剔除 date 行） |
+| FMT-3 MDL 往返读 | 导入半 stub（仅 OBJ 兼容数据可解，`cab_import.py:147-155`） | 自产 MDL 子集往返读（顶点/面/件名对齐 `_tris_to_mdl_bytes`）；原生 Cradle MDL 全格式无解析证据 → **B 级定档**（半 stub 声明为终态） | mdl 写→读→写逐字节往返 |
+| FMT-4 SAT 导出 | 无；STEP 三分支模板 `cab_step_export.py:232-250` | 复用三分支：(a) x_t 中转 + CAD CLI（`STPRE_STEP_CLI` 同族环境变量）；(b) OCC **无 SAT writer**（ACIS 非 STEPControl 系）；CLI 不可得 → **B 级定档**（STpre 自身 SAT 导出同经 CADthru 外部链） | 分支落地即测 / 定档附录声明 |
+| FMT-5 CGNS 定档 | 全仓无实现；Pre_eng 手册无 CGNS 页 | **B 级不对标声明**（非 STpre 前处理能力）。可选扩展（不占排期）：Meshing element → CGNS 导出，复用 ../flowviewer 的 CGNS ADF 解析先例，标注「超出 STpre 对标范围」 | 定档声明附录 |
+
+#### AM Auto Meshing 批（规模 M）
+
+| 子项 | 内容 | 验收 |
+|---|---|---|
+| AM-0 菜单核对 | `St_pre_Mesh_menu.html` 为 369B 框架 stub：从 HTML TOC/实机核对 Auto Meshing 是否独立菜单项；是 → Mesh 菜单补入口（现有顺序注释 `cab_gui.py:485`）；否 → GriddingDialog 模式入口即终态 | 核对结论记录 |
+| AM-1 模式 a（指定单元总数）端到端 | auto1 引擎已实现（`stpre_rules.auto1_*` 13/13 对拍、`cab_grid.refine_grids` num_elements 路径、GriddingDialog num_elements 单选 `cab_dialogs.py:2338`）→ 补 GUI→网格→.s CXYZ 端到端验收 | base 29³ / auto1 21³ 既有黑盒数据回归 + GUI 冒烟 |
+| AM-2 模式 b（标准长+几何比+目标比）端到端 | 字段/公式齐（外部区首间距=std、q 二分、`calc_ratio`）→ 补 2-3 个新黑盒探针（standard_length × ratio_ext 组合）入 `data/stpre_probe_*`，端到端对拍 | 新样本 JSON 入库 + 坐标逐点一致 |
+| AM-3 负面结论清障（STPRE_GRID_RULES §3） | (a) STL/polygon 部件 relay 布局还原（body_files type/file 引用）→ 5 个 L 形用例重探；(b) threshold 曲面/缺口部件区分度（Parasolid 非凸/圆柱 body）；(c) axis_plane 圆柱面平面语义；(d) multiblock × cylinder/axial 坐标系（与 MB 批合流） | 逐项转「已解出」或**实证定档** |
+
+#### MB Multiblock 批（规模 S–M）
+
+| 子项 | 内容 | 验收 |
+|---|---|---|
+| MB-1 复选框接线 | 解除 `chk_child_only`（仅子块参与划分）/ `chk_lower_level`（考虑下层块粗网格）禁用（`cab_dialogs.py:2295/2298`），语义进 `build_axes_multiblock`/`rough_grids` 参数 | 双开关状态机测试 + 子块/全块两路径网格对拍 |
+| MB-2 结构 UI | 对齐 `St_pre_Structure_of_multiblock.html`：块层级可视化（child_block XML 已有）+ Draw 窗块框显示 + 层级编辑面板 | 层级往返 + 可视化冒烟 |
+| MB-3 限制规则 | `Limitations_for_multiblock` + Supplement 页：子块数/嵌套深度/坐标系限制校验 + warning | 表驱动规则测试 |
+
+#### SK Sketch 批（规模 M–L，殿后）
+
+| 子项 | 内容 | 验收 |
+|---|---|---|
+| SK-1 图元扩展 | arc（圆心+半径+起止角）、polyline（独立线段链）；circle 升级真圆弧 B-rep 输出（PK 链路已在，`sketch_tess` 补曲面输出） | uv 空间几何断言 + 成体 tess 拓扑 |
+| SK-2 草绘编辑工具 | trim / fillet / offset / move / mirror（对齐 Draw 窗鼠标操作手册页） | 每工具单测 |
+| SK-3 尺寸标注 | 标注显示（距离/角度/半径）+ 单向驱动（改标注→图元更新；无求解器即可满足手册基线） | 标注往返 + 驱动后几何断言 |
+| SK-4 模型类型 ×3 | Extrusion To selected part / Face Division / Slit Punching（`slit_punching` 原语已在 `cab_parts.py:77-86`，补 sketch 成体路径），6/9→9/9 | 9 模型类型对话框矩阵测试 |
+| SK-5 约束求解器 | 手册 Sketch 章无约束/标注小节 → **不属 STpre 对标基线**，列为超越 STpre 的可选增强（C 声明），不占本批排期 | 声明附录 |
+
+### 24.4 执行顺序与口径
+
+```
+顺序：FMT-1 → FMT-2/3 → AM-0/1/2 → MB-1/2 → FMT-4/5 → AM-3 → MB-3 → SK-1→4
+并行：FMT/AM/MB 与 §23 C 批分属不同模块（meshing/import vs cwizard/dialogs），
+     可穿插；SK 主要触 cab_sketch/cab_parts，与 C1（cab_cwizard_pages）无冲突。
+回归门槛：沿用 §22.4（基线随提交推进，现 687 passed / 5 skipped 不减）；
+每批收尾：function_gap_analysis 对应维度回填（AM/MB→D5，SK→D2/D3，FMT→D12）。
+完成后预期：D5 95→97、D12 88→93、D2/D3 长尾补齐，总体 ≈94–95%。
+```
+
+---
+
+
 
 ## 7. 关键接口设计（草案）
 
