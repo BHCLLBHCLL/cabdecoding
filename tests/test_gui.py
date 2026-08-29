@@ -409,3 +409,39 @@ def test_nyi_logs(viewer):
     text = win.message_win.text.toPlainText()
     assert "WARN" in text
     assert "Cuboid" in text
+
+
+XEMT = os.path.join(HERE, "ex4_e.xemt")
+
+
+def test_import_xemt_applies_and_undoes(viewer, tmp_path, monkeypatch):
+    """FMT-2 GUI wiring: File->Import .xemt applies the EMT material/part
+    manifest by name match; undo reverts it."""
+    import xemt_export  # noqa: F401  (module must be importable)
+    win = viewer
+    # earlier tests in this module swap win.model — reload the project so
+    # the EMT name-match below sees the real ex4_e parts
+    win.load(CAB)
+    logs = []
+    monkeypatch.setattr(
+        win, "log", lambda msg, level="INFO": logs.append((level, msg)))
+    # swap button (mat 6 = polycarbonate) to mat 4 = silicon_resin
+    with open(XEMT, encoding="utf-8") as fh:
+        text = fh.read().replace('name="button" mat="6"',
+                                 'name="button" mat="4"')
+    xemt = tmp_path / "mod.xemt"
+    xemt.write_text(text, encoding="utf-8")
+
+    snap = win._snapshot()
+    win._import_xemt(str(xemt))
+    win._push_undo(snap)
+
+    assert any("EMT: applied 31" in m for _lvl, m in logs)
+    info = next(p for p in win.model.parts() if p.name == "button")
+    assert info.property == "silicon_resin(300K)"
+    # the region restatement (part no=1) is skipped, so no missing warning
+    assert not [m for _lvl, m in logs if "not in this project" in m]
+
+    win._undo()
+    info = next(p for p in win.model.parts() if p.name == "button")
+    assert info.property == "polycarbonate_resin(273K)"

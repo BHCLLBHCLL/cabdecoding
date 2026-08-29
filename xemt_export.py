@@ -7,6 +7,8 @@ comes from the cab's two XML members.
 
 from __future__ import annotations
 
+from xml.etree import ElementTree as ET
+
 from cabxml import PropertyModel, StpreModel
 
 
@@ -89,3 +91,116 @@ def _used_material_names(model: StpreModel) -> set[str]:
         if prop is not None and prop.text:
             names.add(prop.text.strip())
     return names
+
+
+# --------------------------------------------------------------------------
+# FMT-2: EMT import (.xemt) — parse the manifest and apply materials
+
+
+def parse_emt(raw: bytes | str) -> dict:
+    """Parse an EMT (.xemt) document into a manifest dict.
+
+    EMT carries no geometry — it is the material/part mapping companion of
+    the S file.  Returns ``{"version", "materials": {no: name}, "fluid",
+    "parts": [...], "groups": [...]}`` where every part entry also carries
+    the resolved material *name* (``mat`` no looked up in ``Material``).
+    """
+    if isinstance(raw, str):
+        raw = raw.encode("utf-8")
+    root = ET.fromstring(raw)
+    materials: dict[int, str] = {}
+    ver_el = root.find("Version")
+    version = int(ver_el.get("no")) if ver_el is not None and ver_el.get("no") \
+        else None
+    mat_el = root.find("Material")
+    if mat_el is not None:
+        for mat in mat_el.findall("mat"):
+            try:
+                no = int(mat.get("no", "0"))
+            except ValueError:
+                continue
+            materials[no] = mat.get("name", "")
+
+    def _entry(el: ET.Element) -> dict:
+        try:
+            no = int(el.get("no", "0"))
+        except ValueError:
+            no = 0
+        try:
+            mat = int(el.get("mat", "1"))
+        except ValueError:
+            mat = 1
+        return {"no": no, "name": el.get("name", ""), "mat": mat,
+                "material": materials.get(mat, "")}
+
+    fluid: dict = {}
+    parts: list[dict] = []
+    groups: list[dict] = []
+    parts_el = root.find("Parts")
+    if parts_el is not None:
+        f_el = parts_el.find("fluid")
+        if f_el is not None:
+            fluid = _entry(f_el)
+        for el in parts_el:
+            if el.tag == "part":
+                parts.append(_entry(el))
+            elif el.tag == "group":
+                members = [_entry(pe) for pe in el.findall("part")]
+                groups.append({"name": el.get("name", ""),
+                               "expand": el.get("expand", ""),
+                               "parts": members})
+                parts.extend(members)
+    return {"version": version, "materials": materials, "fluid": fluid,
+            "parts": parts, "groups": groups}
+
+
+def apply_emt(model: StpreModel, props: PropertyModel, parsed: dict) -> dict:
+    """Apply an EMT manifest to an open project (FMT-2).
+
+    Materials are assigned by part-name match: each EMT part's resolved
+    material *name* is written to the model part's ``<property>`` (and the
+    analysis region for the fluid entry).  Names absent from the property
+    library are reported, not applied — S-file PROPERTY would otherwise
+    reference an undefined material.
+    """
+    from cabxml import _first, set_text
+    known = set(props.material_names()) if props is not None else set()
+    unknown: set[str] = set()
+    applied = 0
+    missing: list[str] = []
+
+    def _assign(name: str, material: str) -> None:
+        nonlocal applied
+        if not name:
+            return
+        if material and material not in known:
+            unknown.add(material)
+            return
+        if model.set_part_property(name, material):
+            applied += 1
+        else:
+            missing.append(name)
+
+    fluid = parsed.get("fluid") or {}
+    fluid_name = fluid.get("name", "")
+    ar = model.analysis_region()
+    if ar is not None and fluid_name:
+        material = fluid.get("material", "")
+        if material and material not in known:
+            unknown.add(material)
+        else:
+            prop_el = _first(ar, "property")
+            if prop_el is None:
+                from xml.etree.ElementTree import SubElement
+                prop_el = SubElement(ar, "property")
+            set_text(prop_el, material)
+    for entry in parsed.get("parts", []):
+        name = entry.get("name", "")
+        if name and name == fluid_name:
+            # EMT restates the region as part no=1; the fluid entry above
+            # already covers it and it is not a model part.
+            continue
+        _assign(name, entry.get("material", ""))
+    return {"applied": applied, "missing_parts": missing,
+            "unknown_materials": sorted(unknown),
+            "n_groups": len(parsed.get("groups", []))}

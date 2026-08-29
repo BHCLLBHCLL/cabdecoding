@@ -138,7 +138,7 @@ def import_file_with_payload(path: str | Path, **kw
         raw = cab_occ.triangles_to_stl(
             pts, tris, name=Path(path).stem)
         return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
-    if suffix == ".nas":
+    if suffix in (".nas", ".bdf"):
         pts, tris, _props = parse_nas_bytes(Path(path).read_bytes())
         raw = _tris_to_stl_bytes(pts, tris, Path(path).stem)
         return import_stl_bytes(raw, name=Path(path).stem, **kw), raw, "stl"
@@ -286,8 +286,16 @@ def parse_nas_bytes(raw: bytes):
         if card == "GRID" and len(fields) >= 5:
             try:
                 gid = int(fields[1])
-                xyz = (_nas_float(fields[2]), _nas_float(fields[3]),
-                       _nas_float(fields[4]))
+                if len(fields) >= 6:
+                    # Standard GRID: ID, CP, X1, X2, X3 (CP may be blank in
+                    # comma free-field, where split keeps the empty field).
+                    xyz = (_nas_float(fields[3]), _nas_float(fields[4]),
+                           _nas_float(fields[5]))
+                else:
+                    # CP-less legacy dialect: ID, X1, X2, X3 (whitespace
+                    # split also collapses a blank CP into this layout).
+                    xyz = (_nas_float(fields[2]), _nas_float(fields[3]),
+                           _nas_float(fields[4]))
             except ValueError:
                 continue
             points[gid] = xyz

@@ -4309,8 +4309,9 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         path, _ = QFileDialog.getOpenFileName(
             self, "Import Geometry", "",
             "Geometry (*.x_t *.xmt_txt *.step *.stp *.stl *.sat *.sab "
-            "*.obj *.dxf *.mdl *.nas *.ifc *.ecxml);;"
+            "*.obj *.dxf *.mdl *.nas *.bdf *.xemt *.ifc *.ecxml);;"
             "IFC Building (*.ifc);;ECXML Components (*.ecxml);;"
+            "EMT Material/Part Manifest (*.xemt);;"
             "Parasolid XT (*.x_t *.xmt_txt);;STEP (*.step *.stp);;"
             "OBJ (*.obj);;DXF (*.dxf);;MDL (*.mdl);;"
             "Nastran BDF (*.nas *.bdf);;"
@@ -4323,6 +4324,10 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
             ext = os.path.splitext(path)[1].lower()
             if ext in (".ifc", ".ecxml"):
                 self._import_ifc_ecxml(path, ext)
+                return
+            if ext == ".xemt":
+                self._import_xemt(path)
+                self._push_undo(snap)
                 return
             if not cab_import.available():
                 QMessageBox.warning(
@@ -4495,6 +4500,39 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         self._rebuild_scene()
         self.log(f"Imported {len(names)} {what}(s) from "
                  f"{os.path.basename(path)}")
+
+    def _import_xemt(self, path: str) -> None:
+        """File -> Import for .xemt: apply the EMT material/part manifest
+        (FMT-2).  No geometry — materials are assigned by part-name match."""
+        import xemt_export
+        try:
+            parsed = xemt_export.parse_emt(Path(path).read_bytes())
+        except Exception as exc:
+            QMessageBox.warning(self, "Import", f"EMT parse failed: {exc}")
+            return
+        if self.props is None:
+            QMessageBox.warning(
+                self, "Import", "No property XML loaded in this project.")
+            return
+        summary = xemt_export.apply_emt(
+            self.model, self.props, parsed)
+        self._mark_dirty()
+        self._update_title()
+        self.tree_view.populate(
+            self.model, self.archive.members if self.archive else [])
+        self.log(
+            f"EMT: applied {summary['applied']} part material(s) from "
+            f"{os.path.basename(path)} "
+            f"({len(parsed.get('parts', []))} parts, "
+            f"{summary['n_groups']} group(s))")
+        if summary["missing_parts"]:
+            self.log(
+                "EMT: parts not in this project: "
+                + ", ".join(summary["missing_parts"][:10]), "WARN")
+        if summary["unknown_materials"]:
+            self.log(
+                "EMT: materials not in the property library: "
+                + ", ".join(summary["unknown_materials"]), "WARN")
 
     def _export_dialog(self) -> None:
         if self.model is None or self.props is None:
