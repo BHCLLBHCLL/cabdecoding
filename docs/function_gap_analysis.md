@@ -39,6 +39,14 @@
 > Point/File Spec 均已存在）。全量 **734 passed / 5 skipped**；
 > 维度 4 证据面增补（FLUX_SUM/HUMW_REGION 两个新 section，26 派发），
 > 维度 6 页级覆盖按 §23.4 口径推进（C5/C4/C2 共 17 页缺失清零/定档）。
+> 2026-08-29 §23 C3/C6/C1/C7/C8 批（`0135df0`/`c8c634c`/`e57db1c`/
+> `a1a67a8`/`9bb485a`）：ES_FIELD_BC/SUFS_REGION(contactangle)/
+> SURF_POROUS(energyattenuation)/LSOL_FORCE_MODEL+OPTION+TIME_STEP/
+> PCLE_HANDLING/DYNA_MOTION/TOPOPT_REGION 七组卡片语料库逐字定档
+> 发射（render 派发 26→32 section）；_CwFreeSurfacePage 新页注册；
+> 电位/电接触/接触热阻/波generation/DEM/6DOF/Design Space 提交 API
+> 齐。全量 **755 passed / 5 skipped**；§23 八批全部完成，剩余发射
+> 留档项均标注证据缺口（探针窗口）。
 
 ---
 

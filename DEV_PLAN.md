@@ -2157,6 +2157,11 @@ Design_Space（拓扑优化设计空间，与 `_CwTopologyOptiPage` 对接）。
 | C5 边界类型补全 | ✅ | `fb2dd18` | 预研纠偏：Total TP/Fan/Rough/Power-law 动作与 Fixed_Pressure Stabilization 页早已存在；落地 Total TP/Fan/Rough 三个参数对话框；AMOM rough/power_law 卡格式待探针 |
 | C4 输出/收敛 | ✅ | `61e294d` | 预研纠偏：L File 9 tab/Stop(Specified Point)/File Spec OCSV 均已在；语料库 299 .s 中 FLUX_SUM 仅 exA18-2 有卡 → 逐字定档发射（_flux_sum），其余 6 命令零样本 emission 留档；L File 补第 10 tab Standardized Concentration |
 | C2 传质/湿度 | ✅ | `2de738b` | 预研纠偏：Mass_Transfer_Boundary=Diffusion Boundary transfer 类（diff_param1/2 即手册两参数）；语料库 exA05-2 定档 `<value type="humidity">` 存储 + HUMW_REGION 卡（type=2 逐字发射，type=1 前缀无判别留档）；湿度页加边界条件组（Constant moisture flux/Humidity transfer/删除）；Constant_Moisture_Flux/Initial_Moisture 卡无样本 emission 留档 |
+| C3 接触/电 | ✅ | `0135df0` | ES_FIELD_BC（exA07-3 逐字）+ SUFS_REGION contactangle（exA09-4，@UNDEFINEDCAG 默认卡触发条件未知不发射）；Electrostatic/Current/Thermal 三页加电位/电接触阻力 5 模式/接触热阻动作（后两者 storage-only） |
+| C6 物理/材料 | ✅ | `c8c634c` | SURF_POROUS energyattenuation（exA15-6 逐字，±X 方向）；新 _CwFreeSurfacePage（Wave Gen/Attenuation/Permeable/Foaming）注册进向导；wave_gen 卡字段不可映射留档；Fluid Interface/Laser/Reaction-PDF storage-only |
+| C1 粒子/DEM | ✅ | `e57db1c` | LSOL_FORCE_MODEL/OPTION/TIME_STEP（exA07-4，dem_* 1:1 映射）+ PCLE_HANDLING（exA07-3，destruction/sedimentation=Vanishment/Sedimentation）；spray PCLE_CREATE 卡与 LSOL_FORCE_IP 留档；_CwParticlePage 加 _commit_dem/_commit_particle_condition |
+| C7 运动/耦合 | ✅ | `a1a67a8` | 6DOF（exA09-4）：body_move_6dof → MOVB_CONTROL dynamical 条目 + DYNA_MOTION 块逐字发射；Repulsion/MO-Mass_Transfer storage-only；Structural/CoSim 维持 B 级禁用声明 |
+| C8 零散 | ✅ | `9bb485a` | Design Space：topo_design_space/topo_obj_func → TOPOPT_REGION 卡（exA28-1_step2 逐字，区域行按条件重复不 去重）；_CwTopologyOptiPage._commit_design_space |
 
 ### 23.3 执行顺序与口径
 
