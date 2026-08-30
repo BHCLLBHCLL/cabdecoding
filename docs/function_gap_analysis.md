@@ -31,6 +31,14 @@
 > Multiblock 下层粗网格选项/限制规则/子块线框、Sketch arc 图元/编辑
 > 工具/尺寸单向驱动/9 模型类型。升版 v6.6，全量复测
 > **723 passed / 5 skipped**（108s）。
+> 2026-08-29 §23 C5/C4/C2 批（`fb2dd18`/`61e294d`/`2de738b`）：
+> 边界条件参数对话框 ×3（Total TP/Fan/Rough）、FLUX_SUM 输出通道
+> 卡片 exA18-2 逐字定档发射（_flux_sum）+ L File 第 10 tab、
+> HUMW_REGION 湿度边界 exA05-2 逐字定档发射（_humw_region）+ 湿度
+> 页边界条件组；多次预研纠偏（Fixed_Pressure/Mass Transfer/Stop
+> Point/File Spec 均已存在）。全量 **734 passed / 5 skipped**；
+> 维度 4 证据面增补（FLUX_SUM/HUMW_REGION 两个新 section，26 派发），
+> 维度 6 页级覆盖按 §23.4 口径推进（C5/C4/C2 共 17 页缺失清零/定档）。
 
 ---
 

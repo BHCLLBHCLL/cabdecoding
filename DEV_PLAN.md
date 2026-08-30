@@ -2150,6 +2150,14 @@ _movb_control` 已在）；Structural_Analysis 与（部分补全声明）MO_Co-
 
 Design_Space（拓扑优化设计空间，与 `_CwTopologyOptiPage` 对接）。
 
+### 23.2b 执行状态（2026-08-29 回填，接 §24.3b）
+
+| 批 | 状态 | 提交 | 备注 |
+|---|---|---|---|
+| C5 边界类型补全 | ✅ | `fb2dd18` | 预研纠偏：Total TP/Fan/Rough/Power-law 动作与 Fixed_Pressure Stabilization 页早已存在；落地 Total TP/Fan/Rough 三个参数对话框；AMOM rough/power_law 卡格式待探针 |
+| C4 输出/收敛 | ✅ | `61e294d` | 预研纠偏：L File 9 tab/Stop(Specified Point)/File Spec OCSV 均已在；语料库 299 .s 中 FLUX_SUM 仅 exA18-2 有卡 → 逐字定档发射（_flux_sum），其余 6 命令零样本 emission 留档；L File 补第 10 tab Standardized Concentration |
+| C2 传质/湿度 | ✅ | `2de738b` | 预研纠偏：Mass_Transfer_Boundary=Diffusion Boundary transfer 类（diff_param1/2 即手册两参数）；语料库 exA05-2 定档 `<value type="humidity">` 存储 + HUMW_REGION 卡（type=2 逐字发射，type=1 前缀无判别留档）；湿度页加边界条件组（Constant moisture flux/Humidity transfer/删除）；Constant_Moisture_Flux/Initial_Moisture 卡无样本 emission 留档 |
+
 ### 23.3 执行顺序与口径
 
 ```
