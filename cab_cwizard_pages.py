@@ -7649,6 +7649,55 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
         lay.addWidget(dg)
         lay.addStretch(1)
 
+    # -- C1: DEM interaction / particle condition storage -----------------
+
+    _DEM_CONTACT = {1: "linear_spring_dashpot"}
+    _DEM_ROLLING = {1: "simplified_linear"}
+
+    def _commit_dem(self, *, contact_model: int = 1,
+                    rolling_model: int = 1, it_scheme: int = 2,
+                    detect_algorithm: int = 3, detect_cycle: int = 1,
+                    n_factor: float = 1.2, min_reynolds: float = 1e-10,
+                    stab_scale: float = 0.0, time_divide: int = 5,
+                    max_loop: int = 100, recovery_scale: float = 0.1,
+                    recovery_max: int = 100) -> None:
+        """Write the DEM interaction block (Force between Particles
+        family) into ``<analysis_etc><dem>`` — the official storage the
+        LSOL_* .s sections are derived from (exA07-4 evidence)."""
+        s = self.model.set_analysis_etc_child
+        s("dem", "dem_motion", "1")
+        s("dem", "dem_contact_model", str(int(contact_model)))
+        s("dem", "dem_rolling_resistance_model", str(int(rolling_model)))
+        s("dem", "dem_adhesion", "0")
+        s("dem", "dem_it_scheme", str(int(it_scheme)))
+        s("dem", "dem_detect_algorithm", str(int(detect_algorithm)))
+        s("dem", "dem_detect_cycle", str(int(detect_cycle)))
+        s("dem", "dem_detect_n_factor", f"{float(n_factor):g}")
+        s("dem", "dem_min_reynolds", f"{float(min_reynolds):g}")
+        s("dem", "dem_stab_scale", f"{float(stab_scale):g}")
+        s("dem", "dem_time_divide", str(int(time_divide)))
+        s("dem", "dem_max_loop", str(int(max_loop)))
+        s("dem", "dem_recoverty_step_scale", f"{float(recovery_scale):g}")
+        s("dem", "dem_recoverty_max", str(int(recovery_max)))
+
+    def _commit_particle_condition(self, name: str, kind: str,
+                                   region: str, applied_face: int = 0
+                                   ) -> bool:
+        """Create one ``<value type="particle_condition">`` — kind
+        destruction (Particle Vanishment) and sedimentation
+        (Particle Sedimentation) emit PCLE_HANDLING cards; other kinds
+        are stored without emission (no card evidence)."""
+        name = (name or "").strip()
+        region = (region or "").strip()
+        if not name or not region:
+            return False
+        if not self.model.upsert_value("particle_condition", name, [
+                ("kind", kind, None),
+                ("applied_face", str(int(applied_face)), None)]):
+            return False
+        self.model.bind_condition("region", region, name)
+        return True
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         mode = self.mode.currentText()

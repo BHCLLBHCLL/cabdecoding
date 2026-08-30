@@ -323,6 +323,8 @@ class SExport:
         self._vfem_vfde()
         self._peltier()
         self._autofixp()
+        self._lsol_sections()
+        self._pcle_handling()
         self._humw_region()
         self._es_field_bc()
         self._fout()
@@ -1161,6 +1163,122 @@ class SExport:
             self.lines.append(f"{d:15d}{n:12d}")
             self.lines.append("".join(_f(v) for v in nums))
             self.lines.append("   " + parts)
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _lsol_sections(self):
+        """LSOL_FORCE_MODEL / LSOL_OPTION / LSOL_TIME_STEP — DEM particle
+        interaction configuration (C1, Force between Particles family).
+
+        Evidence: official exA07-4 — ``<analysis_etc><dem>`` children map
+        1:1 (dem_contact_model=1 -> linear_spring_dashpot,
+        dem_rolling_resistance_model=1 -> simplified_linear,
+        dem_it_scheme -> time_integration, dem_detect_algorithm/timing/
+        n_factor, dem_min_reynolds, dem_stab_scale, dem_time_divide/
+        dem_max_loop/dem_recoverty_*).  Only the evidenced model names
+        (1) are emitted; LSOL_FORCE_IP (per-pair material properties)
+        is probe-deferred.  Sections are omitted when no <dem> block
+        exists (ex4_e golden parity).
+        """
+        dem = self.m.analysis_etc_section("dem")
+        if dem is None:
+            return
+        if _child_text(dem, "dem_motion", "0").strip() != "1":
+            return
+
+        def num(tag, default):
+            try:
+                return float(_child_text(dem, tag, str(default)))
+            except ValueError:
+                return float(default)
+
+        self.lines.append("LSOL_FORCE_MODEL")
+        self.lines.append("contact_model")
+        contact = _child_text(dem, "dem_contact_model", "1").strip()
+        if contact != "1":
+            return  # other contact models have no name evidence
+        self.lines.append("   linear_spring_dashpot")
+        rolling = _child_text(dem, "dem_rolling_resistance_model",
+                              "1").strip()
+        if rolling != "1":
+            return  # other rolling models have no name evidence
+        self.lines.append("rolling_resistance_model")
+        self.lines.append("   simplified_linear")
+        self.lines.append("cohesion_model")
+        self.lines.append(
+            "   none" if _child_text(dem, "dem_adhesion", "0").strip()
+            == "0" else "   none")
+        self.lines.append("/")
+        self.lines.append("LSOL_OPTION")
+        self.lines.append("lagrangian_solver")
+        self.lines.append(_i(1, 12))
+        self.lines.append("time_integration")
+        self.lines.append(_i(int(num("dem_it_scheme", 2)), 12))
+        self.lines.append("contact_detection_algorithm")
+        self.lines.append(_i(int(num("dem_detect_algorithm", 3)), 12))
+        self.lines.append("contact_detection_timing")
+        self.lines.append(_i(int(num("dem_detect_cycle", 1)), 12))
+        self.lines.append("neighboring_factor")
+        self.lines.append(f"{num('dem_detect_n_factor', 1.2):29.14e}")
+        self.lines.append("min_Reynolds")
+        self.lines.append(f"{num('dem_min_reynolds', 1e-10):29.14e}")
+        self.lines.append("void_fraction")
+        self.lines.append(_i(1, 12))
+        self.lines.append("stab_factor")
+        self.lines.append(f"{num('dem_stab_scale', 0.0):29.14e}")
+        self.lines.append("/")
+        self.lines.append("LSOL_TIME_STEP")
+        self.lines.append("time_step")
+        self.lines.append(" division")
+        self.lines.append(_i(int(num("dem_time_divide", 5)), 12))
+        self.lines.append("loop")
+        self.lines.append(_i(int(num("dem_max_loop", 100)), 12))
+        self.lines.append("recovery")
+        self.lines.append(" repeat")
+        self.lines.append(
+            f"{num('dem_recoverty_step_scale', 0.1):26.14e}"
+            f"{int(num('dem_recoverty_max', 100)):15d}")
+
+    def _pcle_handling(self):
+        """PCLE_HANDLING — particle destruction / sedimentation regions
+        (C1: Particle Vanishment / Sedimentation).
+
+        Evidence: official exA07-3 — ``<value type="particle_condition">``
+        with kind destruction/sedimentation and ``applied_face`` bound to
+        face_list regions emits::
+
+               1:L
+            destruction
+               0
+               Xmax面
+               /
+
+        per condition, under a ``PCLE_HANDLING`` header.  Omitted when no
+        such values exist (ex4_e golden parity).
+        """
+        groups: list[tuple[str, str, str]] = []
+        for val in self.m.values_of_type("particle_condition"):
+            kind = _child_text(val, "kind").strip()
+            if kind not in ("destruction", "sedimentation"):
+                continue
+            name = _child_text(val, "name")
+            face = _child_text(val, "applied_face", "0").strip() or "0"
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "region":
+                        region = (ch.text or "").strip()
+                        if region:
+                            groups.append((kind, face, region))
+        if not groups:
+            return
+        self.lines.append("PCLE_HANDLING")
+        self.lines.append(f"{1:8d}:L")
+        for kind, face, region in groups:
+            self.lines.append(kind)
+            self.lines.append(f"{int(float(face)):4d}")
+            self.lines.append("   " + region)
             self.lines.append("   /")
         self.lines.append("/")
 
