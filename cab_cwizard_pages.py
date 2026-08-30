@@ -7023,7 +7023,167 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
         f.addRow("Default relative humidity (%)", self.rh)
         f.addRow(self.bind_domain)
         lay.addWidget(g)
+
+        # C2: humidity boundary conditions — official ``<value
+        # type="humidity">`` storage (exA05-2 evidence); type=2 emits
+        # HUMW_REGION transfer/wallhumidity cards, type=1 (region-pair
+        # family) is stored but its .s emission is probe-deferred.
+        bc = QGroupBox("Humidity boundary conditions", self)
+        bl = QVBoxLayout(bc)
+        self.hum_table = QTableWidget(0, 5, bc)
+        self.hum_table.setHorizontalHeaderLabels(
+            ["Name", "Type", "Param1", "Param2", "Regions"])
+        self.hum_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.hum_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        bl.addWidget(self.hum_table, 1)
+        hrow = QHBoxLayout()
+        btn_flux = QPushButton("Constant moisture flux…", bc)
+        btn_flux.clicked.connect(self._new_humidity_flux)
+        btn_wall = QPushButton("Humidity transfer (wall)…", bc)
+        btn_wall.clicked.connect(self._new_humidity_wall)
+        btn_del = QPushButton("Delete", bc)
+        btn_del.clicked.connect(self._hum_delete)
+        hrow.addWidget(btn_flux)
+        hrow.addWidget(btn_wall)
+        hrow.addStretch(1)
+        hrow.addWidget(btn_del)
+        bl.addLayout(hrow)
+        lay.addWidget(bc)
+        self._hum_reload()
         lay.addStretch(1)
+
+    # -- C2 humidity boundary conditions ---------------------------------
+
+    _HUM_FACES = ("Xmin", "Xmax", "Ymin", "Ymax", "Zmin", "Zmax")
+
+    def _hum_regions(self) -> list[str]:
+        names = [f"{f}面" for f in self._HUM_FACES]
+        dom = self.model.domain_name()
+        try:
+            from cab_domain import domain_faces
+            faces = domain_faces(self.model)
+            if faces:
+                names = [str(f) for f in faces]
+        except Exception:
+            pass
+        if dom:
+            names.append(dom)
+        return names
+
+    def _commit_humidity(self, name: str, type_code: int, param1: float,
+                         param2: Optional[float], region: str) -> bool:
+        """Create/update one ``<value type="humidity">`` condition."""
+        name = (name or "").strip()
+        region = (region or "").strip()
+        if not name or not region:
+            return False
+        children = [("kind", "boundary", None),
+                    ("type", str(int(type_code)), None),
+                    ("param1", f"{float(param1):g}", "m/s")]
+        if param2 is not None:
+            children.append(("param2", f"{float(param2):g}", None))
+        if not self.model.upsert_value("humidity", name, children):
+            return False
+        self.model.bind_condition("region", region, name)
+        self._hum_reload()
+        return True
+
+    def _hum_pick(self, title: str, param2: bool):
+        from PyQt5.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, title, "Condition name:")
+        if not ok or not str(name).strip():
+            return None
+        p1, ok1 = QInputDialog.getDouble(
+            self, title, "Param1 (m/s)", 0.0, -1e9, 1e9, 6)
+        if not ok1:
+            return None
+        p2 = 0.0
+        if param2:
+            p2, ok2 = QInputDialog.getDouble(
+                self, title, "Param2", 0.0, -1e9, 1e9, 6)
+            if not ok2:
+                return None
+        region, okr = QInputDialog.getItem(
+            self, title, "Region:", self._hum_regions(), 0, False)
+        if not okr:
+            return None
+        return str(name).strip(), float(p1), (float(p2) if param2 else None), \
+            str(region)
+
+    def _new_humidity_flux(self) -> None:
+        """Constant moisture flux (type=1; sign sets the direction)."""
+        picked = self._hum_pick("Constant Moisture Flux", param2=False)
+        if picked is None:
+            return
+        name, p1, _p2, region = picked
+        self._commit_humidity(name, 1, p1, None, region)
+
+    def _new_humidity_wall(self) -> None:
+        """Humidity transfer wall (type=2 -> HUMW_REGION card)."""
+        picked = self._hum_pick("Humidity Transfer (wall)", param2=True)
+        if picked is None:
+            return
+        name, p1, p2, region = picked
+        self._commit_humidity(name, 2, p1, p2, region)
+
+    def _hum_delete(self) -> None:
+        row = self.hum_table.currentRow()
+        if row < 0:
+            return
+        name = self.hum_table.item(row, 0).text()
+        from cabxml import _first
+        # drop the value element + every condition binding to it
+        for val in self.model.values_of_type("humidity"):
+            n = _first(val, "name")
+            if n is not None and n.text and n.text.strip() == name:
+                self.model.root.remove(val)
+                break
+        for c in list(self.model.conditions()):
+            v = _first(c, "value")
+            if v is not None and v.text and v.text.strip() == name:
+                self.model.root.remove(c)
+        self._hum_reload()
+
+    def _hum_reload(self) -> None:
+        rows: dict[str, dict] = {}
+        for val in self.model.values_of_type("humidity"):
+            name = ""
+            from cabxml import _first
+            n = _first(val, "name")
+            if n is not None and n.text:
+                name = n.text.strip()
+            if not name:
+                continue
+            row = rows.setdefault(name, {"type": "", "p1": "", "p2": "",
+                                         "regions": []})
+            for c in val:
+                if c.tag == "type":
+                    row["type"] = (c.text or "").strip()
+                elif c.tag == "param1":
+                    row["p1"] = (c.text or "").strip()
+                elif c.tag == "param2":
+                    row["p2"] = (c.text or "").strip()
+        for c in self.model.conditions():
+            vname = ""
+            region = ""
+            for ch in c:
+                if ch.tag == "region":
+                    region = (ch.text or "").strip()
+            from cabxml import _first
+            v = _first(c, "value")
+            if v is not None and v.text:
+                vname = v.text.strip()
+            if vname in rows and region:
+                rows[vname]["regions"].append(region)
+        self.hum_table.setRowCount(0)
+        for name, row in rows.items():
+            r = self.hum_table.rowCount()
+            self.hum_table.insertRow(r)
+            regions = ", ".join(row["regions"])
+            for col, text in enumerate(
+                    (name, row["type"], row["p1"], row["p2"], regions)):
+                self.hum_table.setItem(r, col, QTableWidgetItem(text))
 
     def apply(self) -> None:
         on = self.enable.isChecked()

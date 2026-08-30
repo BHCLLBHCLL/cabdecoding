@@ -323,6 +323,7 @@ class SExport:
         self._vfem_vfde()
         self._peltier()
         self._autofixp()
+        self._humw_region()
         self._fout()
         self._meix_var()
         self._balances()
@@ -1009,6 +1010,61 @@ class SExport:
         vals = [int(x) for x in
                 _child_text(aset, "auto_fixp", "1,1").split(",")[:2]]
         self.lines += ["AUTOFIXP", f"{_i(vals[0])}{_i(vals[1])}"]
+
+    def _humw_region(self):
+        """HUMW_REGION — humidity boundary conditions (C2).
+
+        Evidence: official exA05-2 (cradle corpus) — ``<value
+        type="humidity">`` with ``kind=boundary`` / ``type=2`` and
+        ``param1``/``param2`` emits one ``transfer  wallhumidity    0``
+        card PER bound region, each closed with ``/``::
+
+            HUMW_REGION
+            transfer  wallhumidity    0   ! 湿度1
+                         2.44000000000000e-02
+                         6.60000000000000e-01
+               Xmin面
+               /
+
+        ``type=1`` values (region-pair family) alternate between
+        ``lewislaw  saturation`` and ``diffusion  saturation`` prefixes
+        with no discriminating XML field in the sample — emission for
+        that family is probe-deferred.  Section omitted when no type=2
+        humidity boundary exists (empty sections are dropped).
+        """
+        groups: list[tuple[str, str, str, str]] = []
+        for val in self.m.values_of_type("humidity"):
+            if _child_text(val, "kind").strip() != "boundary":
+                continue
+            if _child_text(val, "type").strip() != "2":
+                continue
+            name = _child_text(val, "name")
+            p1 = _child_text(val, "param1", "0")
+            p2 = _child_text(val, "param2", "0")
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "region":
+                        region = (ch.text or "").strip()
+                        if region:
+                            groups.append((name, p1, p2, region))
+        if not groups:
+            return
+        self.lines.append("HUMW_REGION")
+        for name, p1, p2, region in groups:
+            self.lines.append(f"transfer  wallhumidity    0   ! {name}")
+            try:
+                self.lines.append(_f(float(p1)))
+            except ValueError:
+                self.lines.append(_f(0.0))
+            try:
+                self.lines.append(_f(float(p2)))
+            except ValueError:
+                self.lines.append(_f(0.0))
+            self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
 
     def _fout(self):
         out = self.m.root.find("output")
