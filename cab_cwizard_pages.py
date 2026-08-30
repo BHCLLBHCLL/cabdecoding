@@ -8981,6 +8981,56 @@ class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
         lay.addWidget(g)
         lay.addStretch(1)
 
+    # -- C7: moving-object conditions (exA09-4 storage shapes) -----------
+
+    def _commit_6dof(self, name: str, label: str, parts: str,
+                     move_kind: str = "free", rotate_kind: str = "free",
+                     forces=(0.0, 0.0, 0.0)) -> bool:
+        """6DOF rigid-body motion — ``<value type="body_move_6dof">``
+        bound via ``<parts>`` (exA09-4); emits the MOVB_CONTROL dynamical
+        entry + DYNA_MOTION block."""
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        f = [float(v) for v in forces[:3]]
+        while len(f) < 3:
+            f.append(0.0)
+        if not self.model.upsert_value("body_move_6dof", name, [
+                ("label", (label or name).strip(), None),
+                ("move_kind", move_kind, None),
+                ("initial_v_x", "0", "m/s"), ("force_x", f"{f[0]:g}", "N"),
+                ("initial_v_y", "0", "m/s"), ("force_y", f"{f[1]:g}", "N"),
+                ("initial_v_z", "0", "m/s"), ("force_z", f"{f[2]:g}", "N"),
+                ("rotate_kind", rotate_kind, None)]):
+            return False
+        return self.model.bind_condition("parts", parts, name)
+
+    def _commit_repulsion(self, name: str, parts: str,
+                          coefficient: float = 1.0) -> bool:
+        """Moving-object repulsion (C7) — storage-only, no card sample."""
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("body_repulsion", name, [
+                ("coefficient", f"{float(coefficient):g}", None)]):
+            return False
+        return self.model.bind_condition("parts", parts, name)
+
+    def _commit_mo_mass_transfer(self, name: str, parts: str,
+                                 transfer: float) -> bool:
+        """Moving-object mass transfer (C7) — storage-only, no card
+        sample."""
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("mo_mass_transfer", name, [
+                ("transfer", f"{float(transfer):g}", "m/s")]):
+            return False
+        return self.model.bind_condition("parts", parts, name)
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         mv = ("2" if on and self.with_heat.isChecked() else

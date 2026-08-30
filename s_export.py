@@ -657,13 +657,62 @@ class SExport:
     # MOVB_CONTROL after the value/condition regions, before MEIX_VAR.
 
     def _moving_parts(self) -> list[tuple]:
-        """``[(part_info, motion_dict)]`` for parts with a body_move."""
+        """``[(part_info, motion_dict)]`` for parts with a body_move or a
+        6DOF rigid-body condition (C7)."""
         out = []
         for p in self.parts[1:]:
             motion = self.m.part_motion(p["name"])
             if motion is not None:
                 out.append((p, motion))
+                continue
+            dyn = self._six_dof_for_part(p["name"])
+            if dyn is not None:
+                out.append((p, {"kind": "dynamical", **dyn}))
         return out
+
+    def _six_dof_entries(self) -> list[dict]:
+        """``<value type="body_move_6dof">`` conditions (exA09-4):
+        name / label / move_kind / rotate_kind / force_x|y|z, bound via
+        ``<parts>`` conditions."""
+        from cabxml import _first
+
+        def txt(val, tag, default=""):
+            el = _first(val, tag)
+            return el.text.strip() if el is not None and el.text                 else default
+
+        out = []
+        for val in self.m.values_of_type("body_move_6dof"):
+            name = txt(val, "name")
+            if not name:
+                continue
+            parts_names = []
+            for c in self.m.conditions():
+                v = _first(c, "value")
+                if v is None or not v.text or v.text.strip() != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "parts" and (ch.text or "").strip():
+                        parts_names.append((ch.text or "").strip())
+            if not parts_names:
+                continue
+            out.append({
+                "name": name,
+                "label": txt(val, "label", name),
+                "move_kind": txt(val, "move_kind", "free"),
+                "rotate_kind": txt(val, "rotate_kind", "free"),
+                "forces": [
+                    float(txt(val, f"force_{ax}", "0") or 0.0)
+                    for ax in "xyz"
+                ],
+                "parts": parts_names,
+            })
+        return out
+
+    def _six_dof_for_part(self, part_name: str) -> Optional[dict]:
+        for entry in self._six_dof_entries():
+            if part_name in entry["parts"]:
+                return entry
+        return None
 
     def _part_bounds_m(self, p: dict) -> Optional[tuple]:
         """Part bounding box in metres: cube base/size, else element boxes."""
@@ -728,7 +777,10 @@ class SExport:
 
     def _movb_control(self):
         moving = self._moving_parts()
-        if not moving:
+        six_dof = [e for e in self._six_dof_entries()
+                   if not any(p["name"] in e["parts"]
+                              for p, _m in moving)]
+        if not moving and not six_dof:
             return
         self.lines.append("MOVB_CONTROL")
         for p, motion in moving:
@@ -764,7 +816,42 @@ class SExport:
                 coord = motion.get("coordinate") or (0.0, 0.0, 0.0)
                 _entry("coordinate",
                        tuple(float(v) / 1000.0 for v in coord[:3]), name)
+        # C7: 6DOF rigid-body conditions -> dynamical entry + DYNA_MOTION
+        # (exA09-4 evidence).  Parts already driven by a body_move keep
+        # their classic entry above.
+        for entry in self._six_dof_entries():
+            if any(p["name"] in entry["parts"] and
+                   (self.m.part_motion(p["name"]) is not None)
+                   for p in self.parts[1:]):
+                continue
+            for part in entry["parts"]:
+                self.lines.append(f"dynamical    0   ! {entry['name']}")
+                self.lines.append(f" {entry['label']}")
+                self.lines.append(f"   {part}")
+                self.lines.append("   /")
+                break
         self.lines.append("/")
+        for entry in self._six_dof_entries():
+            if any(p["name"] in entry["parts"] and
+                   (self.m.part_motion(p["name"]) is not None)
+                   for p in self.parts[1:]):
+                continue
+            self.lines.append("DYNA_MOTION")
+            self.lines.append(entry["label"])
+            self.lines.append("translation")
+            self.lines.append("   unrestricted"
+                              if entry["move_kind"] == "free"
+                              else "   fixed")
+            self.lines.append("rotation")
+            self.lines.append("   unrestricted"
+                              if entry["rotate_kind"] == "free"
+                              else "   fixed")
+            self.lines.append("external_force")
+            self.lines.append(" " * 9 + "      ".join(
+                f"{v:.14e}" for v in entry["forces"]))
+            self.lines.append("   /")
+            self.lines.append("   /")
+            self.lines.append("/")
 
     def _init_region(self):
         self.lines += ["INIT_REGION", "TEMP"]
