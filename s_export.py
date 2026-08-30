@@ -327,6 +327,7 @@ class SExport:
         self._es_field_bc()
         self._fout()
         self._sufs_region()
+        self._surf_porous()
         self._meix_var()
         self._balances()
         self._flux_sum()
@@ -1098,6 +1099,68 @@ class SExport:
             except ValueError:
                 self.lines.append(f"{90.0:26.14e}")
             self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _surf_porous(self):
+        """SURF_POROUS — MARS free-surface attenuation zones (C6).
+
+        Evidence: official exA15-6 — ``<value type="surface_porous">``
+        with ``kind=energy_decay`` (Wave Energy Attenuation Zone) bound
+        via ``<parts>`` conditions emits::
+
+            SURF_POROUS
+            energyattenuation
+                         -1           2        <- dir(15) + fluid_no(12)
+              <decay 4 floats + depth>          <- 5 x _f(26)
+               attenuation_zone_xm              <- parts name
+               /
+
+        direction maps -X -> -1, +X -> 1 (other axes have no sample).
+        Permeable-object cards would live in the same section with a
+        different kind — no sample, not emitted.
+        """
+        _DIR_CODE = {"-X": -1, "+X": 1}
+        groups: list[tuple[str, int, int, list[float], str]] = []
+        for val in self.m.values_of_type("surface_porous"):
+            if _child_text(val, "kind").strip() != "energy_decay":
+                continue
+            name = _child_text(val, "name")
+            direction = _child_text(val, "direction")
+            if direction not in _DIR_CODE:
+                continue
+            try:
+                fluid_no = int(_child_text(val, "fluid_no", "1"))
+            except ValueError:
+                continue
+            decay = _child_text(val, "decay")
+            try:
+                nums = [float(x) for x in decay.split(",")]
+            except ValueError:
+                continue
+            try:
+                depth = float(_child_text(val, "depth", "0"))
+            except ValueError:
+                continue
+            nums += [0.0] * (4 - len(nums))
+            nums = nums[:4] + [depth]
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "parts":
+                        parts = (ch.text or "").strip()
+                        if parts:
+                            groups.append((name, _DIR_CODE[direction],
+                                           fluid_no, nums, parts))
+        if not groups:
+            return
+        self.lines.append("SURF_POROUS")
+        for _name, d, n, nums, parts in groups:
+            self.lines.append("energyattenuation")
+            self.lines.append(f"{d:15d}{n:12d}")
+            self.lines.append("".join(_f(v) for v in nums))
+            self.lines.append("   " + parts)
             self.lines.append("   /")
         self.lines.append("/")
 

@@ -7737,6 +7737,317 @@ class _CwThermoregulationPage(QWidget if _HAS_GUI else object):
              ("clothing", f"{self.clothing.value():g}", "clo")])
 
 
+class _CwFreeSurfacePage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - Free Surface conditions (MARS): Wave Generation,
+    Wave Energy Attenuation Zone, Permeable Object, Foaming Resin (C6)."""
+
+    _WAVE_KINDS = ("stokes3", "stokes5", "irregular", "solitary")
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "Free surface (MARS) conditions. Wave Generation and the "
+            "energy-attenuation zones emit SURF_WAVEGENE / SURF_POROUS "
+            "cards from the official storage shapes.", self))
+        self.tabs = tabs = QTabWidget(self)
+
+        # ---- Wave Generation ----
+        wg = QWidget()
+        wl = QVBoxLayout(wg)
+        self.wave_table = QTableWidget(0, 7, wg)
+        self.wave_table.setHorizontalHeaderLabels(
+            ["Name", "Kind", "Bias (m)", "Depth (m)", "Height (m)",
+             "Period", "Parts"])
+        self.wave_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.wave_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        wl.addWidget(self.wave_table, 1)
+        wrow = QHBoxLayout()
+        btn_wave = QPushButton("Wave Generation…", wg)
+        btn_wave.clicked.connect(self._new_wave)
+        wdel = QPushButton("Delete", wg)
+        wdel.clicked.connect(self._wave_delete)
+        wrow.addWidget(btn_wave)
+        wrow.addStretch(1)
+        wrow.addWidget(wdel)
+        wl.addLayout(wrow)
+        tabs.addTab(wg, "Wave Generation")
+
+        # ---- Attenuation / Permeable / Foaming ----
+        az = QWidget()
+        al = QVBoxLayout(az)
+        self.az_table = QTableWidget(0, 5, az)
+        self.az_table.setHorizontalHeaderLabels(
+            ["Name", "Kind", "Direction", "Fluid no", "Parts"])
+        self.az_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.az_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        al.addWidget(self.az_table, 1)
+        arow = QHBoxLayout()
+        btn_att = QPushButton("Wave energy attenuation zone…", az)
+        btn_att.clicked.connect(self._new_attenuation)
+        btn_perm = QPushButton("Permeable object…", az)
+        btn_perm.clicked.connect(self._new_permeable)
+        adel = QPushButton("Delete", az)
+        adel.clicked.connect(self._az_delete)
+        arow.addWidget(btn_att)
+        arow.addWidget(btn_perm)
+        arow.addStretch(1)
+        arow.addWidget(adel)
+        al.addLayout(arow)
+        al.addWidget(_note(
+            "Permeable-object cards share the SURF_POROUS section with a "
+            "different kind; the card layout has no corpus sample, so "
+            "they are stored without emission.", az))
+        tabs.addTab(az, "Permeable Object/Attenuation Zone")
+
+        fm = QWidget()
+        fl = QVBoxLayout(fm)
+        fl.addWidget(_note(
+            "Sets flow conditions of foaming resin (single-phase MARS). "
+            "Valid when solidification/melting is not analyzed.", fm))
+        frow = QHBoxLayout()
+        frow.addWidget(QLabel("Foaming rate", fm))
+        self.foam_rate = QDoubleSpinBox(fm)
+        self.foam_rate.setRange(-1e6, 1e6)
+        self.foam_rate.setDecimals(6)
+        self.foam_rate.setValue(1.0)
+        frow.addWidget(self.foam_rate)
+        btn_foam = QPushButton("Apply foaming resin", fm)
+        btn_foam.clicked.connect(self._apply_foaming)
+        frow.addWidget(btn_foam)
+        frow.addStretch(1)
+        fl.addLayout(frow)
+        fl.addStretch(1)
+        tabs.addTab(fm, "Foaming Resin")
+
+        lay.addWidget(tabs, 1)
+        self._reload()
+
+    # -- commits (testable) -----------------------------------------------
+
+    def _commit_wave(self, name: str, kind: str, bias: float,
+                     depth: float, height: float, period: float,
+                     parts: str) -> bool:
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("wave_gen", name, [
+                ("kind", kind, None),
+                ("angle", "0", None),
+                ("bias", f"{float(bias):g}", "m"),
+                ("depth", f"{float(depth):g}", "m"),
+                ("height", f"{float(height):g}", "m"),
+                ("period", f"{float(period):g}", None),
+                ("num", "0", None)]):
+            return False
+        self.model.bind_condition("parts", parts, name)
+        self._reload()
+        return True
+
+    def _commit_attenuation(self, name: str, direction: str,
+                            fluid_no: int, decay: str, depth: float,
+                            parts: str) -> bool:
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("surface_porous", name, [
+                ("kind", "energy_decay", None),
+                ("direction", direction, None),
+                ("fluid_no", str(int(fluid_no)), None),
+                ("decay", decay, None),
+                ("depth", f"{float(depth):g}", "m")]):
+            return False
+        self.model.bind_condition("parts", parts, name)
+        self._reload()
+        return True
+
+    def _commit_permeable(self, name: str, parts: str) -> bool:
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("surface_porous", name, [
+                ("kind", "permeable", None)]):
+            return False
+        self.model.bind_condition("parts", parts, name)
+        self._reload()
+        return True
+
+    def _apply_foaming(self) -> None:
+        self.model.upsert_value("foaming", "FoamingResin1", [
+            ("rate", f"{self.foam_rate.value():g}", None)])
+
+    # -- dialog wrappers ---------------------------------------------------
+
+    def _form_row(self, lay, label, widget):
+        row = QHBoxLayout()
+        row.addWidget(QLabel(label))
+        row.addWidget(widget, 1)
+        lay.addLayout(row)
+
+    def _wave_dialog(self):
+        from PyQt5.QtWidgets import (
+            QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+            QLineEdit)
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Condition (Wave Generation)")
+        lay = QVBoxLayout(dlg)
+        self._wg_name = QLineEdit(dlg)
+        self._form_row(lay, "Condition name", self._wg_name)
+        self._wg_kind = QComboBox(dlg)
+        self._wg_kind.addItems(list(self._WAVE_KINDS))
+        self._form_row(lay, "Wave type", self._wg_kind)
+        self._wg_bias = QDoubleSpinBox(dlg)
+        self._wg_bias.setRange(-1e6, 1e6)
+        self._wg_bias.setValue(7.0)
+        self._form_row(lay, "Bias (m)", self._wg_bias)
+        self._wg_depth = QDoubleSpinBox(dlg)
+        self._wg_depth.setRange(0.0, 1e6)
+        self._wg_depth.setValue(7.0)
+        self._form_row(lay, "Depth (m)", self._wg_depth)
+        self._wg_height = QDoubleSpinBox(dlg)
+        self._wg_height.setRange(0.0, 1e6)
+        self._wg_height.setValue(2.0)
+        self._form_row(lay, "Height (m)", self._wg_height)
+        self._wg_period = QDoubleSpinBox(dlg)
+        self._wg_period.setRange(0.0, 1e6)
+        self._wg_period.setValue(5.0)
+        self._form_row(lay, "Period (s)", self._wg_period)
+        self._wg_parts = QLineEdit(dlg)
+        self._form_row(lay, "Source region (parts name)", self._wg_parts)
+        dlg.addButton(QDialogButtonBox.Ok)
+        return dlg
+
+    def _new_wave(self) -> None:
+        dlg = self._wave_dialog()
+        if not dlg.exec_():
+            return
+        self._commit_wave(
+            self._wg_name.text(), self._wg_kind.currentText(),
+            self._wg_bias.value(), self._wg_depth.value(),
+            self._wg_height.value(), self._wg_period.value(),
+            self._wg_parts.text())
+
+    def _new_attenuation(self) -> None:
+        from PyQt5.QtWidgets import QInputDialog
+        title = "Wave Energy Attenuation Zone"
+        name, ok = QInputDialog.getText(self, title, "Condition name:")
+        if not ok or not str(name).strip():
+            return
+        direction, okd = QInputDialog.getItem(
+            self, title, "Direction:", ("-X", "+X"), 0, False)
+        if not okd:
+            return
+        fluid_no, okn = QInputDialog.getInt(
+            self, title, "Fluid no:", 2, 1, 9)
+        if not okn:
+            return
+        decay, okc = QInputDialog.getText(
+            self, title, "Decay coefficients (a,b,c,d):", "2,0,0,3")
+        if not okc:
+            return
+        depth, okdp = QInputDialog.getDouble(
+            self, title, "Depth (m)", 7.0, 0.0, 1e6, 6)
+        if not okdp:
+            return
+        parts, okp = QInputDialog.getText(self, title, "Parts name:")
+        if not okp:
+            return
+        self._commit_attenuation(str(name).strip(), str(direction),
+                                 int(fluid_no), str(decay),
+                                 float(depth), str(parts))
+
+    def _new_permeable(self) -> None:
+        from PyQt5.QtWidgets import QInputDialog
+        title = "Permeable Object"
+        name, ok = QInputDialog.getText(self, title, "Condition name:")
+        if not ok or not str(name).strip():
+            return
+        parts, okp = QInputDialog.getText(self, title, "Parts name:")
+        if not okp:
+            return
+        self._commit_permeable(str(name).strip(), str(parts))
+
+    def _delete_value(self, vtype: str, name: str) -> None:
+        from cabxml import _first
+        for val in self.model.values_of_type(vtype):
+            n = _first(val, "name")
+            if n is not None and n.text and n.text.strip() == name:
+                self.model.root.remove(val)
+                break
+        for c in list(self.model.conditions()):
+            v = _first(c, "value")
+            if v is not None and v.text and v.text.strip() == name:
+                self.model.root.remove(c)
+
+    def _wave_delete(self) -> None:
+        row = self.wave_table.currentRow()
+        if row >= 0:
+            self._delete_value("wave_gen",
+                               self.wave_table.item(row, 0).text())
+        self._reload()
+
+    def _az_delete(self) -> None:
+        row = self.az_table.currentRow()
+        if row >= 0:
+            self._delete_value("surface_porous",
+                               self.az_table.item(row, 0).text())
+        self._reload()
+
+    # -- table reload ------------------------------------------------------
+
+    def _reload(self) -> None:
+        from cabxml import _first
+
+        def _row_map(vtype):
+            rows: dict = {}
+            for val in self.model.values_of_type(vtype):
+                n = _first(val, "name")
+                name = n.text.strip() if n is not None and n.text else ""
+                if not name:
+                    continue
+                rows[name] = {c.tag: (c.text or "").strip() for c in val}
+            for c in self.model.conditions():
+                v = _first(c, "value")
+                vname = v.text.strip() if v is not None and v.text else ""
+                if vname not in rows:
+                    continue
+                for ch in c:
+                    if ch.tag == "parts" and (ch.text or "").strip():
+                        rows[vname].setdefault("_parts", []).append(
+                            (ch.text or "").strip())
+            return rows
+
+        self.wave_table.setRowCount(0)
+        for name, row in _row_map("wave_gen").items():
+            r = self.wave_table.rowCount()
+            self.wave_table.insertRow(r)
+            for col, key in enumerate(("name", "kind", "bias", "depth",
+                                       "height", "period")):
+                self.wave_table.setItem(
+                    r, col, QTableWidgetItem(row.get(key, "")))
+            self.wave_table.setItem(
+                r, 6, QTableWidgetItem(", ".join(row.get("_parts", []))))
+        self.az_table.setRowCount(0)
+        for name, row in _row_map("surface_porous").items():
+            r = self.az_table.rowCount()
+            self.az_table.insertRow(r)
+            for col, key in enumerate(("name", "kind", "direction",
+                                       "fluid_no")):
+                self.az_table.setItem(
+                    r, col, QTableWidgetItem(row.get(key, "")))
+            self.az_table.setItem(
+                r, 4, QTableWidgetItem(", ".join(row.get("_parts", []))))
+
+    def apply(self) -> None:
+        pass
+
+
 class _CwCurrentPage(QWidget if _HAS_GUI else object):
     """Condition Wizard - Electric current (Joule heating)."""
 
@@ -8251,6 +8562,20 @@ class _CwReactionPage(QWidget if _HAS_GUI else object):
         if row > 0:
             self.step_table.removeRow(row - 1)
 
+    def _commit_reaction_pdf(self, name: str, region: str) -> bool:
+        """C6: [Condition (Reaction - PDF)] — PDF-method reaction region.
+
+        Storage-only (no corpus evidence for the card)."""
+        name = (name or "").strip()
+        region = (region or "").strip()
+        if not name or not region:
+            return False
+        if not self.model.upsert_value("reaction_pdf", name, [
+                ("method", "pdf", None)]):
+            return False
+        self.model.bind_condition("region", region, name)
+        return True
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         mode = self.mode.currentText()
@@ -8409,6 +8734,23 @@ class _CwLampPage(QWidget if _HAS_GUI else object):
         f.addRow("Luminous flux (lm)", self.flux)
         lay.addWidget(g)
         lay.addStretch(1)
+
+    def _commit_laser(self, name: str, total_luminosity: float,
+                      flux_density: float, region: str) -> bool:
+        """C6: [Condition (Laser)] — lighting source + heat release.
+
+        Storage-only: the laser solver card has no corpus sample
+        (DEV_PLAN §23 C6)."""
+        name = (name or "").strip()
+        region = (region or "").strip()
+        if not name or not region:
+            return False
+        if not self.model.upsert_value("laser", name, [
+                ("total_luminosity", f"{float(total_luminosity):g}", "W"),
+                ("flux_density", f"{float(flux_density):g}", "W/m2")]):
+            return False
+        self.model.bind_condition("region", region, name)
+        return True
 
     def apply(self) -> None:
         on = self.enable.isChecked()

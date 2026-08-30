@@ -660,3 +660,62 @@ def test_c3_thermal_page_contact_thermal(pieces, monkeypatch):
     assert kids["coefficient"] == "1000"
     assert model.condition_value("region", "Ymin") == "ContactR_Ymin"
     w.close()
+
+
+def test_c6_free_surface_page_registered(pieces):
+    """C6: the Free Surface CW page is registered with its tabs."""
+    import cab_cwizard_pages as cw
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    assert "free_surface" in w._items
+    page = w.p_free_surface
+    assert isinstance(page, cw._CwFreeSurfacePage)
+    titles = [page.tabs.tabText(i) for i in range(page.tabs.count())]
+    assert titles == ["Wave Generation",
+                      "Permeable Object/Attenuation Zone", "Foaming Resin"]
+    w.close()
+
+
+def test_c6_storage_only_conditions(pieces, qapp):
+    """C6 storage-only routes: Fluid Interface (flow page), Laser (lamp
+    page) and Reaction-PDF (reaction page)."""
+    import cab_cwizard_pages as cw
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+
+    w.p_bc_flow._faces = ["Xmin"]
+    w.p_bc_flow.region.clear()
+    w.p_bc_flow.region.addItem("Xmin")
+    w.p_bc_flow._new_fluid_interface()
+    val = model.find_value("FluidInterface_Xmin")
+    assert val is not None
+    assert val.attrib.get("type") == "fluid_interface"
+    assert model.condition_value("region", "Xmin") == "FluidInterface_Xmin"
+
+    lamp = cw._CwLampPage(model)
+    try:
+        assert lamp._commit_laser("Laser1", 120.0, 5.0, "Xmax面")
+        val = model.find_value("Laser1")
+        assert val is not None and val.attrib.get("type") == "laser"
+        kids = {c.tag: (c.text or "").strip() for c in val}
+        assert kids["total_luminosity"] == "120"
+        assert kids["flux_density"] == "5"
+    finally:
+        lamp.deleteLater()
+
+    react = cw._CwReactionPage(model)
+    try:
+        assert react._commit_reaction_pdf("PDF1", "Domain(cuboid)")
+        val = model.find_value("PDF1")
+        assert val is not None
+        assert val.attrib.get("type") == "reaction_pdf"
+        pdf_bound = [
+            c for c in model.conditions()
+            if any(ch.tag == "value" and (ch.text or "").strip()
+                   == "PDF1" for ch in c)]
+        assert pdf_bound, "PDF1 condition missing"
+    finally:
+        react.deleteLater()
+    w.close()

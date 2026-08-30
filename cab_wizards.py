@@ -569,6 +569,7 @@ _CW_PAGES = [
     ("aircon_model", "Air Conditioner Unit", None),
     ("evaporation", "Evaporation (Free Surface)", None),
     ("boil", "Boil/Condensation", None),
+    ("free_surface", "Free Surface", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -2480,6 +2481,9 @@ class _CwFlowBoundaryPage(_BoundaryPageBase):
                 ("Power law", "power_law", self._new_power_law)):
             lay.addWidget(icon_action_button(
                 self.new_box, label, kind, slot))
+        lay.addWidget(icon_action_button(
+            self.new_box, "Fluid interface", "fluid_interface",
+            self._new_fluid_interface))
 
     def _extra_options(self, lay: QVBoxLayout) -> None:
         self.show_wall = QCheckBox("Show wall conditions", self.main_page)
@@ -2671,6 +2675,18 @@ class _CwFlowBoundaryPage(_BoundaryPageBase):
         self._fan_name.setText(f"Fan_{self._current_face()}")
         if dlg.exec_():
             self._commit_fan(self._current_face())
+
+    def _new_fluid_interface(self) -> None:
+        """C6: [Condition (Fluid Interface)] — stress condition at the
+        face between multiple fluid regions.  Storage-only (the solver
+        card has no corpus evidence)."""
+        face = self._current_face()
+        name = f"FluidInterface_{face}"
+        self.model.upsert_value("fluid_interface", name, [
+            ("kind", "interface", None)])
+        self.model.bind_condition("region", face, name)
+        self._log(f"Flow Boundary: {face} <- '{name}' (fluid_interface)")
+        self.refresh()
 
     def _new_power_law(self) -> None:
         face = self._current_face()
@@ -3719,6 +3735,7 @@ class ConditionWizard(WizardBase):
             _CwCurrentPage, _CwDiffusionPage, _CwElectrostaticPage,
             _CwEvaporationPage,
             _CwFilePage, _CwFixedPage, _CwFusionPage,
+            _CwFreeSurfacePage,
             _CwHumidityPage, _CwLampPage, _CwMarangoniPage,
             _CwMovingBodyPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
             _CwOutputLFilePage, _CwOutputSeriesPage, _CwParticlePage,
@@ -3749,6 +3766,7 @@ class ConditionWizard(WizardBase):
         self.p_pcm = _CwPcmPage(model)
         self.p_evaporation = _CwEvaporationPage(model)
         self.p_boil = _CwBoilPage(model)
+        self.p_free_surface = _CwFreeSurfacePage(model)
         self.p_plant = _CwPlantCanopyPage(model)
         self.p_movebody = _CwMovingBodyPage(model)
         self.p_marangoni = _CwMarangoniPage(model)
@@ -3796,6 +3814,7 @@ class ConditionWizard(WizardBase):
             "aircon_model": self.p_aircon,
             "evaporation": self.p_evaporation,
             "boil": self.p_boil,
+            "free_surface": self.p_free_surface,
             "initial": self.p_initial,
             "bc": None,
             "bc_flow": self.p_bc_flow, "bc_wall": self.p_bc_wall,
@@ -4078,6 +4097,7 @@ class ConditionWizard(WizardBase):
             ("fluid", self.p_fluid),
             ("flow", self.p_flow),
             ("heat", self.p_heat),
+            ("free_surface", self.p_free_surface),
             ("initial", self.p_initial),
             ("bc_flow", self.p_bc_flow),
             ("bc_wall", self.p_bc_wall),
