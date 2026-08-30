@@ -9237,6 +9237,24 @@ class _CwTopologyOptiPage(QWidget if _HAS_GUI else object):
         lay.addWidget(g)
         lay.addStretch(1)
 
+    # -- C8: design space (exA28-1_step2 storage shape) -------------------
+
+    def _commit_design_space(self, name: str, parts: str,
+                             vol_constraint_type: str = "upper",
+                             vol_constraint: float = 0.12) -> bool:
+        """[Condition (Design Space)] — volume-constrained design space
+        for topology optimization (``<value type="topo_design_space">``);
+        emits the TOPOPT_REGION card via the objective-function linkage."""
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("topo_design_space", name, [
+                ("vol_constraint_type", vol_constraint_type, None),
+                ("vol_constraint", f"{float(vol_constraint):g}", None)]):
+            return False
+        return self.model.bind_condition("parts", parts, name)
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         self.model.set_project_value(

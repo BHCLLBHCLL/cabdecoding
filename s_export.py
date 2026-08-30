@@ -330,6 +330,7 @@ class SExport:
         self._fout()
         self._sufs_region()
         self._surf_porous()
+        self._topopt_region()
         self._meix_var()
         self._balances()
         self._flux_sum()
@@ -1366,6 +1367,68 @@ class SExport:
             self.lines.append(kind)
             self.lines.append(f"{int(float(face)):4d}")
             self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _topopt_region(self):
+        """TOPOPT_REGION — topology-optimization design space / volume
+        constraint (C8).
+
+        Evidence: official exA28-1_step2 — ``<value type="topo_obj_func">``
+        + ``<value type="topo_design_space">`` (vol_constraint_type /
+        vol_constraint), both bound via ``<parts>`` (Design_space), emit::
+
+            TOPOPT_REGION
+            objective_and_constraint    0   ! 体積目的関数1
+                          1           1
+                 0.00000000000000e+00  1.20000000000000e-01   <- lower/upper
+                 0.00000000000000e+00
+               Design_space               (one line per bound parts)
+               /
+
+        The leading pair (1, 1) has a single sample — pinned constants.
+        Omitted when no topo_design_space values exist (ex4_e golden
+        parity).
+        """
+        ds_vals = self.m.values_of_type("topo_design_space")
+        if not ds_vals:
+            return
+        obj_vals = self.m.values_of_type("topo_obj_func")
+
+        def txt(val, tag, default=""):
+            from cabxml import _first
+            el = _first(val, tag)
+            return el.text.strip() if el is not None and el.text                 else default
+
+        obj_name = txt(obj_vals[0], "name") if obj_vals else             txt(ds_vals[0], "name")
+        parts_list: list[str] = []
+        for val in ds_vals + obj_vals:
+            name = txt(val, "name")
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "parts":
+                        parts = (ch.text or "").strip()
+                        if parts:
+                            # the official card repeats the region line
+                            # once per bound condition (no dedup)
+                            parts_list.append(parts)
+        lower = 0.0
+        upper = 0.0
+        try:
+            vc = float(txt(ds_vals[0], "vol_constraint", "0"))
+            upper = vc
+        except ValueError:
+            pass
+        self.lines.append("TOPOPT_REGION")
+        self.lines.append(
+            f"objective_and_constraint    0   ! {obj_name}")
+        self.lines.append(f"{1:15d}{1:12d}")
+        self.lines.append(_f(lower, 29) + _f(upper))
+        self.lines.append(_f(0.0, 29))
+        for parts in parts_list:
+            self.lines.append("   " + parts)
             self.lines.append("   /")
         self.lines.append("/")
 
