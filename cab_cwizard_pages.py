@@ -7768,7 +7768,130 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
         f.addRow(self.enable)
         f.addRow("Electrical conductivity (S/m)", self.conductivity)
         lay.addWidget(g)
+
+        # C3: electrical contact resistance (5 modes per the manual); the
+        # solver card has no corpus evidence — storage-only for now.
+        ecr = QGroupBox("Electrical contact resistance", self)
+        el = QVBoxLayout(ecr)
+        self.ecr_table = QTableWidget(0, 4, ecr)
+        self.ecr_table.setHorizontalHeaderLabels(
+            ["Name", "Mode", "Param", "Regions"])
+        self.ecr_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.ecr_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        el.addWidget(self.ecr_table, 1)
+        crow = QHBoxLayout()
+        btn_ecr = QPushButton("Electrical contact resistance…", ecr)
+        btn_ecr.clicked.connect(self._new_econtact)
+        btn_del = QPushButton("Delete", ecr)
+        btn_del.clicked.connect(self._ecr_delete)
+        crow.addWidget(btn_ecr)
+        crow.addStretch(1)
+        crow.addWidget(btn_del)
+        el.addLayout(crow)
+        lay.addWidget(ecr)
+        self._ecr_reload()
         lay.addStretch(1)
+
+    _ECR_MODES = (
+        ("insulation", "Insulation"),
+        ("total_resistance", "Electrical contact resistance"),
+        ("inverse_conductance", "Inverse of conductance (per unit area)"),
+        ("conductivity_thickness", "Electrical conductivity and thickness"),
+        ("no_resistance_current", "Electric current without resistance"),
+    )
+
+    def _commit_econtact(self, name: str, mode: str, param: float,
+                         region: str) -> bool:
+        name = (name or "").strip()
+        region = (region or "").strip()
+        if not name or not region:
+            return False
+        if not self.model.upsert_value("econtact", name, [
+                ("mode", mode, None),
+                ("param", f"{float(param):g}", None)]):
+            return False
+        self.model.bind_condition("region", region, name)
+        self._ecr_reload()
+        return True
+
+    def _new_econtact(self) -> None:
+        from PyQt5.QtWidgets import QInputDialog
+        title = "Electrical Contact Resistance"
+        name, ok = QInputDialog.getText(self, title, "Condition name:")
+        if not ok or not str(name).strip():
+            return
+        modes = [label for _k, label in self._ECR_MODES]
+        mode_label, okm = QInputDialog.getItem(
+            self, title, "Mode:", modes, 0, False)
+        if not okm:
+            return
+        mode = next(k for k, label in self._ECR_MODES
+                    if label == mode_label)
+        param, okp = QInputDialog.getDouble(
+            self, title, "Value", 0.0, -1e30, 1e30, 8)
+        if not okp:
+            return
+        region, okr = QInputDialog.getItem(
+            self, title, "Region:", self._ES_FACES, 0, False)
+        if not okr:
+            return
+        self._commit_econtact(str(name).strip(), mode, float(param),
+                              str(region))
+
+    def _ecr_delete(self) -> None:
+        row = self.ecr_table.currentRow()
+        if row < 0:
+            return
+        name = self.ecr_table.item(row, 0).text()
+        from cabxml import _first
+        for val in self.model.values_of_type("econtact"):
+            n = _first(val, "name")
+            if n is not None and n.text and n.text.strip() == name:
+                self.model.root.remove(val)
+                break
+        for c in list(self.model.conditions()):
+            v = _first(c, "value")
+            if v is not None and v.text and v.text.strip() == name:
+                self.model.root.remove(c)
+        self._ecr_reload()
+
+    def _ecr_reload(self) -> None:
+        from cabxml import _first
+        labels = dict(self._ECR_MODES)
+        rows: dict[str, dict] = {}
+        for val in self.model.values_of_type("econtact"):
+            n = _first(val, "name")
+            name = n.text.strip() if n is not None and n.text else ""
+            if not name:
+                continue
+            mode = _first(val, "mode")
+            param = _first(val, "param")
+            rows[name] = {
+                "mode": labels.get((mode.text or "").strip()
+                                   if mode is not None else "",
+                                   (mode.text or "").strip()
+                                   if mode is not None else ""),
+                "param": (param.text or "").strip()
+                if param is not None else "",
+                "regions": [],
+            }
+        for c in self.model.conditions():
+            v = _first(c, "value")
+            vname = v.text.strip() if v is not None and v.text else ""
+            if vname not in rows:
+                continue
+            for ch in c:
+                if ch.tag == "region" and (ch.text or "").strip():
+                    rows[vname]["regions"].append((ch.text or "").strip())
+        self.ecr_table.setRowCount(0)
+        for name, row in rows.items():
+            r = self.ecr_table.rowCount()
+            self.ecr_table.insertRow(r)
+            for col, text in enumerate(
+                    (name, row["mode"], row["param"],
+                     ", ".join(row["regions"]))):
+                self.ecr_table.setItem(r, col, QTableWidgetItem(text))
 
     def apply(self) -> None:
         on = self.enable.isChecked()
@@ -7827,7 +7950,130 @@ class _CwElectrostaticPage(QWidget if _HAS_GUI else object):
         f.addRow("Calculation timing", self.timing)
         f.addRow("Relative permittivity", self.permittivity)
         lay.addWidget(g)
+
+        # C3: electric-potential boundary conditions — official <value
+        # type="e_field"> storage (exA07-3); type emits ES_FIELD_BC cards.
+        bc = QGroupBox("Electrostatic boundary conditions", self)
+        bl = QVBoxLayout(bc)
+        self.es_table = QTableWidget(0, 3, bc)
+        self.es_table.setHorizontalHeaderLabels(
+            ["Name", "Potential (V)", "Regions"])
+        self.es_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.es_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        bl.addWidget(self.es_table, 1)
+        erow = QHBoxLayout()
+        btn_pot = QPushButton("Electric potential…", bc)
+        btn_pot.clicked.connect(self._new_e_potential)
+        btn_movb = QPushButton("Fixed potential (moving object)…", bc)
+        btn_movb.clicked.connect(self._new_e_movb)
+        btn_del = QPushButton("Delete", bc)
+        btn_del.clicked.connect(self._es_delete)
+        erow.addWidget(btn_pot)
+        erow.addWidget(btn_movb)
+        erow.addStretch(1)
+        erow.addWidget(btn_del)
+        bl.addLayout(erow)
+        lay.addWidget(bc)
+        self._es_reload()
         lay.addStretch(1)
+
+    _ES_FACES = ("Xmin面", "Xmax面", "Ymin面", "Ymax面", "Zmin面", "Zmax面")
+
+    def _commit_e_potential(self, name: str, potential: float,
+                            region: str, movb: bool = False) -> bool:
+        """Create/update one ``<value type="e_field">`` condition."""
+        name = (name or "").strip()
+        region = (region or "").strip()
+        if not name or not region:
+            return False
+        children = [("e_potential", f"{float(potential):g}", "V")]
+        if movb:
+            # MOVB_ESF_SORC (moving-object dielectric fixed potential):
+            # storage marker only, card emission has no corpus evidence.
+            children.append(("movb_fixed", "T", None))
+        if not self.model.upsert_value("e_field", name, children):
+            return False
+        self.model.bind_condition("region", region, name)
+        self._es_reload()
+        return True
+
+    def _es_pick(self, title: str):
+        from PyQt5.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, title, "Condition name:")
+        if not ok or not str(name).strip():
+            return None
+        pot, okp = QInputDialog.getDouble(
+            self, title, "Electric potential (V)", 0.0, -1e9, 1e9, 6)
+        if not okp:
+            return None
+        region, okr = QInputDialog.getItem(
+            self, title, "Region:", list(self._ES_FACES), 0, False)
+        if not okr:
+            return None
+        return str(name).strip(), float(pot), str(region)
+
+    def _new_e_potential(self) -> None:
+        picked = self._es_pick("Electric Potential")
+        if picked is None:
+            return
+        self._commit_e_potential(*picked)
+
+    def _new_e_movb(self) -> None:
+        picked = self._es_pick(
+            "Electrostatic Field - Fixed Electric Potential")
+        if picked is None:
+            return
+        self._commit_e_potential(picked[0], picked[1], picked[2],
+                                 movb=True)
+
+    def _es_delete(self) -> None:
+        row = self.es_table.currentRow()
+        if row < 0:
+            return
+        name = self.es_table.item(row, 0).text()
+        from cabxml import _first
+        for val in self.model.values_of_type("e_field"):
+            n = _first(val, "name")
+            if n is not None and n.text and n.text.strip() == name:
+                self.model.root.remove(val)
+                break
+        for c in list(self.model.conditions()):
+            v = _first(c, "value")
+            if v is not None and v.text and v.text.strip() == name:
+                self.model.root.remove(c)
+        self._es_reload()
+
+    def _es_reload(self) -> None:
+        from cabxml import _first
+        rows: dict[str, dict] = {}
+        for val in self.model.values_of_type("e_field"):
+            n = _first(val, "name")
+            name = n.text.strip() if n is not None and n.text else ""
+            if not name:
+                continue
+            pot = _first(val, "e_potential")
+            rows[name] = {
+                "pot": (pot.text or "").strip() if pot is not None else "",
+                "movb": any(c.tag == "movb_fixed" for c in val),
+                "regions": [],
+            }
+        for c in self.model.conditions():
+            v = _first(c, "value")
+            vname = v.text.strip() if v is not None and v.text else ""
+            if vname not in rows:
+                continue
+            for ch in c:
+                if ch.tag == "region" and (ch.text or "").strip():
+                    rows[vname]["regions"].append((ch.text or "").strip())
+        self.es_table.setRowCount(0)
+        for name, row in rows.items():
+            r = self.es_table.rowCount()
+            self.es_table.insertRow(r)
+            label = name + ("  [moving object]" if row["movb"] else "")
+            for col, text in enumerate(
+                    (label, row["pot"], ", ".join(row["regions"]))):
+                self.es_table.setItem(r, col, QTableWidgetItem(text))
 
     def apply(self) -> None:
         on = self.enable.isChecked()

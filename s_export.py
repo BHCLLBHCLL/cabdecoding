@@ -324,7 +324,9 @@ class SExport:
         self._peltier()
         self._autofixp()
         self._humw_region()
+        self._es_field_bc()
         self._fout()
+        self._sufs_region()
         self._meix_var()
         self._balances()
         self._flux_sum()
@@ -1010,6 +1012,94 @@ class SExport:
         vals = [int(x) for x in
                 _child_text(aset, "auto_fixp", "1,1").split(",")[:2]]
         self.lines += ["AUTOFIXP", f"{_i(vals[0])}{_i(vals[1])}"]
+
+    def _es_field_bc(self):
+        """ES_FIELD_BC — electrostatic electric-potential boundaries (C3).
+
+        Evidence: official exA07-3 (cradle corpus) — ``<value
+        type="e_field">`` with ``<e_potential unit="V">`` bound to
+        face_list regions emits one ``epotential    0   ! <name>`` card
+        per region (value line + region + ``/``)::
+
+            ES_FIELD_BC
+            epotential    0   ! 0V
+                         0.00000000000000e+00
+               Xmin面
+               /
+
+        Placed before FOUT (after ES_FIELD/ES_FIELD_PROP/ES_FIELD_SORC in
+        the official file; the non-card members of that block are
+        material-dependent and not emitted here).
+        """
+        groups: list[tuple[str, str, str]] = []
+        for val in self.m.values_of_type("e_field"):
+            name = _child_text(val, "name")
+            pot = _child_text(val, "e_potential", "0")
+            if not name:
+                continue
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "region":
+                        region = (ch.text or "").strip()
+                        if region:
+                            groups.append((name, pot, region))
+        if not groups:
+            return
+        self.lines.append("ES_FIELD_BC")
+        for name, pot, region in groups:
+            self.lines.append(f"epotential    0   ! {name}")
+            try:
+                self.lines.append(_f(float(pot)))
+            except ValueError:
+                self.lines.append(_f(0.0))
+            self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _sufs_region(self):
+        """SUFS_REGION contactangle cards — free-surface Contact Angle (C3).
+
+        Evidence: official exA09-4 — the card layout is::
+
+            SUFS_REGION
+            contactangle   0
+                  9.00000000000000e+01
+               @UNDEFINEDCAG
+               /
+
+        Only user-defined ``<value type="contact_angle">`` conditions are
+        emitted here (same card body with the bound region); the
+        ``@UNDEFINEDCAG`` default card in the sample has no user value
+        behind it, so the trigger for emitting it is unknown — deferred.
+        """
+        groups: list[tuple[str, str, str]] = []
+        for val in self.m.values_of_type("contact_angle"):
+            name = _child_text(val, "name")
+            angle = _child_text(val, "angle", "90")
+            if not name:
+                continue
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "region":
+                        region = (ch.text or "").strip()
+                        if region:
+                            groups.append((name, angle, region))
+        if not groups:
+            return
+        self.lines.append("SUFS_REGION")
+        for name, angle, region in groups:
+            self.lines.append("contactangle   0 ")
+            try:
+                self.lines.append(f"{float(angle):26.14e}")
+            except ValueError:
+                self.lines.append(f"{90.0:26.14e}")
+            self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
 
     def _humw_region(self):
         """HUMW_REGION — humidity boundary conditions (C2).

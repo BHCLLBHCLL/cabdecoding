@@ -2877,8 +2877,49 @@ class _CwThermalBoundaryPage(_BoundaryPageBase):
         self.btn_solar = icon_action_button(
             self.new_box, "Solar radiation/Lamp", "solar_lamp",
             self._new_solar_lamp)
-        for b in (self.btn_heat, self.btn_encl, self.btn_rad, self.btn_solar):
+        self.btn_ctm = icon_action_button(
+            self.new_box, "Contact thermal resistance", "contact_thermal",
+            self._new_contact_thermal)
+        for b in (self.btn_heat, self.btn_encl, self.btn_rad, self.btn_solar,
+                  self.btn_ctm):
             lay.addWidget(b)
+
+    def _new_contact_thermal(self) -> None:
+        """C3: [Condition (Contact Thermal Resistance)] — constant contact
+        heat transfer coefficient on a face.  The solver card has no
+        corpus evidence — storage-only (DEV_PLAN §23 C3)."""
+        face = self._current_face()
+        if face not in self._faces:
+            face = self._faces[0] if self._faces else "Xmin"
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Condition (Contact Thermal Resistance) on "
+                           f"{face}")
+        lay = QVBoxLayout(dlg)
+        name_ed = QLineEdit(f"ContactR_{face}", dlg)
+        _row(lay, "Condition name", name_ed)
+        coeff = QDoubleSpinBox(dlg)
+        coeff.setRange(0.0, 1.0e9)
+        coeff.setDecimals(6)
+        coeff.setValue(1000.0)
+        _row(lay, "Contact heat transfer coefficient (W/(m2.K))", coeff)
+        b = QHBoxLayout()
+        ok = QPushButton("OK", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel", dlg)
+        cancel.clicked.connect(dlg.reject)
+        b.addStretch(1)
+        b.addWidget(ok)
+        b.addWidget(cancel)
+        lay.addLayout(b)
+        if not dlg.exec_():
+            return
+        cname = name_ed.text().strip() or f"ContactR_{face}"
+        self.model.upsert_value("contact_thermal", cname, [
+            ("coefficient", f"{coeff.value():g}", "W/(m2.K)")])
+        self.model.bind_condition("region", face, cname)
+        self._log(f"Thermal Boundary: {face} <- '{cname}' "
+                  f"(contact {coeff.value():g})")
+        self.refresh()
 
     def _extra_options(self, lay: QVBoxLayout) -> None:
         self.show_flux_wall = QCheckBox(

@@ -640,3 +640,23 @@ def test_c5_rough_wall_dialog(pieces, monkeypatch):
     s = build_sdat(model, props)
     assert "AMOM_REGION" in s
     w.close()
+
+
+def test_c3_thermal_page_contact_thermal(pieces, monkeypatch):
+    """C3: Contact thermal resistance action stores a contact_thermal
+    value (emission deferred — no corpus evidence)."""
+    from PyQt5.QtWidgets import QDialog
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    w.p_bc_thermal._faces = ["Ymin"]
+    w.p_bc_thermal.region.clear()
+    w.p_bc_thermal.region.addItem("Ymin")
+    monkeypatch.setattr(QDialog, "exec_", lambda self: 1, raising=False)
+    w.p_bc_thermal._new_contact_thermal()
+    val = model.find_value("ContactR_Ymin")
+    assert val is not None and val.attrib.get("type") == "contact_thermal"
+    kids = {c.tag: (c.text or "").strip() for c in val}
+    assert kids["coefficient"] == "1000"
+    assert model.condition_value("region", "Ymin") == "ContactR_Ymin"
+    w.close()
