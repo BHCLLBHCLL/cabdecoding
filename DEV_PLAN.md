@@ -2236,6 +2236,17 @@ Design_Space（拓扑优化设计空间，与 `_CwTopologyOptiPage` 对接）。
 | SK-4 模型类型 ×3 | Extrusion To selected part / Face Division / Slit Punching（`slit_punching` 原语已在 `cab_parts.py:77-86`，补 sketch 成体路径），6/9→9/9 | 9 模型类型对话框矩阵测试 |
 | SK-5 约束求解器 | 手册 Sketch 章无约束/标注小节 → **不属 STpre 对标基线**，列为超越 STpre 的可选增强（C 声明），不占本批排期 | 声明附录 |
 
+### 24.3b 执行状态（2026-08-29 回填）
+
+| 批 | 状态 | 提交 | 备注 |
+|---|---|---|---|
+| FMT-1/2/3 | ✅ | `7d7d87e` | 附带修复 P3 GRID 卡 CP 字段错位真 bug（标准 6 字段行坐标读 3..5） |
+| AM-0/1/2 | ✅ | `c048012` | AM-0 定档：官方 [Mesh] 菜单恰 6 命令、无 Auto Meshing 项（本仓已一致）；AM-2 新黑盒探针留待许可窗口 |
+| MB-1/2/3 | ✅ | `d80f970` | 「multiblock NYI」注释系陈旧——复选框已条件启用；真残项 lower_level 已接线 |
+| FMT-4/5 | ✅ | `a842c56` | SAT 无 OCC 分支（无开源 ACIS writer），CLI/B 定档；CGNS 非对标声明 |
+| SK-1..4 | ✅ | `287a3c2` | SK-5 约束求解器维持 C 级「超越 STpre」声明 |
+| 回填 | ✅ | 本提交 | gap analysis 升 v6.6（D5 97 / D7 95 / D8 90 / D11 85 / D12 93，总体 ≈94%）；全量 723 passed / 5 skipped |
+
 ### 24.4 执行顺序与口径
 
 ```
