@@ -696,7 +696,8 @@ def _merge_block_axis(entries: list[tuple[float, str]], block: dict,
 def build_axes_multiblock(part_points: dict[str, np.ndarray],
                           spec: GridSpec, blocks: list[dict], *,
                           part_vertices: Optional[dict] = None,
-                          part_bounds=None, child_only: bool = False
+                          part_bounds=None, child_only: bool = False,
+                          lower_level: bool = False
                           ) -> tuple[dict[str, list[float]],
                                      dict[str, list[float]],
                                      dict[str, list[tuple[float, str]]]]:
@@ -704,6 +705,10 @@ def build_axes_multiblock(part_points: dict[str, np.ndarray],
 
     Returns ``(rough, detailed, entries)``; ``entries`` carries per-axis
     ``(coord, mark)`` pairs where child boundaries are ``CS``/``C``.
+    ``lower_level`` implements the STpre "Consider rough grid of lower
+    level block" option: the parent (coarser) rough-grid lines are kept
+    in the merged layout even when ``child_only`` discards the root
+    detailed lines.
     """
     rough, detailed = build_axes(
         part_points, spec, part_vertices=part_vertices,
@@ -738,11 +743,101 @@ def build_axes_multiblock(part_points: dict[str, np.ndarray],
                 apply_block(child, is_root=False)
 
         apply_block(root, is_root=True)
+        if lower_level:
+            merged = {round(float(v), 9): (m or "N").upper()
+                      for v, m in entries}
+            for v in rough[ax]:
+                key = round(float(v), 9)
+                if key not in merged:
+                    merged[key] = "N"
+            entries = sorted(merged.items(), key=lambda kv: kv[0])
         if not entries:
             entries = [(float(dmin[ax_i]), "B"), (float(dmax[ax_i]), "B")]
         entries_out[ax] = entries
     detailed_mb = {ax: [v for v, _m in entries_out[ax]] for ax in "xyz"}
     return rough, detailed_mb, entries_out
+
+
+def _aabb(block: dict) -> Optional[tuple[np.ndarray, np.ndarray]]:
+    """Block min/max as (mm) float arrays, or None when not fully defined."""
+    lo = block.get("min")
+    hi = block.get("max")
+    if lo is None or hi is None:
+        return None
+    lo = np.asarray(lo, dtype=float)
+    hi = np.asarray(hi, dtype=float)
+    if not (np.isfinite(lo).all() and np.isfinite(hi).all()):
+        return None
+    return lo, hi
+
+
+def validate_multiblock(blocks: list[dict], *,
+                        spacing: Optional[float] = None) -> list[str]:
+    """STpre multiblock limitations (Pre_eng "Limitations for multiblock").
+
+    Walks the ``mesh_blocks()`` tree and returns violation messages:
+
+    - a child block must lie inside its parent block (error);
+    - same-level child blocks must not interfere, i.e. no positive-volume
+      overlap (error) — contact with the computational domain boundary is
+      explicitly allowed;
+    - with ``spacing`` (parent mesh size, mm) given: a child block must
+      keep one or more meshes away from its parent's boundary, and
+      same-level children two or more meshes away from each other
+      (warnings, kept in the same list).
+    """
+    issues: list[str] = []
+    root = blocks[0] if blocks else None
+    if root is None:
+        return issues
+    eps = 1e-9
+
+    def walk(blk: dict, parent_bb) -> None:
+        name = blk.get("name") or "?"
+        bb = _aabb(blk)
+        if (bb is not None and parent_bb is not None
+                and blk is not root):
+            plo, phi = parent_bb
+            lo, hi = bb
+            if (lo < plo - eps).any() or (hi > phi + eps).any():
+                issues.append(
+                    f"child block '{name}' lies outside its parent block")
+            elif spacing is not None and spacing > 0:
+                gap = float(np.min(np.concatenate([lo - plo, phi - hi])))
+                if gap + eps < spacing:
+                    issues.append(
+                        f"parent and child block '{name}' must keep "
+                        f"{spacing:g} mm (one mesh) apart")
+        children = blk.get("children", [])
+        # same-level siblings: pairwise interference + mesh-distance
+        for i in range(len(children)):
+            ibb = _aabb(children[i])
+            if ibb is None:
+                continue
+            iname = children[i].get("name") or "?"
+            for j in range(i + 1, len(children)):
+                jbb = _aabb(children[j])
+                if jbb is None:
+                    continue
+                jname = children[j].get("name") or "?"
+                ilo, ihi = ibb
+                jlo, jhi = jbb
+                overlap = np.minimum(ihi, jhi) - np.maximum(ilo, jlo)
+                if (overlap > eps).all():
+                    issues.append(
+                        f"child blocks '{iname}' and '{jname}' interfere")
+                elif spacing is not None and spacing > 0:
+                    gap = float(np.max(np.maximum(ilo - jhi, jlo - ihi)))
+                    if gap + eps < 2.0 * spacing:
+                        issues.append(
+                            f"same-level child blocks '{iname}' and "
+                            f"'{jname}' must keep {2 * spacing:g} mm "
+                            "(two meshes) apart")
+        for child in children:
+            walk(child, bb)
+
+    walk(root, None)
+    return issues
 
 
 def divide_interval(axis_vals: list[float], a: float, b: float, n: int,

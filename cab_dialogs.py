@@ -2086,6 +2086,7 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
         self.model = model
         self.cad_meshes = cad_meshes or []
         self.stpre_callback = None   # set by cab_gui when STpre API enabled
+        self.last_block_validation: list = []  # MB-3 limitation check
         self._build_ui()
         self._load_from_model()
 
@@ -2290,10 +2291,8 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
             "Generate mesh as internal region", page)
         self.chk_child_only = QCheckBox(
             "Consider only child-blocks for gridding", page)
-        self.chk_child_only.setEnabled(False)   # multiblock NYI
         self.chk_lower_level = QCheckBox(
             "Consider rough grid of lower level block", page)
-        self.chk_lower_level.setEnabled(False)  # multiblock NYI
         self.chk_remove_edge_all = QCheckBox(
             "Remove edge contact elements of all parts", page)
         for cb in (self.chk_discard, self.chk_internal, self.chk_child_only,
@@ -3503,7 +3502,12 @@ class GriddingDialog(QDialog if _HAS_GUI_DEPS else object):
                 part_points, spec, blocks,
                 part_vertices=part_vertices or None,
                 part_bounds=part_bounds,
-                child_only=self.chk_child_only.isChecked())
+                child_only=self.chk_child_only.isChecked(),
+                lower_level=self.chk_lower_level.isChecked())
+            self.last_block_validation = cab_grid.validate_multiblock(blocks)
+            if self.last_block_validation:
+                for issue in self.last_block_validation:
+                    self._log(f"Multiblock limitation: {issue}", "WARN")
         else:
             _rough, detailed = cab_grid.build_axes(
                 part_points, spec, part_vertices=part_vertices or None,

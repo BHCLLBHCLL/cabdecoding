@@ -294,14 +294,9 @@ def root_block_frame(model: StpreModel) -> Optional[PartBox]:
     return PartBox("RootBlock", bb, (0.12, 0.35, 0.95), 1.0, cells=[bb])
 
 
-def root_block_actor(model: StpreModel, line_width: float = 1.15):
-    """Thin blue wireframe cuboid for Layout of Parts → RootBlock."""
-    if not _HAS_VTK:
-        raise RuntimeError("vtk is not installed")
-    frame = root_block_frame(model)
-    if frame is None:
-        return None
-    pd = _make_box_polydata(frame, wireframe=True)
+def _wireframe_box_actor(bb_m: Bounds, color, line_width: float):
+    """Shared thin wireframe cuboid actor (RootBlock / child blocks)."""
+    pd = _bounds_polydata(bb_m, wireframe=True)
     mapper = vtk.vtkPolyDataMapper()
     mapper.SetInputData(pd)
     mapper.ScalarVisibilityOff()
@@ -313,7 +308,7 @@ def root_block_actor(model: StpreModel, line_width: float = 1.15):
     actor = vtk.vtkActor()
     actor.SetMapper(mapper)
     prop = actor.GetProperty()
-    prop.SetColor(*frame.color)
+    prop.SetColor(*color)
     prop.SetOpacity(1.0)
     prop.SetRepresentationToWireframe()
     prop.SetLineWidth(line_width)
@@ -326,6 +321,51 @@ def root_block_actor(model: StpreModel, line_width: float = 1.15):
     except Exception:
         pass
     return actor
+
+
+def root_block_actor(model: StpreModel, line_width: float = 1.15):
+    """Thin blue wireframe cuboid for Layout of Parts → RootBlock."""
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    frame = root_block_frame(model)
+    if frame is None:
+        return None
+    return _wireframe_box_actor(frame.bounds, frame.color, line_width)
+
+
+def child_block_actors(model: StpreModel, line_width: float = 1.0,
+                       color=(0.05, 0.65, 0.75)) -> list:
+    """Thin cyan wireframes for every child block (multiblock structure).
+
+    Visibility follows the Layout→RootBlock layer: the GUI appends these
+    to the same layer actor list.
+    """
+    if not _HAS_VTK:
+        raise RuntimeError("vtk is not installed")
+    blocks = model.mesh_blocks()
+    if not blocks:
+        return []
+    actors: list = []
+
+    def walk(blk: dict) -> None:
+        lo, hi = blk.get("min"), blk.get("max")
+        if lo is not None and hi is not None:
+            import numpy as _np
+            lo = _np.asarray(lo, dtype=float)
+            hi = _np.asarray(hi, dtype=float)
+            if _np.isfinite(lo).all() and _np.isfinite(hi).all():
+                bb: Bounds = (lo[0] / 1000.0, lo[1] / 1000.0,
+                              lo[2] / 1000.0, hi[0] / 1000.0,
+                              hi[1] / 1000.0, hi[2] / 1000.0)
+                actors.append(
+                    _wireframe_box_actor(bb, color, line_width))
+        for child in blk.get("children", []):
+            walk(child)
+
+    for blk in blocks:
+        for child in blk.get("children", []):
+            walk(child)
+    return actors
 
 
 def _bounds_polydata(bounds: Bounds, wireframe: bool):

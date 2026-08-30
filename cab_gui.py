@@ -4061,6 +4061,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
                 self.renderer.AddActor(rb_actor)
                 self._layer_actors.setdefault("root_block", []).append(
                     rb_actor)
+            # MB-2: child blocks (multiblock structure) in the same layer
+            try:
+                cb_actors = cab_vtk.child_block_actors(self.model)
+            except Exception as exc:
+                self.log(f"Child block draw failed: {exc}", "WARN")
+                cb_actors = []
+            for cb_actor in cb_actors:
+                self.renderer.AddActor(cb_actor)
+                self._layer_actors.setdefault("root_block", []).append(
+                    cb_actor)
 
         # STpre sketch plane (major/minor grid) + U/V/W arrow triad
         try:
