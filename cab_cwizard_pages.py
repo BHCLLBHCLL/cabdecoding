@@ -4377,6 +4377,7 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
         "Flux Balance",
         "Specified Region (Passage)",
         "Specified Region (Pressure)",
+        "Standardized Concentration in Living Space",
         "Heat Balance (Per Part Unit)",
         "Heat Balance (Between Parts)",
         "Amount of Heat Transfer (Region)",
@@ -4427,6 +4428,8 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
             "Flux Balance": self._build_flux_balance,
             "Specified Region (Passage)": self._build_passage,
             "Specified Region (Pressure)": self._build_pressure_region,
+            "Standardized Concentration in Living Space":
+                self._build_ncoz,
             "Heat Balance (Per Part Unit)": self._build_hbal_part,
             "Heat Balance (Between Parts)": self._build_hbal_pair,
             "Amount of Heat Transfer (Region)": self._build_aent_region,
@@ -4810,6 +4813,33 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
             self._PRESSURE_VARS, self._face_region_names)
         return page
 
+    def _build_ncoz(self) -> QWidget:
+        """Standardized Concentration in Living Space (C4, NCOZ_OUTPUT).
+
+        The L-file card layout has no corpus evidence yet — the enable/
+        cycle persist to analysis_set; emission is probe-deferred.
+        """
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.addWidget(_note(
+            "Refers a standardized concentration in living space "
+            "environment (L file).", page))
+        top = QHBoxLayout()
+        self.ncoz_on = QCheckBox(
+            "Output the standardized concentration", page)
+        self.ncoz_on.setChecked(True)
+        top.addWidget(self.ncoz_on)
+        top.addStretch(1)
+        self.ncoz_cycle = QDoubleSpinBox(page)
+        self.ncoz_cycle.setDecimals(0)
+        self.ncoz_cycle.setRange(1, 1e9)
+        self.ncoz_cycle.setValue(1)
+        top.addWidget(QLabel("Output cycle"))
+        top.addWidget(self.ncoz_cycle)
+        lay.addLayout(top)
+        lay.addStretch(1)
+        return page
+
     def _build_hbal_part(self) -> QWidget:
         page = QWidget()
         lay = QVBoxLayout(page)
@@ -5124,8 +5154,13 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
                 self.model.analysis_set_value("lfile_pressure_cycle", "1")))
             self.flux_cycle.setValue(float(
                 self.model.analysis_set_value("lfile_flux_cycle", "1")))
+            self.ncoz_cycle.setValue(float(
+                self.model.analysis_set_value("lfile_ncoz_cycle", "1")))
         except ValueError:
             pass
+        self.ncoz_on.setChecked(
+            self.model.analysis_set_value("lfile_ncoz", "T").upper()
+            not in ("F", "0", "FALSE"))
         raw = self.model.analysis_set_value("lfile_domain_vars", "")
         if raw:
             self._dom_sel = {x for x in raw.split("|") if x}
@@ -5206,6 +5241,10 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
             "lfile_pressure_rgn", self._dump_map(self._pressure))
         self.model.set_analysis_set_value(
             "lfile_pressure_cycle", f"{int(self.pres_cycle.value())}")
+        self.model.set_analysis_set_value(
+            "lfile_ncoz", "T" if self.ncoz_on.isChecked() else "F")
+        self.model.set_analysis_set_value(
+            "lfile_ncoz_cycle", f"{int(self.ncoz_cycle.value())}")
         self.model.set_analysis_set_value(
             "lfile_hbal_part_on",
             "T" if self.hbal_part_on.isChecked() else "F")

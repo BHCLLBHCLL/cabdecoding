@@ -326,6 +326,7 @@ class SExport:
         self._fout()
         self._meix_var()
         self._balances()
+        self._flux_sum()
         self._cutcell()
         self._tprt()
         self.lines.append("GOGO")
@@ -1050,6 +1051,58 @@ class SExport:
             "FBAL",
             f"{_i(1, 5)}:L",
         ]
+
+    # Evidence-locked C4 quantity tags for Output Passage cards; further
+    # quantities need corpus evidence (only heat_flux observed).
+    _FLUX_SUM_QUANTITIES = ("heat_flux",)
+
+    def _flux_sum(self):
+        """FLUX_SUM — Output Passage (``list_summary``) regions (C4).
+
+        Evidence: official exA18-2 (cradle corpus) — two ``list_summary``
+        values (通過流量1/2 with ``heat_flux=1``) bound to regions
+        ``in`` / ``out`` emit exactly::
+
+            FLUX_SUM
+                          1            <- option count, width 15
+            heat_flux
+                in
+               /
+            heat_flux
+                out
+               /
+            /
+
+        The leading count has a single sample; pinned as a width-15 field.
+        The other C4 output commands (PFOC_REGION / SURFLIST / STOP_VAR /
+        NCOZ_OUTPUT / OCSV_PARTS / PCL_RESTRICTION) have no corpus
+        evidence — their UI/storage exists but nothing is emitted here
+        (probe-deferred, see DEV_PLAN §23 C4).
+        """
+        groups: list[tuple[str, str]] = []
+        for val in self.m.values():
+            if val.attrib.get("type") != "list_summary":
+                continue
+            name = _child_text(val, "name")
+            for tag in self._FLUX_SUM_QUANTITIES:
+                if _child_text(val, tag, "0").strip() == "1":
+                    for c in self.m.conditions():
+                        if _child_text(c, "value") != name:
+                            continue
+                        region = ""
+                        for ch in c:
+                            if ch.tag == "region":
+                                region = (ch.text or "").strip()
+                        groups.append((tag, region))
+        if not groups:
+            return
+        self.lines.append("FLUX_SUM")
+        self.lines.append(_i(1, 15))
+        for tag, region in groups:
+            self.lines.append(tag)
+            self.lines.append(f"    {region}")
+            self.lines.append("   /")
+        self.lines.append("/")
 
     def _cutcell(self):
         """R9-B: CUTCELL_OPTION / CUTCELL_GAP 段。
