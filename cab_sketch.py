@@ -252,6 +252,8 @@ class SketchProfile:
     center: tuple[float, float] = (0.0, 0.0)
     radius: float = 5.0
     divisions: int = 24               # circle -> regular polygon
+    start_angle: float = 0.0          # arc: degrees CCW from the U axis
+    end_angle: float = 360.0          # arc: degrees
 
     def polygon(self) -> list[tuple[float, float]]:
         """Outline vertices for tessellation (no duplicated closing point)."""
@@ -260,12 +262,24 @@ class SketchProfile:
             dx, dy = self.size
             return [(x0, y0), (x0 + dx, y0), (x0 + dx, y0 + dy),
                     (x0, y0 + dy)]
-        if self.geometry_type == "circle":
-            n = max(8, int(self.divisions))
-            ang = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
+        if self.geometry_type in ("circle", "arc"):
             cx, cy = self.center
-            return [(cx + self.radius * np.cos(a),
-                     cy + self.radius * np.sin(a)) for a in ang]
+            if self.geometry_type == "circle":
+                n = max(8, int(self.divisions))
+                ang = np.linspace(0.0, 2.0 * np.pi, n, endpoint=False)
+                return [(cx + self.radius * np.cos(a),
+                         cy + self.radius * np.sin(a)) for a in ang]
+            # arc (SK-1): sampled centre-to-centre arc; close=True yields a
+            # pie region (arc + centre) so the profile stays tessellatable
+            span = float(self.end_angle) - float(self.start_angle)
+            n = max(2, int(self.divisions))
+            ang = np.deg2rad(
+                np.linspace(self.start_angle, self.end_angle, n))
+            pts = [(cx + self.radius * np.cos(a),
+                    cy + self.radius * np.sin(a)) for a in ang]
+            if self.close and abs(span) < 359.999:
+                pts.append((cx, cy))
+            return pts
         pts = list(self.points)
         # Drop accidental trailing duplicate of the first vertex
         while len(pts) > 1 and pts[0] == pts[-1]:
@@ -294,6 +308,261 @@ def _poly2d_tris(n: int) -> np.ndarray:
         return np.zeros((0, 3), dtype=np.int64)
     return np.asarray([[0, i + 1, i + 2] for i in range(n - 2)],
                       dtype=np.int64)
+
+
+# --------------------------------------------------------------------------
+# SK-2: sketch editing tools (pure-2D, return NEW profiles)
+
+
+def _clone_profile(profile: SketchProfile, **overrides) -> SketchProfile:
+    from dataclasses import replace
+    return replace(profile, **overrides)
+
+
+def move_profile(profile: SketchProfile, du: float, dv: float
+                 ) -> SketchProfile:
+    """Translate every geometry element by ``(du, dv)`` mm in U/V."""
+    p = _clone_profile(profile)
+    p.location = (profile.location[0] + du, profile.location[1] + dv)
+    p.center = (profile.center[0] + du, profile.center[1] + dv)
+    p.points = [(u + du, v + dv) for u, v in profile.points]
+    return p
+
+
+def rotate_profile(profile: SketchProfile, angle_deg: float,
+                   pivot: Optional[tuple[float, float]] = None
+                   ) -> SketchProfile:
+    """Rotate the profile by ``angle_deg`` (CCW) around ``pivot`` (centre
+    of the profile bounding box when omitted)."""
+    pts = np.asarray(profile.polygon(), dtype=float)
+    if len(pts) == 0:
+        return _clone_profile(profile)
+    if pivot is None:
+        pivot = tuple((pts.min(0) + pts.max(0)) / 2.0)
+    px, py = float(pivot[0]), float(pivot[1])
+    t = np.deg2rad(angle_deg)
+    rot = np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]])
+    prim = (profile.geometry_type == "point_sequence")
+
+    def rp(pt):
+        d = rot @ (np.asarray(pt, float) - np.array([px, py]))
+        return (float(d[0] + px), float(d[1] + py))
+
+    p = _clone_profile(profile)
+    if prim:
+        p.points = [rp(pt) for pt in profile.points]
+    elif profile.geometry_type == "rectangle":
+        # rotation generalises a rectangle to its oriented vertex loop
+        p.geometry_type = "point_sequence"
+        p.points = [rp(pt) for pt in profile.polygon()]
+        p.close = True
+    else:
+        p.center = rp(profile.center)
+        p.start_angle = float(profile.start_angle + angle_deg) % 360.0
+        p.end_angle = float(profile.end_angle + angle_deg) % 360.0
+    return p
+
+
+def mirror_profile(profile: SketchProfile, axis: str = "u",
+                   pivot: float = 0.0) -> SketchProfile:
+    """Mirror across ``u=pivot`` (axis="u") or ``v=pivot`` (axis="v")."""
+    def m(pt2):
+        u, v = pt2
+        return ((2.0 * pivot - u, v) if axis == "u" else
+                (u, 2.0 * pivot - v))
+
+    p = _clone_profile(profile)
+    if profile.geometry_type == "rectangle":
+        # mirror the two corners, then renormalise to the min corner
+        pts = [m(pt) for pt in profile.polygon()]
+        us = [q[0] for q in pts]
+        vs = [q[1] for q in pts]
+        p.location = (min(us), min(vs))
+        p.size = (max(us) - min(us), max(vs) - min(vs))
+    else:
+        p.location = m(profile.location)
+    p.center = m(profile.center)
+    p.points = [m(pt) for pt in profile.points]
+    if len(p.points) > 1:
+        p.points.reverse()          # keep winding consistent
+    if profile.geometry_type in ("circle", "arc"):
+        if axis == "u":
+            p.start_angle = (180.0 - profile.end_angle) % 360.0
+            p.end_angle = (180.0 - profile.start_angle) % 360.0
+        else:
+            p.start_angle = (360.0 - profile.end_angle) % 360.0
+            p.end_angle = (360.0 - profile.start_angle) % 360.0
+    return p
+
+
+def offset_profile(profile: SketchProfile, distance_mm: float
+                   ) -> SketchProfile:
+    """Offset the closed outline outward by ``distance_mm`` (positive
+    grows, negative shrinks) using per-vertex averaged edge normals."""
+    poly = profile.polygon()
+    if len(poly) < 3 or profile.geometry_type == "point_sequence" \
+            and not profile.close:
+        return _clone_profile(profile)
+    pts2 = np.asarray(poly, dtype=float)
+    if _signed_area_uv(pts2) < 0:
+        pts2 = pts2[::-1].copy()
+    n = len(pts2)
+    out = np.empty_like(pts2)
+    for i in range(n):
+        prev, cur, nxt = pts2[i - 1], pts2[i], pts2[(i + 1) % n]
+        e1 = _unit(cur - prev)
+        e2 = _unit(nxt - cur)
+        # outward normals of CCW loops point to the right of each edge
+        n1 = np.array([e1[1], -e1[0]])
+        n2 = np.array([e2[1], -e2[0]])
+        bis = n1 + n2
+        nb = float(np.linalg.norm(bis))
+        if nb < 1e-12:
+            out[i] = cur + n1 * distance_mm
+            continue
+        bis = bis / nb
+        # step along the bisector so the *perpendicular* distance to each
+        # edge equals the requested offset (mitre join)
+        t = distance_mm / max(1e-9, float(np.dot(bis, n1)))
+        out[i] = cur + bis * t
+    return SketchProfile(geometry_type="point_sequence",
+                         points=[tuple(map(float, q)) for q in out],
+                         close=True)
+
+
+def clip_profile(profile: SketchProfile, axis: str, value: float,
+                 keep_positive: bool = True) -> SketchProfile:
+    """Trim (SK-2) the profile against the half-plane
+    ``u >= value`` / ``v >= value`` (``keep_positive``) via Sutherland-
+    Hodgman clipping; returns an open/closed point_sequence profile."""
+    poly = profile.polygon()
+    if len(poly) < 3:
+        return _clone_profile(profile)
+    idx = 0 if axis == "u" else 1
+    out: list[tuple[float, float]] = []
+    n = len(poly)
+    for i in range(n):
+        cur = poly[i]
+        nxt = poly[(i + 1) % n]
+        c_in = (cur[idx] >= value) if keep_positive else (cur[idx] <= value)
+        n_in = (nxt[idx] >= value) if keep_positive else (nxt[idx] <= value)
+        if c_in:
+            out.append(cur)
+        if c_in != n_in:
+            t = (value - cur[idx]) / (nxt[idx] - cur[idx])
+            pt = tuple(cur[k] + t * (nxt[k] - cur[k]) for k in (0, 1))
+            out.append(pt)
+    if len(out) < 3:
+        return _clone_profile(profile)
+    return SketchProfile(geometry_type="point_sequence",
+                         points=[tuple(map(float, q)) for q in out],
+                         close=True)
+
+
+def fillet_profile_vertex(profile: SketchProfile, index: int,
+                          radius: float) -> SketchProfile:
+    """Round one polygon vertex (SK-2): replace it with a tangent arc
+    approximation of ``radius`` mm between its neighbours."""
+    poly = profile.polygon()
+    n = len(poly)
+    if n < 3 or not (0 <= index < n) or radius <= 0:
+        return _clone_profile(profile)
+    prev = np.asarray(poly[index - 1], float)
+    cur = np.asarray(poly[index], float)
+    nxt = np.asarray(poly[(index + 1) % n], float)
+    d1 = np.linalg.norm(cur - prev)
+    d2 = np.linalg.norm(nxt - cur)
+    t = min(radius, d1 * 0.45, d2 * 0.45)
+    a = cur + _unit(prev - cur) * t
+    b = cur + _unit(nxt - cur) * t
+    # quadratic-Bezier through the corner as the tangent arc stand-in
+    new_pts: list[tuple[float, float]] = []
+    for k, pt in enumerate(poly):
+        if k != index:
+            new_pts.append(tuple(map(float, pt)))
+        else:
+            for s in np.linspace(0.0, 1.0, 8)[1:-1]:
+                bez = (1 - s) ** 2 * a + 2 * (1 - s) * s * cur + s ** 2 * b
+                new_pts.append((float(bez[0]), float(bez[1])))
+    return SketchProfile(geometry_type="point_sequence",
+                         points=new_pts, close=True)
+
+
+# --------------------------------------------------------------------------
+# SK-3: derived dimensions + one-way driving (no constraint solver — the
+# STpre Sketch manual has no constraint section either)
+
+
+def profile_dimensions(profile: SketchProfile) -> list[dict]:
+    """Derive display dimensions from the profile geometry.
+
+    Rectangles report width/height, circles/arcs the radius (+ arc span),
+    and point sequences per-edge length.  Each entry carries ``kind``,
+    ``label``, ``value`` and the ``index`` of the geometry it drives.
+    """
+    out: list[dict] = []
+    if profile.geometry_type == "rectangle":
+        out.append({"kind": "width", "label": "Width (U)",
+                    "value": float(profile.size[0]), "index": 0})
+        out.append({"kind": "height", "label": "Height (V)",
+                    "value": float(profile.size[1]), "index": 1})
+    elif profile.geometry_type in ("circle", "arc"):
+        out.append({"kind": "radius", "label": "Radius",
+                    "value": float(profile.radius), "index": 0})
+        if profile.geometry_type == "arc":
+            out.append({"kind": "angle", "label": "Span (deg)",
+                        "value": float(profile.end_angle
+                                       - profile.start_angle), "index": 1})
+    else:
+        pts = profile.polygon()
+        rng = range(len(pts)) if profile.close else range(len(pts) - 1)
+        for i in rng:
+            a = np.asarray(pts[i], float)
+            b = np.asarray(pts[(i + 1) % len(pts)], float)
+            out.append({"kind": "length",
+                        "label": f"Edge {i + 1} length",
+                        "value": float(np.linalg.norm(b - a)), "index": i})
+    return out
+
+
+def apply_dimension(profile: SketchProfile, kind: str, value: float,
+                    index: int = 0) -> SketchProfile:
+    """One-way dimension drive: rewrite the geometry so the dimension
+    ``kind`` measures ``value`` (mm / degrees for spans)."""
+    if kind == "width":
+        return _clone_profile(profile, size=(float(value), profile.size[1]))
+    if kind == "height":
+        return _clone_profile(profile, size=(profile.size[0], float(value)))
+    if kind == "radius":
+        return _clone_profile(profile, radius=float(value))
+    if kind == "angle":
+        return _clone_profile(
+            profile,
+            end_angle=float(profile.start_angle + value))
+    if kind == "length":
+        pts = [tuple(map(float, q)) for q in profile.polygon()]
+        i = int(index)
+        if not (0 <= i < len(pts)):
+            return _clone_profile(profile)
+        j = (i + 1) % len(pts)
+        a = np.asarray(pts[i], float)
+        b = np.asarray(pts[j], float)
+        cur = float(np.linalg.norm(b - a))
+        if cur < 1e-12:
+            return _clone_profile(profile)
+        scale = float(value) / cur
+        # drive the END vertex of the edge, keeping its direction
+        pts[j] = tuple(a + (b - a) * scale)
+        p = _clone_profile(profile)
+        if profile.geometry_type == "point_sequence":
+            p.points = pts
+        elif profile.geometry_type == "rectangle":
+            # rectangle edge drives generalise to the vertex loop
+            p.geometry_type = "point_sequence"
+            p.points = pts
+            p.close = True
+        return p
+    return _clone_profile(profile)
 
 
 def sketch_tess(plane: SketchPlane, profile: SketchProfile,
@@ -370,6 +639,13 @@ def _write_sketch_fields(el, *, plane: SketchPlane, profile: SketchProfile,
             "mm")
         add("radius", f"{profile.radius:.12g}", "mm")
         add("divisions", str(profile.divisions))
+    elif profile.geometry_type == "arc":
+        add("center", f"{profile.center[0]:.12g},{profile.center[1]:.12g}",
+            "mm")
+        add("radius", f"{profile.radius:.12g}", "mm")
+        add("divisions", str(profile.divisions))
+        add("start_angle", f"{profile.start_angle:.12g}", "deg")
+        add("end_angle", f"{profile.end_angle:.12g}", "deg")
     else:
         pts = ",".join(f"{x:.12g},{y:.12g}" for x, y in profile.points)
         add("points", pts, "mm")
@@ -522,10 +798,13 @@ def read_sketch_part(model: StpreModel, name: str
     if geometry == "rectangle":
         profile.location = vec2("location")
         profile.size = vec2("size", (10.0, 10.0))
-    elif geometry == "circle":
+    elif geometry in ("circle", "arc"):
         profile.center = vec2("center")
         profile.radius = float(text("radius", "5"))
         profile.divisions = int(float(text("divisions", "24")))
+        if geometry == "arc":
+            profile.start_angle = float(text("start_angle", "0"))
+            profile.end_angle = float(text("end_angle", "360"))
     else:
         t = text("points")
         vals = [float(x) for x in t.replace(";", ",").split(",") if x.strip()]
@@ -632,10 +911,13 @@ def tess_for_sketch_part(model: StpreModel, part) -> Optional[object]:
     if geometry == "rectangle":
         profile.location = vec2("location")
         profile.size = vec2("size", (10.0, 10.0))
-    elif geometry == "circle":
+    elif geometry in ("circle", "arc"):
         profile.center = vec2("center")
         profile.radius = float(text("radius", "5"))
         profile.divisions = int(float(text("divisions", "24")))
+        if geometry == "arc":
+            profile.start_angle = float(text("start_angle", "0"))
+            profile.end_angle = float(text("end_angle", "360"))
     else:
         t = text("points")
         vals = [float(x) for x in t.replace(";", ",").split(",")]
@@ -732,7 +1014,8 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         f = QFormLayout()
         self.model_type = QComboBox(page)
         self.model_type.addItems([
-            "Extrusion", "Panel", "Cutout", "Revolved Body",
+            "Extrusion", "Panel", "Cutout", "Extrusion to selected part",
+            "Face Division", "Slit Punching", "Revolved Body",
             "Fan", "Axial flow fan"])
         f.addRow("(1) Model type", self.model_type)
 
@@ -749,7 +1032,7 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         grow = QHBoxLayout()
         self.geometry_type = QComboBox(page)
         self.geometry_type.addItems(
-            ["Point sequence", "Rectangle", "Circle"])
+            ["Point sequence", "Rectangle", "Circle", "Arc"])
         self.geometry_type.currentIndexChanged.connect(self._on_geometry)
         grow.addWidget(self.geometry_type, 1)
         self.btn_reset = QPushButton("Reset Vertex", page)
@@ -802,6 +1085,21 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         self.circle_div.setValue(24)
         crow.addWidget(self.circle_div)
         cf.addRow(crow)
+        # SK-1: arc span (visible for the Arc geometry type only)
+        arow = QHBoxLayout()
+        arow.addWidget(QLabel("Start angle", page))
+        self.arc_a0 = QDoubleSpinBox(self.circle_widget)
+        self.arc_a0.setRange(-3600.0, 3600.0)
+        self.arc_a0.setDecimals(3)
+        self.arc_a0.setValue(0.0)
+        arow.addWidget(self.arc_a0)
+        arow.addWidget(QLabel("End angle", page))
+        self.arc_a1 = QDoubleSpinBox(self.circle_widget)
+        self.arc_a1.setRange(-3600.0, 3600.0)
+        self.arc_a1.setDecimals(3)
+        self.arc_a1.setValue(180.0)
+        arow.addWidget(self.arc_a1)
+        cf.addRow(arow)
         lay.addWidget(self.circle_widget)
 
         self.close_chk = QCheckBox("Close start and end points", page)
@@ -941,13 +1239,22 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
     def _on_geometry(self) -> None:
         g = self.geometry_type.currentText()
         is_pts = g == "Point sequence"
+        is_round = g in ("Circle", "Arc")
         self.points_table.setVisible(is_pts)
         self.btn_add.setVisible(is_pts)
         self.btn_del.setVisible(is_pts)
         self.close_chk.setVisible(is_pts)
         self.btn_reset.setVisible(True)
         self.rect_widget.setVisible(g == "Rectangle")
-        self.circle_widget.setVisible(g == "Circle")
+        self.circle_widget.setVisible(is_round)
+        if hasattr(self, "arc_a0"):
+            for sb in (self.arc_a0, self.arc_a1):
+                sb.setVisible(g == "Arc")
+                sb.setEnabled(g == "Arc")
+
+    # SK-4: model types that act on a selected target solid
+    _TARGET_TYPES = ("Cutout", "Extrusion to selected part",
+                     "Face Division", "Slit Punching")
 
     def _select_cutout_target(self) -> None:
         """STpre: Select target solid for Cutout model type."""
@@ -965,7 +1272,7 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             self.cutout_target.setText(name)
 
     def _on_model_type(self) -> None:
-        is_cut = self.model_type.currentText() == "Cutout"
+        is_cut = self.model_type.currentText() in self._TARGET_TYPES
         self.cutout_target.setEnabled(is_cut)
         if hasattr(self, "btn_cutout_sel"):
             self.btn_cutout_sel.setEnabled(is_cut)
@@ -973,6 +1280,9 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             "Extrusion": "Extrusion1",
             "Panel": "Panel1",
             "Cutout": "Cutout1",
+            "Extrusion to selected part": "ExtrToPart1",
+            "Face Division": "FaceDiv1",
+            "Slit Punching": "SlitPunch1",
             "Revolved Body": "Revolved1",
             "Fan": "Fan1",
             "Axial flow fan": "AxialFan1",
@@ -1008,18 +1318,20 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         self.edit_name = name
         self.name_edit.setText(meta["name"])
         # Model type
-        mt = meta["model_type"].capitalize()
-        if meta["model_type"] == "extrusion":
-            mt = "Extrusion"
-        elif meta["model_type"] == "panel":
-            mt = "Panel"
-        idx = self.model_type.findText(mt)
+        stored = meta["model_type"]
+        if stored == "extrusion":
+            stored = "Extrusion"
+        elif stored == "panel":
+            stored = "Panel"
+        # case-insensitive match against the combo items (SK-4 multi-word
+        # types are stored verbatim; older cabs may hold any casing)
+        idx = self.model_type.findText(stored, Qt.MatchFixedString)
         if idx >= 0:
             self.model_type.blockSignals(True)
             self.model_type.setCurrentIndex(idx)
             self.model_type.blockSignals(False)
         self.cutout_target.setText(meta.get("cutout_target", ""))
-        is_cut = self.model_type.currentText() == "Cutout"
+        is_cut = self.model_type.currentText() in self._TARGET_TYPES
         self.cutout_target.setEnabled(is_cut)
         if hasattr(self, "btn_cutout_sel"):
             self.btn_cutout_sel.setEnabled(is_cut)
@@ -1028,6 +1340,7 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             "point_sequence": "Point sequence",
             "rectangle": "Rectangle",
             "circle": "Circle",
+            "arc": "Arc",
         }
         gtxt = gmap.get(profile.geometry_type, "Point sequence")
         gi = self.geometry_type.findText(gtxt)
@@ -1041,11 +1354,13 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             self.rect_loc["v"].setValue(profile.location[1])
             self.rect_size["u"].setValue(profile.size[0])
             self.rect_size["v"].setValue(profile.size[1])
-        elif profile.geometry_type == "circle":
+        elif profile.geometry_type in ("circle", "arc"):
             self.circle_center["u"].setValue(profile.center[0])
             self.circle_center["v"].setValue(profile.center[1])
             self.circle_radius.setValue(profile.radius)
             self.circle_div.setValue(profile.divisions)
+            self.arc_a0.setValue(profile.start_angle)
+            self.arc_a1.setValue(profile.end_angle)
         else:
             for u, v in profile.points:
                 self.add_picked_vertex(u, v)
@@ -1147,6 +1462,16 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
                         self.circle_center["v"].value()),
                 radius=self.circle_radius.value(),
                 divisions=self.circle_div.value())
+        if g == "Arc":
+            return SketchProfile(
+                geometry_type="arc",
+                center=(self.circle_center["u"].value(),
+                        self.circle_center["v"].value()),
+                radius=self.circle_radius.value(),
+                divisions=self.circle_div.value(),
+                start_angle=self.arc_a0.value(),
+                end_angle=self.arc_a1.value(),
+                close=True)
         pts = []
         for r in range(self.points_table.rowCount()):
             u = self.points_table.item(r, 1)
@@ -1166,7 +1491,11 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             return "panel"
         if mt == "Extrusion":
             return "extrusion"
-        # Cutout / Fan / … fall back to extrusion geometry proxy
+        # SK-4 model types are stored verbatim so downstream consumers can
+        # distinguish them; the display tessellation proxies to extrusion.
+        if mt in self._TARGET_TYPES or mt in ("Revolved Body", "Fan",
+                                              "Axial flow fan"):
+            return mt
         return "extrusion"
 
     def _resolved_thickness(self) -> float:

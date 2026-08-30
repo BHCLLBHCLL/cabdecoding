@@ -1957,7 +1957,8 @@ class CreatePartDialog(QDialog if _HAS_GUI_DEPS else object):
             form = QFormLayout()
             self.sk_type = QComboBox(self)
             self.sk_type.addItems([
-                "Extrusion", "Panel", "Cutout", "Revolved Body", "Fan",
+                "Extrusion", "Panel", "Cutout", "Extrusion to selected part",
+                "Face Division", "Slit Punching", "Revolved Body", "Fan",
                 "Axial flow fan"])
             form.addRow("(1) Model type", self.sk_type)
             self.sk_geom = QComboBox(self)
