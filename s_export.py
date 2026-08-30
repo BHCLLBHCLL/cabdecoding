@@ -808,6 +808,10 @@ class SExport:
 
     def _amom_region(self):
         self.lines.append("AMOM_REGION")
+        # Kinds rough/power_law/smooth-moving wall (C5) are stored in XML
+        # but map to noslip here: the AMOM_REGION card layout for those
+        # variants needs solver-reference evidence (no local sample) —
+        # deferred to a probe window (DEV_PLAN §23 C5).
         kinds = {"free_slip": "freeslip", "no_slip": "noslip"}
         groups: dict[str, tuple[str, list[str]]] = {}
         for name, val, region in sorted(self._bound_values("wall"),

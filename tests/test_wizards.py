@@ -559,3 +559,84 @@ def test_condition_wizard_evaporation_page(pieces):
     w.p_evaporation.apply()
     assert model.analysis_etc_section("evaporation") is None
     w.close()
+
+
+def test_c5_total_pres_parameter_dialog(pieces, monkeypatch):
+    """C5-1: [Condition (Total Temperature, Total Pressure)] dialog —
+    pressure/temperature parameters persist and emit FLUX_REGION."""
+    from PyQt5.QtWidgets import QDialog
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    w.p_bc_flow._faces = ["Xmin"]
+    w.p_bc_flow.region.clear()
+    w.p_bc_flow.region.addItem("Xmin")
+    dlg = w.p_bc_flow._build_total_pres_widgets()
+    w.p_bc_flow._tp_name.setText("TotalIn")
+    w.p_bc_flow._tp_pres.setValue(101325.0)
+    w.p_bc_flow._tp_temp.setValue(35.0)
+    dlg.deleteLater()
+    w.p_bc_flow._commit_total_pres("Xmin")
+    assert model.condition_value("region", "Xmin") == "TotalIn"
+    val = model.find_value("TotalIn")
+    assert val is not None and val.attrib.get("type") == "flux"
+    kids = {c.tag: (c.text or "").strip() for c in val}
+    assert kids["kind"] == "total_pres"
+    assert kids["pressure"] == "101325" and kids["temperature"] == "35"
+    # the dialog path feeds the existing FLUX_REGION total-pres emission
+    from s_export import build_sdat
+    s = build_sdat(model, props)
+    assert "total-pres" in s
+    monkeypatch.setattr(QDialog, "exec_", lambda self: 1, raising=False)
+    w.close()
+
+
+def test_c5_fan_boundary_dialog(pieces):
+    """C5-4: [Condition (Fan Boundary)] — P-Q/pressure/temperature/
+    flow-straightening parameters persist on the flux/fan value."""
+    import cab_wizards
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    w.p_bc_flow._faces = ["Xmax"]
+    w.p_bc_flow.region.clear()
+    w.p_bc_flow.region.addItem("Xmax")
+    dlg = w.p_bc_flow._build_fan_widgets()
+    w.p_bc_flow._fan_name.setText("FanIn")
+    w.p_bc_flow._fan_pres.setValue(120.0)
+    w.p_bc_flow._fan_temp.setValue(22.5)
+    w.p_bc_flow._fan_pq.setText("PQ_Curve1")
+    dlg.deleteLater()
+    w.p_bc_flow._commit_fan("Xmax")
+    val = model.find_value("FanIn")
+    assert val is not None and val.attrib.get("type") == "flux"
+    kids = {c.tag: (c.text or "").strip() for c in val}
+    assert kids["kind"] == "fan"
+    assert kids["straighten"] == "T"
+    assert kids["pq_table"] == "PQ_Curve1"
+    assert kids["pressure"] == "120" and kids["temperature"] == "22.5"
+    assert model.condition_value("region", "Xmax") == "FanIn"
+    w.close()
+
+
+def test_c5_rough_wall_dialog(pieces, monkeypatch):
+    """C5-2: [Rough Wall] — roughness height + universal constant E
+    persist on the wall value; AMOM_REGION keeps the documented mapping
+    (rough currently emits noslip pending solver-reference evidence)."""
+    from PyQt5.QtWidgets import QDialog
+    import cab_wizards
+    from s_export import build_sdat
+    archive, model, props, viewer = pieces
+    w = cab_wizards.ConditionWizard(model, props, viewer)
+    w.p_bc_wall._faces = ["Zmin"]
+    w.p_bc_wall.region.clear()
+    w.p_bc_wall.region.addItem("Zmin")
+    monkeypatch.setattr(QDialog, "exec_", lambda self: 1, raising=False)
+    w.p_bc_wall._new_wall("rough", "Rough")
+    val = model.find_value("Wall_Zmin")
+    assert val is not None
+    kids = {c.tag: (c.text or "").strip() for c in val}
+    assert kids["kind"] == "rough"
+    assert kids["roughness"] == "0.5" and kids["rough_const"] == "9"
+    s = build_sdat(model, props)
+    assert "AMOM_REGION" in s
+    w.close()

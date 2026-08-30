@@ -2116,6 +2116,16 @@ CW 输出页。验收带 `.s` 结构 parity 逐行断言。
 
 #### C5 边界类型补全批（4 页缺失 + 2 页部分补全，规模 S–M，优先级最高簇）
 
+> **✅ 已完成（2026-08-29）——预研即纠偏**：逐锚点复核发现本批"缺失"
+> 多为 grep 关键词失配——向导 Flow/Wall Boundary 页已有 Total TP
+> （flux/total_pres→FLUX_REGION total-pres 卡已存在）、Fan、Power-law、
+> Rough 动作；Fixed_Pressure 实为 Stabilization 页（CW
+> `_CwStabilizationPage` 完整实现，FIXP_XYZ/AUTOFIXP 已在）。
+> 真残项 = 参数对话框：Total TP（压力/温度）、Fan（P-Q 表/压力/温度/
+> 整流）、Rough wall（粗糙度/E 常数）三对话框落地；power_law 参数在
+> solver reference（公式图，本地无文本证据）暂 name-only；AMOM_REGION
+> 的 rough/power_law 卡格式待探针窗口（s_export 已留档注释）。
+
 缺失：Total_Temperature,_Total_Pressure_Boundary（CFD 常用入口，最先做）、
 Power-law/Rough/Smooth_Wall_Shear_Stress（3 页共用 wall-shear 框架页）。
 部分补全：Fixed_Pressure（has_types 识别已有 → 独立对话框）、Fan_Boundary

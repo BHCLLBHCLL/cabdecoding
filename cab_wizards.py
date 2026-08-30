@@ -2548,19 +2548,55 @@ class _CwFlowBoundaryPage(_BoundaryPageBase):
         self._show_current()
         self._log(f"Flow Boundary: {face} <- '{name}' ({kind})")
 
-    def _new_total_pres(self) -> None:
-        face = self._current_face()
-        name = f"TotalPT_{face}"
+    def _build_total_pres_widgets(self) -> QDialog:
+        """[Condition (Total Temperature, Total Pressure)] widgets
+        (test-friendly: no exec_)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(
+            f"Condition (Total Temperature, Total Pressure) on "
+            f"{self._current_face()}")
+        lay = QVBoxLayout(dlg)
+        self._tp_name = QLineEdit(dlg)
+        _row(lay, "Condition name", self._tp_name)
+        self._tp_pres = QDoubleSpinBox(dlg)
+        self._tp_pres.setRange(-1.0e10, 1.0e10)
+        self._tp_pres.setDecimals(3)
+        self._tp_pres.setValue(0.0)
+        _row(lay, "Total pressure (Pa)", self._tp_pres)
+        self._tp_temp = QDoubleSpinBox(dlg)
+        self._tp_temp.setRange(-273.15, 1.0e6)
+        self._tp_temp.setDecimals(2)
+        self._tp_temp.setValue(20.0)
+        _row(lay, "Total temperature (C)", self._tp_temp)
+        b = QHBoxLayout()
+        b.addStretch(1)
+        ok = QPushButton("OK", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel", dlg)
+        cancel.clicked.connect(dlg.reject)
+        b.addWidget(ok)
+        b.addWidget(cancel)
+        lay.addLayout(b)
+        return dlg
+
+    def _commit_total_pres(self, face: str) -> None:
+        name = self._tp_name.text().strip() or f"TotalPT_{face}"
         self.model.upsert_value("flux", name, [
             ("kind", "total_pres", None),
-            ("pressure", "0", "Pa"),
-            ("temperature", "20", "C"),
+            ("pressure", f"{self._tp_pres.value():g}", "Pa"),
+            ("temperature", f"{self._tp_temp.value():g}", "C"),
             ("turbulence_type", "none", None),
             ("panel_option", "none", None),
         ])
         self.model.bind_condition("region", face, name)
         self._log(f"Flow Boundary: {face} <- '{name}' (total_pres)")
         self.refresh()
+
+    def _new_total_pres(self) -> None:
+        dlg = self._build_total_pres_widgets()
+        self._tp_name.setText(f"TotalPT_{self._current_face()}")
+        if dlg.exec_():
+            self._commit_total_pres(self._current_face())
 
     def _new_pressure_loss(self) -> None:
         face = self._current_face()
@@ -2575,17 +2611,66 @@ class _CwFlowBoundaryPage(_BoundaryPageBase):
         self._log(f"Flow Boundary: {face} <- '{name}' (pressure_loss)")
         self.refresh()
 
-    def _new_fan(self) -> None:
-        face = self._current_face()
-        name = f"Fan_{face}"
-        self.model.upsert_value("flux", name, [
+    def _build_fan_widgets(self) -> QDialog:
+        """[Condition (Fan Boundary)] widgets (test-friendly: no exec_)."""
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"Condition (Fan Boundary) on "
+                           f"{self._current_face()}")
+        lay = QVBoxLayout(dlg)
+        self._fan_name = QLineEdit(dlg)
+        _row(lay, "Condition name", self._fan_name)
+        self._fan_straighten = QCheckBox(
+            "Flow-straightening effect", dlg)
+        self._fan_straighten.setChecked(True)
+        lay.addWidget(self._fan_straighten)
+        self._fan_pres = QDoubleSpinBox(dlg)
+        self._fan_pres.setRange(-1.0e10, 1.0e10)
+        self._fan_pres.setDecimals(3)
+        self._fan_pres.setValue(0.0)
+        _row(lay, "Pressure (Pa)", self._fan_pres)
+        self._fan_temp = QDoubleSpinBox(dlg)
+        self._fan_temp.setRange(-273.15, 1.0e6)
+        self._fan_temp.setDecimals(2)
+        self._fan_temp.setValue(20.0)
+        _row(lay, "Inflow temperature (C)", self._fan_temp)
+        self._fan_pq = QLineEdit(dlg)
+        self._fan_pq.setPlaceholderText("(registered P-Q table name)")
+        _row(lay, "P-Q characteristics", self._fan_pq)
+        b = QHBoxLayout()
+        b.addStretch(1)
+        ok = QPushButton("OK", dlg)
+        ok.clicked.connect(dlg.accept)
+        cancel = QPushButton("Cancel", dlg)
+        cancel.clicked.connect(dlg.reject)
+        b.addWidget(ok)
+        b.addWidget(cancel)
+        lay.addLayout(b)
+        return dlg
+
+    def _commit_fan(self, face: str) -> None:
+        name = self._fan_name.text().strip() or f"Fan_{face}"
+        children = [
             ("kind", "fan", None),
+            ("straighten",
+             "T" if self._fan_straighten.isChecked() else "F", None),
+            ("pressure", f"{self._fan_pres.value():g}", "Pa"),
+            ("temperature", f"{self._fan_temp.value():g}", "C"),
             ("turbulence_type", "none", None),
             ("panel_option", "none", None),
-        ])
+        ]
+        pq = self._fan_pq.text().strip()
+        if pq:
+            children.insert(1, ("pq_table", pq, None))
+        self.model.upsert_value("flux", name, children)
         self.model.bind_condition("region", face, name)
         self._log(f"Flow Boundary: {face} <- '{name}' (fan)")
         self.refresh()
+
+    def _new_fan(self) -> None:
+        dlg = self._build_fan_widgets()
+        self._fan_name.setText(f"Fan_{self._current_face()}")
+        if dlg.exec_():
+            self._commit_fan(self._current_face())
 
     def _new_power_law(self) -> None:
         face = self._current_face()
@@ -2634,6 +2719,26 @@ class _CwWallBoundaryPage(_BoundaryPageBase):
         lay = QVBoxLayout(dlg)
         name_ed = QLineEdit(name, dlg)
         _row(lay, "Condition name", name_ed)
+        if kind == "rough":
+            # Pre_eng [Rough Wall] tab: roughness height + universal const
+            self._wall_rough = QDoubleSpinBox(dlg)
+            self._wall_rough.setRange(0.0, 1.0e6)
+            self._wall_rough.setDecimals(4)
+            self._wall_rough.setValue(0.5)
+            _row(lay, "Wall roughness (mm)", self._wall_rough)
+            self._wall_e = QDoubleSpinBox(dlg)
+            self._wall_e.setRange(1.0, 100.0)
+            self._wall_e.setDecimals(3)
+            self._wall_e.setValue(9.0)
+            _row(lay, "Universal constant E", self._wall_e)
+        elif kind == "power_law":
+            # power-law profile parameters live in the solver reference
+            # (formula images, no text evidence locally) — name-only for
+            # now, parameters pending a probe window (DEV_PLAN §23 C5).
+            note = QLabel("(parameters: see solver reference — "
+                          "not configurable yet)", dlg)
+            note.setStyleSheet("color: #666;")
+            lay.addWidget(note)
         b = QHBoxLayout()
         ok = QPushButton("OK", dlg)
         ok.clicked.connect(dlg.accept)
@@ -2646,8 +2751,13 @@ class _CwWallBoundaryPage(_BoundaryPageBase):
         if not dlg.exec_():
             return
         cname = name_ed.text().strip() or name
-        self.model.upsert_value("wall", cname, [
-            ("kind", kind, None), ("option", "1", None)])
+        children = [("kind", kind, None), ("option", "1", None)]
+        if kind == "rough":
+            children.append(("roughness",
+                             f"{self._wall_rough.value():g}", "mm"))
+            children.append(("rough_const",
+                             f"{self._wall_e.value():g}", None))
+        self.model.upsert_value("wall", cname, children)
         self.model.bind_condition("region", face, cname)
         self._log(f"Wall Boundary: {face} <- '{cname}' ({kind})")
         self.refresh()
