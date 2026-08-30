@@ -68,8 +68,8 @@ File→Open 打开 cab（或新建后导入）
 
 | | 支持 | 不支持 |
 |---|---|---|
-| Import | XT, STL, OBJ, STEP, SAT, DXF, MDL | **IGES, IDF**（用 STEP/XT） |
-| Export | S, XEMT, STL, XT, Property XML | Neutral 全矩阵 |
+| Import | XT, STL, OBJ, STEP, SAT, DXF, MDL(OBJ 兼容), NAS/BDF, IFC, ECXML, XEMT(材料/部件清单) | **IGES, IDF**（用 STEP/XT）；CGNS（B 级定档：非 STpre 前处理能力，Pre_eng 手册无此格式） |
+| Export | S(+.ccel), XEMT, STL, OBJ, DXF, MDL, XT, STEP(CLI/OCC/B), SAT(STPRE_SAT_CLI/B), IFC, ECXML, Property XML | — |
 
 回归：`tests/test_m38_format_matrix.py`（OBJ/STL roundtrip；XT 有
 pskernel 时；IGES/IDF 显式拒绝）。

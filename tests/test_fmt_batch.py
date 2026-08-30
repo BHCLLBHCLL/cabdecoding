@@ -189,3 +189,72 @@ def test_mdl_non_obj_payload_declared_unsupported(tmp_path: Path):
 # NOTE: the CabViewer smoke test lives in test_gui.py — cab_gui/vtk must be
 # imported at module level (collection time); importing it inside a running
 # test function hard-crashes the process (exit 0x7F, no traceback).
+
+
+# ------------------------------------------------- FMT-4: SAT export
+
+def test_sat_export_b_level_without_cli(monkeypatch, tmp_path):
+    """No free ACIS writer exists: without STPRE_SAT_CLI the export raises
+    the documented B-level declaration."""
+    import cab_step_export
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+    monkeypatch.delenv("STPRE_SAT_CLI", raising=False)
+    assert cab_step_export.sat_export_strategy() == "none"
+    model = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    with pytest.raises(cab_step_export.SatExportUnavailable,
+                       match="B-level"):
+        cab_step_export.export_sat_file(model, tmp_path / "m.sat")
+
+
+def test_sat_export_cli_branch(tmp_path, monkeypatch):
+    """STPRE_SAT_CLI contract: <cli> <in.x_t> <out.sat> — the CLI receives
+    a Parasolid transmit and its output lands at the target path."""
+    import sys
+
+    import cab_step_export
+    from cabxml import StpreModel, new_stpre_bytes, parse_stpre
+
+    fake = tmp_path / "fake_cli.py"
+    fake.write_text(
+        "import sys\n"
+        "assert sys.argv[1].lower().endswith('.x_t')\n"
+        "open(sys.argv[2], 'w').write('ACIS SAT debug\n')\n",
+        encoding="utf-8")
+    monkeypatch.setenv("STPRE_SAT_CLI", f'{sys.executable} "{fake}"')
+    # find_sat_cli handles a single executable name; emulate the wrapper by
+    # pointing the env at a shim script via shell-free invocation is not
+    # supported -> call the branch function with the strategy pre-resolved.
+    monkeypatch.setattr(cab_step_export, "find_sat_cli",
+                        lambda: sys.executable)
+    calls = {}
+    real_run = cab_step_export.subprocess.run
+
+    def fake_run(cmd, **kw):
+        calls["cmd"] = cmd
+        # the CLI contract is <cli> <in> <out>; emulate our fake writer
+        open(cmd[2], "w").write("ACIS SAT debug\n")
+        class R:  # noqa: D401
+            returncode = 0
+        return R()
+
+    monkeypatch.setattr(cab_step_export.subprocess, "run", fake_run)
+    model = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    from cab_container import CabArchive
+    arch = CabArchive.parse(CAB.read_bytes())
+    arch.fill_member_data()
+    out = cab_step_export.export_sat_file(
+        model, tmp_path / "m.sat", archive=arch)
+    assert out.is_file() and out.read_text().startswith("ACIS")
+    cmd = calls["cmd"]
+    assert cmd[0] == sys.executable and cmd[1].endswith(".x_t") \
+        and cmd[2].endswith(".sat")
+
+
+# ------------------------------------------------- FMT-5: CGNS declaration
+
+def test_cgns_declared_non_benchmark():
+    """FMT-5 B-level: CGNS is not an STpre preprocessor capability (the
+    Pre_eng manual has no CGNS page) — import stays unsupported."""
+    import cab_import
+    with pytest.raises(ValueError, match="unsupported"):
+        cab_import.import_file("model.cgns")

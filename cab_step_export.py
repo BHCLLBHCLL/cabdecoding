@@ -39,6 +39,17 @@ class StepExportUnavailable(RuntimeError):
     """No STEP-export backend (CAD CLI or OCC) is available."""
 
 
+class SatExportUnavailable(RuntimeError):
+    """No SAT-export backend is available (FMT-4 B-level declaration).
+
+    ACIS SAT has no open-source writer: pythonocc/OCC cannot write SAT at
+    all (read-only via STEPControl-style readers), and FreeCAD exposes no
+    ACIS export either.  The only branch is a user-supplied headless CLI
+    (``STPRE_SAT_CLI``) that converts ``.x_t`` -> ``.sat``; STpre's own SAT
+    export goes through the same licensed CADthru chain.
+    """
+
+
 def _candidate_clis() -> list[str]:
     """Candidate headless CAD CLI executables (env override first)."""
     env = os.environ.get("STPRE_STEP_CLI")
@@ -253,3 +264,54 @@ def export_step_file(model, path, *, archive=None, tags=None) -> Path:
             "licensed chain, so a runtime STEP writer is not bundled. "
             f"[{_B_LEVEL_MARK}]")
     return step
+
+
+# --------------------------------------------------------------------------
+# FMT-4: ACIS SAT export (CLI branch + B-level declaration; no OCC writer)
+
+def find_sat_cli() -> str | None:
+    """Locate a user-supplied headless CLI able to convert ``.x_t``->SAT.
+
+    No default candidates exist: neither pythonocc/OCC nor FreeCAD can
+    *write* ACIS SAT, so only the ``STPRE_SAT_CLI`` environment variable
+    (a command invoked as ``<cli> <in.x_t> <out.sat>``) enables branch (a).
+    """
+    env = os.environ.get("STPRE_SAT_CLI")
+    if not env:
+        return None
+    if os.sep in env and os.path.isfile(env):
+        return env
+    return shutil.which(env)
+
+
+def sat_export_strategy() -> str:
+    """Return the available SAT branch: ``'cli'`` | ``'none'``."""
+    return "cli" if find_sat_cli() else "none"
+
+
+def export_sat_file(model, path, *, archive=None, tags=None) -> Path:
+    """Export the model to an ACIS ``.sat`` file (FMT-4).
+
+    Branch (a): ``.x_t`` intermediate + ``STPRE_SAT_CLI``.  Otherwise the
+    B-level declaration raises :class:`SatExportUnavailable` — SAT *import*
+    works already (``cab_occ.sat_to_triangles``) and STpre's own SAT export
+    relies on the same licensed CADthru chain.
+    """
+    sat = Path(path)
+    cli = find_sat_cli()
+    if cli is None:
+        raise SatExportUnavailable(
+            "SAT export is B-level-declared: ACIS has no open-source "
+            "writer (OCC/FreeCAD cannot write SAT) and no converter CLI "
+            "is configured.  Set STPRE_SAT_CLI to a command invoked as "
+            "'<cli> <in.x_t> <out.sat>', or use STEP/Parasolid XT export. "
+            f"[{_B_LEVEL_MARK}]")
+    with tempfile.TemporaryDirectory(prefix="cabsat_") as td:
+        xt = Path(td) / "model.x_t"
+        _write_xt(archive, tags or [], xt)
+        subprocess.run([cli, str(xt), str(sat)], check=True, timeout=600,
+                       capture_output=True, text=True)
+    if not sat.is_file():
+        raise SatExportUnavailable(
+            f"SAT export branch (a): CLI {cli!r} produced no output")
+    return sat
