@@ -106,12 +106,17 @@ class ConvergenceWindow(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._points = []  # [(cycle, residual), ...]
+        self._view = None  # F5: (i0, i1) point-index window; None = fit all
         self.setMinimumHeight(110)
+        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self._context_menu)
+        self.setMouseTracking(True)
 
     # ------------------------------------------------------------- data API
 
     def set_points(self, points) -> None:
         self._points = [(int(c), float(v)) for c, v in points]
+        self._view = None
         self.update()
 
     def add_point(self, cycle: int, value: float) -> None:
@@ -120,10 +125,92 @@ class ConvergenceWindow(QWidget):
 
     def clear(self) -> None:
         self._points = []
+        self._view = None
         self.update()
 
     def points(self) -> list:
         return list(self._points)
+
+    # ------------------------------------------------------------- F5: zoom
+    # / export
+
+    def view_window(self):
+        return self._view
+
+    def set_view_window(self, i0: int, i1: int) -> None:
+        n = len(self._points)
+        if n < 2:
+            self._view = None
+            self.update()
+            return
+        i0 = max(0, min(int(i0), n - 2))
+        i1 = max(i0 + 1, min(int(i1), n - 1))
+        self._view = (i0, i1)
+        self.update()
+
+    def reset_view(self) -> None:
+        self._view = None
+        self.update()
+
+    def wheelEvent(self, event) -> None:
+        n = len(self._points)
+        if n < 2:
+            return
+        i0, i1 = self._view or (0, n - 1)
+        span = max(1, i1 - i0)
+        step = max(1, span // 4)
+        if event.angleDelta().y() > 0:
+            i0, i1 = i0 + step, i1 - step
+            if i1 - i0 < 1:
+                mid = (i0 + i1) // 2
+                i0, i1 = mid, mid + 1
+        else:
+            i0, i1 = i0 - step, i1 + step
+        self.set_view_window(i0, i1)
+
+    def mouseDoubleClickEvent(self, event) -> None:
+        self.reset_view()
+
+    def _context_menu(self, pos) -> None:
+        if not self._points:
+            return
+        from PyQt5.QtWidgets import QMenu
+        menu = QMenu(self)
+        menu.addAction("Export CSV…", self._export_csv)
+        menu.addAction("Export PNG…", self._export_png)
+        menu.addSeparator()
+        menu.addAction("Reset zoom", self.reset_view)
+        menu.exec_(self.mapToGlobal(pos))
+
+    def export_csv(self, path: str) -> int:
+        """Write the visible (cycle, residual) points; returns the count."""
+        import csv
+        i0, i1 = self._view or (0, len(self._points) - 1)
+        rows = self._points[i0:i1 + 1]
+        with open(path, "w", newline="", encoding="utf-8") as fh:
+            w = csv.writer(fh)
+            w.writerow(["cycle", "residual"])
+            for cycle, value in rows:
+                w.writerow([cycle, repr(value)])
+        return len(rows)
+
+    def _export_csv(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export convergence CSV", "convergence.csv",
+            "CSV (*.csv);;All files (*)")
+        if path:
+            self.export_csv(path)
+
+    def _export_png(self) -> None:
+        from PyQt5.QtWidgets import QFileDialog
+        from PyQt5.QtGui import QPixmap
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export convergence PNG", "convergence.png",
+            "PNG (*.png);;All files (*)")
+        if not path:
+            return
+        self.grab().save(path, "PNG")
 
     # ------------------------------------------------------------- painting
 
@@ -143,6 +230,9 @@ class ConvergenceWindow(QWidget):
                        "Convergence graph — no residual data yet")
             return
         import math
+        # F5: view window (zoom) — slice the point range
+        i0, i1 = self._view or (0, len(pts) - 1)
+        pts = pts[i0:i1 + 1]
         # log10 映射; 非正值钳到极小, 保证跨零/负残差不崩
         logs = [math.log10(v) if v > 0 else -300.0 for _, v in pts]
         lo, hi = min(logs), max(logs)
