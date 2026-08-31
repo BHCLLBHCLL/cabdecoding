@@ -906,23 +906,44 @@ class SExport:
 
     def _amom_region(self):
         self.lines.append("AMOM_REGION")
-        # Kinds rough/power_law/smooth-moving wall (C5) are stored in XML
-        # but map to noslip here: the AMOM_REGION card layout for those
-        # variants needs solver-reference evidence (no local sample) —
-        # deferred to a probe window (DEV_PLAN §23 C5).
-        kinds = {"free_slip": "freeslip", "no_slip": "noslip"}
-        groups: dict[str, tuple[str, list[str]]] = {}
+        # Wall-shear variants per Solver_eng AMOM_REGION grammar: LTYPE
+        # in {noslip, power, forced, rough, freeslip}; rough emits
+        # AKS,SCAL (roughness + scale) and power emits AM (exponent) —
+        # grounded in the manual page; the moving LWALL variants
+        # (vector/omega/rotation/tangential) have no storage yet.
+        kinds = {"free_slip": "freeslip", "no_slip": "noslip",
+                 "rough": "rough", "power_law": "power"}
+        groups: dict[str, tuple[str, object, list[str]]] = {}
         for name, val, region in sorted(self._bound_values("wall"),
                                         key=lambda x: _name_key(x[0])):
             kind = kinds.get(_child_text(val, "kind"), "noslip")
             if kind not in groups:
-                groups[kind] = (name, [])
-            groups[kind][1].append(region)
-        for kind, (first_name, regions) in groups.items():
+                groups[kind] = (name, val, [])
+            groups[kind][2].append(region)
+        for kind, (first_name, val, regions) in groups.items():
             prefix = {"freeslip": "freeslip  static    0",
-                      "noslip": "noslip  static    0"}.get(
+                      "noslip": "noslip  static    0",
+                      "rough": "rough  static    0",
+                      "power": "power  static    0"}.get(
                           kind, "noslip  static    0")
             self.lines.append(f"{prefix}   ! {first_name}")
+            if kind == "rough":
+                try:
+                    aks = float(_child_text(val, "roughness", "0"))
+                except ValueError:
+                    aks = 0.0
+                try:
+                    scal = float(_child_text(val, "rough_const", "9"))
+                except ValueError:
+                    scal = 9.0
+                self.lines.append(_f(aks, 29))
+                self.lines.append(_f(scal, 29))
+            elif kind == "power":
+                try:
+                    am = float(_child_text(val, "exponent", "1"))
+                except ValueError:
+                    am = 1.0
+                self.lines.append(_f(am, 29))
             for r in regions:
                 self.lines.append("   " + r)
             self.lines.append("   /")
@@ -1139,18 +1160,42 @@ class SExport:
                         region = (ch.text or "").strip()
                         if region:
                             groups.append((name, pot, region))
-        if not groups:
-            return
-        self.lines.append("ES_FIELD_BC")
-        for name, pot, region in groups:
-            self.lines.append(f"epotential    0   ! {name}")
-            try:
+        # F2: MOVB_ESF_SORC — moving-object fixed electric potential
+        # (movb_fixed e_field values) per Solver_eng MOVB_ESF_SORC
+        # ('fixE' -> FIXE); chargedensity has no storage.
+        movb: list[tuple[str, str, str]] = []
+        for val in self.m.values_of_type("e_field"):
+            if not any(c.tag == "movb_fixed" for c in val):
+                continue
+            name = _child_text(val, "name")
+            pot = _child_text(val, "e_potential", "0")
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "parts":
+                        parts = (ch.text or "").strip()
+                        if parts:
+                            movb.append((name, pot, parts))
+        if movb:
+            self.lines.append("MOVB_ESF_SORC")
+            for name, pot, parts in movb:
+                self.lines.append(f"fixE    0   ! {name}")
                 self.lines.append(_f(float(pot)))
-            except ValueError:
-                self.lines.append(_f(0.0))
-            self.lines.append("   " + region)
-            self.lines.append("   /")
-        self.lines.append("/")
+                self.lines.append("   " + parts)
+                self.lines.append("   /")
+            self.lines.append("/")
+        if groups:
+            self.lines.append("ES_FIELD_BC")
+            for name, pot, region in groups:
+                self.lines.append(f"epotential    0   ! {name}")
+                try:
+                    self.lines.append(_f(float(pot)))
+                except ValueError:
+                    self.lines.append(_f(0.0))
+                self.lines.append("   " + region)
+                self.lines.append("   /")
+            self.lines.append("/")
 
     def _sufs_region(self):
         """SUFS_REGION contactangle cards — free-surface Contact Angle (C3).
@@ -1284,21 +1329,34 @@ class SExport:
                 return float(default)
 
         self.lines.append("LSOL_FORCE_MODEL")
+        # name tables per Solver_eng LSOL_FORCE_MODEL (int codes: 0=none
+        # for rolling/cohesion, 1 = first real model; exA07-4 pins
+        # contact 1 = linear_spring_dashpot, rolling 1 = simplified_
+        # linear, cohesion 0 = none)
         self.lines.append("contact_model")
         contact = _child_text(dem, "dem_contact_model", "1").strip()
-        if contact != "1":
-            return  # other contact models have no name evidence
-        self.lines.append("   linear_spring_dashpot")
+        self.lines.append("   " + {
+            "1": "linear_spring_dashpot",
+            "2": "hertz_mindlin",
+            "3": "walton_braun",
+        }.get(contact, "linear_spring_dashpot"))
+        self.lines.append("rolling_resistance_model")
         rolling = _child_text(dem, "dem_rolling_resistance_model",
                               "1").strip()
-        if rolling != "1":
-            return  # other rolling models have no name evidence
-        self.lines.append("rolling_resistance_model")
-        self.lines.append("   simplified_linear")
+        self.lines.append("   " + {
+            "0": "none",
+            "1": "simplified_linear",
+            "2": "Zhou",
+            "3": "Iwashita_Oda",
+        }.get(rolling, "simplified_linear"))
         self.lines.append("cohesion_model")
-        self.lines.append(
-            "   none" if _child_text(dem, "dem_adhesion", "0").strip()
-            == "0" else "   none")
+        adhesion = _child_text(dem, "dem_adhesion", "0").strip()
+        self.lines.append("   " + {
+            "0": "none",
+            "1": "linear_loading_stiffness",
+            "2": "JKR",
+            "3": "linear",
+        }.get(adhesion, "none"))
         self.lines.append("/")
         self.lines.append("LSOL_OPTION")
         self.lines.append("lagrangian_solver")
@@ -1404,6 +1462,10 @@ class SExport:
             return el.text.strip() if el is not None and el.text                 else default
 
         obj_name = txt(obj_vals[0], "name") if obj_vals else             txt(ds_vals[0], "name")
+        # Solver_eng TOPOPT_REGION: IOBJ = objective type
+        # (obj1_func_type), ICNS = 1 for the volume constraint
+        # ('upper'), LOLM = obj1_constraint_base, UPLM = vol_constraint,
+        # OREF = reference value (0 in the sample).
         parts_list: list[str] = []
         for val in ds_vals + obj_vals:
             name = txt(val, "name")
@@ -1425,10 +1487,23 @@ class SExport:
         except ValueError:
             pass
         self.lines.append("TOPOPT_REGION")
+        iobj = 1
+        lolm = 0.0
+        if obj_vals:
+            try:
+                iobj = int(float(txt(obj_vals[0], "obj1_func_type", "1")))
+            except ValueError:
+                iobj = 1
+            try:
+                lolm = float(txt(obj_vals[0], "obj1_constraint_base", "0"))
+            except ValueError:
+                lolm = 0.0
+        icns = 1  # volume constraint ('upper'); ICNS=2 (weighted) has
+        # no storage
         self.lines.append(
             f"objective_and_constraint    0   ! {obj_name}")
-        self.lines.append(f"{1:15d}{1:12d}")
-        self.lines.append(_f(lower, 29) + _f(upper))
+        self.lines.append(f"{iobj:15d}{icns:12d}")
+        self.lines.append(_f(lolm, 29) + _f(upper))
         self.lines.append(_f(0.0, 29))
         for parts in parts_list:
             self.lines.append("   " + parts)
@@ -1589,15 +1664,42 @@ class SExport:
         that family is probe-deferred.  Section omitted when no type=2
         humidity boundary exists (empty sections are dropped).
         """
-        groups: list[tuple[str, str, str, str]] = []
+        groups: list[tuple[str, str, str, str, str]] = []
+        type1: list[tuple[str, str, str, str, str, str]] = []
         for val in self.m.values_of_type("humidity"):
             if _child_text(val, "kind").strip() != "boundary":
                 continue
-            if _child_text(val, "type").strip() != "2":
-                continue
+            vtype = _child_text(val, "type").strip()
             name = _child_text(val, "name")
             p1 = _child_text(val, "param1", "0")
             p2 = _child_text(val, "param2", "0")
+            # F2: type=1 (region-pair family) LTYPE comes from the
+            # optional hum_ltype child (lewislaw / diffusion /
+            # transfer / insulation per Solver_eng HUMW_REGION); LWALL
+            # is 'saturation' in the official sample.
+            ltype1 = _child_text(val, "hum_ltype", "")
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag != "region":
+                        continue
+                    region = (ch.text or "").strip()
+                    if not region:
+                        continue
+                    if vtype == "2":
+                        groups.append((name, p1, p2, region, ""))
+                    elif vtype == "1" and ltype1:
+                        type1.append((name, ltype1, p1, region,
+                                      "saturation", "0"))
+        # HUMH_REGION (Initial Moisture): humidity values with type=3
+        # emit 'wallwater' WLHUM cards per Solver_eng HUMH_REGION.
+        hh: list[tuple[str, str, str]] = []
+        for val in self.m.values_of_type("humidity"):
+            if _child_text(val, "type").strip() != "3":
+                continue
+            name = _child_text(val, "name")
+            wlhum = _child_text(val, "param1", "0")
             for c in self.m.conditions():
                 if _child_text(c, "value") != name:
                     continue
@@ -1605,23 +1707,35 @@ class SExport:
                     if ch.tag == "region":
                         region = (ch.text or "").strip()
                         if region:
-                            groups.append((name, p1, p2, region))
-        if not groups:
-            return
-        self.lines.append("HUMW_REGION")
-        for name, p1, p2, region in groups:
-            self.lines.append(f"transfer  wallhumidity    0   ! {name}")
-            try:
-                self.lines.append(_f(float(p1)))
-            except ValueError:
-                self.lines.append(_f(0.0))
-            try:
-                self.lines.append(_f(float(p2)))
-            except ValueError:
-                self.lines.append(_f(0.0))
-            self.lines.append("   " + region)
-            self.lines.append("   /")
-        self.lines.append("/")
+                            hh.append((name, wlhum, region))
+        if groups or type1:
+            self.lines.append("HUMW_REGION")
+            for name, p1, p2, region, _x in groups:
+                self.lines.append(
+                    f"transfer  wallhumidity    0   ! {name}")
+                try:
+                    self.lines.append(_f(float(p1)))
+                except ValueError:
+                    self.lines.append(_f(0.0))
+                try:
+                    self.lines.append(_f(float(p2)))
+                except ValueError:
+                    self.lines.append(_f(0.0))
+                self.lines.append("   " + region)
+                self.lines.append("   /")
+            for name, ltype, p1, region, lwall, _iusr in type1:
+                self.lines.append(f"{ltype}  {lwall}    0   ! {name}")
+                self.lines.append("   " + region)
+                self.lines.append("   /")
+            self.lines.append("/")
+        if hh:
+            self.lines.append("HUMH_REGION")
+            for name, wlhum, region in hh:
+                self.lines.append(f"wallwater    0   ! {name}")
+                self.lines.append(_f(float(wlhum)))
+                self.lines.append("   " + region)
+                self.lines.append("   /")
+            self.lines.append("/")
 
     def _fout(self):
         out = self.m.root.find("output")

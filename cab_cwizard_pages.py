@@ -7081,8 +7081,13 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
         return names
 
     def _commit_humidity(self, name: str, type_code: int, param1: float,
-                         param2: Optional[float], region: str) -> bool:
-        """Create/update one ``<value type="humidity">`` condition."""
+                         param2: Optional[float], region: str,
+                         hum_ltype: str = "") -> bool:
+        """Create/update one ``<value type="humidity">`` condition.
+
+        ``hum_ltype`` (F2) selects the HUMW_REGION LTYPE for type=1
+        values (lewislaw / diffusion / transfer / insulation — the
+        official sample cannot be mapped without it)."""
         name = (name or "").strip()
         region = (region or "").strip()
         if not name or not region:
@@ -7090,6 +7095,8 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
         children = [("kind", "boundary", None),
                     ("type", str(int(type_code)), None),
                     ("param1", f"{float(param1):g}", "m/s")]
+        if hum_ltype:
+            children.append(("hum_ltype", hum_ltype, None))
         if param2 is not None:
             children.append(("param2", f"{float(param2):g}", None))
         if not self.model.upsert_value("humidity", name, children):
@@ -7135,6 +7142,15 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
             return
         name, p1, p2, region = picked
         self._commit_humidity(name, 2, p1, p2, region)
+
+    def _new_initial_moisture(self) -> None:
+        """C2/F2: [Condition (Initial Moisture)] — HUMH_REGION wallwater
+        condition (humidity type=3)."""
+        picked = self._hum_pick("Initial Moisture", param2=False)
+        if picked is None:
+            return
+        name, p1, _p2, region = picked
+        self._commit_humidity(name, 3, p1, None, region)
 
     def _hum_delete(self) -> None:
         row = self.hum_table.currentRow()
