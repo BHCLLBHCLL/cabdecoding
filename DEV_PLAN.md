@@ -2511,3 +2511,85 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 | `CAB_FORMAT_SPEC.md` | 补 `mesh_control`/`element` 生成规范、x_t 成员合并规则 | M3/M4 |
 | `CAB_GUI_DESIGN.md` | 更新菜单/对话框功能说明（含 Edit 24 项深度） | M1/M23/M24 |
 | `README.md` | 使用流程（导入→域→网格→导出） | M5 |
+
+---
+
+## 25. 覆盖度与深度 100% 收官规划（2026-08-29）
+
+> 基线：HEAD `93a2a52`，全量 755 passed / 5 skipped，总体 ≈94%
+> （gap analysis v6.6 + §23.2b/§24.3b 回填）。§22 P1–P6、§24
+> AM/MB/FMT/SK、§23 C1–C8 全部完成。
+> **关键新事实（本规划的地基）**：本机装有 **Solver_eng 求解器参考手册**
+> （635 页，逐命令 Input format 语法页）。此前所有「探针窗口待证」的
+> .s 发射留档（PFOC_REGION / SURFLIST / STOP_VAR / NCOZ_OUTPUT /
+> OCSV_PARTS / PCL_RESTRICTION / HUMH_REGION / HUMW type=1 / PCLE_CREATE
+> spray 全字段 / LSOL_FORCE_IP / LSOL_FORCE_MODEL 其他模型 / AMOM
+> rough·power·forced·LWALL 族 / MOVB_ESF_SORC / ES_FIELD 头）均在该
+> 手册有权威卡语法 —— **这批 B 级留档全部可升级为 A 级开发清零，
+> 不再依赖许可窗口**。许可窗口仅剩三项硬依赖（D9 COM B 层 live probe、
+> D10 FEM kind 实证、D11 PICLS CLI）。
+
+### 25.0 「100%」双轨定义（沿用 §22.0 A/B/C 规则）
+
+- **覆盖 100%**：Pre_eng 727 页逐页映射（A 实现 / B 定档 / C 声明）
+  ＋ Solver_eng 全部命令页对照（本仓已发射 / 手册定档不适用 / 留档
+  声明），审计产物为 `docs/` 逐页对照表。
+- **深度 100%**：12 维逐维 A 清零或 B/C 定档有据，定档声明附录固化。
+
+### 25.1 残项全景（四类）
+
+| 类 | 内容 | 依赖 |
+|---|---|---|
+| **E**（emission，可 A 清零） | 15 项留档发射：AMOM 全变体（rough→AKS,SCAL／power→AM／forced→CMUX/Y/Z＋LWALL static·vector·omega·rotation·tangential）、HUMW type=1（lewislaw/diffusion 判别，HUMW/HUMF/HUMS 页）、HUMH_REGION（wallwater）、PCLE_CREATE spray 全字段（365 行语法页）、LSOL_FORCE_MODEL 其余模型名、LSOL_FORCE_IP（contact CONT_TYPE/ISCPC）、MOVB_ESF_SORC（chargedensity/fixE）、PFOC_REGION（NPOPT/LTYPE）、SURFLIST（areaflowratio…）、STOP_VAR（LVAR,X,Y,Z,VAR1,VAR2）、NCOZ_OUTPUT（NCSV1）、OCSV_PARTS（LABEL/NPRT/ITYPE/LVAR）、PCL_RESTRICTION、ES_FIELD/ES_FIELD_PROP 头、TOPOPT leading pair 语义复核 | 无 |
+| **U**（UI/存储，纯代码） | 非 Condition 对话框：Chemical Material、Compressible Fluid、Cloth Model、Check Time Step、Calculate 导热/换热/吸放湿 ×3；AC Unit 5 机型（ceiling_cassette/outdoor_unit/wall_mount/portable_unit）；§23 partial 页参数补全；收敛曲线交互（缩放/导出） | 无 |
+| **G**（网格 AM-3） | STL/polygon relay 网格化布局、threshold/axis_plane 曲面部件语义、multiblock×cylinder/axial —— 代码假设＋Solver_eng 交叉验证（可能免黑盒） | 无（验证或需窗口） |
+| **L**（许可窗口硬依赖） | D9 COM B 层 ~650 live probes（破坏性隔离/live-GUI-only C 声明）；D10 FEM 壳/六面体 kind 双分支实证；D11 PICLS CLI 参数 | **STpre 实机** |
+| **X**（已定档声明） | IGES/IDF/CGNS 不做（文档化）；Sketch 约束（C 超越项）；draft/midsurface（内核实证不可实现）；.pst 会话解析不做 | — |
+
+### 25.2 批次（F = Final）
+
+| 批 | 内容 | 规模 | 口径 | 依赖 |
+|---|---|:---:|---|---|
+| **F1** 条件发射批 | E 类中 CW 已有存储的六项接 .s 发射：PFOC_REGION / SURFLIST / STOP_VAR / NCOZ_OUTPUT / OCSV_PARTS / PCL_RESTRICTION（L File 页/Transient 页/File Spec 页的既有 UI 直连） | M | A | Solver_eng |
+| **F2** 湿度/粒子/静电/DEM 发射批 | E 类其余九项：AMOM 全变体（含 C5 rough 对话框字段对齐 AKS/SCAL）、HUMW type=1＋HUMF/HUMS、HUMH_REGION、PCLE_CREATE spray（含 Particle_Spray 页 UI）、LSOL_FORCE_MODEL 全模型＋LSOL_FORCE_IP、MOVB_ESF_SORC、ES_FIELD 族头 | L | A | Solver_eng |
+| **F3** 非 Condition 对话框批 | U 类对话框族＋AC 5 机型（参数面按 Pre_eng 逐字段） | M–L | A | 无 |
+| **F4** 网格负面结论批 | G 类四项＋Solver_eng 网格命令交叉验证 | M | A/B | 无 |
+| **F5** 求解闭环/导出深化 | 收敛曲线缩放/导出；格式矩阵终审；Property XML 重建评估 | S | A | 无 |
+| **F6** 许可窗口批 | L 类三项：COM B 层 probes（P8 原样）、FEM kind（P7 原样）、PICLS | L | A/B/C | **STpre 实机** |
+| **F7** 终审批 | 727 页逐页映射审计＋Solver_eng 全命令对照＋12 维终审 → gap analysis **v7.0 = 100%**（含 B/C 定档附录）＋发布门 | M | A/B/C | F1–F6 |
+
+### 25.3 执行顺序与里程碑
+
+```
+无窗口主线：F1 → F2 → F3 → F4 → F5（预计 94% → ≈98%）
+窗口期插入：F6（→ ≈99.5%）
+收官：      F7 终审 → 100%（A 清零 + B/C 定档附录）
+并行机会：F1/F2 同属 s_export 派发器扩展（串行避免冲突）；
+         F3/F4 分属 dialogs/gridding 模块可并行；F5 随时可插。
+```
+
+### 25.4 12 维 → 100% 映射
+
+| 维 | 现状 | 残项→批次 | 100% 口径 |
+|---|:---:|---|---|
+| D1 数据层 95 | 深字段滚动 | F3 顺带（AC 机型字段）＋F7 终审 | A |
+| D2 Part 94 | AC 5 机型 | F3 | A |
+| D3 UI 94 | 非 Condition 对话框族 | F3 | A |
+| D4 .s 导出 95 | E 类 15 项 | F1+F2 → 全命令覆盖 | A |
+| D5 网格 97 | G 类四项 | F4 | A（验证或 B） |
+| D6 CW 90 | E 类发射＋partial 页 | F1/F2＋F3 | A/B |
+| D7 PK 95 | draft/midsurface | 已 B 定档（内核实证） | B |
+| D8 求解闭环 90 | 曲线交互 | F5 | A |
+| D9 COM 90 | ~650 probes | F6 | A＋C（live-GUI-only） |
+| D10 FEM 75 | kind 实证 | F6 | A/B 双分支 |
+| D11 工具 85 | PICLS 参数 | F6 | A/B |
+| D12 导入导出 93 | SAT CLI/MDL | B 已定档＋F5 终审 | B |
+
+### 25.5 验收与回归（不变）
+
+- 全量 pytest 基线不减（755 passed）；金标全保（ex4_e.s 逐行、blend
+  530/422、.ccel 11 样本字节级、tr03/box 逐点）。
+- 每批收尾：gap analysis 对应维回填＋DEV_PLAN 状态表（沿用 §23.2b
+  格式）。
+- F7 发布门：① 727 页对照表全闭合；② Solver_eng 命令对照全闭合；
+  ③ 12 维 A/B/C 全落；④ 定档声明附录；⑤ 全量绿＋金标全保。
