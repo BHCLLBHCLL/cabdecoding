@@ -4837,6 +4837,11 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
         top.addWidget(QLabel("Output cycle"))
         top.addWidget(self.ncoz_cycle)
         lay.addLayout(top)
+        rrow = QHBoxLayout()
+        rrow.addWidget(QLabel("Occupied zone region", page))
+        self.ncoz_rgn = QLineEdit(page)
+        rrow.addWidget(self.ncoz_rgn, 1)
+        lay.addLayout(rrow)
         lay.addStretch(1)
         return page
 
@@ -5158,6 +5163,8 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
                 self.model.analysis_set_value("lfile_ncoz_cycle", "1")))
         except ValueError:
             pass
+        self.ncoz_rgn.setText(
+            self.model.analysis_set_value("lfile_ncoz_rgn", ""))
         self.ncoz_on.setChecked(
             self.model.analysis_set_value("lfile_ncoz", "T").upper()
             not in ("F", "0", "FALSE"))
@@ -5245,6 +5252,8 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
             "lfile_ncoz", "T" if self.ncoz_on.isChecked() else "F")
         self.model.set_analysis_set_value(
             "lfile_ncoz_cycle", f"{int(self.ncoz_cycle.value())}")
+        self.model.set_analysis_set_value(
+            "lfile_ncoz_rgn", self.ncoz_rgn.text().strip())
         self.model.set_analysis_set_value(
             "lfile_hbal_part_on",
             "T" if self.hbal_part_on.isChecked() else "F")

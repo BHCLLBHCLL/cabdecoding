@@ -323,6 +323,7 @@ class SExport:
         self._vfem_vfde()
         self._peltier()
         self._autofixp()
+        self._stop_var()
         self._lsol_sections()
         self._pcle_handling()
         self._humw_region()
@@ -334,6 +335,8 @@ class SExport:
         self._meix_var()
         self._balances()
         self._flux_sum()
+        self._pfoc_region()
+        self._ncoz_output()
         self._cutcell()
         self._tprt()
         self.lines.append("GOGO")
@@ -1430,6 +1433,139 @@ class SExport:
         for parts in parts_list:
             self.lines.append("   " + parts)
             self.lines.append("   /")
+        self.lines.append("/")
+
+    # F1: STOP_VAR variable-name codes (Solver_eng STOP_VAR table)
+    _STOP_VAR_CODES = {
+        "Temperature": "TEMP",
+        "Pressure": "PRES",
+        "X-component of velocity": "UNOR",
+        "Y-component of velocity": "VNOR",
+        "Z-component of velocity": "WNOR",
+    }
+
+    def _stop_var(self):
+        """STOP_VAR — stop conditions at specified points (F1).
+
+        Source: the CW Transient 'Stop (Specified Point)' page
+        (``analysis_set/stop_var`` records ``name|var|lo|lo_on|hi|hi_on``);
+        the point location resolves from the point part's ``<base>`` (mm
+        -> m).  Card grammar per Solver_eng STOP_VAR: one
+        ``LVAR,X,Y,Z,VAR1,VAR2`` line per point.  A disabled limit is
+        emitted as the no-limit sentinel +-1e30 (sentinel value not
+        corpus-verifiable).  Omitted when no records exist (ex4_e golden
+        parity).
+        """
+        raw = ""
+        aset = self.m.root.find("analysis_set")
+        if aset is not None:
+            from cabxml import _first
+            el = _first(aset, "stop_var")
+            raw = (el.text or "").strip() if el is not None else ""
+        if not raw:
+            return
+        infos = {p.name: p for p in self.m.parts()}
+        cards = []
+        for rec in raw.split(";"):
+            bits = [b.strip() for b in rec.split("|")]
+            if len(bits) < 6:
+                continue
+            name, var, lo, lo_on, hi, hi_on = bits[:6]
+            code = self._STOP_VAR_CODES.get(var)
+            if code is None:
+                continue
+            info = infos.get(name)
+            if info is None or not info.base:
+                continue
+            try:
+                base = [float(v) for v in info.base.split(",")[:3]]
+            except ValueError:
+                continue
+            if len(base) < 3:
+                continue
+            xyz = [v / 1000.0 for v in base]
+            var1 = float(lo) if lo_on in ("1", "T", "true") else -1.0e30
+            var2 = float(hi) if hi_on in ("1", "T", "true") else 1.0e30
+            cards.append((code, xyz, var1, var2))
+        if not cards:
+            return
+        self.lines.append("STOP_VAR")
+        for code, xyz, var1, var2 in cards:
+            self.lines.append(",".join(
+                [code] + [_f(v) for v in (*xyz, var1, var2)]))
+        self.lines.append("/")
+
+    def _pfoc_region(self):
+        """PFOC_REGION — sum of pressure on regions (F1).
+
+        Source: the CW L File 'Specified Region (Pressure)' tab
+        (``lfile_pressure_rgn`` map region->variable, ``lfile_pressure_
+        cycle`` -> NPOPT).  Solver_eng: LTYPE only 'pressure' in this
+        version; one PFOC_REGION card maximum.  Omitted when the map is
+        empty (ex4_e golden parity).
+        """
+        aset = self.m.root.find("analysis_set")
+
+        def aset_text(tag, default=""):
+            from cabxml import _first
+            if aset is None:
+                return default
+            el = _first(aset, tag)
+            return (el.text or "").strip() if el is not None else default
+
+        raw = aset_text("lfile_pressure_rgn")
+        if not raw:
+            return
+        try:
+            npopt = int(float(aset_text("lfile_pressure_cycle", "1") or 1))
+        except ValueError:
+            npopt = 1
+        regions = []
+        for rec in raw.split(";"):
+            bits = rec.split("|")
+            if len(bits) != 2:
+                continue
+            region, var = bits[0].strip(), bits[1].strip()
+            if region and var == "Pressure":
+                regions.append(region)
+        if not regions:
+            return
+        self.lines.append("PFOC_REGION")
+        self.lines.append(_i(npopt, 12))
+        self.lines.append("pressure")
+        for region in regions:
+            self.lines.append("   " + region)
+        self.lines.append("/")
+
+    def _ncoz_output(self):
+        """NCOZ_OUTPUT — normalized concentration in occupied zone (F1).
+
+        Source: the CW L File 'Standardized Concentration in Living
+        Space' tab (``lfile_ncoz`` enable, ``lfile_ncoz_cycle`` ->
+        NCSV1, ``lfile_ncoz_rgn`` -> occupied-zone volume region).
+        Omitted when disabled or no region (ex4_e golden parity).
+        """
+        aset = self.m.root.find("analysis_set")
+
+        def aset_text(tag, default=""):
+            from cabxml import _first
+            if aset is None:
+                return default
+            el = _first(aset, tag)
+            return (el.text or "").strip() if el is not None else default
+
+        if aset_text("lfile_ncoz", "T").upper() in ("F", "0", "FALSE"):
+            return
+        region = aset_text("lfile_ncoz_rgn")
+        if not region:
+            return
+        try:
+            ncsv1 = int(float(aset_text("lfile_ncoz_cycle", "1") or 1))
+        except ValueError:
+            ncsv1 = 1
+        self.lines.append("NCOZ_OUTPUT")
+        self.lines.append(_i(ncsv1, 12))
+        self.lines.append("   " + region)
         self.lines.append("/")
 
     def _humw_region(self):
