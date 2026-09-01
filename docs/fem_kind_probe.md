@@ -62,3 +62,21 @@ Sketch/Property/Table 需专用获取路径）列为下一批探针目标。
 - B：除“工程文件”外无公开 CLI 参数集，其余参数维持 B 级定档。
 
 Tools_eng 手册只覆盖 Kicker 启动器（许可证/语言），没有 PICLS 的 CLI 文档。
+
+
+## G3：threshold 在曲面部件上的语义（活体探针）
+
+工具：`tools/probe_curved_grid.py`；产物：`data/grid_curved_probe.json`。
+
+COM 建圆柱件（CreateCylinderModel，(5,5,5) r=3 h=10）后以
+RootBlock SetParam limit 跑两次 ExecuteGrid（标准长 2.5）：
+
+| threshold | x 线数 | 与 min/max 不同的线 |
+|---:|---:|---|
+| 1e-9（≈无阈值） | 21 | 2.0, 5.0, 17.0, 19.5, 21.74, 37.0, 39.67, 42.33, 48.0 |
+| 2.5 | 18 | 2.67, 5.33, 18.5, 21.24, 38.5, 42.5 |
+
+**threshold 在曲面部件上有明确的区分度**（21→18 线，6 条线位移）——
+§3 负面结论“threshold 在凸盒上无区分度，需曲面部件验证”就此解除：
+阈值合并行为在曲面件上可观测，且 STpre 输出可被捕获用于与
+cab_grid 逐点对拍。axis_plane 圆柱语义与逐点对拍列为后续探针。
