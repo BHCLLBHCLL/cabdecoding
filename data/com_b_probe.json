@@ -1,0 +1,3407 @@
+{
+  "part": "lower_cover_01",
+  "classes": {
+    "Application": [
+      {
+        "member": "BeginViewerMode",
+        "kind": "skip"
+      },
+      {
+        "member": "ClearDocument",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateDrawWnd",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "ok",
+        "value": "''"
+      },
+      {
+        "member": "GetDocument",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreDoc <COMObject <unknown>>>"
+      },
+      {
+        "member": "GetEnvFilePath",
+        "kind": "call",
+        "status": "ok",
+        "value": "'C:\\\\Users\\\\sdcll\\\\AppData\\\\Roaming\\\\Cradle\\\\Stwin2025\\\\STpre_Bx64net\\\\STpre_Bx64net_ENG.xenv'"
+      },
+      {
+        "member": "GetFileVersion",
+        "kind": "call",
+        "status": "ok",
+        "value": "'1225.20302.20251222'"
+      },
+      {
+        "member": "GetHomeFolder",
+        "kind": "call",
+        "status": "ok",
+        "value": "'C:\\\\Users\\\\sdcll\\\\AppData\\\\Roaming\\\\Cradle\\\\Stwin2025\\\\STpre_Bx64net'"
+      },
+      {
+        "member": "GetProcessID",
+        "kind": "call",
+        "status": "ok",
+        "value": "50284"
+      },
+      {
+        "member": "GetVersionNo",
+        "kind": "call",
+        "status": "ok",
+        "value": "'1625.20302.20251222'"
+      },
+      {
+        "member": "IsViewerMode",
+        "kind": "call",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "Quit",
+        "kind": "skip"
+      },
+      {
+        "member": "UpdateAll",
+        "kind": "skip"
+      },
+      {
+        "member": "UserControl",
+        "kind": "attr",
+        "status": "ok",
+        "value": "True"
+      },
+      {
+        "member": "Visible",
+        "kind": "attr",
+        "status": "ok",
+        "value": "True"
+      },
+      {
+        "member": "WriteBackToEnvFile",
+        "kind": "skip"
+      }
+    ],
+    "Doc": [
+      {
+        "member": "ClearSelect",
+        "kind": "skip"
+      },
+      {
+        "member": "CloseCutcellCheck",
+        "kind": "skip"
+      },
+      {
+        "member": "ContactElementParts",
+        "kind": "skip"
+      },
+      {
+        "member": "ContactParts",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateAbsorptionProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateAirconModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateAnemoModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateAxialFanModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateBlowerFanModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateCardGuideModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateCaseModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateConeModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateConnectedRegion",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateCubeModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateCylinderModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateDelphiModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateExpression",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateExtrudeModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFaceListSet",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFanModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFeedingModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFemFacePair",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFemFaceSet",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFinModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFluidMaterial",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateGerberGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateHexaModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateHoleModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateLinearDiffuserModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreatePanelModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreatePeltierModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreatePinFinModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreatePipeModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreatePointModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreatePropertyGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateQuadPanelModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateRadiationProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateReactiveFormula",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateRegionPair",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateRevolveModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateScript",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateSlitPunchingModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateSolidMaterial",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateSphereModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateSpinRectangleSimpleModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateSweepModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateTwoResistanceModel",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateUserData",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateUserFunction",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteFemodel",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteGerberGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteModel",
+        "kind": "skip"
+      },
+      {
+        "member": "DeletePropertyGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteScript",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteTable",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteValue",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteVariableName",
+        "kind": "skip"
+      },
+      {
+        "member": "EditSolidModel",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "1101"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "ok",
+        "value": "'Variant type of the argument(doc.GetModel (name)) is different.'"
+      },
+      {
+        "member": "ExecuteCutcellCheck",
+        "kind": "skip"
+      },
+      {
+        "member": "FitDomainToDrawWnd",
+        "kind": "skip"
+      },
+      {
+        "member": "FitPartsToDrawWnd",
+        "kind": "skip"
+      },
+      {
+        "member": "GetAirconModel",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreAirconModel None>"
+      },
+      {
+        "member": "GetAllFemFacePairArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAllFemFaceSetArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAllModelArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "[<STpreModel <COMObject GetAllModelArray>>, <STpreModel <COMObject GetAllModelArray>>, <STpreModel <COMObject GetAllMode"
+      },
+      {
+        "member": "GetAllPartsBoundingBox",
+        "kind": "call",
+        "status": "ok",
+        "value": "(0.0, 0.0, 4.946672411965114e-15, 50.00000000000003, 198.1552812808875, 14.992420383673322)"
+      },
+      {
+        "member": "GetAllTableArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "(<COMObject GetAllTableArray>,)"
+      },
+      {
+        "member": "GetAllValueArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "[<STpreValue <COMObject GetAllValueArray>>, <STpreValue <COMObject GetAllValueArray>>, <STpreValue <COMObject GetAllValu"
+      },
+      {
+        "member": "GetAmbientTemperature",
+        "kind": "call",
+        "status": "ok",
+        "value": "20.0"
+      },
+      {
+        "member": "GetAnalysisParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAnalysisType",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetAnalysisType() missing 1 required positional argument: 'kind'"
+      },
+      {
+        "member": "GetBKColor",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetBKColorBottom",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetBKColorMode",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetBKColorTop",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetCabVersion",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetComment",
+        "kind": "call",
+        "status": "ok",
+        "value": "'Advanced Exercise: Cooling analysis of a cell phone'"
+      },
+      {
+        "member": "GetConditionControl",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetContactElementModelArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetCsvMappingParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetCurrentParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetCutcellParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetCycle",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetDefaultRadCoefficient",
+        "kind": "call",
+        "status": "ok",
+        "value": "0.9"
+      },
+      {
+        "member": "GetDemForce",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetDemParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetDemVar",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetDomain",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreModel <COMObject <unknown>>>"
+      },
+      {
+        "member": "GetDrawOption",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetDtsrParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetEquationLoop",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetEvaporationParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetEvaporationParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetExpression",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetExpression() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetFemodel",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreFemodel None>"
+      },
+      {
+        "member": "GetFileName",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetFluidArea",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreModel None>"
+      },
+      {
+        "member": "GetFmiParam",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352570, '未知名称。', None, None)"
+      },
+      {
+        "member": "GetFormattedScript",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetFreeSurfaceParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetGerberModel",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreGerberModel None>"
+      },
+      {
+        "member": "GetGravity",
+        "kind": "call",
+        "status": "ok",
+        "value": "(0.0, 0.0, -9.8)"
+      },
+      {
+        "member": "GetHeatSolver",
+        "kind": "call",
+        "status": "ok",
+        "value": "(1, 3, 2.0, 'T', 'T', 0)"
+      },
+      {
+        "member": "GetHumidityCoefficient",
+        "kind": "call",
+        "status": "ok",
+        "value": "((2.56e-05,), 'm2/s')"
+      },
+      {
+        "member": "GetHumidityParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetHumidityTransferParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetLastSelectEntity",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetLibraryFolder",
+        "kind": "call",
+        "status": "ok",
+        "value": "'C:\\\\Users\\\\sdcll\\\\Documents\\\\Cradle\\\\Stwin2025\\\\Library\\\\'"
+      },
+      {
+        "member": "GetListControl",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetLuminanceParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetLuminanceVariable",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetMappingParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetMesher",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreMesher <COMObject <unknown>>>"
+      },
+      {
+        "member": "GetMode",
+        "kind": "call",
+        "status": "ok",
+        "value": "'global'"
+      },
+      {
+        "member": "GetModel",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetModel() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetMoveBodyOption",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetMoveBodyOption() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetNonlinearParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetNorthAngle",
+        "kind": "call",
+        "status": "ok",
+        "value": "0.0"
+      },
+      {
+        "member": "GetNumAllModelArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "31"
+      },
+      {
+        "member": "GetNumFluidArea",
+        "kind": "call",
+        "status": "ok",
+        "value": "1"
+      },
+      {
+        "member": "GetNumSelectPoint",
+        "kind": "call",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "GetNumTotalRadGroup",
+        "kind": "call",
+        "status": "ok",
+        "value": "6"
+      },
+      {
+        "member": "GetOption",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetOutputParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPartialFldParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetParticleKind",
+        "kind": "call",
+        "status": "ok",
+        "value": "('', 0, 'F')"
+      },
+      {
+        "member": "GetParticleParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPerspectiveProjectionParameter",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetPhaseCondition",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPhaseDiagram",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPhaseParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetPhaseParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetPostFile",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPostParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "('last',)"
+      },
+      {
+        "member": "GetPostVariable",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetProjectName",
+        "kind": "call",
+        "status": "ok",
+        "value": "'ex4_e'"
+      },
+      {
+        "member": "GetPropertyDiffusion",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPropertyEntity",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetPropertyEntity() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetPropertyGroup",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPropertyGroupArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "(<COMObject GetPropertyGroupArray>, <COMObject GetPropertyGroupArray>, <COMObject GetPropertyGroupArray>, <COMObject Get"
+      },
+      {
+        "member": "GetPropertyMaterial",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetRadParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetReactiveFormula",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetReactiveParticle",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetRootModelArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "[<STpreModel <COMObject GetRootModelArray>>, <STpreModel <COMObject GetRootModelArray>>, <STpreModel <COMObject GetRootM"
+      },
+      {
+        "member": "GetRotationalSystem",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetScript",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetScript() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetSelectEntity",
+        "kind": "call",
+        "status": "ok",
+        "value": "'part'"
+      },
+      {
+        "member": "GetSelectPoint",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSelectedFacesArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSelectedPartsArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSketcher",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreSketch <COMObject <unknown>>>"
+      },
+      {
+        "member": "GetSolarParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSolidInitTemperature",
+        "kind": "call",
+        "status": "ok",
+        "value": "20.0"
+      },
+      {
+        "member": "GetSolidMeltFluid",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSolidMeltParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetSolidMeltParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetSolidMeltProperty",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSolidMeltWall",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSolverParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetSolverParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetSteadyParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetStratification",
+        "kind": "call",
+        "status": "ok",
+        "value": "('', 0.0, 0.0)"
+      },
+      {
+        "member": "GetTable",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetTable() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetTopOptParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetTransientParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetTurbulenceModel",
+        "kind": "call",
+        "status": "ok",
+        "value": "'Laminar'"
+      },
+      {
+        "member": "GetUndefinedRegion",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetUndrParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetUnit",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetUnit() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetUserData",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetUserData() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetUserFunction",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetUserFunction() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetVFParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetVFfileInout",
+        "kind": "call",
+        "status": "ok",
+        "value": "1"
+      },
+      {
+        "member": "GetValue",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreDoc.GetValue() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetVariableValue",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetVentilationParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetVentilationStage",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetViewPoint",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetWbgtParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetWizardOption",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetWorkFolder",
+        "kind": "call",
+        "status": "ok",
+        "value": "'D:\\\\training\\\\cgns\\\\cabdecoding\\\\tests'"
+      },
+      {
+        "member": "GetZoomingCondition",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "Intersect",
+        "kind": "skip"
+      },
+      {
+        "member": "LoadCutcellCheck",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenCabFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenCadFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenCsvFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenDxfFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenLibraryCabFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenNasFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenTextFile",
+        "kind": "skip"
+      },
+      {
+        "member": "OpenXmlFile",
+        "kind": "skip"
+      },
+      {
+        "member": "ReleaseDispatch",
+        "kind": "skip"
+      },
+      {
+        "member": "ResetView",
+        "kind": "skip"
+      },
+      {
+        "member": "ResetVisible",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveCabFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveConditionFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveDrawWndImage",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveLibraryCabFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveNfbFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveParamFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveSFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveXmlFile",
+        "kind": "skip"
+      },
+      {
+        "member": "Section",
+        "kind": "skip"
+      },
+      {
+        "member": "SelectSolidModel",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAirconCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAirconModel",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAmbientTemperature",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAnalysisParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAnalysisType",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAxialFan",
+        "kind": "skip"
+      },
+      {
+        "member": "SetBKColor",
+        "kind": "skip"
+      },
+      {
+        "member": "SetBKColorBottom",
+        "kind": "skip"
+      },
+      {
+        "member": "SetBKColorMode",
+        "kind": "skip"
+      },
+      {
+        "member": "SetBKColorTop",
+        "kind": "skip"
+      },
+      {
+        "member": "SetBlowerPQcurve",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCartesianDomain",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCaseBoundary",
+        "kind": "skip"
+      },
+      {
+        "member": "SetComment",
+        "kind": "skip"
+      },
+      {
+        "member": "SetConditionControl",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCsvMappingParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCurrentCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCurrentParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCutcellParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCycle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCylindricalDomain",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDefaultRadCoefficient",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemBoundary",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemConnection",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemForce",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemParticle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDemVar",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDiffusionCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDiffusionNumber",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDrawOption",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDtsrParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDynamicalCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetEquationLoop",
+        "kind": "skip"
+      },
+      {
+        "member": "SetEsFieldCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetEvaporationParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetExpression",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFaceListCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFanConstFlow",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFanPQcurve",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFeedingCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFileName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluidArea",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxFix",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxFlow",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxInout",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxOut",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxPower",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxPower2",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxPres",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxRadialFlow",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxTotalPres",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFluxTotalTempPres",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFmiDefine",
+        "kind": "skip"
+      },
+      {
+        "member": "SetForce",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFormattedScript",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFreeSurfaceCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFreeSurfaceParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetGerberModel",
+        "kind": "skip"
+      },
+      {
+        "member": "SetGlobalSolarRadiation",
+        "kind": "skip"
+      },
+      {
+        "member": "SetGravity",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatFaceSource",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatResistance",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatSolver",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatSource",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatTransfer",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHumidityCoefficient",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHumidityCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHumidityParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHumidityTransferParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetInitialValue",
+        "kind": "skip"
+      },
+      {
+        "member": "SetLesDriver",
+        "kind": "skip"
+      },
+      {
+        "member": "SetLesInitial",
+        "kind": "skip"
+      },
+      {
+        "member": "SetLightCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListControl",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListVar",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListVariable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetLuminanceParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetLuminanceVariable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMappingParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMarangoniCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMarkerParticle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMassParticle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMode",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyFlow",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyFlux",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyHeatTransfer",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyHumidity",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyOption",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNonlinearParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNormalizeConcentration",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNorthAngle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNumFluidArea",
+        "kind": "skip"
+      },
+      {
+        "member": "SetOption",
+        "kind": "skip"
+      },
+      {
+        "member": "SetOrthographicProjection",
+        "kind": "skip"
+      },
+      {
+        "member": "SetOutputParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPartialFldCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPartialFldParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParticleCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParticleForce",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParticleKind",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParticleParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPdfCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPdfCoposition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPdfParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPerforatedPlate",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPerspectiveProjection",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPerspectiveProjectionParameter",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPhaseCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPhaseDiagram",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPhaseInterfaceCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPhaseParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPhaseTransition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPlantResistance",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPorousHeatTransfer",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPorousMedia",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPostFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPostParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPostVariable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPressureDrop",
+        "kind": "skip"
+      },
+      {
+        "member": "SetProjectName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPropertyDiffusion",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPropertyMaterial",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadBoundary",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadGroupNumByArea",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadMeanTemperature",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetReactiveCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetReactiveParticle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRestartParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRotationalSystem",
+        "kind": "skip"
+      },
+      {
+        "member": "SetScalarSource",
+        "kind": "skip"
+      },
+      {
+        "member": "SetScript",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSelectEntity",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolarAshrae",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolarCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolarParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolidInitTemperature",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolidMeltFluid",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolidMeltParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolidMeltProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolidMeltWall",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolidificationMelting",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSolverParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSprayParticle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSteadyParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetStratification",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSurfacePorous",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSymmetry",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTemperatureFix",
+        "kind": "skip"
+      },
+      {
+        "member": "SetThermalTransport",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTopOptCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTopOptParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTransientParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTurbulenceModel",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUndefinedCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUndrParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUnit",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUserData",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUserFunction",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVFParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVFfileInout",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVariableCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVariableName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVelocityFix",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVentilationCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVentilationParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVentilationStage",
+        "kind": "skip"
+      },
+      {
+        "member": "SetViewCenter",
+        "kind": "skip"
+      },
+      {
+        "member": "SetViewPoint",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWall",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWaveGenerate",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWbgtParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWeldType",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWizardOption",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWorkFolder",
+        "kind": "skip"
+      },
+      {
+        "member": "SortModel",
+        "kind": "skip"
+      },
+      {
+        "member": "Subtract",
+        "kind": "skip"
+      },
+      {
+        "member": "Unite",
+        "kind": "skip"
+      }
+    ],
+    "Model": [
+      {
+        "member": "AppendFace",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendFaceByBoundingBox",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendFreeSurfaceOutput",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendModel",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendPressureFix",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendStopVariable",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendTimeSeries",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendValue",
+        "kind": "skip"
+      },
+      {
+        "member": "ConvertModel",
+        "kind": "skip"
+      },
+      {
+        "member": "Copy",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateConvexHull",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateFEM",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateGerberModel",
+        "kind": "skip"
+      },
+      {
+        "member": "Deform",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "GetAbsorptionGroup",
+        "kind": "call",
+        "status": "ok",
+        "value": "(0, 0)"
+      },
+      {
+        "member": "GetAbsorptionProbe",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAbsorptionProperty",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAirconModel",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreAirconModel None>"
+      },
+      {
+        "member": "GetAllThermalCircuitNodeArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAllThermalCircuitResistanceArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetAttribute",
+        "kind": "call",
+        "status": "ok",
+        "value": "'solid'"
+      },
+      {
+        "member": "GetAxisPlaneFace",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetBoolModelArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetBoundingBox",
+        "kind": "call",
+        "status": "ok",
+        "value": "(3.860256012295905e-14, 0.0, 4.9873299934333204e-15, 50.0, 103.0776406404414, 8.000000000000009)"
+      },
+      {
+        "member": "GetColor",
+        "kind": "call",
+        "status": "ok",
+        "value": "(0.09803921729326248, 0.09803921729326248, 1.0, 1.0)"
+      },
+      {
+        "member": "GetCsvVariable",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetCutcell",
+        "kind": "call",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "GetEmissivity",
+        "kind": "call",
+        "status": "ok",
+        "value": "-1.0"
+      },
+      {
+        "member": "GetEntrance",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetFaceArray",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetFaceNormalVector",
+        "kind": "call",
+        "status": "ok",
+        "value": "(0.0, 0.0, 0.0)"
+      },
+      {
+        "member": "GetFaceReverse",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetFacetParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "(-1.0, -1.0, -1.0, -1.0, -1.0, -1.0)"
+      },
+      {
+        "member": "GetFoutControl",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetGerberModel",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreGerberModel None>"
+      },
+      {
+        "member": "GetHeatSource",
+        "kind": "call",
+        "status": "ok",
+        "value": "0.0"
+      },
+      {
+        "member": "GetHeatSourceUnit",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetInitTemperature",
+        "kind": "call",
+        "status": "ok",
+        "value": "0.0"
+      },
+      {
+        "member": "GetLayerNo",
+        "kind": "call",
+        "status": "ok",
+        "value": "1"
+      },
+      {
+        "member": "GetListHeatBalance",
+        "kind": "call",
+        "status": "ok",
+        "value": "'F'"
+      },
+      {
+        "member": "GetListHeatTransfer",
+        "kind": "call",
+        "status": "ok",
+        "value": "'F'"
+      },
+      {
+        "member": "GetListVFBalance",
+        "kind": "call",
+        "status": "ok",
+        "value": "'F'"
+      },
+      {
+        "member": "GetMaterial",
+        "kind": "call",
+        "status": "ok",
+        "value": "'diecast_magnesium(300K)'"
+      },
+      {
+        "member": "GetMeshDivideType",
+        "kind": "call",
+        "status": "ok",
+        "value": "'default'"
+      },
+      {
+        "member": "GetMeshOnSurface",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetMeshParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreModel.GetMeshParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetMeshVolume",
+        "kind": "call",
+        "status": "ok",
+        "value": "6620.803553522329"
+      },
+      {
+        "member": "GetModelType",
+        "kind": "call",
+        "status": "ok",
+        "value": "'parts'"
+      },
+      {
+        "member": "GetMonitor",
+        "kind": "call",
+        "status": "ok",
+        "value": "'T'"
+      },
+      {
+        "member": "GetNTopParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "ok",
+        "value": "'lower_cover_01'"
+      },
+      {
+        "member": "GetNormalVectorType",
+        "kind": "call",
+        "status": "ok",
+        "value": "'z'"
+      },
+      {
+        "member": "GetOff",
+        "kind": "call",
+        "status": "ok",
+        "value": "'F'"
+      },
+      {
+        "member": "GetOnFace",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetOwnValue",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetPanelThick",
+        "kind": "call",
+        "status": "ok",
+        "value": "0.0"
+      },
+      {
+        "member": "GetParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreModel.GetParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetParent",
+        "kind": "call",
+        "status": "ok",
+        "value": "<COMObject <unknown>>"
+      },
+      {
+        "member": "GetPercent",
+        "kind": "call",
+        "status": "ok",
+        "value": "0.0"
+      },
+      {
+        "member": "GetProbeFace",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetRadEdgeOption",
+        "kind": "call",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "GetRadGroup",
+        "kind": "call",
+        "status": "ok",
+        "value": "(0, 0)"
+      },
+      {
+        "member": "GetRadiationProperty",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetRegionOutput",
+        "kind": "call",
+        "status": "ok",
+        "value": "-1"
+      },
+      {
+        "member": "GetSelect",
+        "kind": "call",
+        "status": "ok",
+        "value": "'F'"
+      },
+      {
+        "member": "GetSubModelArray",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: 'NoneType' object is not iterable"
+      },
+      {
+        "member": "GetSurfaceThermalParam",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetSystem",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147417851, '服务器出现意外情况。', None, None)"
+      },
+      {
+        "member": "GetThermalCircuitCondition",
+        "kind": "call",
+        "status": "error",
+        "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+      },
+      {
+        "member": "GetThermalCircuitNode",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetTransform",
+        "kind": "call",
+        "status": "ok",
+        "value": "(1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -0.00013754936490221, 1.0)"
+      },
+      {
+        "member": "GetTypeKey",
+        "kind": "call",
+        "status": "ok",
+        "value": "'ANY'"
+      },
+      {
+        "member": "GetVFProbe",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetValueArray",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: 'NoneType' object is not iterable"
+      },
+      {
+        "member": "GetVolume",
+        "kind": "call",
+        "status": "ok",
+        "value": "7401.889952621361"
+      },
+      {
+        "member": "RemoveFace",
+        "kind": "skip"
+      },
+      {
+        "member": "RemoveGerberModel",
+        "kind": "skip"
+      },
+      {
+        "member": "RemoveModel",
+        "kind": "skip"
+      },
+      {
+        "member": "RemoveThermalCircuitModel",
+        "kind": "skip"
+      },
+      {
+        "member": "RemoveValue",
+        "kind": "skip"
+      },
+      {
+        "member": "Rotate",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveStlFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SaveXtFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAbsorptionProbe",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAbsorptionProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAbsorpyonGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAircon",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAttribute",
+        "kind": "skip"
+      },
+      {
+        "member": "SetBoolModel",
+        "kind": "skip"
+      },
+      {
+        "member": "SetColor",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCsvVariable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCutcell",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCutoutTarget",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDeforme",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDrawType",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDynamicalMotion",
+        "kind": "skip"
+      },
+      {
+        "member": "SetEmissivity",
+        "kind": "skip"
+      },
+      {
+        "member": "SetEntrance",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFaceReverse",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFacetParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFemParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFmiCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFoutControl",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatPipeCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHeatSource",
+        "kind": "skip"
+      },
+      {
+        "member": "SetInitTemperature",
+        "kind": "skip"
+      },
+      {
+        "member": "SetLayerNo",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListHeatBalance",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListHeatTransfer",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListSummary",
+        "kind": "skip"
+      },
+      {
+        "member": "SetListVFBalance",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMaterial",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMeshDivide",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMeshDivideType",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMeshOnSurface",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMeshParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMonitor",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMoveBodyControl",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNTopParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNormalVectorType",
+        "kind": "skip"
+      },
+      {
+        "member": "SetOff",
+        "kind": "skip"
+      },
+      {
+        "member": "SetOnFace",
+        "kind": "skip"
+      },
+      {
+        "member": "SetOpen",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPanelDirection",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPanelOption",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPanelProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParticleDivide",
+        "kind": "skip"
+      },
+      {
+        "member": "SetPercent",
+        "kind": "skip"
+      },
+      {
+        "member": "SetProbeFace",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadEdgeOption",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadGroup",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadiationProperty",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRange",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRegionOutput",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSelect",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSurfaceThermalParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSystem",
+        "kind": "skip"
+      },
+      {
+        "member": "SetThermalCircuitCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetThermalCircuitModel",
+        "kind": "skip"
+      },
+      {
+        "member": "SetThermalCircuitNode",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTransform",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUndefinedValue",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVFProbe",
+        "kind": "skip"
+      },
+      {
+        "member": "Translate",
+        "kind": "skip"
+      },
+      {
+        "member": "UpdateBoolParts",
+        "kind": "skip"
+      },
+      {
+        "member": "Visible",
+        "kind": "attr",
+        "status": "ok",
+        "value": "True"
+      },
+      {
+        "member": "Wrap",
+        "kind": "skip"
+      }
+    ],
+    "Value": [
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "GetCsvMappingParam",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetExpression",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetFormattedScript",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetMapping",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetParam",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetParamString",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetScript",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetSubTypeKey",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTable",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTypeKey",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetUserFunction",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "SetCsvMapping",
+        "kind": "skip"
+      },
+      {
+        "member": "SetExpression",
+        "kind": "skip"
+      },
+      {
+        "member": "SetFormattedScript",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMapping",
+        "kind": "skip"
+      },
+      {
+        "member": "SetName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParam3",
+        "kind": "skip"
+      },
+      {
+        "member": "SetScript",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUserFunction",
+        "kind": "skip"
+      }
+    ],
+    "Mesher": [
+      {
+        "member": "CreateBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "0"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "ok",
+        "value": "''"
+      },
+      {
+        "member": "ExecuteElement",
+        "kind": "skip"
+      },
+      {
+        "member": "ExecuteGrid",
+        "kind": "skip"
+      },
+      {
+        "member": "ExecutePartsElement",
+        "kind": "skip"
+      },
+      {
+        "member": "GetActiveBlock",
+        "kind": "call",
+        "status": "ok",
+        "value": "'RootBlock'"
+      },
+      {
+        "member": "GetBlock",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreMesher.GetBlock() missing 1 required positional argument: 'name'"
+      },
+      {
+        "member": "GetGridParam",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreMesher.GetGridParam() missing 1 required positional argument: 'key'"
+      },
+      {
+        "member": "GetNumEdgeContact",
+        "kind": "call",
+        "status": "error",
+        "error": "TypeError: STpreMesher.GetNumEdgeContact() missing 1 required positional argument: 'part'"
+      },
+      {
+        "member": "GetNumElements",
+        "kind": "call",
+        "status": "ok",
+        "value": "1470391"
+      },
+      {
+        "member": "GetRootBlock",
+        "kind": "call",
+        "status": "ok",
+        "value": "<STpreMeshBlock <COMObject <unknown>>>"
+      },
+      {
+        "member": "GetSelectGrid",
+        "kind": "call",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "RemoveEdgeContact",
+        "kind": "skip"
+      },
+      {
+        "member": "SetActiveBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "SetGridParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSelectGrid",
+        "kind": "skip"
+      },
+      {
+        "member": "Update",
+        "kind": "skip"
+      }
+    ],
+    "MeshBlock": [
+      {
+        "member": "AppendBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "CreateConnectedBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteGrid",
+        "kind": "skip"
+      },
+      {
+        "member": "GetAspectRatio",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetAttribute",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetChildBlockArray",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetDependentBlockArray",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetDivideArray",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetNumBlockArray",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetNumDivision",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetNumElements",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetParam",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetParentBlock",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetRange",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "RemoveBlock",
+        "kind": "skip"
+      },
+      {
+        "member": "SetAttribute",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDetailGrid",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDivideArray",
+        "kind": "skip"
+      },
+      {
+        "member": "SetName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRange",
+        "kind": "skip"
+      }
+    ],
+    "Sketch": [
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "GetClose",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetSystem",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTarget",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetVertex",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetVertexKind",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "SetCircle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetClose",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRectangle",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSide",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSystem",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTarget",
+        "kind": "skip"
+      },
+      {
+        "member": "SetVertex",
+        "kind": "skip"
+      },
+      {
+        "member": "Visible",
+        "kind": "attr",
+        "status": "no-object"
+      }
+    ],
+    "Property": [
+      {
+        "member": "CreateEntity",
+        "kind": "skip"
+      },
+      {
+        "member": "DeleteEntity",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "Get",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetData",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetEntities",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetExpression",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetKind",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetNum",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetRadField",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetScript",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTable",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTypeString",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetUserFunction",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "Set",
+        "kind": "skip"
+      },
+      {
+        "member": "SetData",
+        "kind": "skip"
+      },
+      {
+        "member": "SetExpression",
+        "kind": "skip"
+      },
+      {
+        "member": "SetNum",
+        "kind": "skip"
+      },
+      {
+        "member": "SetRadField",
+        "kind": "skip"
+      },
+      {
+        "member": "SetScript",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTable",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUserFunction",
+        "kind": "skip"
+      }
+    ],
+    "Table": [
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "no-object"
+      },
+      {
+        "member": "GetData",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetNum",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTableCondParam",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetTypeString",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetXUnit",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "GetYUnit",
+        "kind": "call",
+        "status": "no-object"
+      },
+      {
+        "member": "SetData",
+        "kind": "skip"
+      },
+      {
+        "member": "SetName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetTableCondParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetType",
+        "kind": "skip"
+      },
+      {
+        "member": "SetUnit",
+        "kind": "skip"
+      }
+    ],
+    "AirconModel": [
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetParam",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetParamString",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "SetName",
+        "kind": "skip"
+      },
+      {
+        "member": "SetParam",
+        "kind": "skip"
+      }
+    ],
+    "Femodel": [
+      {
+        "member": "AppendFaceSet",
+        "kind": "skip"
+      },
+      {
+        "member": "AppendValue",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "GetFaceSet",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetModel",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetName",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetValueArray",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "RemoveFaceSet",
+        "kind": "skip"
+      },
+      {
+        "member": "RemoveValue",
+        "kind": "skip"
+      },
+      {
+        "member": "SetName",
+        "kind": "skip"
+      }
+    ],
+    "GerberModel": [
+      {
+        "member": "Apply",
+        "kind": "skip"
+      },
+      {
+        "member": "ClearCurrentMesh",
+        "kind": "skip"
+      },
+      {
+        "member": "ErrorCode",
+        "kind": "attr",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "ErrorString",
+        "kind": "attr",
+        "status": "ok",
+        "value": "None"
+      },
+      {
+        "member": "ExecuteCurrentElement",
+        "kind": "skip"
+      },
+      {
+        "member": "ExecuteCurrentSolver",
+        "kind": "skip"
+      },
+      {
+        "member": "GetCurrentCondition",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetCurrentParam",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetHoleParam",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetThickness",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetWireParam",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "GetWirePartsName",
+        "kind": "call",
+        "status": "error",
+        "error": "AttributeError: 'NoneType' object has no attribute '_FlagAsMethod'"
+      },
+      {
+        "member": "SetApertureFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCurrentCondition",
+        "kind": "skip"
+      },
+      {
+        "member": "SetCurrentParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetDrillFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SetEvaluateMethod",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHoleFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SetHoleParam",
+        "kind": "skip"
+      },
+      {
+        "member": "SetMaterial",
+        "kind": "skip"
+      },
+      {
+        "member": "SetSystem",
+        "kind": "skip"
+      },
+      {
+        "member": "SetThickness",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWireFile",
+        "kind": "skip"
+      },
+      {
+        "member": "SetWireParam",
+        "kind": "skip"
+      },
+      {
+        "member": "Translate",
+        "kind": "skip"
+      }
+    ]
+  },
+  "elapsed_s": 0.61
+}
