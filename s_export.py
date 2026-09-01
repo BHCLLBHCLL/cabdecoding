@@ -324,6 +324,7 @@ class SExport:
         self._peltier()
         self._autofixp()
         self._stop_var()
+        self._pcle_create()
         self._lsol_sections()
         self._pcle_handling()
         self._humw_region()
@@ -1642,6 +1643,105 @@ class SExport:
         self.lines.append(_i(ncsv1, 12))
         self.lines.append("   " + region)
         self.lines.append("/")
+
+    # F2/G1 pinned PCLE_CREATE defaults (exA07-3; not in the spray XML)
+    _PCLE_ROP, _PCLE_CDP, _PCLE_DDP = 1.0e3, -1.0, 1.0e-4
+    _PCLE_RFP, _PCLE_IUSE = 1.0e-1, 0
+    _PCLE_NPGE, _PCLE_NPED, _PCLE_ICD = 1, 0, 0
+
+    def _pcle_create(self):
+        """PCLE_CREATE — particle generation conditions (G1).
+
+        Source: ``<value type="spray">`` values (exA07-3 official storage:
+        particle_mass / particle_num / time_start·end·inc / normal /
+        velocity / angle / diameter(mm) / charge) bound via ``<parts>``
+        to a point part whose ``<coord unit="mm">`` is the cone apex.
+
+        Card per Solver_eng PCLE_CREATE (LTYPE='mass-standard',
+        LPOS='spray-cone'); field roles resolved against the official
+        sample (点1 coord 5,50,50 mm -> CSP; normal -> ESP; angle ->
+        ALP1/ALP2; diameter mm -> DSP m; charge -> IATRB=1 +
+        LATNAM=echarge).  Omitted when no spray values exist (ex4_e
+        golden parity).
+        """
+        entries: list[tuple[object, str]] = []
+        for val in self.m.values_of_type("spray"):
+            name = _child_text(val, "name")
+            if not name:
+                continue
+            for c in self.m.conditions():
+                if _child_text(c, "value") != name:
+                    continue
+                for ch in c:
+                    if ch.tag == "parts":
+                        parts = (ch.text or "").strip()
+                        if parts:
+                            entries.append((val, parts))
+        if not entries:
+            return
+        self.lines.append("PCLE_CREATE")
+        for val, parts in entries:
+            charge = _child_text(val, "charge", "")
+            iatrb = 1 if charge else 0
+
+            def num(tag, default, _val=val):
+                try:
+                    return float(_child_text(_val, tag, str(default)))
+                except ValueError:
+                    return float(default)
+
+            apex = self._part_coord_m(parts)
+            normal = [float(v) for v in
+                      _child_text(val, "normal", "0,0,1").split(",")[:3]]
+            while len(normal) < 3:
+                normal.append(0.0)
+            self.lines.append("mass-standard")
+            self.lines.append(f"spray-cone{iatrb:12d}")
+            self.lines.append(_f(num("particle_mass", 1e-4)))
+            self.lines.append(_f(num("velocity", 2.0)))
+            self.lines.append(
+                _f(self._PCLE_ROP) + _f(self._PCLE_CDP)
+                + _f(self._PCLE_DDP) + _f(self._PCLE_RFP)
+                + f"{self._PCLE_IUSE:4d}")
+            self.lines.append(_f(num("time_start", 0.0))
+                              + _f(num("time_end", 10.0))
+                              + _f(num("time_inc", 3e-3)))
+            self.lines.append(_i(int(num("particle_num", 100)), 12)
+                              + _i(self._PCLE_NPGE, 12)
+                              + _i(self._PCLE_NPED, 12))
+            self.lines.append(f"{self._PCLE_ICD:15d}"
+                              + "".join(_f(v) for v in apex)
+                              + "".join(_f(v) for v in normal))
+            angles = [float(v) for v in
+                      _child_text(val, "angle", "50,70").split(",")[:2]]
+            while len(angles) < 2:
+                angles.append(0.0)
+            try:
+                dsp = float(_child_text(val, "diameter", "2.5")) / 1000.0
+            except ValueError:
+                dsp = 2.5e-3
+            self.lines.append(_f(angles[0]) + _f(angles[1]) + _f(dsp))
+            if iatrb:
+                self.lines.append("    echarge")
+                self.lines.append(_f(float(charge)))
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _part_coord_m(self, name: str) -> list[float]:
+        """Point-part ``<coord unit="mm">`` in metres (0,0,0 fallback)."""
+        for p in self.m.parts():
+            if p.name != name:
+                continue
+            from cabxml import _first
+            el = _first(p.elem, "coord")
+            if el is None or not el.text:
+                break
+            try:
+                return [float(v) / 1000.0
+                        for v in el.text.split(",")[:3]]
+            except ValueError:
+                break
+        return [0.0, 0.0, 0.0]
 
     def _humw_region(self):
         """HUMW_REGION — humidity boundary conditions (C2).
