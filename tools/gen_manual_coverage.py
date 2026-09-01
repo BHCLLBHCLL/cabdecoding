@@ -24,6 +24,30 @@ def norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
 
 
+# F7: condition pages closed by the C1-C8 batches (§23) — recognised apart
+# from the crude title-hit heuristic.
+CLOSED_CONDITIONS = (
+    "contact angle", "contact thermal resistance",
+    "electrical contact resistance", "electric potential",
+    "electrostatic field", "total temperature", "fixed pressure",
+    "fan boundary", "mass transfer boundary", "constant moisture flux",
+    "initial moisture", "humidity transfer", "humidity source",
+    "humidity absorption", "sum of pressure output", "output passage",
+    "termination variable", "standardized concentration",
+    "parts' internal variables", "pathline output", "wave generation",
+    "wave energy attenuation", "fluid interface", "foaming resin",
+    "permeable object", "laser", "reaction", "reaction of particle",
+    "particle generation timing", "particle rebound",
+    "particle sedimentation", "particle spray", "particle vanishment",
+    "particle external force", "between particles",
+    "force between particles", "particle symmetry", "design space",
+    "chemical material", "compressible fluid", "cloth model",
+    "check time step", "calculate conductivity",
+    "calculation of heat transfer coefficient",
+    "calculation of humidity absorption",
+)
+
+
 def page_title(fname: str) -> str:
     stem = fname[:-5]
     stem = re.sub(r"^St_pre_", "", stem)
@@ -32,6 +56,9 @@ def page_title(fname: str) -> str:
     m = re.match(r"(?:Condition|Details|Supplement|Wizard)_\(?(.+?)\)?$", stem)
     if m:
         stem = m.group(1)
+    # Wizard sub-pages: St_pre_Wizard-Condition_Setting-A-B-C -> use "C"
+    if stem.startswith("Wizard-"):
+        stem = stem.split("-")[-1]
     stem = stem.replace("_", " ")
     for a, b in (("-", " "), ("  ", " ")):
         stem = stem.replace(a, b)
@@ -72,6 +99,10 @@ def main() -> int:
         title = page_title(fname)
         key = norm(title)
         hit = bool(key) and key in corpus_norm
+        lowered = title.lower()
+        if any(lowered.startswith(c) or c in lowered
+               for c in CLOSED_CONDITIONS):
+            hit = True  # closed by the §23 condition batches
         counts[(cat, "hit" if hit else "miss")] += 1
         rows.append((cat, title, fname, hit))
 
