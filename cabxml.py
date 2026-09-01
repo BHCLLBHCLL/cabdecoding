@@ -1791,6 +1791,23 @@ class StpreModel:
                 changed = True
         return changed
 
+    def ensure_polygon_body_files(self) -> int:
+        """AM-3: register polygon (STL) parts in ``<body_files>`` so the
+        STpre relay mesher receives them (STpre's own STL part cab layout
+        carries body_files entries; our import layout omitted them).
+        Returns the number of entries added."""
+        added = 0
+        for p in self.parts():
+            if (p.kind or "").lower() != "polygon":
+                continue
+            f_el = _first(p.elem, "file")
+            ref = (f_el.text or "").strip() if f_el is not None else ""
+            if not ref or not ref.lower().endswith(".stl"):
+                continue
+            if self.add_body_file(ref, file_type="stl"):
+                added += 1
+        return added
+
     # -- region pairs (Thermal Boundary Between Parts) --------------------
 
     def region_pairs(self) -> list[tuple[str, str, str]]:

@@ -368,6 +368,9 @@ def build_relay_cab(model, archive, src_path: str | Path, *,
         old_element = root.find("element")
         if old_element is not None:
             root.remove(old_element)
+    # AM-3: polygon (STL) parts must appear in body_files for STpre's
+    # mesher to receive them (STpre's own STL cab layout carries them).
+    model.ensure_polygon_body_files()
     src_root = model.doc.root
     for tag in ("analysis_region", "body_files"):
         el = src_root.find(tag)
