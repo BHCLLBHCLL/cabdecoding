@@ -339,6 +339,9 @@ class SExport:
         self._flux_sum()
         self._pfoc_region()
         self._ncoz_output()
+        self._surf_list()
+        self._ocsv_parts()
+        self._pcl_restriction()
         self._cutcell()
         self._tprt()
         self.lines.append("GOGO")
@@ -1782,6 +1785,131 @@ class SExport:
             except ValueError:
                 break
         return [0.0, 0.0, 0.0]
+
+    def _surf_list(self):
+        """SURFLIST — MARS-method output passage (G2, Solver_eng).
+
+        Source: ``analysis_set/lfile_surflist`` records
+        ``region|mvof;...`` (MVOF 1=VOF1 2=VOF2) and
+        ``lfile_surflist_cycle`` -> NC.  Grammar: NC / LTYPE
+        ('areaflowratio') / then MVOF + REGION_NAME pairs until /.
+        Omitted when no records (ex4_e golden parity).
+        """
+        aset = self.m.root.find("analysis_set")
+        recs = self._aset_text(aset, "lfile_surflist")
+        if not recs:
+            return
+        try:
+            nc = int(float(self._aset_text(aset, "lfile_surflist_cycle",
+                                           "1") or 1))
+        except ValueError:
+            nc = 1
+        entries = []
+        for rec in recs.split(";"):
+            bits = rec.split("|")
+            if len(bits) == 2 and bits[0].strip() and bits[1].strip():
+                entries.append((bits[1].strip(), bits[0].strip()))
+        if not entries:
+            return
+        self.lines.append("SURFLIST")
+        self.lines.append(_i(nc, 12))
+        self.lines.append("areaflowratio")
+        for mvof, region in entries:
+            self.lines.append(_i(int(mvof), 12))
+            self.lines.append("   " + region)
+        self.lines.append("   /")
+        self.lines.append("/")
+
+    def _ocsv_parts(self):
+        """OCSV_PARTS — parts' internal variables to CSV (G2).
+
+        Source: ``ocsv_parts`` (existing pipe-joined part selection on
+        the File Specification page) + ``lfile_ocsv_label`` (LABEL),
+        ``lfile_ocsv_itype`` (ITYPE 1/2/3) and ``lfile_ocsv_lvar``
+        (LVAR).  NCTMG uses the documented default '1:L' (steady
+        incompressible; otherwise 0).  PRT numbers are the 1-based
+        positions in the PARTS section order.  Omitted when no parts
+        are selected.
+        """
+        aset = self.m.root.find("analysis_set")
+        sel = [x for x in self._aset_text(aset, "ocsv_parts").split("|")
+               if x]
+        if not sel:
+            return
+        label = self._aset_text(aset, "lfile_ocsv_label") or "ocsv"
+        try:
+            itype = int(float(self._aset_text(aset, "lfile_ocsv_itype",
+                                              "1") or 1))
+        except ValueError:
+            itype = 1
+        lvar = self._aset_text(aset, "lfile_ocsv_lvar", "TEMP") or "TEMP"
+        part_no = {p.name: i + 1 for i, p in enumerate(self.m.parts())}
+        prts = [part_no[name] for name in sel if name in part_no]
+        if not prts:
+            return
+        self.lines.append("OCSV_PARTS")
+        self.lines.append(label)
+        self.lines.append(f"{1:12d}:L")
+        self.lines.append(_i(len(prts), 12))
+        for no in prts:
+            self.lines.append(_i(no, 12))
+        self.lines.append(_i(itype, 12))
+        self.lines.append("   " + lvar)
+        self.lines.append("/")
+
+    def _pcl_restriction(self):
+        """PCL_RESTRICTION — pathline output restrictions (G2).
+
+        Source: ``analysis_set/pcl_restriction`` records; per the
+        Solver_eng grammar each record is ``ltype|p1|p2...`` closed by
+        ``/``::
+
+            cuboid:          XMIN,YMIN,ZMIN / XMAX,YMAX,ZMAX
+            volume_region:   REGION_NAME
+            surface_region:  AREA_NAME, IDRC
+            calc_time:       TSTA, TEND
+            particle_gen_label: ILBL
+
+        Omitted when no records exist (ex4_e golden parity).
+        """
+        aset = self.m.root.find("analysis_set")
+        raw = self._aset_text(aset, "pcl_restriction")
+        if not raw:
+            return
+        recs = [r for r in (x.strip() for x in raw.split(";")) if r]
+        if not recs:
+            return
+        self.lines.append("PCL_RESTRICTION")
+        for rec in recs:
+            bits = [b.strip() for b in rec.split("|")]
+            ltype = bits[0]
+            self.lines.append(ltype)
+            if ltype == "cuboid" and len(bits) >= 7:
+                self.lines.append(" ".join(_f(float(bits[i]))
+                                           for i in (1, 2, 3)))
+                self.lines.append(" ".join(_f(float(bits[i]))
+                                           for i in (4, 5, 6)))
+            elif ltype == "volume_region" and len(bits) >= 2:
+                self.lines.append("   " + bits[1])
+            elif ltype == "surface_region" and len(bits) >= 3:
+                self.lines.append("   " + bits[1])
+                self.lines.append(f"   {bits[2]}")
+            elif ltype == "calc_time" and len(bits) >= 3:
+                self.lines.append(" ".join(_f(float(bits[i]))
+                                           for i in (1, 2)))
+            elif ltype == "particle_gen_label" and len(bits) >= 2:
+                self.lines.append(f"{bits[1]:>12s}" if bits[1].isdigit()
+                                  else "   " + bits[1])
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    @staticmethod
+    def _aset_text(aset, tag, default=""):
+        from cabxml import _first
+        if aset is None:
+            return default
+        el = _first(aset, tag)
+        return (el.text or "").strip() if el is not None else default
 
     def _humw_region(self):
         """HUMW_REGION — humidity boundary conditions (C2).

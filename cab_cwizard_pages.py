@@ -9,6 +9,7 @@ where fields exist; richer options are retained in the UI for fidelity.
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Optional
 
@@ -4680,6 +4681,29 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
         top.addWidget(self.pass_cycle)
         lay.addLayout(top)
 
+        mars = QGroupBox("Output Passage/MARS Method (SURFLIST)", page)
+        mfl = QFormLayout(mars)
+        self.mars_cycle = QSpinBox(mars)
+        self.mars_cycle.setRange(0, 1000000000)
+        self.mars_cycle.setValue(1)
+        mfl.addRow("Output cycle (0=off)", self.mars_cycle)
+        self.mars_mvof = QComboBox(mars)
+        self.mars_mvof.addItems(["VOF1", "VOF2"])
+        self.mars_mvof.setCurrentIndex(1)
+        mfl.addRow("Fluid", self.mars_mvof)
+        self.mars_region = QLineEdit(mars)
+        mfl.addRow("Region name", self.mars_region)
+        btn_mars = QPushButton("Add MARS passage", mars)
+        btn_mars.clicked.connect(self._mars_add)
+        mfl.addRow(btn_mars)
+        self.mars_table = QTableWidget(0, 2, mars)
+        self.mars_table.setHorizontalHeaderLabels(["Region", "MVOF"])
+        self.mars_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.mars_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        mfl.addRow(self.mars_table)
+        lay.addWidget(mars)
+
         box = QGroupBox("Specified region", page)
         bl = QVBoxLayout(box)
         drow = QHBoxLayout()
@@ -5134,7 +5158,38 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
                 out[k.strip()] = v.strip()
         return out
 
+    def _mars_add(self) -> None:
+        region = self.mars_region.text().strip()
+        if not region:
+            return
+        mvof = self.mars_mvof.currentIndex() + 1
+        row = self.mars_table.rowCount()
+        self.mars_table.insertRow(row)
+        self.mars_table.setItem(row, 0, QTableWidgetItem(region))
+        self.mars_table.setItem(row, 1, QTableWidgetItem(str(mvof)))
+        self.mars_region.clear()
+
+    def _mars_records(self) -> str:
+        out = []
+        for r in range(self.mars_table.rowCount()):
+            it0 = self.mars_table.item(r, 0)
+            it1 = self.mars_table.item(r, 1)
+            if it0 and it1 and it0.text():
+                out.append(f"{it0.text()}|{it1.text()}")
+        return ";".join(out)
+
     def _load(self) -> None:
+        self.mars_cycle.setValue(int(float(
+            self.model.analysis_set_value("lfile_surflist_cycle", "1")
+            or 1)))
+        for rec in self.model.analysis_set_value(
+                "lfile_surflist", "").split(";"):
+            bits = rec.split("|")
+            if len(bits) == 2 and bits[0]:
+                r = self.mars_table.rowCount()
+                self.mars_table.insertRow(r)
+                self.mars_table.setItem(r, 0, QTableWidgetItem(bits[0]))
+                self.mars_table.setItem(r, 1, QTableWidgetItem(bits[1]))
         self.l_warn.setChecked(
             self.model.analysis_set_value("lfile_warn", "T").upper()
             not in ("F", "0", "FALSE"))
@@ -5252,6 +5307,10 @@ class _CwOutputLFilePage(QWidget if _HAS_GUI else object):
             "lfile_ncoz", "T" if self.ncoz_on.isChecked() else "F")
         self.model.set_analysis_set_value(
             "lfile_ncoz_cycle", f"{int(self.ncoz_cycle.value())}")
+        self.model.set_analysis_set_value(
+            "lfile_surflist_cycle", f"{int(self.mars_cycle.value())}")
+        self.model.set_analysis_set_value(
+            "lfile_surflist", self._mars_records())
         self.model.set_analysis_set_value(
             "lfile_ncoz_rgn", self.ncoz_rgn.text().strip())
         self.model.set_analysis_set_value(
@@ -5835,6 +5894,17 @@ class _CwFilePage(QWidget if _HAS_GUI else object):
         side.addWidget(btn_c)
         side.addStretch(1)
         body.addLayout(side)
+        ofl = QFormLayout()
+        self.ocsv_itype = QComboBox(page)
+        self.ocsv_itype.addItems([
+            "Center of each element inside the part",
+            "Center of each element face (outer side)",
+            "Center of each element face (inner side)"])
+        ofl.addRow("Output location", self.ocsv_itype)
+        self.ocsv_lvar = QLineEdit(page)
+        self.ocsv_lvar.setText("TEMP")
+        ofl.addRow("Output variables (LVAR)", self.ocsv_lvar)
+        lay.addLayout(ofl)
         lay.addLayout(body, 1)
         lay.addWidget(_note(
             "(Note) Displayed when an OCSV file is enabled in Detailed "
@@ -6229,6 +6299,13 @@ class _CwFilePage(QWidget if _HAS_GUI else object):
             x for x in m.analysis_set_value("ocsv_parts", "").split("|") if x}
         self._fill_sel_table(
             self.ocsv_table, self._part_names(), self._ocsv_sel)
+        try:
+            self.ocsv_itype.setCurrentIndex(int(float(
+                m.analysis_set_value("lfile_ocsv_itype", "1"))) - 1)
+        except ValueError:
+            pass
+        self.ocsv_lvar.setText(
+            m.analysis_set_value("lfile_ocsv_lvar", "TEMP"))
 
         self._csv_maps = self._load_list(
             m.analysis_set_value("csv_mapping", ""),
@@ -6344,6 +6421,13 @@ class _CwFilePage(QWidget if _HAS_GUI else object):
             self._dump_list(self._partial, ("name", "type", "param")))
         m.set_analysis_set_value(
             "ocsv_parts", "|".join(sorted(self._ocsv_sel)))
+        m.set_analysis_set_value(
+            "lfile_ocsv_itype", str(self.ocsv_itype.currentIndex() + 1))
+        m.set_analysis_set_value(
+            "lfile_ocsv_lvar", self.ocsv_lvar.text().strip() or "TEMP")
+        m.set_analysis_set_value(
+            "lfile_ocsv_label",
+            os.path.splitext(self.f_ocsv.text().strip())[0] or "ocsv")
         m.set_analysis_set_value(
             "csv_mapping",
             self._dump_list(self._csv_maps, ("name", "file", "var")))
