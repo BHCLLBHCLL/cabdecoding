@@ -1,0 +1,134 @@
+{
+  "cases": [
+    {
+      "case": "solid_cuboid",
+      "creator": "CreateCubeModel",
+      "args": [
+        "FemBox",
+        0.0,
+        0.0,
+        0.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "fem_returned": "<COMObject <unknown>>",
+      "xfem": {
+        "fem_FemBox": {
+          "kinds": [
+            4
+          ],
+          "n_elements": 532,
+          "nodes_per_element": [
+            4
+          ]
+        }
+      },
+      "fem_parts": [
+        "fem_FemBox"
+      ]
+    },
+    {
+      "case": "panel",
+      "creator": "CreatePanelModel",
+      "args": [
+        "FemPanel",
+        5.0,
+        5.0,
+        5.0,
+        10.0,
+        10.0,
+        0.0,
+        "a"
+      ],
+      "fem_returned": null,
+      "xfem": null,
+      "fem_parts": []
+    },
+    {
+      "case": "quad_panel",
+      "creator": "CreateQuadPanelModel",
+      "args": [
+        "FemQuad",
+        5.0,
+        5.0,
+        5.0,
+        10.0,
+        10.0,
+        0.0,
+        "a"
+      ],
+      "error": "com_error: (-2147352562, '无效的参数数目。', None, None)"
+    },
+    {
+      "case": "cylinder",
+      "creator": "CreateCylinderModel",
+      "args": [
+        "FemCyl",
+        5.0,
+        5.0,
+        5.0,
+        3.0,
+        10.0,
+        "z"
+      ],
+      "fem_returned": "<COMObject <unknown>>",
+      "xfem": {
+        "fem_FemCyl": {
+          "kinds": [
+            4
+          ],
+          "n_elements": 296,
+          "nodes_per_element": [
+            4
+          ]
+        }
+      },
+      "fem_parts": [
+        "fem_FemCyl"
+      ]
+    },
+    {
+      "case": "hexahedron",
+      "creator": "CreateHexahedronModel",
+      "args": [
+        "FemHex",
+        0.0,
+        0.0,
+        0.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "case": "solid_fine",
+      "creator": "CreateCubeModel",
+      "args": [
+        "FemBoxFine",
+        0.0,
+        0.0,
+        0.0,
+        10.0,
+        10.0,
+        10.0
+      ],
+      "fem_returned": "<COMObject <unknown>>",
+      "xfem": {
+        "fem_FemBoxFine": {
+          "kinds": [
+            4
+          ],
+          "n_elements": 2822,
+          "nodes_per_element": [
+            4
+          ]
+        }
+      },
+      "fem_parts": [
+        "fem_FemBoxFine"
+      ]
+    }
+  ]
+}

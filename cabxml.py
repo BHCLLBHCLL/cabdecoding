@@ -2545,7 +2545,12 @@ class StpreModel:
     #        </model>
     #     </femodel>
     #    节点坐标为米（unit=m）；kind="4" = 4 节点四面体（solid）。
-    #    壳单元的 kind 值未实证（降级：不生成壳单元）。
+    #    壳/六面体 kind：F6 活体探针（tools/probe_fem_kinds.py，
+    #    见 docs/fem_kind_probe.md）证实 —— CreateFEM 对实体件（立方体
+    #    length=2.0/1.0、圆柱）只写 kind="4"；Panel 件不产生 .xfem（无
+    #    壳单元输出）；CreateHexaModel 的 COM 参数表未解析成功。据此按
+    #    §22.0 B 级定档：STpre 无壳/六面体 FEM 输出路径，本仓只写 tet4
+    #    与官方行为一致（非能力缺口）。
     # 4) .s 文件无 FEM 段（单元数据只在 .xfem；.s 的 VFEM 是求解器
     #    开关，与 pre 数据无关）。
 
