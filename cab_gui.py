@@ -5324,9 +5324,16 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         dlg.exec_()
 
     def _run_picls(self, workdir: str) -> bool:
-        """P2-2: PICLS 拉起 + 工作目录注入 (CLI 参数无公开文档, B 级定档)。"""
+        """P2-2 → F6/D11: PICLS 拉起。
+
+        活体探针（tools/probe_picls_cli.py，见 docs/fem_kind_probe.md）
+        证实：PICLS 接受工程文件参数并以 GUI 常驻（与 scPOST 同契约），
+        无 headless/无退出码契约。故这里按 scPOST 的方式传当前工程，
+        工作目录注入保留；参数集无公开文档的部分维持 B 级定档。
+        """
         exe = self._external_tool_exe("picls")
-        return self._launch_program(exe, [], workdir or None)
+        args = [self.current_path] if self.current_path else []
+        return self._launch_program(exe, args, workdir or None)
 
     def _execute_picls(self) -> None:
         """Tools -> Execute PICLS: 仅拉起并注入工程目录 (B 级定档)。"""

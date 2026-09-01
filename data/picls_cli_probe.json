@@ -1,0 +1,9 @@
+{
+  "exe": "C:\\Program Files\\Cradle\\CradleCFD2025.2\\Programs_x64\\PICLS_Bx64net.exe",
+  "project": "tests/ex4_e.cab",
+  "wait_s": 15.0,
+  "pid": 40580,
+  "status": "still-running",
+  "elapsed_s": 15.04,
+  "killed": true
+}

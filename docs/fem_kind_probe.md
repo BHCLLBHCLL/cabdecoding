@@ -1,4 +1,4 @@
-# FEM 元素 kind 活体探针（F6 / D10）
+# F6 活体探针合集（本机 STpre 2025.2 COM 实机）
 
 工具：`tools/probe_fem_kinds.py`（本机 STpre 2025.2 COM 实机）。
 产物：`data/fem_kind_probe.json`。
@@ -45,3 +45,20 @@ Open/Save/Close/Quit…）按 §22 规则跳过（破坏性成员需沙箱副本
 这是 §22 C 级口径所需的“终证率公示”第一批数据：包装覆盖 A 层仍为
 100%，B 层本批终证 177 项；no-object 的四类（MeshBlock 无手册类页、
 Sketch/Property/Table 需专用获取路径）列为下一批探针目标。
+
+
+## D11：PICLS CLI 活体探针
+
+工具：`tools/probe_picls_cli.py`；产物：`data/picls_cli_probe.json`。
+
+以受控方式（超时 + 强制回收）启动 `PICLS_Bx64net.exe <工程文件>`：
+进程 **启动并常驻**（15 s 后仍存活，随后被 kill），说明 PICLS 与 scPOST
+同契约——**接受工程文件参数、以 GUI 常驻**；无 headless/退出码契约。
+
+结论（A+B 口径）：
+
+- A：`cab_gui._run_picls` 改为按 scPOST 的方式传当前工程文件（原先为空参 +
+  目录注入），工作目录注入保留；
+- B：除“工程文件”外无公开 CLI 参数集，其余参数维持 B 级定档。
+
+Tools_eng 手册只覆盖 Kicker 启动器（许可证/语言），没有 PICLS 的 CLI 文档。

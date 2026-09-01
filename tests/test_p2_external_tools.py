@@ -118,7 +118,8 @@ def test_run_picls_cwd_injection(viewer, monkeypatch):
     assert viewer._run_picls("D:/work")
     exe, args, cwd = launched[0]
     assert exe == "X:/PICLS_Bx64net.exe"
-    assert args == []           # 空参 (无公开 CLI 文档, B 级定档)
+    # F6/D11 探针: PICLS 与 scPOST 同契约 —— 传工程文件, 常驻 GUI
+    assert args == [viewer.current_path]
     assert cwd == "D:/work"     # 目录注入
 
 
