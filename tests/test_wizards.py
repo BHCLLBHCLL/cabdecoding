@@ -719,3 +719,18 @@ def test_c6_storage_only_conditions(pieces, qapp):
     finally:
         react.deleteLater()
     w.close()
+
+
+def test_f3_option_menu_has_dialog_entries(pieces):
+    """F3: the Option menu exposes the seven non-Condition dialogs."""
+    archive, model, props, viewer = pieces
+    labels = []
+    for act in viewer.menuBar().actions():
+        if act.text() == "Option(&O)":
+            labels = [a.text() for a in act.menu().actions() if a.text()]
+    for want in ("Chemical Material…", "Compressible Fluid…",
+                 "Cloth Model Characteristics…", "Check Time Step…",
+                 "Calculate Conductivity…",
+                 "Calculate Heat Transfer Coefficient…",
+                 "Humidity Absorption/Desorption…"):
+        assert want in labels, want

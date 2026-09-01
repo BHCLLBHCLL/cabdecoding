@@ -514,6 +514,18 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         add(m, "Viewer Mode…", self._option_viewer_mode)
         add(m, "Thermal Characteristics of Surface…",
             self._option_thermal_surface)
+        # F3: non-Condition dialogs (Pre_eng Option/material family)
+        add(m, "Chemical Material…", self._extra_dialog_chemical)
+        add(m, "Compressible Fluid…", self._extra_dialog_compressible)
+        add(m, "Cloth Model Characteristics…",
+            self._extra_dialog_cloth)
+        add(m, "Check Time Step…", self._extra_dialog_check_timestep)
+        m.addSeparator()
+        add(m, "Calculate Conductivity…", self._extra_dialog_calc_cond)
+        add(m, "Calculate Heat Transfer Coefficient…",
+            self._extra_dialog_calc_htc)
+        add(m, "Humidity Absorption/Desorption…",
+            self._extra_dialog_humidity_calc)
         add(m, "Parametric Study…", self._option_parametric)
         m.addSeparator()
         add(m, "Environment Settings", self._environment_settings)
@@ -1134,6 +1146,49 @@ class CabViewer(QMainWindow if _HAS_GUI_DEPS else object):
         ok.clicked.connect(_ok)
         cancel.clicked.connect(dlg.reject)
         dlg.exec_()
+
+    def _open_extra_dialog(self, factory):
+        """F3: open one of the non-Condition dialogs (no-op headless)."""
+        if self.model is None:
+            self.log("No project open.", "WARN")
+            return
+        try:
+            import cab_extra_dialogs
+            dlg = factory(cab_extra_dialogs)
+        except Exception as exc:
+            self.log(f"Dialog failed: {exc}", "WARN")
+            return
+        dlg.exec_()
+
+    def _extra_dialog_chemical(self) -> None:
+        self._open_extra_dialog(
+            lambda m: m.ChemicalMaterialDialog(self.model, self))
+
+    def _extra_dialog_compressible(self) -> None:
+        self._open_extra_dialog(
+            lambda m: m.CompressibleFluidDialog(self.model, self))
+
+    def _extra_dialog_cloth(self) -> None:
+        self._open_extra_dialog(
+            lambda m: m.ClothModelDialog(self.model, self))
+
+    def _extra_dialog_check_timestep(self) -> None:
+        self._open_extra_dialog(
+            lambda m: m.CheckTimeStepDialog(self.model, self))
+
+    def _extra_dialog_calc_cond(self) -> None:
+        import cab_extra_dialogs
+        dlg = cab_extra_dialogs.CalculateConductivityDialog(self)
+        dlg.exec_()
+
+    def _extra_dialog_calc_htc(self) -> None:
+        import cab_extra_dialogs
+        dlg = cab_extra_dialogs.HeatTransferCoefficientDialog(self)
+        dlg.exec_()
+
+    def _extra_dialog_humidity_calc(self) -> None:
+        self._open_extra_dialog(
+            lambda m: m.HumidityAbsorptionDialog(self.model, self))
 
     def _option_thermal_surface(self) -> None:
         """P2: Option → Thermal Characteristics of Surface (emissivity set)."""
