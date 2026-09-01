@@ -2564,13 +2564,13 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
 |---|---|---|---|
 | F1 条件发射批 | ✅（3/6） | `29cbfb2` | STOP_VAR/PFOC_REGION/NCOZ_OUTPUT 接发射（NCOZ tab 补区域字段）；SURFLIST/OCSV_PARTS/PCL_RESTRICTION 挪 F2/F3——现有 UI 缺 MVOF/ITYPE/LVAR/限制几何字段 |
 | F2 湿度/粒子/静电/DEM 发射批 | ✅（6/9） | `4f53ad6` | AMOM rough/power 变体、HUMW type=1（hum_ltype）+HUMH_REGION（type=3）、MOVB_ESF_SORC、LSOL 全模型名表、TOPOPT 字段映射修正；PCLE_CREATE spray（365 行语法）、LSOL_FORCE_IP、ES_FIELD/PROP 头留档（各附手册页引用） |
-| F3 非 Condition 对话框批 | ⏳ | — | Chemical Material / Compressible / Cloth / Check Time Step / Calculate×3 / AC 5 机型 |
-| F4 网格负面结论批 | ⏳ | — | STL/polygon relay、threshold/axis_plane 曲面、multiblock×cylinder（Solver_eng 交叉验证） |
+| F3 非 Condition 对话框批 | ✅（6/7 族） | `99f9ea0` | 新 cab_extra_dialogs：Chemical Material / Compressible Fluid / Cloth Model / Check Time Step / Calculate Conductivity / Calculate HTC / Humidity φ-h 七对话框＋Option 菜单注册；AC Unit 5 机型仍开放（cab_parts 参数面） |
+| F4 网格负面结论批 | ✅（2/4，余探针） | `566ff29` | STL/polygon relay body_files 修复（无效网格化根因）；multiblock×cylindrical 引擎级测试锁定；threshold/axis_plane 曲面语义仍需黑盒探针 |
 | F5 求解闭环深化 | ✅ | `3ef7141` | 收敛曲线 wheel 缩放 + 双击复位 + CSV/PNG 导出（右键菜单） |
 | F6 许可窗口批 | ⏳ | — | COM B 层 / FEM kind / PICLS（唯一窗口硬依赖） |
 | F7 终审批 | ⏳ | — | 727 页逐页对照 + Solver_eng 全命令对照 → v7.0 |
 
-无窗口主线进度：F1 ✅ F2 ✅ F5 ✅（3/5），全量 **774 passed / 5 skipped**。
+无窗口主线进度：F1 ✅ F2 ✅ F3 ✅ F4 ✅ F5 ✅（5/5），全量 **786 passed / 5 skipped**。剩余 100% 路径：F6 许可窗口批（COM B 层 / FEM kind / PICLS）＋ F7 终审（727 页对照 → v7.0）；另 AC Unit 5 机型与三项曲面网格语义探针为残项。
 
 ### 25.3 执行顺序与里程碑
 
