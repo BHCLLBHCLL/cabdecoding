@@ -2607,3 +2607,76 @@ def interference_check(parts: list[TessPart], boxes) -> list[str]
   格式）。
 - F7 发布门：① 727 页对照表全闭合；② Solver_eng 命令对照全闭合；
   ③ 12 维 A/B/C 全落；④ 定档声明附录；⑤ 全量绿＋金标全保。
+
+---
+
+## 26. 覆盖度与深度 100% 收官规划 v2（2026-09-02 刷新）
+
+> 基线：HEAD `fdc4588`，全量 **792 passed / 5 skipped**。
+> 已完成：§24（AM/MB/FMT/SK）、§23（C1–C8）、§25 F1–F5、AC 机型残项、
+> F6 三项活体探针（D10 FEM kind / D9 B 层首批 177 项 / D11 PICLS）、
+> F7 覆盖基线。**本机 STpre COM 已确认可用**（开档/保存/建模实测通过），
+> 因此“许可窗口”不再是阻塞项，只剩“探针批次”的排期问题。
+
+### 26.1 现状：12 维与覆盖基线
+
+| 维 | 现状 | 本轮新增证据 |
+|---|:---:|---|
+| D1 数据层 | 95 | — |
+| D2 Part | 94 | AC 机型=ac_unit 的机型下拉（5 页一一对齐） |
+| D3 UI | 94 | F3 七对话框族 + Option 菜单 |
+| D4 .s 导出 | 95 | F1（STOP_VAR/PFOC/NCOZ）+ F2（AMOM 变体/HUMW/HUMH/MOVB_ESF_SORC/LSOL/TOPOPT）→ 派发 32 section |
+| D5 网格 | 97 | F4：polygon relay body_files 根因修复 + multiblock×圆柱 |
+| D6 CW | 90 | C1–C8 发射与存储（残 F7 复核） |
+| D7 PK | 95 | draft/midsurface 内核实证不可实现（B） |
+| D8 求解闭环 | 90 | F5 收敛曲线缩放/导出；.pst 解析不做（B） |
+| D9 COM | 90 → A100% | D9 首批：177 项终证 + 45/440/57 分类公示（C 口径） |
+| D10 FEM | 75 → 闭合 | D10 探针：仅 tet4，STpre 无壳/六面体路径（A+B） |
+| D11 工具 | 85 → 闭合 | D11 探针：PICLS 接受工程文件（A+B） |
+| D12 导入导出 | 93 | SAT/MDL B 定档、CGNS 非对标声明 |
+
+覆盖基线（Pre_eng 708 页）：命中 396 / 待确认 312
+（condition 45、wizard 70、operation 138、part 31、menu 3、reference 25）。
+
+### 26.2 残项 → 批次（G 系列）
+
+| 批 | 残项 | 规模 | 证据源 | 依赖 |
+|---|---|:---:|---|---|
+| **G1** F2 留档发射 | PCLE_CREATE spray 全字段（365 行语法页）、LSOL_FORCE_IP、ES_FIELD/ES_FIELD_PROP 头 | L | Solver_eng | 无 |
+| **G2** F1 遗留三项 | SURFLIST（MVOF）、OCSV_PARTS（ITYPE/LVAR/Standard Output Timing）、PCL_RESTRICTION（cuboid/volume_region/surface_region/calc_time/gen_label） | M | Solver_eng | 需补 UI 字段 |
+| **G3** F4 剩余 | threshold/axis_plane 在曲面部件的语义 | M | **COM 探针**（圆柱 x_t）＋Solver_eng | STpre 可跑 |
+| **G4** F7 终审 | 312 页逐项 A/B/C 确认 → gap analysis **v7.0** | M | Pre_eng | G1–G3 |
+| **G5** 长尾 | D1 深字段滚动、part 31 页几何代理定档、menu 3 页 | S–M | Pre_eng | G4 结果 |
+| **G6** D9 第二批 | Sketch/Property/Table/MeshBlock 活对象获取；45 项参数化调用；破坏性成员沙箱隔离子集 | M–L | COM 探针 | STpre 可跑 |
+| **G7** 黑盒校验 | 新 section（HUMW/HUMH/ES_FIELD/TOPOPT/…）与 STpre 输出逐字节对拍 | S | COM 探针 | G1/G2 |
+
+### 26.3 执行顺序与里程碑
+
+```
+无窗口：G1 → G2 → G3        （预计 98%）
+终审：  G4 → G5            （产 v7.0 = 100% 表）
+加固：  G6 → G7            （终证率与字节级质量）
+```
+
+- **G1/G2** 复用 F2 已沉淀的方法：手册 Input format → XML 存储形状 →
+  section 发射 → 逐字断言测试；缺字段的先补 CW UI（SURFLIST MVOF、
+  OCSV ITYPE/LVAR/时序、PCL 限制几何）。
+- **G3** 用 COM 建圆柱件（CreateCylinderModel 已验证）跑 Gridding，
+  与本仓原生 `threshold/axis_plane` 结果对拍，钉住语义。
+- **G4** 以 `docs/manual_coverage.md` 的 312 条清单逐项落 A/B/C；
+  operation 类（138）多为章节说明页，判定为“操作已在xxx实现/声明”，
+  需记录映射而非新代码。
+
+### 26.4 发布门（不变）
+
+① 708 页对照全闭合；② Solver_eng 635 命令页全对照（已发射 / 手册定档
+不适用 / 留档声明）；③ 12 维 A/B/C 全落；④ 定档声明附录；
+⑤ 全量绿（≥792 passed）＋金标全保（ex4_e 逐行、blend 530/422、
+.ccel 11 样本字节级、tr03/box 逐点）。
+
+### 26.5 诚实边界
+
+- 440 项破坏性 COM 成员不做全量活体探针（沙箱成本），按 §22 以
+  **隔离探针报告 + C 声明**收口，仅对高价值子集做沙箱验证。
+- part 页（31）与部分 operation 页的“覆盖”可能终态为 B/C 声明
+  （几何代理、章节说明），而非新实现——这是 100% 口径允许的闭合方式。
