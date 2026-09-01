@@ -99,3 +99,54 @@ def test_pcle_create_no_charge_no_iatrb():
     i = lines.index("PCLE_CREATE")
     assert lines[i + 2] == "spray-cone           0"
     assert "echarge" not in lines[i:i + 12]
+
+
+# ------------------------------------------------- G1 余项: ES_FIELD 头
+
+def test_es_field_heads_emission():
+    """ES_FIELD (LEQ_ESF from partcile_echarge, LSOLV=0) + ES_FIELD_PROP
+    material 1 = eps0 * relative permittivity."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = _model_with_spray()
+    m.set_analysis_etc_value("partcile_echarge", "2")
+    m.set_project_value("electrostatic_permittivity", "2.0")
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    lines = s.split("\r\n")
+    i = lines.index("ES_FIELD")
+    assert lines[i + 1] == f"{2:15d}{0:12d}"
+    assert lines[i + 2] == "ES_FIELD_PROP"
+    assert lines[i + 3] == f"{1:12d}{8.85937637406252e-12 * 2.0:26.14e}"
+    assert lines[i + 4] == "/"
+    assert lines.index("ES_FIELD") < lines.index("FOUT")
+
+
+def test_es_field_heads_absent_when_off():
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = _model_with_spray()
+    assert "ES_FIELD\r" not in build_sdat(
+        m, PropertyModel(parse_property(new_property_bytes())))[:200]
+
+
+def test_lsol_force_ip_group():
+    """dem enabled -> LSOL_FORCE_IP contact group with CONT_TYPE='follow'
+    (conforms to LSOL_FORCE_MODEL), no section terminator."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = _model_with_spray()
+    m.set_analysis_etc_child("dem", "dem_motion", "1")
+    m.set_analysis_etc_child("dem", "dem_contact_model", "1")
+    m.set_analysis_etc_child("dem", "dem_rolling_resistance_model", "1")
+    m.set_analysis_etc_child("dem", "dem_adhesion", "0")
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    lines = s.split("\r\n")
+    i = lines.index("LSOL_FORCE_IP")
+    assert lines[i + 1:i + 4] == [
+        "contact",
+        " follow" + f"{0:12d}{0:12d}",
+        "   /",
+    ]
+    assert lines.index("LSOL_FORCE_IP") > lines.index("LSOL_TIME_STEP")

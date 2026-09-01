@@ -324,6 +324,7 @@ class SExport:
         self._peltier()
         self._autofixp()
         self._stop_var()
+        self._es_field_heads()
         self._pcle_create()
         self._lsol_sections()
         self._pcle_handling()
@@ -1388,6 +1389,15 @@ class SExport:
         self.lines.append(
             f"{num('dem_recoverty_step_scale', 0.1):26.14e}"
             f"{int(num('dem_recoverty_max', 100)):15d}")
+        # G1: LSOL_FORCE_IP contact group — CONT_TYPE='follow' conforms to
+        # the LSOL_FORCE_MODEL setting above (exA07-4); the per-pair
+        # material property blocks (LSOL_FORCE_BC) need particle-material
+        # storage and stay probe-deferred.  No section terminator: the
+        # group '/' ends the command (official layout).
+        self.lines.append("LSOL_FORCE_IP")
+        self.lines.append("contact")
+        self.lines.append(" follow" + f"{0:12d}{0:12d}")
+        self.lines.append("   /")
 
     def _pcle_handling(self):
         """PCLE_HANDLING — particle destruction / sedimentation regions
@@ -1509,6 +1519,36 @@ class SExport:
         for parts in parts_list:
             self.lines.append("   " + parts)
             self.lines.append("   /")
+        self.lines.append("/")
+
+    # G1: eps0 pinned from exA07-3 (air, default conditions); the
+    # relative permittivity multiplies it.
+    _ES_FIELD_EPS0 = 8.85937637406252e-12
+
+    def _es_field_heads(self):
+        """ES_FIELD / ES_FIELD_PROP — electrostatic field heads (G1).
+
+        Evidence: official exA07-3 (``ES_FIELD`` 2,0 — LEQ_ESF from
+        ``analysis_etc/partcile_echarge`` 1=each cycle 2=first cycle,
+        LSOLV=0 default solver) and the ES_FIELD_PROP ``MAT,PMTVI`` pair
+        grammar (negative PMTVI = metal marker).  Emitted when the
+        electrostatic analysis is enabled; only the fluid material
+        (material 1) carries the stored relative permittivity —
+        per-material dielectric selection needs storage (exA07-3 shows
+        material 2 as the metal marker -1).
+        """
+        leq = self.m.analysis_etc_value("partcile_echarge", "").strip()
+        if leq not in ("1", "2"):
+            return
+        self.lines.append("ES_FIELD")
+        self.lines.append(f"{int(leq):15d}{0:12d}")
+        try:
+            rel = float(self.m.project_value("electrostatic_permittivity",
+                                             "1.0"))
+        except ValueError:
+            rel = 1.0
+        self.lines.append("ES_FIELD_PROP")
+        self.lines.append(f"{1:12d}{self._ES_FIELD_EPS0 * rel:26.14e}")
         self.lines.append("/")
 
     # F1: STOP_VAR variable-name codes (Solver_eng STOP_VAR table)
