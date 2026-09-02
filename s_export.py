@@ -1302,7 +1302,9 @@ class SExport:
         for _name, d, n, nums, parts in groups:
             self.lines.append("energyattenuation")
             self.lines.append(f"{d:15d}{n:12d}")
-            self.lines.append("".join(_f(v, 29) for v in nums))
+            # official exA15-6: first value 29-wide, remaining 26-wide
+            self.lines.append(_f(nums[0], 29)
+                              + "".join(_f(v) for v in nums[1:]))
             self.lines.append("   " + parts)
             self.lines.append("   /")
         self.lines.append("/")
@@ -1764,19 +1766,22 @@ class SExport:
             self.lines.append(f"spray-cone{iatrb:12d}")
             self.lines.append(_f(num("particle_mass", 1e-4), 29))
             self.lines.append(_f(num("velocity", 2.0), 29))
-            self.lines.append(
-                _f(self._PCLE_ROP, 29) + _f(self._PCLE_CDP, 29)
-                + _f(self._PCLE_DDP, 29) + _f(self._PCLE_RFP, 29)
-                + f"{self._PCLE_IUSE:4d}")
-            self.lines.append(_f(num("time_start", 0.0), 29)
-                              + _f(num("time_end", 10.0), 29)
-                              + _f(num("time_inc", 3e-3), 29))
+            self.lines.append(" " * 9
+                              + "".join(_f(v) for v in (
+                                  self._PCLE_ROP, self._PCLE_CDP,
+                                  self._PCLE_DDP, self._PCLE_RFP))
+                              + f"{self._PCLE_IUSE:4d}")
+            self.lines.append(" " * 9
+                              + "".join(_f(v) for v in (
+                                  num("time_start", 0.0),
+                                  num("time_end", 10.0),
+                                  num("time_inc", 3e-3))))
             self.lines.append(_i(int(num("particle_num", 100)), 12)
                               + _i(self._PCLE_NPGE, 12)
                               + _i(self._PCLE_NPED, 12))
-            self.lines.append(f"{self._PCLE_ICD:15d}"
-                              + "".join(_f(v, 29) for v in apex)
-                              + "".join(_f(v, 29) for v in normal))
+            self.lines.append(f"{self._PCLE_ICD:15d}" + " " * 7
+                              + "".join(_f(v) for v in apex)
+                              + "".join(_f(v) for v in normal))
             angles = [float(v) for v in
                       _child_text(val, "angle", "50,70").split(",")[:2]]
             while len(angles) < 2:
@@ -1785,8 +1790,9 @@ class SExport:
                 dsp = float(_child_text(val, "diameter", "2.5")) / 1000.0
             except ValueError:
                 dsp = 2.5e-3
-            self.lines.append(_f(angles[0], 29) + _f(angles[1], 29)
-                              + _f(dsp, 29))
+            self.lines.append(" " * 9
+                              + "".join(_f(v) for v in (
+                                  angles[0], angles[1], dsp)))
             if iatrb:
                 self.lines.append("    echarge")
                 self.lines.append(_f(float(charge), 29))

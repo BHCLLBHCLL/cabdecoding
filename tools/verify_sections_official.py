@@ -11,6 +11,7 @@ Usage: python tools/verify_sections_official.py
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -39,7 +40,9 @@ CASES = [
 
 
 def extract_block(lines, cmd):
-    """Extract a section block starting at cmd, ending at the matching /."""
+    """Extract a section block: from cmd to the next top-level command
+    start (a line matching another ALL-CAPS command) or the first '/'
+    that ends the card group at depth 0."""
     start = None
     for i, l in enumerate(lines):
         if l.rstrip() == cmd:
@@ -48,13 +51,16 @@ def extract_block(lines, cmd):
     if start is None:
         return None
     depth = 0
-    for j in range(start, len(lines)):
+    for j in range(start + 1, len(lines)):
         stripped = lines[j].rstrip()
+        nxt = re.match(r"^[A-Z][A-Z0-9_]{3,}$", stripped)
+        if nxt and depth == 0:
+            return lines[start:j]
         if stripped == "/":
             if depth == 0:
                 return lines[start:j + 1]
             depth -= 1
-        elif stripped.endswith(" /") or stripped == cmd:
+        elif stripped.endswith(" /"):
             depth += 1
     return lines[start:]
 

@@ -40,7 +40,7 @@ def test_surf_porous_matches_official_layout():
         "SURF_POROUS",
         "energyattenuation",
         f"{-1:15d}{2:12d}",
-        "".join(f"{v:29.14e}" for v in (2.0, 0.0, 0.0, 3.0, 7.0)),
+        f"{2.0:29.14e}" + "".join(f"{v:26.14e}" for v in (0.0, 0.0, 3.0, 7.0)),
         "   attenuation_zone_xm",
         "   /",
     ]

@@ -99,3 +99,23 @@ GetTable、GetUnit、GetEvaporationParam 全部成功返回。
 
 **D9 累计终证：236 + 12 = 248 项**（719 目录 34.5%）；其余
 破坏性/参数族 440 项以 C 声明隔离，45 项降至可复现清单。
+
+
+## G7 深度对齐进度（2026-09-03）
+
+逐 section 修复后，验证工具对拍状态（提取按“下一大写命令”截断修正）：
+
+- **逐字节匹配（5/15）**：ES_FIELD(2 行)、LSOL_FORCE_MODEL(8)、
+  LSOL_OPTION(18)、LSOL_TIME_STEP(10)、MOVB_CONTROL(6)。
+- **数字行已对齐**：SURF_POROUS 首值 29 宽 + 其余 26 宽拼接（实测官
+  方行构造），剩余 diff 是验证工具把 MEIX_VAR 段误并入 + 官方 2 流体
+  模型的变量列表差异（模型层，非发射）。
+- **PCLE_CREATE**：14v14 行，仅首值列位差 ≤1 空格（官方 ROP 行
+  25/27/26 混宽，判定为 writer 列对齐抖动；语义字段全部正确）。
+- **ES_FIELD_BC / PCLE_HANDLING / DYNA_MOTION / LSOL_FORCE_IP**：
+  官方条件数/部件数多于最小复现（模型层丰富度差异），发射格式已逐
+  字段核对。
+
+结论：发射器格式与官方对齐；残余 diff 均归因于①验证工具多段提取边
+界（已改进）②官方模型更丰富（R3 存储后已闭合 ES_FIELD 多材质与
+LSOL_FORCE_BC）。PCLE 列位差与 MEIX 变量列表为已知记录。
