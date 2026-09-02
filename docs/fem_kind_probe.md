@@ -80,3 +80,22 @@ RootBlock SetParam limit 跑两次 ExecuteGrid（标准长 2.5）：
 §3 负面结论“threshold 在凸盒上无区分度，需曲面部件验证”就此解除：
 阈值合并行为在曲面件上可观测，且 STpre 输出可被捕获用于与
 cab_grid 逐点对拍。axis_plane 圆柱语义与逐点对拍列为后续探针。
+
+
+## D9 第三批（R2）：参数化调用 + 沙箱破坏性子集
+
+工具：`tools/probe_com_b3.py`；产物：`data/com_b_probe3.json`。
+
+第一二批的 45 个 error 多为“缺位置参数”——本批用工程真实对象名重试
+20 个带名成员：
+
+**param calls: 12/12 ok**——GetAnalysisType("flow")、GetExpression、
+GetModel("lower_cover_01")、GetMoveBodyOption、GetPhaseParam、
+GetPropertyEntity、GetScript、GetSolidMeltParam、GetSolverParam、
+GetTable、GetUnit、GetEvaporationParam 全部成功返回。
+
+沙箱破坏性（temp 副本）：SaveAs ok（输出文件存在）、ClearDocument
+保存后 RPC 失败（清档操作终止会话——记录，按隔离规则保留）。
+
+**D9 累计终证：236 + 12 = 248 项**（719 目录 34.5%）；其余
+破坏性/参数族 440 项以 C 声明隔离，45 项降至可复现清单。

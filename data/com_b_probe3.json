@@ -1,0 +1,88 @@
+{
+  "param_calls": [
+    {
+      "member": "GetAnalysisType",
+      "args": "flow",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetExpression",
+      "args": "expr1",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetModel",
+      "args": "lower_cover_01",
+      "status": "ok",
+      "value": "<STpreModel <COMObject <unknown>>>"
+    },
+    {
+      "member": "GetMoveBodyOption",
+      "args": "lower_cover_01",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetPhaseParam",
+      "args": "water",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetPropertyEntity",
+      "args": "air(incompressible/20C)",
+      "status": "ok",
+      "value": "<STpreProperty <COMObject <unknown>>>"
+    },
+    {
+      "member": "GetScript",
+      "args": "script1",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetSolidMeltParam",
+      "args": "water",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetSolverParam",
+      "args": "flow",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetTable",
+      "args": "air(incompressible/20C)",
+      "status": "ok",
+      "value": "<STpreTable None>"
+    },
+    {
+      "member": "GetUnit",
+      "args": "length",
+      "status": "ok",
+      "value": "'mm'"
+    },
+    {
+      "member": "GetEvaporationParam",
+      "args": "water",
+      "status": "ok",
+      "value": "None"
+    }
+  ],
+  "sandbox": [
+    {
+      "member": "SaveAs",
+      "status": "ok",
+      "exists": true
+    },
+    {
+      "member": "ClearDocument",
+      "status": "error",
+      "error": "(-2147352570, '未知名称。', None, None)"
+    }
+  ]
+}
