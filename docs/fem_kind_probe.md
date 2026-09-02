@@ -119,3 +119,19 @@ GetTable、GetUnit、GetEvaporationParam 全部成功返回。
 结论：发射器格式与官方对齐；残余 diff 均归因于①验证工具多段提取边
 界（已改进）②官方模型更丰富（R3 存储后已闭合 ES_FIELD 多材质与
 LSOL_FORCE_BC）。PCLE 列位差与 MEIX 变量列表为已知记录。
+
+
+## D9 沙箱批量脚本化（R2 follow-up）
+
+工具：`tools/probe_com_sandbox.py`（`--members` 可扩展）；产物：
+`data/com_sandbox.json`。
+
+| 成员 | 结果 | 说明 |
+|---|---|---|
+| Save | ok | 会话 save() 成功 |
+| SaveAs | save-false | Application.SaveAs 返回 False（GUI 确认对话框可能阻断 headless 调用；文件未生成） |
+| UpdateAll | ok | Application.UpdateAll 成功 |
+| ClearDocument | ok | Application.ClearDocument 成功 |
+
+至此破坏性成员的沙箱批量脚本已入库——后续只需 `--members` 追加即可
+扩展覆盖，无需再写新脚本。

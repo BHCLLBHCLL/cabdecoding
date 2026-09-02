@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "member": "Save",
+      "status": "ok"
+    },
+    {
+      "member": "SaveAs",
+      "status": "save-false"
+    },
+    {
+      "member": "UpdateAll",
+      "status": "ok"
+    },
+    {
+      "member": "ClearDocument",
+      "status": "ok"
+    }
+  ]
+}

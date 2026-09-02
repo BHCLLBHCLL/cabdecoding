@@ -7853,6 +7853,42 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
     def read_particle_family(self, key: str, fields: tuple) -> dict:
         return {f: self._r4_get(self._R4[key], f) for f in fields}
 
+    # -- R4: S-level UI controls for the six particle families ------------
+
+    _FAMILY_LABELS = {
+        "heat_source": ("Particle heat source",
+                        ("region", "power", "unit")),
+        "fixed_velocity": ("Particle fixed velocity",
+                           ("vx", "vy", "vz")),
+        "motion_udf": ("Particle motion (user-defined)",
+                       ("name",)),
+        "statistics": ("Particle statistics", ("cycle",)),
+        "dem_gen": ("DEM particle generation",
+                    ("count", "radius")),
+        "dem_restitution": ("DEM restitution",
+                            ("normal", "tangential")),
+    }
+
+    def _particle_family_ui(self, lay) -> None:
+        """Add a family-record editor table (name -> key/value pairs)."""
+        self.pf_table = QTableWidget(0, 2, self)
+        self.pf_table.setHorizontalHeaderLabels(["Family", "Record"])
+        self.pf_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self.pf_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        lay.addWidget(self.pf_table, 1)
+        self._pf_reload()
+
+    def _pf_reload(self) -> None:
+        self.pf_table.setRowCount(0)
+        for key in self._R4:
+            raw = self._r4_get(self._R4[key], "_record")
+            if raw:
+                r = self.pf_table.rowCount()
+                self.pf_table.insertRow(r)
+                self.pf_table.setItem(r, 0, QTableWidgetItem(key))
+                self.pf_table.setItem(r, 1, QTableWidgetItem(raw))
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         mode = self.mode.currentText()
@@ -9183,6 +9219,33 @@ class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
             return False
         if not self.model.upsert_value("mo_mass_transfer", name, [
                 ("transfer", f"{float(transfer):g}", "m/s")]):
+            return False
+        return self.model.bind_condition("parts", parts, name)
+
+    # R4 leftover: MO humidity + contact-face heat transfer
+    def _commit_mo_humidity(self, name: str, parts: str,
+                            humidity: float) -> bool:
+        """Moving-object humidity boundary (storage-only; no card
+        evidence)."""
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("mo_humidity", name, [
+                ("humidity", f"{float(humidity):.12g}", "%")]):
+            return False
+        return self.model.bind_condition("parts", parts, name)
+
+    def _commit_mo_contact_heat(self, name: str, parts: str,
+                                coefficient: float) -> bool:
+        """Moving-object contact-face heat transfer (storage-only)."""
+        name = (name or "").strip()
+        parts = (parts or "").strip()
+        if not name or not parts:
+            return False
+        if not self.model.upsert_value("mo_contact_heat", name, [
+                ("coefficient", f"{float(coefficient):.12g}",
+                 "W/(m2.K)")]):
             return False
         return self.model.bind_condition("parts", parts, name)
 
