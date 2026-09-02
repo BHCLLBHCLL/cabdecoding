@@ -1,0 +1,275 @@
+[
+  {
+    "section": "HUMW_REGION",
+    "sample": "exA05-2",
+    "status": "both-absent"
+  },
+  {
+    "section": "PCLE_CREATE",
+    "sample": "exA07-3",
+    "status": "diff",
+    "our_lines": 60,
+    "official_lines": 53,
+    "first_diffs": [
+      {
+        "ours": "      1.00000000000000e-04",
+        "official": "         1.00000000000000e-04"
+      },
+      {
+        "ours": "      2.00000000000000e+00",
+        "official": "         2.00000000000000e+00"
+      },
+      {
+        "ours": "      1.00000000000000e+03     -1.00000000000000e+00      1.00000000000000e-04      1.00000000000000e-01   0",
+        "official": "         1.00000000000000e+03     -1.00000000000000e+00      1.00000000000000e-04      1.00000000000000e-01   0"
+      },
+      {
+        "ours": "      0.00000000000000e+00      1.00000000000000e+01      3.00000000000000e-03",
+        "official": "         0.00000000000000e+00      1.00000000000000e+01      3.00000000000000e-03"
+      }
+    ]
+  },
+  {
+    "section": "ES_FIELD_BC",
+    "sample": "exA07-3",
+    "status": "diff",
+    "our_lines": 35,
+    "official_lines": 22,
+    "first_diffs": [
+      {
+        "ours": "      0.00000000000000e+00",
+        "official": "         0.00000000000000e+00"
+      },
+      {
+        "ours": "     -1.00000000000000e+02",
+        "official": "        -1.00000000000000e+02"
+      },
+      {
+        "ours": "FOUT",
+        "official": "ES_FIELD_SORC"
+      },
+      {
+        "ours": "    HTRC",
+        "official": "/"
+      }
+    ]
+  },
+  {
+    "section": "ES_FIELD",
+    "sample": "exA07-3",
+    "status": "diff",
+    "our_lines": 65,
+    "official_lines": 21,
+    "first_diffs": [
+      {
+        "ours": "           1      8.85937637406252e-12",
+        "official": "              1      8.85937637406252e-12"
+      },
+      {
+        "ours": "/",
+        "official": "              2     -1.00000000000000e+00"
+      },
+      {
+        "ours": "PCLE_CREATE",
+        "official": "/"
+      },
+      {
+        "ours": "mass-standard",
+        "official": "ES_FIELD_BC"
+      }
+    ]
+  },
+  {
+    "section": "PCLE_HANDLING",
+    "sample": "exA07-3",
+    "status": "diff",
+    "our_lines": 46,
+    "official_lines": 39,
+    "first_diffs": [
+      {
+        "ours": "ES_FIELD_BC",
+        "official": "ES_FIELD"
+      },
+      {
+        "ours": "epotential    0   ! 0V",
+        "official": "              2           0"
+      },
+      {
+        "ours": "      0.00000000000000e+00",
+        "official": "ES_FIELD_PROP"
+      },
+      {
+        "ours": "   Xmin面",
+        "official": "              1      8.85937637406252e-12"
+      }
+    ]
+  },
+  {
+    "section": "LSOL_FORCE_MODEL",
+    "sample": "exA07-4",
+    "status": "match",
+    "lines": 26
+  },
+  {
+    "section": "LSOL_OPTION",
+    "sample": "exA07-4",
+    "status": "diff",
+    "our_lines": 44,
+    "official_lines": 28,
+    "first_diffs": [
+      {
+        "ours": "      1.00000000000000e-01            100",
+        "official": "         1.00000000000000e-01         100"
+      },
+      {
+        "ours": "LSOL_FORCE_IP",
+        "official": "/"
+      }
+    ]
+  },
+  {
+    "section": "LSOL_TIME_STEP",
+    "sample": "exA07-4",
+    "status": "diff",
+    "our_lines": 38,
+    "official_lines": 14,
+    "first_diffs": [
+      {
+        "ours": "      1.00000000000000e-01            100",
+        "official": "         1.00000000000000e-01         100"
+      },
+      {
+        "ours": "LSOL_FORCE_IP",
+        "official": "/"
+      },
+      {
+        "ours": "contact",
+        "official": "LSOL_FORCE_IP"
+      },
+      {
+        "ours": " follow           0           0",
+        "official": "contact"
+      }
+    ]
+  },
+  {
+    "section": "LSOL_FORCE_IP",
+    "sample": "exA07-4",
+    "status": "diff",
+    "our_lines": 29,
+    "official_lines": 85,
+    "first_diffs": [
+      {
+        "ours": "   /",
+        "official": "/"
+      },
+      {
+        "ours": "FOUT",
+        "official": "LSOL_FORCE_BC"
+      },
+      {
+        "ours": "    HTRC",
+        "official": "symmetry"
+      },
+      {
+        "ours": "    SURT",
+        "official": " on"
+      }
+    ]
+  },
+  {
+    "section": "SURF_POROUS",
+    "sample": "exA15-6",
+    "status": "diff",
+    "our_lines": 32,
+    "official_lines": 25,
+    "first_diffs": [
+      {
+        "ours": "      2.00000000000000e+00      0.00000000000000e+00      0.00000000000000e+00      3.00000000000000e+00      7.00000000000000e+00",
+        "official": "         2.00000000000000e+00      0.00000000000000e+00      0.00000000000000e+00      3.00000000000000e+00      7.00000000000000e+00"
+      },
+      {
+        "ours": "      2.00000000000000e+00      0.00000000000000e+00      0.00000000000000e+00      3.00000000000000e+00      7.00000000000000e+00",
+        "official": "         2.00000000000000e+00      0.00000000000000e+00      0.00000000000000e+00      3.00000000000000e+00      7.00000000000000e+00"
+      },
+      {
+        "ours": "    VNOR",
+        "official": "    WNOR"
+      },
+      {
+        "ours": "    WNOR",
+        "official": "    PRES"
+      }
+    ]
+  },
+  {
+    "section": "FLUX_SUM",
+    "sample": "exA18-2",
+    "status": "error",
+    "error": "ValueError: could not convert string to float: 'tcntl'"
+  },
+  {
+    "section": "TOPOPT_REGION",
+    "sample": "exA28-1",
+    "status": "one-absent",
+    "ours": true,
+    "official": false
+  },
+  {
+    "section": "SUFS_REGION",
+    "sample": "exA09-4",
+    "status": "one-absent",
+    "ours": false,
+    "official": true
+  },
+  {
+    "section": "MOVB_CONTROL",
+    "sample": "exA09-4",
+    "status": "diff",
+    "our_lines": 36,
+    "official_lines": 91,
+    "first_diffs": [
+      {
+        "ours": "   unrestricted",
+        "official": "    unrestricted"
+      },
+      {
+        "ours": "   unrestricted",
+        "official": "    unrestricted"
+      },
+      {
+        "ours": "VFEM",
+        "official": "MOVB_AMOM"
+      },
+      {
+        "ours": "              1     -1.00000000000000e+00",
+        "official": "noslip"
+      }
+    ]
+  },
+  {
+    "section": "DYNA_MOTION",
+    "sample": "exA09-4",
+    "status": "diff",
+    "our_lines": 30,
+    "official_lines": 85,
+    "first_diffs": [
+      {
+        "ours": "   unrestricted",
+        "official": "    unrestricted"
+      },
+      {
+        "ours": "   unrestricted",
+        "official": "    unrestricted"
+      },
+      {
+        "ours": "VFEM",
+        "official": "MOVB_AMOM"
+      },
+      {
+        "ours": "              1     -1.00000000000000e+00",
+        "official": "noslip"
+      }
+    ]
+  }
+]
