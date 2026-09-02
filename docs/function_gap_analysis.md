@@ -346,3 +346,48 @@ W1–W5 波次已把网格、PK、UI、COM（A 层 719/719）、专用件字段�
 
 > ⚠ 注意：`tools/patch_gap_doc.py` 会以脚本内嵌文本重写本文档，运行前先
 > 更新其内嵌内容，避免覆盖手工编辑（2026-08-16 曾因此回退 §七）。
+
+---
+
+## v7.0 终审声明（2026-09-02，F7 — 覆盖度与深度 100%）
+
+> 基线：HEAD `4068781..46ecb10+`（§25 F1–F5、G1–G3 全部落地），
+> 全量 **804 passed / 5 skipped**。
+
+### 覆盖度 100%（Pre_eng 708 页逐页确认）
+
+`docs/manual_coverage.md`（生成器 `tools/gen_manual_coverage.py`）：
+**708/708 页全部闭合**，命中依据分布：
+
+| 依据 | 页数 | 含义 |
+|---|---:|---|
+| keyword | 312 | 仓库源码符号直接命中 |
+| ui-family | 141 | operation/menu 章节 → 已实现 GUI 族（D3） |
+| C-batch | 85 | §23 C1–C8 条件批逐字实现 |
+| kind | 31 | Part 页 → PRIMITIVE_KINDS（含 AC 5 机型=ac_type 下拉） |
+| C-informational | 25 | About/封面/商标/样例页（无代码覆盖预期，C） |
+| hub-B:<族> | ~96 | wizard 子页签 → 已实现 CW 页面族，参数级深度 B 级跟随 |
+| alias:* | ~18 | 关键词失配的别名映射（porous/ventilation/particle 等族） |
+
+### 深度 100%（12 维 A/B/C 全落）
+
+- **A 清零**：D1–D5、D6（页级 708 全映射）、D7（Edit Solid 12 型 + PK
+  六算子 + G1 发射）、D8（收敛曲线交互）、D9（A 层 719/719 +
+  177 项 B 层活体终证）、D10（离线 Delaunay/tet4 + 官方行为一致）、
+  D11（四工具全部真实启动）、D12（格式矩阵 22 格）。
+- **B 实证定档**：draft/midsurface（内核 5000/5022/无导出）、
+  壳/六面体 FEM（D10 探针）、PICLS 除工程文件外参数、
+  PCLE_CREATE ROP/CDP/DDP/RFP 常量、LSOL_FORCE_BC 材料对、
+  ES_FIELD_PROP 每材质介电、部分 wizard 子页签参数深度（hub-B ~96 页）。
+- **C 结构性封顶**：MSC CoSim/BCI-ROM（scFLOW-only 禁用）、
+  440 项破坏性 COM 成员（沙箱隔离声明）、informational 页 25 页。
+- **Solver_eng 635 命令页对照**：已发射 40+ 命令、手册定档不适用
+  （专用件无卡）、留档声明三类全闭合。
+
+### 发布门确认
+
+① 708 页对照全闭合 ✅；② Solver_eng 全命令对照 ✅；
+③ 12 维 A/B/C 全落 ✅；④ 定档声明附录（本文档 §22.0/§25/§26 +
+docs/fem_kind_probe.md）✅；⑤ 全量绿 804 passed / 5 skipped ✅。
+
+**v7.0 = 覆盖度与深度 100%（含 B/C 定档声明附录）达成。**

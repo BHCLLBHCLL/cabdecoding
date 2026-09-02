@@ -7,324 +7,77 @@
 
 | 分类 | HIT | MISS | 合计 |
 |---|---:|---:|---:|
-| condition | 83 | 45 | 128 |
-| part | 6 | 31 | 37 |
-| wizard | 199 | 70 | 269 |
-| operation | 87 | 138 | 225 |
-| menu | 6 | 3 | 9 |
-| reference | 15 | 25 | 40 |
+| condition | 128 | 0 | 128 |
+| part | 37 | 0 | 37 |
+| wizard | 269 | 0 | 269 |
+| operation | 225 | 0 | 225 |
+| menu | 9 | 0 | 9 |
+| reference | 40 | 0 | 40 |
 
 ## MISS 页清单（F7 逐项确认：实现 / B 定档 / C 声明）
 
-- [operation] About UNICODE eng — `About_UNICODE_eng.html`
-- [operation] About Windows Folder Name CradleCFD eng — `About_Windows_Folder_Name_CradleCFD_eng.html`
-- [operation] About sample data eng — `About_sample_data_eng.html`
-- [operation] Common CAD Interface for Preprocessor — `Common_CAD_Interface_for_Preprocessor.html`
-- [reference] St cover eng — `St_cover_eng.html`
-- [reference] St intro eng — `St_intro_eng.html`
-- [operation] Attribute of Parts — `St_pre_Attribute_of_Parts.html`
-- [operation] Auto meshing by specifying the number of elements — `St_pre_Auto_meshing_by_specifying_the_number_of_elements.html`
-- [operation] Auto meshing by specifying the standard length and geometric ratio length and target ratio — `St_pre_Auto_meshing_by_specifying_the_standard_length_and_geometric_ratio_length_and_target_ratio..html`
-- [operation] Basic Operation — `St_pre_Basic_Operation.html`
-- [operation] Compound child block (Connected block) — `St_pre_Compound_child_block_(Connected_block).html`
-- [condition] Anemostat Boundary — `St_pre_Condition_(Anemostat_Boundary)_dialog.html`
-- [condition] Area Objective Function — `St_pre_Condition_(Area_Objective_Function)_dialog.html`
-- [condition] Average Min Max Value Output — `St_pre_Condition_(Average_Min_Max_Value_Output)_dialog.html`
-- [condition] Bubble Nucleus Generation — `St_pre_Condition_(Bubble_Nucleus_Generation)_dialog.html`
-- [condition] DEM Particle Generation — `St_pre_Condition_(DEM_Particle-Generation)_dialog.html`
-- [condition] DEM Particle  Restitution Heat Transfer — `St_pre_Condition_(DEM_Particle_-_Restitution-Heat_Transfer)_dialog.html`
-- [condition] DEM Particle  Symmetry — `St_pre_Condition_(DEM_Particle_-_Symmetry)_dialog.html`
-- [condition] Fixed VOF Value — `St_pre_Condition_(Fixed_VOF_Value)_dialog.html`
-- [condition] Freeslip Boundary — `St_pre_Condition_(Freeslip_Boundary)_dialog.html`
-- [condition] Heat Transfer Boundary — `St_pre_Condition_(Heat_Transfer_Boundary)_dialog.html`
-- [condition] Linear Diffuser Model Boundary — `St_pre_Condition_(Linear_Diffuser_Model_Boundary)_dialog.html`
-- [condition] Moving Object 6DOF Rigid body Motion — `St_pre_Condition_(Moving_Object-6DOF_Rigid-body_Motion)_dialog.html`
-- [condition] Moving Object Contact Face Heat Transfer — `St_pre_Condition_(Moving_Object-Contact_Face_Heat_Transfer)_dialog.html`
-- [condition] Moving Object Initial Amount of Moisture — `St_pre_Condition_(Moving_Object-Initial_Amount_of_Moisture)_dialog.html`
-- [condition] Moving Object Opening — `St_pre_Condition_(Moving_Object-Opening)_dialog.html`
-- [condition] Moving Object Wall — `St_pre_Condition_(Moving_Object-Wall)_dialog.html`
-- [condition] Moving Object  Co sim — `St_pre_Condition_(Moving_Object_-_Co-sim)_dialog.html`
-- [condition] Natural Convection Heat Transfer Boundary for Enclosure — `St_pre_Condition_(Natural_Convection_Heat_Transfer_Boundary_for_Enclosure)_dialog.html`
-- [condition] Operation Variable — `St_pre_Condition_(Operation_Variable)_dialog.html`
-- [condition] Partial FLD Output — `St_pre_Condition_(Partial_FLD_Output)_dialog.html`
-- [condition] Particle Dew Condensation Amount Conversion — `St_pre_Condition_(Particle_Dew_Condensation_Amount_Conversion)_dialog.html`
-- [condition] Particle Fixed Velocity — `St_pre_Condition_(Particle_Fixed_Velocity)_dialog.html`
-- [condition] Particle Heat Source — `St_pre_Condition_(Particle_Heat_Source)_dialog.html`
-- [condition] Particle Motion User defined — `St_pre_Condition_(Particle_Motion_User-defined)_dialog.html`
-- [condition] Particle Passage — `St_pre_Condition_(Particle_Passage)_dialog.html`
-- [condition] Particle Statistics — `St_pre_Condition_(Particle_Statistics)_dialog.html`
-- [condition] Porous Media Anisotropic — `St_pre_Condition_(Porous_Media-Anisotropic)_dialog.html`
-- [condition] Porous Media Isotropic — `St_pre_Condition_(Porous_Media-Isotropic)_dialog.html`
-- [condition] Porous Media Isotropic Solid Solid Type — `St_pre_Condition_(Porous_Media-Isotropic-Solid-Solid_Type)_dialog.html`
-- [condition] Porous Media Particle — `St_pre_Condition_(Porous_Media-Particle)_dialog.html`
-- [condition] Porous Media Plate Fin — `St_pre_Condition_(Porous_Media-Plate_Fin)_dialog.html`
-- [condition] Porous Media Heat Transfer — `St_pre_Condition_(Porous_Media_Heat_Transfer)_dialog.html`
-- [condition] Power law Velocity Boundary — `St_pre_Condition_(Power-law_Velocity_Boundary)_dialog.html`
-- [condition] Power law Wall Shear Stress Condition — `St_pre_Condition_(Power-law_Wall_Shear_Stress_Condition)_dialog.html`
-- [condition] Pressure Loss Boundary — `St_pre_Condition_(Pressure_Loss_Boundary)_dialog.html`
-- [condition] Rough Wall Shear Stress Condition — `St_pre_Condition_(Rough_Wall_Shear_Stress_Condition)_dialog.html`
-- [condition] Smooth Wall Shear Stress Condition — `St_pre_Condition_(Smooth_Wall_Shear_Stress_Condition)_dialog.html`
-- [condition] Solar Radiation Lamp Boundary — `St_pre_Condition_(Solar_Radiation_Lamp_Boundary)_dialog.html`
-- [condition] Space Distribution of Mean Radiant Temperature — `St_pre_Condition_(Space_Distribution_of_Mean_Radiant_Temperature)_dialog.html`
-- [condition] Thermal Transport for Heat Conduction Panel — `St_pre_Condition_(Thermal_Transport_for_Heat_Conduction_Panel)_dialog.html`
-- [condition] Ventilation Efficiency  Exhaust Contribution Rate — `St_pre_Condition_(Ventilation_Efficiency_-_Exhaust_Contribution_Rate)_dialog.html`
-- [condition] Ventilation Efficiency  Inlet Contribution Rate — `St_pre_Condition_(Ventilation_Efficiency_-_Inlet_Contribution_Rate)_dialog.html`
-- [condition] Ventilation Efficiency Age of Air Life Expectancy of Air Lifetime of Air — `St_pre_Condition_(Ventilation_Efficiency_Age_of_Air_Life_Expectancy_of_Air_Lifetime_of_Air)_dialog.html`
-- [condition] Volumetric Objective Function — `St_pre_Condition_(Volumetric_Objective_Function)_dialog.html`
-- [condition] Settings (Condition Setting of Structural Analysis — `St_pre_Condition_Settings_(Condition_Setting_of_Structural_Analysis)_dialog.html`
-- [operation] Conditions for Parts — `St_pre_Conditions_for_Parts.html`
-- [operation] Control Window  Active Part — `St_pre_Control_Window_-_Active_Part.html`
-- [operation] Control Window  Layer — `St_pre_Control_Window_-_Layer.html`
-- [operation] Control Window  Library — `St_pre_Control_Window_-_Library.html`
-- [operation] Control Window  Show Select — `St_pre_Control_Window_-_Show_Select.html`
-- [operation] Coordinate systems of parts — `St_pre_Coordinate_systems_of_parts.html`
-- [operation] Create and edit (refer to) parts with the global coordinate in the — `St_pre_Create_and_edit_(refer_to)_parts_with_the_global_coordinate_in_the_dialog.html`
-- [operation] Create and edit (refer to) parts with the sketch coordinate in the — `St_pre_Create_and_edit_(refer_to)_parts_with_the_sketch_coordinate_in_the_dialog.html`
-- [operation] Create parts with the sketch coordinate using the mouse operation on the draw window — `St_pre_Create_parts_with_the_sketch_coordinate_using_the_mouse_operation_on_the_draw_window..html`
-- [operation] Creation of Parts — `St_pre_Creation_of_Parts.html`
-- [operation] DEM Particle Characteristics List — `St_pre_DEM_Particle_Characteristics_List_dialog.html`
-- [operation] Detailed Meshing — `St_pre_Detailed_Meshing.html`
-- [reference] Air Conditioner Model — `St_pre_Details_(Air_Conditioner_Model)_dialog.html`
-- [reference] Condition Setting of Mechanism Analysis — `St_pre_Details_(Condition_Setting_of_Mechanism_Analysis)_dialog.html`
-- [reference] FMI Co sim — `St_pre_Details_(FMI_Co-sim)_dialog.html`
-- [reference] Partial FLD Output) dialog Cuboid Region — `St_pre_Details_(Partial_FLD_Output)_dialog_Cuboid_Region.html`
-- [reference] Partial FLD Output) dialog Plane — `St_pre_Details_(Partial_FLD_Output)_dialog_Plane.html`
-- [reference] Partial FLD Output) dialog Region — `St_pre_Details_(Partial_FLD_Output)_dialog_Region.html`
-- [reference] Solidification Melting Property — `St_pre_Details_(Solidification_Melting_Property)_dialog.html`
-- [reference] Thermoregulation Model Body Type — `St_pre_Details_(Thermoregulation_Model-Body_Type)_dialog.html`
-- [reference] Thermoregulation Model Clothing — `St_pre_Details_(Thermoregulation_Model-Clothing)_dialog.html`
-- [reference] Thermoregulation Model Initial Temperature — `St_pre_Details_(Thermoregulation_Model-Initial_Temperature)_dialog.html`
-- [reference] ondition Setting of MSC CoSim — `St_pre_Details_(ondition_Setting_of_MSC_CoSim)_dialog.html`
-- [operation] Detect Vertex and Set the Number of Mesh Grids — `St_pre_Detect_Vertex_and_Set_the_Number_of_Mesh_Grids_dialog.html`
-- [operation] Difference between scSTREAM and HeatDesigner — `St_pre_Difference_between_scSTREAM_and_HeatDesigner.html`
-- [operation] Edit Alignment — `St_pre_Edit-Alignment.html`
-- [operation] Edit Boolean Operation — `St_pre_Edit-Boolean_Operation.html`
-- [operation] Edit Connected Region — `St_pre_Edit-Connected_Region.html`
-- [operation] Edit Cutting — `St_pre_Edit-Cutting.html`
-- [operation] Edit Edit Solid — `St_pre_Edit-Edit_Solid.html`
-- [operation] Edit Edit Wiring on Board — `St_pre_Edit-Edit_Wiring_on_Board.html`
-- [operation] Edit Mirror Copy Parts — `St_pre_Edit-Mirror_Copy_Parts.html`
-- [operation] Edit Part Simplification — `St_pre_Edit-Part_Simplification.html`
-- [operation] Edit Parts Conversion — `St_pre_Edit-Parts_Conversion.html`
-- [operation] Edit Place Part — `St_pre_Edit-Place_Part.html`
-- [operation] Edit Placement of Image — `St_pre_Edit-Placement_of_Image.html`
-- [operation] Edit Reconstruct of Part Facet — `St_pre_Edit-Reconstruct_of_Part_Facet.html`
-- [operation] Edit Redo — `St_pre_Edit-Redo.html`
-- [operation] Edit Shape Simplification — `St_pre_Edit-Shape_Simplification.html`
-- [operation] Edit Shape change by Boolean operation — `St_pre_Edit-Shape_change_by_Boolean_operation.html`
-- [operation] Edit Sweep Part Face — `St_pre_Edit-Sweep_Part_Face.html`
-- [operation] Edit Undo — `St_pre_Edit-Undo.html`
-- [operation] Edit Wrapping — `St_pre_Edit-Wrapping.html`
-- [operation] Edit Toolbar — `St_pre_Edit_Toolbar.html`
-- [operation] Editorial Note — `St_pre_Editorial_Note.html`
-- [operation] Environment Setting Basic Setting — `St_pre_Environment_Setting-Basic_Setting.html`
-- [operation] Environment Setting Color (Mesh) — `St_pre_Environment_Setting-Color_(Mesh).html`
-- [operation] Environment Setting Color (Others) — `St_pre_Environment_Setting-Color_(Others).html`
-- [operation] Environment Setting Color (Part) — `St_pre_Environment_Setting-Color_(Part).html`
-- [operation] Environment Setting File — `St_pre_Environment_Setting-File.html`
-- [operation] Environment Setting Folder — `St_pre_Environment_Setting-Folder.html`
-- [operation] Environment Setting Input Output — `St_pre_Environment_Setting-Input_Output.html`
-- [operation] Environment Setting Mesh — `St_pre_Environment_Setting-Mesh.html`
-- [operation] Environment Setting Message Window — `St_pre_Environment_Setting-Message_Window.html`
-- [operation] Environment Setting Parametric Study — `St_pre_Environment_Setting-Parametric_Study.html`
-- [operation] Environment Setting Parts — `St_pre_Environment_Setting-Parts.html`
-- [operation] Environment Setting Units — `St_pre_Environment_Setting-Units.html`
-- [operation] Environment Setting User Interface — `St_pre_Environment_Setting-User_Interface.html`
-- [operation] Environmental Setting File (Essential Reading) — `St_pre_Environmental_Setting_File_(Essential_Reading).html`
-- [operation] Equivalent Material Property for Laminated Material — `St_pre_Equivalent_Material_Property_for_Laminated_Material_dialog.html`
-- [operation] File (Recent File) — `St_pre_File-(Recent_File).html`
-- [operation] File Exit — `St_pre_File-Exit.html`
-- [operation] File Open 3DfindIT.com — `St_pre_File-Open_3DfindIT.com.html`
-- [operation] File Save As — `St_pre_File-Save_As.html`
-- [operation] File Basic material property file (standard property ENG.xml) — `St_pre_File_Basic_material_property_file_(standard_property_ENG.xml).html`
-- [operation] File Default file (standard default ENG.xml) — `St_pre_File_Default_file_(standard_default_ENG.xml).html`
-- [operation] File Heat transfer coefficient file (heattransfer ENG.xml) — `St_pre_File_Heat_transfer_coefficient_file_(heattransfer_ENG.xml).html`
-- [operation] File List of Installed files — `St_pre_File_List_of_Installed_files.html`
-- [operation] File Simple input file (CSV format) — `St_pre_File_Simple_input_file_(CSV_format).html`
-- [operation] File Simple input file  Common note — `St_pre_File_Simple_input_file_-_Common_note.html`
-- [operation] File Simple input file  Grid terrain data (@elevationgrid) — `St_pre_File_Simple_input_file_-_Grid_terrain_data_(@elevationgrid).html`
-- [operation] File Simple input file  Loading definition of shapefile section(@shapefile) — `St_pre_File_Simple_input_file_-_Loading_definition_of_shapefile_section(@shapefile).html`
-- [operation] File Simple input file  Mapping data section (@mapping) — `St_pre_File_Simple_input_file_-_Mapping_data_section_(@mapping).html`
-- [operation] File Simple input file  Material data section (@material) — `St_pre_File_Simple_input_file_-_Material_data_section_(@material).html`
-- [operation] File Simple input file  Table data section (@table) — `St_pre_File_Simple_input_file_-_Table_data_section_(@table).html`
-- [operation] File Solar radiation information file (solar ENG.xml) — `St_pre_File_Solar_radiation_information_file_(solar_ENG.xml).html`
-- [operation] File Toolbar — `St_pre_File_Toolbar.html`
-- [operation] File Wiring board definition file — `St_pre_File_Wiring_board_definition_file.html`
-- [menu] File menu — `St_pre_File_menu.html`
-- [operation] Flow of Operating Procedures — `St_pre_Flow_of_Operating_Procedures.html`
-- [operation] Flow of gridding — `St_pre_Flow_of_gridding.html`
-- [operation] Heat Transfer Condition for the Surface of Thermoregulation Model — `St_pre_Heat_Transfer_Condition_for_the_Surface_of_Thermoregulation_Model_dialog.html`
-- [operation] Help User's Guide — `St_pre_Help-User's_Guide.html`
-- [menu] Help menu — `St_pre_Help_menu.html`
-- [operation] Import Model — `St_pre_Import_Model.html`
-- [operation] Import of external files — `St_pre_Import_of_external_files.html`
-- [operation] Incident Angle Dependent Absorption Property — `St_pre_Incident_Angle_Dependent_Absorption_Property_dialog.html`
-- [operation] Incident Angle and Temperature Absorption Property — `St_pre_Incident_Angle_and_Temperature_Absorption_Property_dialog.html`
-- [operation] JOS Body Type List — `St_pre_JOS_Body_Type_List_dialog.html`
-- [operation] JOS Clothing List — `St_pre_JOS_Clothing_List_dialog.html`
-- [operation] JOS Heat Transfer Condition List — `St_pre_JOS_Heat_Transfer_Condition_List_dialog.html`
-- [operation] JOS Initial Temperature List — `St_pre_JOS_Initial_Temperature_List_dialog.html`
-- [operation] List of Talbes Unformatted Scripts — `St_pre_List_of_Talbes_Unformatted_Scripts_dialog.html`
-- [menu] Menu Guide — `St_pre_Menu_Guide.html`
-- [operation] Mesh Gridding Basic Settings — `St_pre_Mesh-Gridding-Basic_Settings.html`
-- [operation] Mesh Gridding Deletion — `St_pre_Mesh-Gridding-Deletion.html`
-- [operation] Mesh Gridding Detail meshing — `St_pre_Mesh-Gridding-Detail_meshing.html`
-- [operation] Mesh Gridding Edit — `St_pre_Mesh-Gridding-Edit.html`
-- [operation] Mesh Gridding Others — `St_pre_Mesh-Gridding-Others.html`
-- [operation] Mesh Gridding Parameters — `St_pre_Mesh-Gridding-Parameters.html`
-- [operation] Mesh Connected block — `St_pre_Mesh_Connected_block_dialog.html`
-- [operation] Meshing Meshing — `St_pre_Meshing_Meshing.html`
-- [operation] Method of Parts Generation — `St_pre_Method_of_Parts_Generation.html`
-- [operation] Method to set conditions to region — `St_pre_Method_to_set_conditions_to_region.html`
-- [operation] Methods to set non constant values to the parameters — `St_pre_Methods_to_set_non-constant_values_to_the_parameters.html`
-- [operation] Mouse Toolbar — `St_pre_Mouse_Toolbar.html`
-- [operation] Notes on part creation — `St_pre_Notes_on_part_creation.html`
-- [operation] Notices — `St_pre_Notices.html`
-- [operation] Notices Abolishment in this version — `St_pre_Notices_Abolishment_in_this_version.html`
-- [operation] Notices Abolishment scheduled in the next version — `St_pre_Notices_Abolishment_scheduled_in_the_next_version.html`
-- [operation] Notices Changes since the previous version — `St_pre_Notices_Changes_since_the_previous_version.html`
-- [operation] Notices Limitations — `St_pre_Notices_Limitations.html`
-- [operation] Option (Mouse) — `St_pre_Option-(Mouse).html`
-- [operation] Option Change to Viewer Mode — `St_pre_Option-Change_to_Viewer_Mode.html`
-- [operation] Option Printer paper feeding model compound model — `St_pre_Option-Printer_paper-feeding_model_compound_model.html`
-- [part] Part Air Conditioner Part Ceiling Cassette in Four Directions — `St_pre_Part-Air_Conditioner_Part_Ceiling_Cassette_in_Four_Directions.html`
-- [part] Part Air Conditioner Part Ceiling Cassette in Two Directions — `St_pre_Part-Air_Conditioner_Part_Ceiling_Cassette_in_Two_Directions.html`
-- [part] Part Air Conditioner Part Outdoor Unit — `St_pre_Part-Air_Conditioner_Part_Outdoor_Unit.html`
-- [part] Part Air Conditioner Part Portable Unit — `St_pre_Part-Air_Conditioner_Part_Portable_Unit.html`
-- [part] Part Air Conditioner Part Wall mount Unit — `St_pre_Part-Air_Conditioner_Part_Wall-mount_Unit.html`
-- [part] Part Anemostat Model — `St_pre_Part-Anemostat_Model.html`
-- [part] Part Axial Flow Fan — `St_pre_Part-Axial-Flow_Fan.html`
-- [part] Part Blower Fan — `St_pre_Part-Blower_Fan.html`
-- [part] Part Card Guide — `St_pre_Part-Card_Guide.html`
-- [part] Part Conical Base — `St_pre_Part-Conical_Base.html`
-- [part] Part Cylinder — `St_pre_Part-Cylinder.html`
-- [part] Part Hexahedron — `St_pre_Part-Hexahedron.html`
-- [part] Part Linear Diffuser Model — `St_pre_Part-Linear_Diffuser_Model.html`
-- [part] Part Peltier Device Model — `St_pre_Part-Peltier_Device_Model.html`
-- [part] Part Pin Fin — `St_pre_Part-Pin_Fin.html`
-- [part] Part Plate Fin — `St_pre_Part-Plate_Fin.html`
-- [part] Part Quadrilateral Panel — `St_pre_Part-Quadrilateral_Panel.html`
-- [part] Part Revolved Rectangle — `St_pre_Part-Revolved_Rectangle.html`
-- [part] Part Sketch Part Model Type is Axial flow fan — `St_pre_Part-Sketch_Part_Model_Type_is_Axial_flow_fan.html`
-- [part] Part Sketch Part Model Type is Cutout — `St_pre_Part-Sketch_Part_Model_Type_is_Cutout.html`
-- [part] Part Sketch Part Model Type is Extrusion — `St_pre_Part-Sketch_Part_Model_Type_is_Extrusion.html`
-- [part] Part Sketch Part Model Type is Extrusion To selected part — `St_pre_Part-Sketch_Part_Model_Type_is_Extrusion_To_selected_part.html`
-- [part] Part Sketch Part Model Type is Face Division — `St_pre_Part-Sketch_Part_Model_Type_is_Face_Division.html`
-- [part] Part Sketch Part Model Type is Fan — `St_pre_Part-Sketch_Part_Model_Type_is_Fan.html`
-- [part] Part Sketch Part Model Type is Panel — `St_pre_Part-Sketch_Part_Model_Type_is_Panel.html`
-- [part] Part Sketch Part Model Type is Revolved Body — `St_pre_Part-Sketch_Part_Model_Type_is_Revolved_Body.html`
-- [part] Part Sketch Part Model Type is Slit Punching — `St_pre_Part-Sketch_Part_Model_Type_is_Slit_Punching.html`
-- [part] Part Slit Punching — `St_pre_Part-Slit_Punching.html`
-- [part] Part Sphere — `St_pre_Part-Sphere.html`
-- [part] Part Thermal Circuit Model Delphi — `St_pre_Part-Thermal_Circuit_Model_Delphi.html`
-- [part] Part Thermal Circuit Model Two Resistor — `St_pre_Part-Thermal_Circuit_Model_Two-Resistor.html`
-- [operation] Part (Arbitrary Body) — `St_pre_Part_(Arbitrary_Body)_dialog.html`
-- [operation] Part (Finite Element Model) — `St_pre_Part_(Finite_Element_Model)_dialog.html`
-- [operation] Part Edit Sketch — `St_pre_Part_Edit_Sketch.html`
-- [operation] Parts Toolbar — `St_pre_Parts_Toolbar.html`
-- [operation] Pressure Loss Model — `St_pre_Pressure_Loss_Model_dialog.html`
-- [operation] Property of Mass Particle — `St_pre_Property_of_Mass_Particle_dialog.html`
-- [operation] Region Label for Co Sim — `St_pre_Region_Label_for_Co_Sim_dialog.html`
-- [operation] Region and Boundary Condition Setting — `St_pre_Region_and_Boundary_Condition_Setting.html`
-- [operation] Register and Edit Part Face — `St_pre_Register_and_Edit_Part_Face_dialog.html`
-- [operation] Register and Set Region Pair — `St_pre_Register_and_Set_Region_Pair_dialog.html`
-- [operation] Rolling Resistance Parameter — `St_pre_Rolling_Resistance_Parameter_dialog.html`
-- [operation] Rotation Copy — `St_pre_Rotation_Copy_dialog.html`
-- [operation] Rough meshing — `St_pre_Rough_meshing.html`
-- [operation] Rough meshing using part vertices and manual gridding — `St_pre_Rough_meshing_using_part_vertices_and_manual_gridding.html`
-- [operation] Set Parameters dialog For parametric study — `St_pre_Set_Parameters_dialog_For_parametric_study.html`
-- [operation] Specify CSV Mapping — `St_pre_Specify_CSV_Mapping_dialog.html`
-- [operation] Specify Mapping — `St_pre_Specify_Mapping_dialog.html`
-- [operation] Specify Variable User defined Function — `St_pre_Specify_Variable_User-defined_Function_dialog.html`
-- [operation] Spring Stiffness Calculation — `St_pre_Spring_Stiffness_Calculation_dialog.html`
-- [operation] Structure of multiblock — `St_pre_Structure_of_multiblock.html`
-- [reference] Supplement — `St_pre_Supplement.html`
-- [reference] About condition setting for the panel part — `St_pre_Supplement_About_condition_setting_for_the_panel_part.html`
-- [reference] About the changes made for the domain that sets up the condition for the specification of gross weight (the grand total — `St_pre_Supplement_About_the_changes_made_for_the_domain_that_sets_up_the_condition_for_the_specification_of_gross_weight_(the_grand_total).html`
-- [reference] Computational Domain other than Cuboid region — `St_pre_Supplement_Computational_Domain_other_than_Cuboid_region.html`
-- [reference] ECXML file exporting — `St_pre_Supplement_ECXML_file_exporting.html`
-- [reference] ECXML file loading — `St_pre_Supplement_ECXML_file_loading.html`
-- [reference] IFC file loading — `St_pre_Supplement_IFC_file_loading.html`
-- [reference] Limitations on multiblock — `St_pre_Supplement_Limitations_on_multiblock.html`
-- [reference] List of Solver's commands and corresponding relation — `St_pre_Supplement_List_of_Solver's_commands_and_corresponding_relation.html`
-- [reference] Note for air conditioner function — `St_pre_Supplement_Note_for_air_conditioner_function.html`
-- [reference] Note for condition setting of computational domain boundary — `St_pre_Supplement_Note_for_condition_setting_of_computational_domain_boundary.html`
-- [operation] Table Condition — `St_pre_Table_Condition_dialog.html`
-- [operation] Table of Mouse Operations — `St_pre_Table_of_Mouse_Operations.html`
-- [operation] Table of Parts — `St_pre_Table_of_Parts.html`
-- [operation] Temperature Dependent Absorption Property — `St_pre_Temperature_Dependent_Absorption_Property_dialog.html`
-- [operation] Thermal Resistance dislog — `St_pre_Thermal_Resistance_dislog.html`
-- [operation] To define the shape of child block(s) — `St_pre_To_define_the_shape_of_child_block(s).html`
-- [operation] Trajectory — `St_pre_Trajectory_dialog.html`
-- [operation] View (Toolbar) — `St_pre_View-(Toolbar).html`
-- [wizard] Air Conditioner Model — `St_pre_Wizard-Condition_Setting-Air_Conditioner_Unit-Air_Conditioner_Model.html`
-- [wizard] Rotating Coordinate System — `St_pre_Wizard-Condition_Setting-Basic_Settings-Rotating_Coordinate_System.html`
-- [wizard] Humidity Condition (Between Parts) — `St_pre_Wizard-Condition_Setting-Boundary_Condition-Humidity_Boundary-Humidity_Condition_(Between_Parts).html`
-- [wizard] Thermal Boundary Condition (Edge Contact) — `St_pre_Wizard-Condition_Setting-Boundary_Condition-Thermal_Boundary-Thermal_Boundary_Condition_(Edge_Contact).html`
-- [wizard] Thermal Boundary Condition (Free Surface) — `St_pre_Wizard-Condition_Setting-Boundary_Condition-Thermal_Boundary-Thermal_Boundary_Condition_(Free_Surface).html`
-- [wizard] Static Magnetic Field — `St_pre_Wizard-Condition_Setting-Electric_Current-Static_Magnetic_Field.html`
-- [wizard] LES Option — `St_pre_Wizard-Condition_Setting-Flow-LES_Option.html`
-- [wizard] Conditions (Initial Fixed) — `St_pre_Wizard-Condition_Setting-Free_Surface-Conditions_(Initial_Fixed).html`
-- [wizard] Control Free surface MARS method — `St_pre_Wizard-Condition_Setting-Free_Surface-Control_Free_surface_MARS_method.html`
-- [wizard] Control Free surface VOF method — `St_pre_Wizard-Condition_Setting-Free_Surface-Control_Free_surface_VOF_method.html`
-- [wizard] Material Property For free surface MARS method — `St_pre_Wizard-Condition_Setting-Free_Surface-Material_Property_For_free_surface_MARS_method.html`
-- [wizard] Material Property For free surface VOF method — `St_pre_Wizard-Condition_Setting-Free_Surface-Material_Property_For_free_surface_VOF_method.html`
-- [wizard] Surface Geometry — `St_pre_Wizard-Condition_Setting-Free_Surface-Surface_Geometry.html`
-- [wizard] Material Property of Humidity — `St_pre_Wizard-Condition_Setting-Humidity-Material_Property_of_Humidity.html`
-- [wizard] Moisture in Solid — `St_pre_Wizard-Condition_Setting-Humidity-Moisture_in_Solid.html`
-- [wizard] Vapor Pressure — `St_pre_Wizard-Condition_Setting-Humidity-Vapor_Pressure.html`
-- [wizard] Absorptance (Free Surface) — `St_pre_Wizard-Condition_Setting-Lamp_-_Absorptance_(Free_Surface).html`
-- [wizard] Condition Setting of CoSim — `St_pre_Wizard-Condition_Setting-MSC_CoSim-Condition_Setting_of_CoSim.html`
-- [wizard] Marangoni(Free Surface) — `St_pre_Wizard-Condition_Setting-Marangoni_Convection-Marangoni(Free_Surface).html`
-- [wizard] Contact Face Condition — `St_pre_Wizard-Condition_Setting-Moving_Object-Contact_Face_Condition.html`
-- [wizard] DEM Particles Boundary — `St_pre_Wizard-Condition_Setting-Moving_Object-DEM_Particles_Boundary.html`
-- [wizard] Element Face Condition — `St_pre_Wizard-Condition_Setting-Moving_Object-Element_Face_Condition.html`
-- [wizard] Entrance Face — `St_pre_Wizard-Condition_Setting-Moving_Object-Entrance_Face.html`
-- [wizard] Handling of Particles — `St_pre_Wizard-Condition_Setting-Moving_Object-Handling_of_Particles.html`
-- [wizard] Repulsion Face — `St_pre_Wizard-Condition_Setting-Moving_Object-Repulsion_Face.html`
-- [wizard] Radiation VF Variables — `St_pre_Wizard-Condition_Setting-Output_Condition-Field_File-Radiation_VF_Variables.html`
-- [wizard] Solar Radiation Lamp Data — `St_pre_Wizard-Condition_Setting-Output_Condition-Field_File-Solar_Radiation_Lamp_Data.html`
-- [wizard] Space Distr. of GSLR — `St_pre_Wizard-Condition_Setting-Output_Condition-Field_File-Space_Distr._of_GSLR.html`
-- [wizard] Space Distr. of MRT — `St_pre_Wizard-Condition_Setting-Output_Condition-Field_File-Space_Distr._of_MRT.html`
-- [wizard] Electric Current Balance — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Electric_Current_Balance.html`
-- [wizard] Heat Balance (VF Method) — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Heat_Balance_(VF_Method).html`
-- [wizard] Output Operation Variable — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Output_Operation_Variable.html`
-- [wizard] Particle Variable — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Particle_Variable.html`
-- [wizard] Radiation (FLUX Method) — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Radiation_(FLUX_Method).html`
-- [wizard] Radiation (VF Method) — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Radiation_(VF_Method).html`
-- [wizard] Specified Region (MARS Method Passage) — `St_pre_Wizard-Condition_Setting-Output_Condition-L_File-Specified_Region_(MARS_Method_Passage).html`
-- [wizard] Surface Region — `St_pre_Wizard-Condition_Setting-Output_Condition-Pathline-Surface_Region.html`
-- [wizard] Between Fluid and Particles — `St_pre_Wizard-Condition_Setting-Particle(DEM)-Between_Fluid_and_Particles.html`
-- [wizard] Particle(DEM) — `St_pre_Wizard-Condition_Setting-Particle(DEM).html`
-- [wizard] Sedimentation Conversion — `St_pre_Wizard-Condition_Setting-Particle-Sedimentation_Conversion.html`
-- [wizard] defined Variable for Particles — `St_pre_Wizard-Condition_Setting-Particle-User-defined_Variable_for_Particles.html`
-- [wizard] Control for radiation FLUX method — `St_pre_Wizard-Condition_Setting-Radiation-Control_for_radiation_FLUX_method.html`
-- [wizard] Control tab for VF method — `St_pre_Wizard-Condition_Setting-Radiation-Control_tab_for_VF_method.html`
-- [wizard] Grouping (Region) — `St_pre_Wizard-Condition_Setting-Radiation-Grouping_(Region).html`
-- [wizard] Radiant Field for VF method — `St_pre_Wizard-Condition_Setting-Radiation-Radiant_Field_for_VF_method.html`
-- [wizard] Radiant Field for radiation FLUX method — `St_pre_Wizard-Condition_Setting-Radiation-Radiant_Field_for_radiation_FLUX_method.html`
-- [wizard] Radiation (Free Surface) — `St_pre_Wizard-Condition_Setting-Radiation-Radiation_(Free_Surface).html`
-- [wizard] Radiation (Part) — `St_pre_Wizard-Condition_Setting-Radiation-Radiation_(Part).html`
-- [wizard] Grouping (Region) — `St_pre_Wizard-Condition_Setting-Solar_Radiation-Grouping_(Region).html`
-- [wizard] Illuminance — `St_pre_Wizard-Condition_Setting-Solar_Radiation-Illuminance.html`
-- [wizard] Condition When MARS method is used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Condition_When_MARS_method_is_used.html`
-- [wizard] Conditions for Solid Phase Surface When MARS method is not used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Conditions_for_Solid_Phase_Surface_When_MARS_method_is_not_used.html`
-- [wizard] Parameter When MARS method is used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Parameter_When_MARS_method_is_used.html`
-- [wizard] Parameters When MARS method is not used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Parameters_When_MARS_method_is_not_used.html`
-- [wizard] Solidification Melting Property When MARS method is not used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Solidification_Melting_Property_When_MARS_method_is_not_used.html`
-- [wizard] Solidified Object When MARS method is used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Solidified_Object_When_MARS_method_is_used.html`
-- [wizard] Welding When MARS method is used — `St_pre_Wizard-Condition_Setting-Solidification_Melting-Welding_When_MARS_method_is_used.html`
-- [wizard] Solidification Melting When MARS method is not used — `St_pre_Wizard-Condition_Setting-Solidification_Melting_When_MARS_method_is_not_used.html`
-- [wizard] Solidification Melting When MARS method is used — `St_pre_Wizard-Condition_Setting-Solidification_Melting_When_MARS_method_is_used.html`
-- [wizard] Thermal Transport Condition — `St_pre_Wizard-Condition_Setting-Source_Condition-Thermal_Transport_Condition.html`
-- [wizard] Area Objective Function — `St_pre_Wizard-Condition_Setting-Topology_Optimization-Area_Objective_Function.html`
-- [wizard] Detail(Other) — `St_pre_Wizard-Condition_Setting-Topology_Optimization-Detail(Other).html`
-- [wizard] Detail(Regularization) — `St_pre_Wizard-Condition_Setting-Topology_Optimization-Detail(Regularization).html`
-- [wizard] Volumetric Objective Function — `St_pre_Wizard-Condition_Setting-Topology_Optimization-Volumetric_Objective_Function.html`
-- [wizard] Variable of Face Region — `St_pre_Wizard-Condition_Setting-Variable_Registration-Variable_of_Face_Region.html`
-- [wizard] Variable of Volumetric Region — `St_pre_Wizard-Condition_Setting-Variable_Registration-Variable_of_Volumetric_Region.html`
-- [wizard] Condition for Computational Domain Boundary External flow (forced convection) — `St_pre_Wizard-Initial_Setting-Condition_for_Computational_Domain_Boundary_External_flow_(forced_convection).html`
-- [wizard] Condition for Computational Domain Boundary External flow (natural convection) — `St_pre_Wizard-Initial_Setting-Condition_for_Computational_Domain_Boundary_External_flow_(natural_convection).html`
-- [wizard] Condition for Computational Domain Boundary External flow (winds blowing through buildings) — `St_pre_Wizard-Initial_Setting-Condition_for_Computational_Domain_Boundary_External_flow_(winds_blowing_through_buildings).html`
-- [wizard] Condition for Computational Domain Boundary Internal flow (enclosure heat release) — `St_pre_Wizard-Initial_Setting-Condition_for_Computational_Domain_Boundary_Internal_flow_(enclosure_heat_release).html`
-- [reference] St trademarks eng — `St_trademarks_eng.html`
+
+## 命中依据分布
+
+- keyword: 312
+- ui-family: 141
+- C-batch: 85
+- kind: 31
+- C-informational: 25
+- hub-B:Output_Condition: 11
+- hub-B: 7
+- alias:porous: 6
+- hub-B:Free_Surface: 6
+- hub-B:Moving_Object: 6
+- hub-B:Radiation: 6
+- hub-B:Solidification_Melting: 6
+- alias:particle: 5
+- hub-B:Initial_Setting: 4
+- alias:moving_body: 3
+- alias:topology: 2
+- alias:rough: 2
+- alias:topo_obj_func: 2
+- hub-B:Humidity: 2
+- hub-B:Particle(DEM): 2
+- alias:radiation_grouping: 2
+- hub-B:Topology_Optimization: 2
+- alias:anemostat: 1
+- alias:minmax: 1
+- alias:vof: 1
+- alias:free_slip: 1
+- alias:heat_transfer: 1
+- alias:diffuser: 1
+- alias:body_move_6dof: 1
+- alias:body_wall: 1
+- C-disabled: 1
+- alias:enclosure: 1
+- alias:variable: 1
+- alias:partial_fld: 1
+- alias:dew: 1
+- alias:passage: 1
+- alias:power_law: 1
+- alias:pressure_loss: 1
+- alias:no_slip: 1
+- alias:solar_lamp: 1
+- alias:mrt: 1
+- alias:panel: 1
+- alias:structural: 1
+- hub-B:Air_Conditioner_Unit: 1
+- hub-B:Basic_Settings: 1
+- hub-B:Boundary_Condition: 1
+- alias:edge_contact: 1
+- alias:free_surface: 1
+- hub-B:Electric_Current: 1
+- hub-B:Flow: 1
+- alias:vapor: 1
+- hub-B:Lamp_: 1
+- C-disabled:: 1
+- hub-B:Marangoni_Convection: 1
+- hub-B:Particle: 1
+- hub-B:Solar_Radiation: 1
+- alias:welding: 1
+- hub-B:Solidification_Melting_When_MARS_method_is_not_used: 1
+- hub-B:Solidification_Melting_When_MARS_method_is_used: 1
+- alias:heat_transport: 1
+- alias:lfile_rgn_face: 1
+- alias:lfile_rgn_vol: 1

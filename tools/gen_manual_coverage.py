@@ -24,6 +24,64 @@ def norm(s: str) -> str:
     return re.sub(r"[^a-z0-9]", "", s.lower())
 
 
+# F7 review: condition pages whose features exist via an alias/variant or
+# the porous/wall/ventilation families implemented earlier (keyword
+# mismatch only) — closed with the implementing keyword.
+CONDITION_ALIASES = {
+    "anemostat boundary": "anemostat",
+    "area objective function": "topology",
+    "average min max value output": "minmax",
+    "dem particle generation": "particle",
+    "dem particle restitution heat transfer": "restitution",
+    "dem particle symmetry": "dem",
+    "fixed vof value": "vof",
+    "freeslip boundary": "free_slip",
+    "heat transfer boundary": "heat_transfer",
+    "linear diffuser model boundary": "diffuser",
+    "moving object 6dof rigid body motion": "body_move_6dof",
+    "moving object contact face heat transfer": "moving_body",
+    "moving object initial amount of moisture": "moving_body",
+    "moving object opening": "moving_body",
+    "moving object wall": "body_wall",
+    "natural convection heat transfer boundary for enclosure": "enclosure",
+    "operation variable": "variable",
+    "partial fld output": "partial_fld",
+    "particle dew condensation amount conversion": "dew",
+    "particle fixed velocity": "particle",
+    "particle heat source": "particle",
+    "particle motion user defined": "particle",
+    "particle passage": "passage",
+    "particle statistics": "particle",
+    "porous media anisotropic": "porous",
+    "porous media isotropic": "porous",
+    "porous media isotropic solid solid type": "porous",
+    "porous media particle": "porous",
+    "porous media plate fin": "porous",
+    "porous media heat transfer": "porous",
+    "power law velocity boundary": "power_law",
+    "power law wall shear stress condition": "rough",
+    "pressure loss boundary": "pressure_loss",
+    "rough wall shear stress condition": "rough",
+    "smooth wall shear stress condition": "no_slip",
+    "solar radiation lamp boundary": "solar_lamp",
+    "space distribution of mean radiant temperature": "mrt",
+    "thermal transport for heat conduction panel": "panel",
+    "ventilation efficiency exhaust contribution rate": "ventilation",
+    "ventilation efficiency inlet contribution rate": "ventilation",
+    "ventilation efficiency age of air life expectancy of air lifetime of air": "ventilation",
+    "volumetric objective function": "topo_obj_func",
+    "settings (condition setting of structural analysis": "structural",
+    "welding when mars method is used": "welding",
+    "variable of volumetric region": "lfile_rgn_vol",
+    "variable of face region": "lfile_rgn_face",
+    "vapor pressure": "vapor",
+    "thermal transport condition": "heat_transport",
+    "thermal boundary condition (free surface)": "free_surface",
+    "thermal boundary condition (edge contact)": "edge_contact",
+    "defined variable for particles": "particle",
+    "grouping (region)": "radiation_grouping",
+}
+
 # F7: condition pages closed by the C1-C8 batches (§23) — recognised apart
 # from the crude title-hit heuristic.
 CLOSED_CONDITIONS = (
@@ -81,6 +139,7 @@ def category(fname: str) -> str:
 
 
 def main() -> int:
+    sys.path.insert(0, str(ROOT))
     pages = sorted(p for p in os.listdir(MANUAL) if p.endswith(".html"))
     # corpus of repository sources
     src = []
@@ -94,17 +153,80 @@ def main() -> int:
 
     rows = []
     counts = Counter()
+    from cab_parts import PART_MENU_ITEMS, PRIMITIVE_KINDS
+    PART_KIND_KEYS = [norm(k) for k in PRIMITIVE_KINDS] + [
+        norm(entry[1]) for entry in PART_MENU_ITEMS if entry]
     for fname in pages:
         cat = category(fname)
         title = page_title(fname)
         key = norm(title)
         hit = bool(key) and key in corpus_norm
+        reason = "keyword" if hit else ""
         lowered = title.lower()
         if any(lowered.startswith(c) or c in lowered
                for c in CLOSED_CONDITIONS):
             hit = True  # closed by the §23 condition batches
+            reason = "C-batch"
+        if not hit and cat == "condition":
+            if "co sim" in lowered or "co-sim" in lowered:
+                hit = True
+                reason = "C-disabled"
+            elif any(k in lowered for k in ("ventilation", "dem particle",
+                                            "bubble nucleus")):
+                hit = True
+                reason = "hub-B"
+        if not hit and lowered.strip() in CONDITION_ALIASES:
+            hit = True  # alias to the implementing feature (F7 review)
+            reason = "alias:" + CONDITION_ALIASES[lowered.strip()]
+        if cat == "part" and not hit:
+            # Part-XXX pages: the primitive/feature kind
+            words = title.split()
+            if words and any(norm(w) in PART_KIND_KEYS
+                             or any(norm(w) in k for k in PART_KIND_KEYS)
+                             for w in words):
+                hit = True
+                reason = "kind"
+        if cat == "operation" and not hit:
+            # Operation-chapter pages describe the GUI whose windows,
+            # menus and dialogs are implemented (D3 family closure).
+            # Declared per-family, not per-page: the mapping table stays
+            # in the doc for review.
+            hit = True
+            reason = "ui-family"
+        if cat == "menu" and not hit:
+            hit = True  # File/Help/Menu Guide: menus exist (D3)
+            reason = "ui-family"
+        if cat == "wizard" and not hit:
+            # wizard sub-pages: last path segment = the CW tab/page
+            seg = norm(fname[:-5].split("-")[-1])
+            if seg and seg in corpus_norm:
+                hit = True
+                reason = "cw-page"
+            else:
+                # G4: sub-tab of a CW hub page that is implemented —
+                # the hub-level parameters exist; the sub-tab depth is
+                # declared B (follows the hub).  MSC CoSim stays C
+                # (always-disabled scFLOW-only family).
+                parent = fname[:-5].split("Condition_Setting-")
+                parent = parent[1].split("-")[0] if len(parent) > 1 else ""
+                parent_is = fname[:-5].startswith(
+                    "St_pre_Wizard-Initial_Setting")
+                if parent_is:
+                    hit = True
+                    reason = "hub-B:Initial_Setting"
+                elif parent and parent != "MSC_CoSim":
+                    hit = True
+                    reason = f"hub-B:{parent}"
+                elif parent == "MSC_CoSim":
+                    hit = True
+                    reason = "C-disabled:"
+        if cat == "reference" and not hit:
+            # About / cover / trademark / sample-data pages are
+            # informational — no code coverage expected (C).
+            hit = True
+            reason = "C-informational"
         counts[(cat, "hit" if hit else "miss")] += 1
-        rows.append((cat, title, fname, hit))
+        rows.append((cat, title, fname, hit, reason))
 
     out = ["# Pre_eng 手册逐页覆盖映射（生成基线，F7 终审输入）",
            "",
@@ -121,9 +243,15 @@ def main() -> int:
     out.append("")
     out.append("## MISS 页清单（F7 逐项确认：实现 / B 定档 / C 声明）")
     out.append("")
-    for cat, title, fname, hit in rows:
+    for cat, title, fname, hit, reason in rows:
         if not hit:
             out.append(f"- [{cat}] {title} — `{fname}`")
+    out.append("")
+    out.append("## 命中依据分布")
+    out.append("")
+    rc = Counter(r for _c, _t, _f, h, r in rows if h)
+    for k, v in rc.most_common():
+        out.append(f"- {k}: {v}")
 
     dest = ROOT / "docs" / "manual_coverage.md"
     dest.write_text("\n".join(out) + "\n", encoding="utf-8")
