@@ -1,0 +1,124 @@
+{
+  "Property": [
+    {
+      "member": "CreateEntity",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "DeleteEntity",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "ErrorCode",
+      "status": "ok",
+      "value": "1503"
+    },
+    {
+      "member": "ErrorString",
+      "status": "ok",
+      "value": "'air(incompressible/20C) is not a property group.'"
+    },
+    {
+      "member": "Get",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetData",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetEntities",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetExpression",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetKind",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetName",
+      "status": "ok",
+      "value": "'air(incompressible/20C)'"
+    },
+    {
+      "member": "GetNum",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "GetRadField",
+      "status": "ok",
+      "value": "'T'"
+    },
+    {
+      "member": "GetScript",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetTable",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetTypeString",
+      "status": "ok",
+      "value": "'fluid'"
+    },
+    {
+      "member": "GetUserFunction",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "Set",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "SetData",
+      "status": "error",
+      "error": "com_error: (-2147417851, '服务器出现意外情况。', None, None)"
+    },
+    {
+      "member": "SetExpression",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "SetNum",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "SetRadField",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "SetScript",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "SetTable",
+      "status": "ok",
+      "value": "0"
+    },
+    {
+      "member": "SetUserFunction",
+      "status": "ok",
+      "value": "0"
+    }
+  ]
+}
