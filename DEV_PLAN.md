@@ -2725,6 +2725,16 @@ B/C 定档另列——两条口径并存，均为诚实度量）。
 | R5 | **D8 .pst 二进制解析** — 当前 B 级不做；如实现可直接读 .pst 会话数据 | D8 | 需 .pst 格式逆向 | L |
 | R6 | **D5 axis_plane** — 圆柱坐标系 axis_plane 语义（G3 threshold 已解除，axis_plane 未） | D5 | COM 探针 | S |
 
+### 27.2b 执行状态（2026-09-02 回填）
+
+| 批 | 状态 | 提交 | 备注 |
+|---|---|---|---|
+| R1 宽度/缩进 | ✅ | `f77829f` | 6 处格式修复；G7 2/15 逐字节匹配（LSOL_FORCE_MODEL/OPTION） |
+| R3a ES_FIELD_PROP 多材质 | ✅ | 本批 | `es_material` 存储（负值=金属标记）+ 逐材质发射；.14g→.17g 保精度 |
+| R3b LSOL_FORCE_BC 材料对 | ✅ | 本批 | `dem_ip_group` 存储（5 参数）+ 官方布局发射 |
+| R2 D9 第三批 | ⏳ | — | Property/Table 带名 + 45 项参数依赖 + 沙箱批量 |
+| R4 partial 页 | ⏳ | — | 19 页部分覆盖 |
+
 ### 27.3 执行路径
 
 ```

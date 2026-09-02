@@ -150,3 +150,57 @@ def test_lsol_force_ip_group():
         "   /",
     ]
     assert lines.index("LSOL_FORCE_IP") > lines.index("LSOL_TIME_STEP")
+
+
+# ------------------------------------------------- R3: ES_FIELD 多材质
+
+def test_es_field_prop_multi_material():
+    """es_material storage emits one ES_FIELD_PROP line per material;
+    negative permittivity = metal marker (exA07-3 material 2 = -1)."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = _model_with_spray()
+    m.set_analysis_etc_value("partcile_echarge", "2")
+    m.set_es_material(1, 8.85937637406252e-12)
+    m.set_es_material(2, -1.0)
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    lines = s.split("\r\n")
+    i = lines.index("ES_FIELD_PROP")
+    # stored permittivity is passed through verbatim with a 26-width float
+    assert lines[i + 1] == f"{1:15d}{8.85937637406252e-12:26.14e}"
+    assert lines[i + 2] == f"{2:15d}{-1.0:26.14e}"
+    # the .14g round-trip in the XML storage slightly trims the digits
+    assert lines[i + 1].endswith("e-12") or lines[i + 1].endswith("e-11")
+    assert lines[i + 3] == "/"
+
+
+# ------------------------------------------------- R3: LSOL_FORCE_BC 材料对
+
+def test_lsol_force_bc_property_group():
+    """dem_ip_group emits the LSOL_FORCE_BC contact property block in the
+    exA07-4 layout (param name + _f value lines)."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = _model_with_spray()
+    m.set_analysis_etc_child("dem", "dem_motion", "1")
+    m.set_dem_ip_group({
+        "normal_spring_stiffness": 5.0e3,
+        "tangential_spring_stiffness": 5.0e3,
+        "friction_coefficient": 0.3,
+        "young_modulus": 1.872e8,
+        "poisson_ratio": 0.17,
+    })
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    lines = s.split("\r\n")
+    i = lines.index("LSOL_FORCE_BC")
+    assert lines[i:i + 6] == [
+        "LSOL_FORCE_BC",
+        "contact",
+        " follow" + f"{0:12d}{0:12d}",
+        "      normal_spring_stiffness",
+        f"{5.0e3:29.14e}",
+        "      tangential_spring_stiffness",
+    ]
+    assert f"{1.872e8:29.14e}" in lines[i:i + 14]

@@ -1791,6 +1791,66 @@ class StpreModel:
                 changed = True
         return changed
 
+    # R3a: electrostatic per-material dielectric (official ES_FIELD_PROP)
+    def set_es_material(self, no: int, permittivity: float) -> bool:
+        """Store one dielectric material (negative = metal marker)."""
+        sec = self.ensure_analysis_etc_section("es_material")
+        import xml.etree.ElementTree as _ET
+        for el in sec:
+            if el.tag == "mat" and int(el.attrib.get("no", "0")) == no:
+                el.set("permittivity", f"{float(permittivity):.17g}")
+                return True
+        m = _ET.SubElement(sec, "mat")
+        m.attrib["no"] = str(int(no))
+        m.attrib["permittivity"] = f"{float(permittivity):.17g}"
+        return True
+
+    # R3b: DEM per-pair material properties (official LSOL_FORCE_BC)
+    def set_dem_ip_group(self, values: dict) -> bool:
+        """Store one contact property group (keys must be the official
+        parameter names: normal_spring_stiffness, tangential_spring_
+        stiffness, friction_coefficient, young_modulus, poisson_ratio)."""
+        sec = self.ensure_analysis_etc_section("dem_ip")
+        for k, v in values.items():
+            el = _first(sec, k)
+            if el is None:
+                import xml.etree.ElementTree as _ET
+                el = _ET.SubElement(sec, k)
+                el.tail = chr(10) + "         "
+            set_text(el, f"{float(v):.17g}")
+        return True
+
+    def dem_ip_group(self) -> dict:
+        """Contact property group as ``{param: value}`` (R3b)."""
+        out = {}
+        sec = self.analysis_etc_section("dem_ip")
+        if sec is None:
+            return out
+        for el in sec:
+            if el.text and el.text.strip():
+                try:
+                    out[el.tag] = float(el.text.strip())
+                except ValueError:
+                    continue
+        return out
+
+    def es_materials(self) -> list[tuple[int, float]]:
+        """Dielectric materials as ``(no, permittivity)`` pairs."""
+        out = []
+        sec = self.analysis_etc_section("es_material")
+        if sec is None:
+            return out
+        for el in sec:
+            if el.tag != "mat":
+                continue
+            try:
+                no = int(el.attrib.get("no", "0"))
+                perm = float(el.attrib.get("permittivity", "0"))
+            except ValueError:
+                continue
+            out.append((no, perm))
+        return out
+
     def ensure_polygon_body_files(self) -> int:
         """AM-3: register polygon (STL) parts in ``<body_files>`` so the
         STpre relay mesher receives them (STpre's own STL part cab layout

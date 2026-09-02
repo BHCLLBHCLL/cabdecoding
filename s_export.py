@@ -1402,6 +1402,21 @@ class SExport:
         self.lines.append("contact")
         self.lines.append(" follow" + f"{0:12d}{0:12d}")
         self.lines.append("   /")
+        # R3b: LSOL_FORCE_BC per-contact property group (exA07-4 layout:
+        # 'contact' / follow line / parameter lines / '/' per group).
+        ip_group = self.m.dem_ip_group()
+        if ip_group:
+            self.lines.append("LSOL_FORCE_BC")
+            self.lines.append("contact")
+            self.lines.append(" follow" + f"{0:12d}{0:12d}")
+            for key in ("normal_spring_stiffness",
+                        "tangential_spring_stiffness",
+                        "friction_coefficient", "young_modulus",
+                        "poisson_ratio"):
+                if key in ip_group:
+                    self.lines.append("      " + key)
+                    self.lines.append(_f(ip_group[key], 29))
+            self.lines.append("   /")
 
     def _pcle_handling(self):
         """PCLE_HANDLING — particle destruction / sedimentation regions
@@ -1546,13 +1561,19 @@ class SExport:
             return
         self.lines.append("ES_FIELD")
         self.lines.append(f"{int(leq):15d}{0:12d}")
-        try:
-            rel = float(self.m.project_value("electrostatic_permittivity",
-                                             "1.0"))
-        except ValueError:
-            rel = 1.0
         self.lines.append("ES_FIELD_PROP")
-        self.lines.append(f"{1:15d}{self._ES_FIELD_EPS0 * rel:26.14e}")
+        mats = self.m.es_materials()
+        if mats:
+            for no, perm in mats:
+                self.lines.append(f"{no:15d}{perm:26.14e}")
+        else:
+            try:
+                rel = float(self.m.project_value(
+                    "electrostatic_permittivity", "1.0"))
+            except ValueError:
+                rel = 1.0
+            self.lines.append(f"{1:15d}"
+                              f"{self._ES_FIELD_EPS0 * rel:26.14e}")
         self.lines.append("/")
 
     # F1: STOP_VAR variable-name codes (Solver_eng STOP_VAR table)
