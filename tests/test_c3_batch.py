@@ -47,12 +47,12 @@ def test_es_field_bc_matches_official_layout():
     assert lines[i:i + 6] == [
         "ES_FIELD_BC",
         "epotential    0   ! 0V",
-        f"{0.0:26.14e}",
+        f"{0.0:29.14e}",
         "   Xmin面",
         "   /",
         "epotential    0   ! -100V",
     ]
-    assert f"{-100.0:26.14e}" in lines
+    assert f"{-100.0:29.14e}" in lines
     assert lines.index("ES_FIELD_BC") < lines.index("FOUT")
 
 
@@ -77,7 +77,7 @@ def test_sufs_region_contact_angle_matches_official():
     assert lines[i:i + 5] == [
         "SUFS_REGION",
         "contactangle   0 ",
-        f"{60.0:26.14e}",
+        f"{60.0:29.14e}",
         "   Zmin面",
         "   /",
     ]

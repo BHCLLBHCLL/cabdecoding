@@ -57,9 +57,9 @@ def test_6dof_emits_dynamical_and_dyn_motion():
         "DYNA_MOTION",
         "condition1",
         "translation",
-        "   unrestricted",
+        "    unrestricted",
         "rotation",
-        "   unrestricted",
+        "    unrestricted",
         "external_force",
         " " * 9 + "      ".join(f"{0.0:.14e}" for _ in range(3)),
         "   /",
@@ -84,8 +84,8 @@ def test_6dof_fixed_kinds():
     s = build_sdat(m, _props())
     lines = s.split("\r\n")
     j = lines.index("DYNA_MOTION")
-    assert lines[j + 2:j + 6] == ["translation", "   fixed",
-                                  "rotation", "   fixed"]
+    assert lines[j + 2:j + 6] == ["translation", "    fixed",
+                                  "rotation", "    fixed"]
     assert lines[j + 7] == " " * 9 + "      ".join(
         f"{v:.14e}" for v in (1.0, 2.0, 3.0))
 

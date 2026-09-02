@@ -848,13 +848,13 @@ class SExport:
             self.lines.append("DYNA_MOTION")
             self.lines.append(entry["label"])
             self.lines.append("translation")
-            self.lines.append("   unrestricted"
+            self.lines.append("    unrestricted"
                               if entry["move_kind"] == "free"
-                              else "   fixed")
+                              else "    fixed")
             self.lines.append("rotation")
-            self.lines.append("   unrestricted"
+            self.lines.append("    unrestricted"
                               if entry["rotate_kind"] == "free"
-                              else "   fixed")
+                              else "    fixed")
             self.lines.append("external_force")
             self.lines.append(" " * 9 + "      ".join(
                 f"{v:.14e}" for v in entry["forces"]))
@@ -1195,9 +1195,9 @@ class SExport:
             for name, pot, region in groups:
                 self.lines.append(f"epotential    0   ! {name}")
                 try:
-                    self.lines.append(_f(float(pot)))
+                    self.lines.append(_f(float(pot), 29))
                 except ValueError:
-                    self.lines.append(_f(0.0))
+                    self.lines.append(_f(0.0, 29))
                 self.lines.append("   " + region)
                 self.lines.append("   /")
             self.lines.append("/")
@@ -1238,9 +1238,9 @@ class SExport:
         for name, angle, region in groups:
             self.lines.append("contactangle   0 ")
             try:
-                self.lines.append(f"{float(angle):26.14e}")
+                self.lines.append(f"{float(angle):29.14e}")
             except ValueError:
-                self.lines.append(f"{90.0:26.14e}")
+                self.lines.append(f"{90.0:29.14e}")
             self.lines.append("   " + region)
             self.lines.append("   /")
         self.lines.append("/")
@@ -1302,7 +1302,7 @@ class SExport:
         for _name, d, n, nums, parts in groups:
             self.lines.append("energyattenuation")
             self.lines.append(f"{d:15d}{n:12d}")
-            self.lines.append("".join(_f(v) for v in nums))
+            self.lines.append("".join(_f(v, 29) for v in nums))
             self.lines.append("   " + parts)
             self.lines.append("   /")
         self.lines.append("/")
@@ -1390,8 +1390,9 @@ class SExport:
         self.lines.append("recovery")
         self.lines.append(" repeat")
         self.lines.append(
-            f"{num('dem_recoverty_step_scale', 0.1):26.14e}"
-            f"{int(num('dem_recoverty_max', 100)):15d}")
+            _f(num('dem_recoverty_step_scale', 0.1), 29)
+            + _i(int(num('dem_recoverty_max', 100)), 12))
+        self.lines.append("/")
         # G1: LSOL_FORCE_IP contact group — CONT_TYPE='follow' conforms to
         # the LSOL_FORCE_MODEL setting above (exA07-4); the per-pair
         # material property blocks (LSOL_FORCE_BC) need particle-material
@@ -1551,7 +1552,7 @@ class SExport:
         except ValueError:
             rel = 1.0
         self.lines.append("ES_FIELD_PROP")
-        self.lines.append(f"{1:12d}{self._ES_FIELD_EPS0 * rel:26.14e}")
+        self.lines.append(f"{1:15d}{self._ES_FIELD_EPS0 * rel:26.14e}")
         self.lines.append("/")
 
     # F1: STOP_VAR variable-name codes (Solver_eng STOP_VAR table)
@@ -1740,21 +1741,21 @@ class SExport:
                 normal.append(0.0)
             self.lines.append("mass-standard")
             self.lines.append(f"spray-cone{iatrb:12d}")
-            self.lines.append(_f(num("particle_mass", 1e-4)))
-            self.lines.append(_f(num("velocity", 2.0)))
+            self.lines.append(_f(num("particle_mass", 1e-4), 29))
+            self.lines.append(_f(num("velocity", 2.0), 29))
             self.lines.append(
-                _f(self._PCLE_ROP) + _f(self._PCLE_CDP)
-                + _f(self._PCLE_DDP) + _f(self._PCLE_RFP)
+                _f(self._PCLE_ROP, 29) + _f(self._PCLE_CDP, 29)
+                + _f(self._PCLE_DDP, 29) + _f(self._PCLE_RFP, 29)
                 + f"{self._PCLE_IUSE:4d}")
-            self.lines.append(_f(num("time_start", 0.0))
-                              + _f(num("time_end", 10.0))
-                              + _f(num("time_inc", 3e-3)))
+            self.lines.append(_f(num("time_start", 0.0), 29)
+                              + _f(num("time_end", 10.0), 29)
+                              + _f(num("time_inc", 3e-3), 29))
             self.lines.append(_i(int(num("particle_num", 100)), 12)
                               + _i(self._PCLE_NPGE, 12)
                               + _i(self._PCLE_NPED, 12))
             self.lines.append(f"{self._PCLE_ICD:15d}"
-                              + "".join(_f(v) for v in apex)
-                              + "".join(_f(v) for v in normal))
+                              + "".join(_f(v, 29) for v in apex)
+                              + "".join(_f(v, 29) for v in normal))
             angles = [float(v) for v in
                       _child_text(val, "angle", "50,70").split(",")[:2]]
             while len(angles) < 2:
@@ -1763,10 +1764,11 @@ class SExport:
                 dsp = float(_child_text(val, "diameter", "2.5")) / 1000.0
             except ValueError:
                 dsp = 2.5e-3
-            self.lines.append(_f(angles[0]) + _f(angles[1]) + _f(dsp))
+            self.lines.append(_f(angles[0], 29) + _f(angles[1], 29)
+                              + _f(dsp, 29))
             if iatrb:
                 self.lines.append("    echarge")
-                self.lines.append(_f(float(charge)))
+                self.lines.append(_f(float(charge), 29))
             self.lines.append("   /")
         self.lines.append("/")
 

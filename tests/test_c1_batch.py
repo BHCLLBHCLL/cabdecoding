@@ -84,8 +84,9 @@ def test_lsol_sections_match_official_layout():
         f"{100:12d}",
         "recovery",
         " repeat",
-        f"{0.1:26.14e}{100:15d}",
+        f"{0.1:29.14e}{100:12d}",
     ]
+    assert lines[k + 9] == "/"
 
 
 def test_lsol_absent_without_dem():
