@@ -7369,6 +7369,27 @@ class _CwPorousPage(QWidget if _HAS_GUI else object):
         lay.addWidget(g)
         lay.addStretch(1)
 
+    # R4-3/4/5: porous subtype deep fields (moisture source / plate-fin /
+    # solid-solid / particle release) — stored as porous children.
+    def _commit_porous_subtype(self, subtype: str, **kwargs: float
+                               ) -> bool:
+        name = f"Porous_{subtype}"
+        children = [("subtype", subtype, None)]
+        for k, v in kwargs.items():
+            children.append((k, f"{float(v):.12g}", None))
+        if not self.model.upsert_value("porous", name, children):
+            return False
+        return True
+
+    def _porous_subtype_value(self, subtype: str) -> dict:
+        for val in self.model.values_of_type("porous"):
+            from cabxml import _first
+            el = _first(val, "subtype")
+            if el is not None and (el.text or "").strip() == subtype:
+                n = _first(val, "name")
+                return {c.tag: (c.text or "").strip() for c in val} if                     (n is not None and n.text) else {}
+        return {}
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         mtype = self.model_type.currentText()
@@ -7806,6 +7827,31 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
             return False
         self.model.bind_condition("region", region, name)
         return True
+
+    # R4: particle family groups — storage-first records.
+    _R4 = {"dem_gen": "dem_gen", "dem_restitution": "dem_restitution",
+           "heat_source": "particle_heat_source",
+           "fixed_velocity": "particle_velocity",
+           "motion_udf": "particle_motion_udf",
+           "statistics": "particle_statistics"}
+
+    def _r4_set(self, key: str, field: str, value) -> None:
+        self.model.set_analysis_set_value(
+            f"{key}_{field}", str(value))
+
+    def _r4_get(self, key: str, field: str, default: str = "") -> str:
+        return self.model.analysis_set_value(f"{key}_{field}", default)
+
+    def commit_particle_family(self, key: str, fields: dict) -> str:
+        """Write a particle-family record; returns 'ok:key' for tests."""
+        if key not in self._R4:
+            raise ValueError(key)
+        for f, v in fields.items():
+            self._r4_set(self._R4[key], f, v)
+        return f"ok:{key}"
+
+    def read_particle_family(self, key: str, fields: tuple) -> dict:
+        return {f: self._r4_get(self._R4[key], f) for f in fields}
 
     def apply(self) -> None:
         on = self.enable.isChecked()
@@ -9364,6 +9410,17 @@ class _CwTopologyOptiPage(QWidget if _HAS_GUI else object):
             return False
         return self.model.bind_condition("parts", parts, name)
 
+    def _commit_area_objective(self, name: str, value: float,
+                               weight: float) -> bool:
+        """R4-18: Area Objective Function — ICNS=2 weighted objective
+        record (TOPOPT_REGION branch b)."""
+        name = (name or "").strip()
+        if not name:
+            return False
+        return self.model.upsert_value("topo_area_obj", name, [
+            ("obj_constraint", f"{float(value):.12g}", None),
+            ("weight", f"{float(weight):.12g}", None)])
+
     def apply(self) -> None:
         on = self.enable.isChecked()
         self.model.set_project_value(
@@ -9737,6 +9794,17 @@ class _CwBoilPage(QWidget if _HAS_GUI else object):
         f.addRow('Gas density (kg/m3)', self.gas_density)
         lay.addWidget(g)
         lay.addStretch(1)
+
+    def _commit_bubble_nucleus(self, name: str, nucleation_site: float,
+                               q0: float) -> bool:
+        """R4-19: Bubble Nucleus Generation — storage-only record
+        (module: boil/condensation)."""
+        name = (name or "").strip()
+        if not name:
+            return False
+        return self.model.upsert_value("bubble_nucleus", name, [
+            ("nucleation_site", f"{float(nucleation_site):.12g}", "1/m2"),
+            ("q0", f"{float(q0):.12g}", "W/m2")])
 
     def apply(self) -> None:
         on = self.enable.isChecked()
