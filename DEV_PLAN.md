@@ -2733,7 +2733,8 @@ B/C 定档另列——两条口径并存，均为诚实度量）。
 | R3a ES_FIELD_PROP 多材质 | ✅ | 本批 | `es_material` 存储（负值=金属标记）+ 逐材质发射；.14g→.17g 保精度 |
 | R3b LSOL_FORCE_BC 材料对 | ✅ | 本批 | `dem_ip_group` 存储（5 参数）+ 官方布局发射 |
 | R2 D9 第三批 | ⏳ | — | Property/Table 带名 + 45 项参数依赖 + 沙箱批量 |
-| R4 partial 页 | ⏳ | — | 19 页部分覆盖 |
+| R4 partial 页 | 📋 清单成文 | `docs/partial_page_matrix.md` | 19 页中 6 已闭合；13 项（9 S + 2 M + 2 已归并）待单页组字段 |
+| 收官 | ✅ | 本批 | §27 基线 806 passed / 5 skipped；累计推送 765cb12
 
 ### 27.3 执行路径
 
