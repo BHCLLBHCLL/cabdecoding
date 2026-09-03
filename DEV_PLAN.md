@@ -2855,3 +2855,79 @@ Phase D（终审）：
 | D9 | 248/719 | 目标 500+/719（A4） |
 | Sketch | arc/工具/标注 | 不变（C 超越） |
 | 百分比 | ≈96% A 级 + B/C = 100% | **A 级 ≈100%** |
+
+---
+
+## 29. v8.0 全面审计：残余差距与 100% 对齐路线（2026-09-03）
+
+> 基线：HEAD `4d38b04`，全量 **819 passed / 5 skipped**（118 文件），
+> Pre_eng **708/708** 页确认，.s render **40 dispatch calls**，
+> Solver_eng **319 命令页**（68 引用 / 251 未引用）。
+> G7 对拍 **12/15 逐字节**。D9 COM 终证 **262/719 = 36.4%**。
+
+### 29.0 真实差距分析（去虚报审计法）
+
+核心发现：ex4_e 命令级零差距——我们 .s 包含官方 ex4_e.s 全部命令。
+**251 个未引用 Solver_eng 命令中，大部分属于 ex4_e 未启用的分析类型**
+（电流 ECUR*、湿热 HUMD*、电磁 ES_MAG、Cosim/FMI/BCI-ROM、粒子浓度
+LSOL_CONCENTRATION*、驱动分析 DRIVER_REGION、风扇 FANV/FANL、
+多孔 AENT_POROUS 等）。这些命令在**对应分析类型启用时**才需要发射。
+
+### 29.1 十二维真实差距（每维列出：已 A / 已 B/C / 残余 A 级缺口）
+
+| 维 | A 级现状 | B/C 闭合 | **残余 A 级缺口** |
+|---|:---:|---|---|
+| D1 | 96% | W2/W3 深字段锁 | 各专用件参数面与 Pre_eng 手册**逐字段**对齐（AC 内部结构/热管毛细参数/换热器效率曲线…） |
+| D2 | 96% | AC=ac_type | Sketch spline 原语（当前仅 arc/line/rect/circle）；深字段同 D1 |
+| D3 | 97% | F3 七对话框 + AC 机型 | 子菜单图标（微调）；STpre 的 tool-tip 全覆盖 |
+| **D4** | **97%** | 12/15 逐字节 + 4 已知边界 + 40 dispatch | **251 个 Solver_eng 命令中 ~60 个常见命令需发射**（CHKE/CKPR/TPRT_OUTPUT/VARLIST/CSV_*/COUR/EMOC/EQUA_OPTION/UNDR 扩展/UPWD/UVWT/FLUX_CONTROL/FLUX_SUM_CONTROL 等）|
+| D5 | 98% | polygon relay + threshold 实证 | axis_plane 圆柱语义 |
+| D6 | 98% | 708/708 + C1–C8 + partial 全闭合 | 19 页 partial 中 **7 项 wizard 子页参数级深度**（hub-B 定档后仍需实现） |
+| D7 | 95% | Edit Solid 12 型 + PK 六算子 | **壳体（shell）原语**（当前 cube 代理）；**管线布线**（当前直线 pipe） |
+| D8 | 92% | 收敛缩放/导出 | .pst 二进制解析（B 不做） |
+| **D9** | **96%** | A 719/719 + B 262 + C 440 | **~460 项 per-member 参数研究**（GetParam=internal，需逐成员 Set*/Get* 参数名从 VB 手册提取） |
+| D10 | 100% | A+B 闭合 | — |
+| D11 | 100% | A+B 闭合 | — |
+| D12 | 93% | SAT/MDL/CGNS B/C | SAT CLI（需 FreeCADCmd 安装） |
+
+**加权 A 级 ≈97%。残余 3% 集中在 D4（.s 发射覆盖率）和 D9（COM 终证深度）。**
+
+### 29.2 100% 对齐路线（H 系列 = Hardening）
+
+| 批 | 内容 | 维度 | 规模 | 依赖 |
+|---|---|---|:---:|---|
+| **H1** | **.s 发射扩展**：从 Solver_eng 319 页中筛选出与已实现分析类型对应的 ~60 个常见命令，按 Input format 接发射 | D4 | L | 无 |
+| **H2** | **D9 第四~六批系统化**：用 VB_Interface_eng 手册的每个成员签名页做 Get*/Set* 参数名提取，逐成员活体调用 | D9 | M–L | STpre COM |
+| **H3** | **专用件深字段对齐**：8 个专用件的 Pre_eng 手册对话框逐字段提取，补缺到 XML 存储 | D1/D2 | M | Pre_eng |
+| **H4** | **Sketch spline 原语** | D2 | S | — |
+| **H5** | **壳体/管线几何代理** | D7 | M | — |
+| **H6** | **axis_plane 圆柱语义** | D5 | S | COM 探针 |
+| **H7** | **gap analysis v8.0 终审** | — | M | H1–H6 |
+
+### 29.3 执行顺序
+
+```
+Phase 1（无窗口，最高价值）：
+  H1 .s 发射扩展 → D4 97→99%（≈60 命令发射 + G7 对拍扩展到更多样本）
+  H3 专用件深字段 → D1/D2 96→98%
+Phase 2（无窗口）：
+  H4 Sketch spline → D2 +1%
+  H5 壳体/管线 → D7 95→97%
+  H6 axis_plane 探针 → D5 98→99%
+Phase 3（COM 实机，本机已确认可用）：
+  H2 D9 第四~六批系统化 → D9 96→99%
+Phase 4（终审）：
+  H7 gap analysis v8.0 → A 级 ≈100%，B/C 声明附录
+```
+
+### 29.4 诚实边界
+
+- 251 个 Solver_eng 命令中 ~190 个属于高级分析类型（Cosim/FMI/BCI-ROM、
+  LES、自适应网格、用户自定义函数 UDF/USRPOS、电磁场 ECUR 磁场、
+  布尔运算 BOCN、PCM 相变等）或 solver-internal（EMOC 收敛判据、
+  EQSP 方程求解顺序等）。这些在 STpre UI 中也无直接用户入口，
+  而是由内部逻辑自动发射。**按 B/C 定档，不作为 A 级缺口。**
+- ~60 个常见命令（输出控制、求解器参数、BC 变体、CSV 时序等）是
+  STpre 用户在 UI 中可直接配置的，**这些是真正的 A 级缺口**。
+- D7 壳体/管线：当前 cube/直线代理覆盖了主要场景，STpre 的壳体
+  有六面体网格、管线有弯头等几何细节，属于几何精度提升而非功能缺失。
