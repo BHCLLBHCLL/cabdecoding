@@ -147,3 +147,15 @@ particle/turbulence 均成功返回（transient='F'/steady='T'/其余='F'，
 Model 层面均报错——该方法是内部接口，不走 COM 暴露面。
 
 **D9 累计终证：248 + 6 = 254 项**（719 目录 35.3%）。
+
+
+## D9 第六批（GetParam 间接 + Doc 级带名调用）
+
+产物：`data/com_b_probe6.json`。
+
+**8/18 ok**：GetSolverParam/GetPhaseParam/GetSolidMeltParam/GetEvap
+orationParam/GetMoveBodyOption/GetUnit/GetAnalysisType×2 全部成功
+（多数返回 None 或 'mm'——合法空值）。GetParam 在 Property 对象上
+成功（viscosity/conductivity/density/specific_heat）。
+
+**D9 累计终证：254 + 8 = 262 项**（719 目录 36.4%）。
