@@ -2768,3 +2768,90 @@ Phase 4（可选）：R5 .pst 逆向 + R6 axis_plane → D8/D5 → 100%
 | IGES/IDF 导入 | D12 | 文档化决策（用 STEP/XT） |
 | CGNS | D12 | 非 STpre 前处理能力 |
 | .pst 会话解析 | D8 | 当前 B 不做；如 R5 逆向成功可升级 |
+
+---
+
+## 28. 100% 对齐终规划 v3（2026-09-03 命令级实证刷新）
+
+> 基线：HEAD `f77829f`，全量 **810 passed / 6 skipped**（811 收集）。
+> **关键实证**：ex4_e 命令级零差距——我们 .s 输出包含官方 ex4_e.s 的
+> 全部 45 个命令（含子命令），零缺失。之前扫出的 251 个"未引用"命令
+> 属于 ex4_e 未启用的其他分析类型。
+
+### 28.1 覆盖与深度的真实度量
+
+| 度量 | 结果 | 方法 |
+|---|---|---|
+| Pre_eng 页覆盖 | **708/708 = 100%** | gen_manual_coverage.py 逐页映射 |
+| Solver_eng 命令页 | 319 页，ex4_e 涉及的命令全覆盖 | 逐命令 grep |
+| ex4_e 命令级 | **零差距**（45 命令全命中） | 逐行 ALL-CAPS 对照 |
+| G7 逐字节 | **5/15 完全匹配**；10 diff 归因官方模型更丰富 | verify_sections_official.py |
+| D9 COM 终证 | **248/719 = 34.5%**；A 层 719/719 = 100% | 三批活体探针 |
+| 全量测试 | 810 passed / 5 skipped | pytest |
+
+### 28.2 十二维刷新（v7.0 后实证值）
+
+| 维 | A 级 | B/C 闭合 | 残余 |
+|---|:---:|---|---|
+| D1 | 95% | W3 往返锁 | 深字段滚动 |
+| D2 | 94% | AC 机型=ac_type | 深字段滚动 |
+| D3 | 96% | F3 七对话框 + Option 菜单 | 子菜单图标 |
+| D4 | **97%** | 33 section + 5 逐字节 + 10 diff 已归因 | 逐项调平 |
+| D5 | **98%** | polygon relay 修复 + threshold 曲面实证 | axis_plane |
+| D6 | **96%** | 708/708 页 + C1–C8 + hub-B | partial 13 项中 4 项 |
+| D7 | 95% | Edit Solid 12 型 + PK 六算子 | draft/midsurface B |
+| D8 | **92%** | 收敛缩放/导出 | .pst B 不做 |
+| D9 | **96%** | A 719/719 + B 248 + C 440 隔离 | Table 活对象 |
+| D10 | **100%** | A + B（壳/六面体实证无路径） | — |
+| D11 | **100%** | A + B（PICLS 工程参数） | — |
+| D12 | 93% | SAT/MDL/CGNS B/C | SAT CLI A 化（需 FreeCADCmd） |
+
+### 28.3 残余改进（按可感知度排序）
+
+| # | 内容 | 维 | 影响 | 规模 | 依赖 |
+|---|---|:---:|---|:---:|---|
+| **A1** | **G7 十个 diff 逐 section 深度对齐**：官方 cab 含多条件/多部件/多材质，模型丰富度差导致行差。需 R3 式逐项补存储后重拍 | D4 | .s 导出证据链 | L | 无 |
+| **A2** | **D6 partial 页 4 项**：Area Objective Function（M）、Bubble Nucleus（M）、MO-湿度/接触（已 S 级）→ 补 UI 组 + 接线 | D6 | CW 完整度 | S–M | 无 |
+| **A3** | **D1/D2 深字段滚动**：各专用件参数面（AC 内部结构/Peltier ΔT/Delphi 网络拓扑/Heat Pipe 毛细…） | D1/D2 | 材料/部件保真 | M | Pre_eng 手册 |
+| **A4** | **D9 第四批**：Property/Table 带材料名、45 项参数依赖成员、Destructive 全量沙箱 | D9 | 终证 248→500+ | M | COM 实机 |
+| **A5** | **Sketch 深度**：arc 已做；spline/fillet/offset/trim 已做；约束/标注= C 超越 | D2/D3 | 草绘体验 | S | — |
+| **A6** | **SAT 导出 CLI 化**：FreeCADCmd 安装后 A 级（当前 B） | D12 | 格式矩阵 | S | FreeCAD 安装 |
+| **A7** | **D6 partial 页 13 项中余 4 项**：MO 湿度/接触 UI 表、Porous 子类型深字段、Particle Heat Source/Fixed Velocity/Statistics/Motion UDF | D6 | 向导完整度 | M | 无 |
+
+### 28.4 排除项（终态声明，不计入残余）
+
+| 项 | 维 | 理由 |
+|---|---|---|
+| Sketch 约束求解器 | D2 | STpre 无此功能（C 超越） |
+| draft/midsurface PK | D7 | pskernel 实证不可实现（5000/5022） |
+| IGES/IDF | D12 | 文档化决策 |
+| CGNS | D12 | 非 STpre 前处理能力 |
+| .pst 解析 | D8 | B 不做（可逆向升级） |
+| 440 破坏性 COM 全量 | D9 | C 隔离声明（沙箱脚本已入库） |
+
+### 28.5 执行路径
+
+```
+Phase A（无窗口，最高价值）：
+  A1 十个 diff section 逐项调试 + 重拍 → D4 → 99%
+  A2 partial 页 4 项 UI 组 + 接线 → D6 → 97%
+Phase B（无窗口）：
+  A3 深字段滚动 + A5 Sketch S 项 + A7 余 4 项 → D1/D2/D3/D6 → ≈100%
+Phase C（可选增强）：
+  A4 D9 第四批 → D9 终证率提升
+  A6 SAT CLI → D12 SAT → A
+Phase D（终审）：
+  gap analysis v8.0（A 级口径 100%）
+```
+
+### 28.6 与 v7.0 的区别
+
+| | v7.0 | v8.0 目标 |
+|---|---|---|
+| 口径 | A/B/C 全落 = 100% | **仅 A 级 = 100%**（B/C 不计） |
+| 页覆盖 | 708/708（含 hub-B） | 同（hub-B 已是 A 级 UI） |
+| 命令覆盖 | ex4_e 零差距 | 官方 corpus 248 命令逐步扩展 |
+| .s 对拍 | 5/15 逐字节 | 目标 10+/15（A1） |
+| D9 | 248/719 | 目标 500+/719（A4） |
+| Sketch | arc/工具/标注 | 不变（C 超越） |
+| 百分比 | ≈96% A 级 + B/C = 100% | **A 级 ≈100%** |
