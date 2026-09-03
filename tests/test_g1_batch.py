@@ -206,3 +206,71 @@ def test_lsol_force_bc_property_group():
         "      tangential_spring_stiffness",
     ]
     assert f"{1.872e8:29.14e}" in lines[i:i + 14]
+
+
+# ------------------------------------------------- H1: solver control
+
+def test_pofc_plit_emission():
+    """POFC/PLIT emitted when output cycle settings are stored."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    m.set_analysis_set_value("pofc_cycle", "10")
+    m.set_analysis_set_value("plit_output", "1")
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    assert "POFC" in s
+    assert "PLIT" in s
+
+
+def test_pofc_plit_absent_by_default():
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    s = build_sdat(StpreModel(parse_stpre(new_stpre_bytes("T"))),
+                   PropertyModel(parse_property(new_property_bytes())))
+    assert "POFC" not in s
+    assert "PLIT" not in s
+
+
+# ------------------------------------------------- H1: DTSR/TOFF/EMOC/COUR
+
+def test_dtsr_toff_cour_emoc_emission():
+    """DTSR/TOFF/COUR/EMOC emitted when analysis_set values are set."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    m.set_analysis_set_value("dtsr_type", "2")
+    m.set_analysis_set_value("toff_time", "600")
+    m.set_analysis_set_value("courant", "5")
+    m.set_analysis_set_value("emoc_tolerance", "1e-5")
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    assert "DTSR" in s
+    assert "TOFF" in s
+    assert "COUR" in s
+    assert "EMOC" in s
+
+
+def test_dtsr_toff_absent_by_default():
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    s = build_sdat(StpreModel(parse_stpre(new_stpre_bytes("T"))),
+                   PropertyModel(parse_property(new_property_bytes())))
+    assert "DTSR" not in s
+    assert "TOFF" not in s
+
+
+def test_pofc_plit_emission_via_balances():
+    """POFC/PLIT emitted near FBAL when output cycle is configured."""
+    from s_export import build_sdat
+    from cabxml import PropertyModel, parse_property, new_property_bytes
+    m = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    m.set_analysis_set_value("pofc_cycle", "10")
+    m.set_analysis_set_value("plit_output", "1")
+    s = build_sdat(m, PropertyModel(
+        parse_property(new_property_bytes())))
+    assert "POFC" in s
+    assert "PLIT" in s
+    i_pofc = s.split("\r\n").index("POFC")
+    i_fbal = s.split("\r\n").index("FBAL")
+    assert i_pofc > i_fbal  # POFC after FBAL in the official layout

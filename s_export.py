@@ -339,6 +339,7 @@ class SExport:
         self._flux_sum()
         self._pfoc_region()
         self._ncoz_output()
+        self._pofc_plit()
         self._surf_list()
         self._ocsv_parts()
         self._pcl_restriction()
@@ -521,6 +522,34 @@ class SExport:
                 self.lines.append(_f(dt) + _f(cou))
         else:
             self.lines += ["CYCS", f"{_i(c0)}{_i(c1, 10)}"]
+        # DTSR (pseudo time step relaxation) — transient only
+        dtsr = self.m.analysis_set_value("dtsr_type", "")
+        if dtsr and dtsr.strip() and dtsr.strip() not in ("0", "F"):
+            self.lines.append("DTSR")
+            self.lines.append(f"{_i(int(float(dtsr)), 12)}")
+            self.lines.append(_f(float(
+                self.m.analysis_set_value("dtsr_start", "0.1") or 0.1), 26))
+            self.lines.append("/")
+        # TOFF (time limit) — transient only
+        toff = self.m.analysis_set_value("toff_time", "")
+        if toff and toff.strip():
+            self.lines.append("TOFF")
+            self.lines.append(_f(float(toff), 26))
+        # COUR (Courant number)
+        cour = self.m.analysis_set_value("courant", "")
+        if cour and cour.strip():
+            self.lines.append("COUR")
+            self.lines.append(f"{_i(int(float(cour)), 12)}")
+        # EMOC (convergence criteria)
+        emoc = self.m.analysis_set_value("emoc_tolerance", "")
+        if emoc and emoc.strip():
+            self.lines.append("EMOC")
+            self.lines.append(_f(float(emoc), 26))
+        # UVWT (velocity discontinuous treatment)
+        uvwt = self.m.analysis_set_value("uvwt_enabled", "")
+        if uvwt and uvwt.strip():
+            self.lines.append("UVWT")
+            self.lines.append(f"{_i(int(uvwt), 12)}")
         # UNDR / STED：稳态控制卡，逐条来自 steady_param
         # （类型索引 U1 V2 W3 P4 T5 K6 E7；ex4_e under_relax T 0.99
         #   -> "5 0.99"；exB16a conv_check U/V/W/T -> STED 1/2/3/5 行）
@@ -1581,6 +1610,100 @@ class SExport:
                               f"{self._ES_FIELD_EPS0 * rel:26.14e}")
         self.lines.append("/")
 
+    def _solver_ctrl(self):
+        """Solver-control commands — CYCS/CYCT, STED, DTSR, TOFF, SOLV,
+        EMOC, COUR, UPWD, UVWT (H1).
+
+        These are solver-control settings stored in analysis_set by the
+        CW Analysis Control pages.  Only emits commands whose storage is
+        non-default.  ex4_e (steady, default) produces CYCS only —
+        matching the golden sample.
+        """
+        aset = self.m.root.find("analysis_set")
+
+        def _v(tag, default=""):
+            from cabxml import _first
+            if aset is None:
+                return default
+            el = _first(aset, tag)
+            return (el.text or "").strip() if el is not None else default
+
+        calc = _v("calculation", "steady")
+        cycle_raw = _v("cycle", "1,100")
+        sep = ":" if ":" in cycle_raw else ","
+        start_c = cycle_raw.split(sep)[0].strip() or "1"
+        last_c = cycle_raw.split(sep)[-1].strip() or "100"
+
+        if calc == "transient":
+            self.lines.append("CYCT")
+            self.lines.append(f"{_i(int(start_c), 8)}{_i(int(last_c), 8)}"
+                              f"{_i(-1, 8)}")
+            self.lines.append(f"{_i(99999, 8)}"
+                              f"{_f(float(_v('init_time_step', '0.01')))}")
+            self.lines.append("/")
+        else:
+            self.lines.append("CYCS")
+            self.lines.append(f"{_i(int(start_c), 8)}{_i(int(last_c), 8)}")
+
+        sted_max = _v("sted_max_cycle", "")
+        if sted_max:
+            self.lines.append("STED")
+            self.lines.append(f"{_i(int(sted_max), 12)}"
+                              f"{_i(int(_v('sted_check_type') or 1), 12)}")
+            self.lines.append(_f(float(_v('sted_tolerance') or 1e-5), 26))
+            self.lines.append("/")
+
+        if calc == "transient":
+            dtsr_type = _v("dtsr_type", "")
+            if dtsr_type:
+                self.lines.append("DTSR")
+                self.lines.append(f"{_i(int(dtsr_type), 12)}"
+                                  f"{_f(float(_v('dtsr_start', '0.1')), 26)}")
+                self.lines.append("/")
+            toff = _v("toff_time", "")
+            if toff:
+                self.lines.append("TOFF")
+                self.lines.append(_f(float(toff), 26))
+
+        solv = _v("solver_type", "")
+        if solv:
+            self.lines.append("SOLV")
+            self.lines.append(f"{_i(int(solv), 12)}")
+        emoc = _v("emoc_tolerance", "")
+        if emoc:
+            self.lines.append("EMOC")
+            self.lines.append(_f(float(emoc), 26))
+        cour = _v("courant", "")
+        if cour:
+            self.lines.append("COUR")
+            self.lines.append(f"{_i(int(float(courant)), 12)}")
+        upwd = _v("upwd_scheme", "")
+        if upwd:
+            self.lines.append("UPWD")
+            self.lines.append(f"{_i(int(upwd), 12)}")
+
+    def _pofc_plit(self):
+        """POFC / PLIT — output cycle control (H1)."""
+        aset = self.m.root.find("analysis_set")
+
+        def _v(tag, default=""):
+            from cabxml import _first
+            if aset is None:
+                return default
+            el = _first(aset, tag)
+            return (el.text or "").strip() if el is not None else default
+
+        pofc_cycle = _v("pofc_cycle", "")
+        pofc_time = _v("pofc_time", "")
+        if pofc_cycle or pofc_time:
+            self.lines.append("POFC")
+            self.lines.append(f"{_i(int(pofc_cycle or 0), 12)}")
+            self.lines.append(_f(float(pofc_time or 10.0), 26))
+        plit = _v("plit_output", "")
+        if plit:
+            self.lines.append("PLIT")
+            self.lines.append(f"{_i(int(plit), 12)}")
+
     # F1: STOP_VAR variable-name codes (Solver_eng STOP_VAR table)
     _STOP_VAR_CODES = {
         "Temperature": "TEMP",
@@ -2078,6 +2201,16 @@ class SExport:
             "FBAL",
             f"{_i(1, 5)}:L",
         ]
+        # POFC/PLIT (output cycle control) — G1/H1
+        pofc_cycle = self.m.analysis_set_value("pofc_cycle", "")
+        if pofc_cycle and pofc_cycle.strip():
+            self.lines.append("POFC")
+            self.lines.append(f"{_i(int(pofc_cycle), 12)}"
+                              f"{_f(float(self.m.analysis_set_value('pofc_time', '10.0') or 10.0), 26)}")
+        plit = self.m.analysis_set_value("plit_output", "")
+        if plit and plit.strip():
+            self.lines.append("PLIT")
+            self.lines.append(f"{_i(int(plit), 12)}")
 
     # Evidence-locked C4 quantity tags for Output Passage cards; further
     # quantities need corpus evidence (only heat_flux observed).
