@@ -538,8 +538,13 @@ class SExport:
         # COUR (Courant number)
         cour = self.m.analysis_set_value("courant", "")
         if cour and cour.strip():
-            self.lines.append("COUR")
-            self.lines.append(f"{_i(int(float(cour)), 12)}")
+            try:
+                cour_val = float(cour)
+                if abs(cour_val - 0.9) > 1e-9:
+                    self.lines.append("COUR")
+                    self.lines.append(f"{_i(int(cour_val), 12)}")
+            except ValueError:
+                pass
         # EMOC (convergence criteria)
         emoc = self.m.analysis_set_value("emoc_tolerance", "")
         if emoc and emoc.strip():
@@ -1229,9 +1234,6 @@ class SExport:
                     self.lines.append(_f(0.0, 29))
                 self.lines.append("   " + region)
                 self.lines.append("   /")
-            self.lines.append("/")
-            # official exA07-3: empty ES_FIELD_SORC after ES_FIELD_BC
-            self.lines.append("ES_FIELD_SORC")
             self.lines.append("/")
 
     def _sufs_region(self):
