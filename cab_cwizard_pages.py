@@ -7367,6 +7367,7 @@ class _CwPorousPage(QWidget if _HAS_GUI else object):
         f.addRow("Inertial resistance β (1/m)", self.beta)
         f.addRow("Bind to part", self.target_part)
         lay.addWidget(g)
+        self._porous_subtype_ui()
         lay.addStretch(1)
 
     # R4-3/4/5: porous subtype deep fields (moisture source / plate-fin /
@@ -7389,6 +7390,45 @@ class _CwPorousPage(QWidget if _HAS_GUI else object):
                 n = _first(val, "name")
                 return {c.tag: (c.text or "").strip() for c in val} if                     (n is not None and n.text) else {}
         return {}
+
+    def _lay_add(self, widget) -> None:
+        lay = self.layout()
+        if lay is not None:
+            lay.addWidget(widget)
+
+    # A2: subtype UI (moisture / plate_fin / solid_solid / particle)
+    def _porous_subtype_ui(self) -> None:
+        from PyQt5.QtWidgets import QComboBox, QDoubleSpinBox, QPushButton
+        g = QGroupBox("Porous subtype parameters", self)
+        f = QFormLayout(g)
+        self.ps_subtype = QComboBox(g)
+        self.ps_subtype.addItems(["moisture", "plate_fin", "solid_solid",
+                                  "particle"])
+        f.addRow("Subtype", self.ps_subtype)
+        self.ps_k1 = QDoubleSpinBox(g)
+        self.ps_k1.setRange(-1e9, 1e9)
+        self.ps_k1.setDecimals(6)
+        f.addRow("Param1", self.ps_k1)
+        self.ps_k2 = QDoubleSpinBox(g)
+        self.ps_k2.setRange(-1e9, 1e9)
+        self.ps_k2.setDecimals(6)
+        f.addRow("Param2", self.ps_k2)
+        btn = QPushButton("Apply subtype", g)
+        btn.clicked.connect(self._ps_apply)
+        f.addRow(btn)
+        self._lay_add(g)
+
+    def _ps_apply(self) -> None:
+        sub = self.ps_subtype.currentText()
+        fields = {}
+        if self.ps_k1.value() != 0.0:
+            fields["k1"] = self.ps_k1.value()
+        if self.ps_k2.value() != 0.0:
+            fields["k2"] = self.ps_k2.value()
+        if not fields:
+            fields["k1"] = 0.0
+        self._commit_porous_subtype(sub, **fields)
+        self.ps_subtype.setEnabled(False)
 
     def apply(self) -> None:
         on = self.enable.isChecked()
@@ -7778,6 +7818,7 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
         dfl.addRow("Random-walk tries", self.turb_tries)
         lay.addWidget(dg)
         lay.addStretch(1)
+        self._hook_family_ui()
 
     # -- C1: DEM interaction / particle condition storage -----------------
 
@@ -7848,6 +7889,10 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
             raise ValueError(key)
         for f, v in fields.items():
             self._r4_set(self._R4[key], f, v)
+        self._r4_set(self._R4[key], "_record",
+                     ";".join(f"{f}={v}" for f, v in fields.items()))
+        if hasattr(self, "pf_table"):
+            self._pf_reload()
         return f"ok:{key}"
 
     def read_particle_family(self, key: str, fields: tuple) -> dict:
@@ -7888,6 +7933,13 @@ class _CwParticlePage(QWidget if _HAS_GUI else object):
                 self.pf_table.insertRow(r)
                 self.pf_table.setItem(r, 0, QTableWidgetItem(key))
                 self.pf_table.setItem(r, 1, QTableWidgetItem(raw))
+
+    def _hook_family_ui(self):
+        """Attach the family table into the page layout (A2)."""
+        lay = self.layout()
+        if lay is None:
+            return
+        self._particle_family_ui(lay)
 
     def apply(self) -> None:
         on = self.enable.isChecked()
@@ -9171,6 +9223,7 @@ class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
         f.addRow("", self.gap_fill)
         lay.addWidget(g)
         lay.addStretch(1)
+        self._mo_humidity_heat_ui()
 
     # -- C7: moving-object conditions (exA09-4 storage shapes) -----------
 
@@ -9248,6 +9301,44 @@ class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
                  "W/(m2.K)")]):
             return False
         return self.model.bind_condition("parts", parts, name)
+
+    # A2: MO humidity / contact-face heat UI group
+    def _mo_humidity_heat_ui(self) -> None:
+        from PyQt5.QtWidgets import QLineEdit, QDoubleSpinBox, QPushButton
+        g = QGroupBox("Moving-object humidity / contact heat", self)
+        f = QFormLayout(g)
+        self.mo_hum_name = QLineEdit(g)
+        f.addRow("Condition name", self.mo_hum_name)
+        self.mo_hum_value = QDoubleSpinBox(g)
+        self.mo_hum_value.setRange(0.0, 100.0)
+        self.mo_hum_value.setDecimals(2)
+        f.addRow("Humidity (%)", self.mo_hum_value)
+        btn1 = QPushButton("Apply humidity", g)
+        btn1.clicked.connect(self._mo_hum_apply)
+        f.addRow(btn1)
+        self.mo_ct_name = QLineEdit(g)
+        f.addRow("Condition name", self.mo_ct_name)
+        self.mo_ct_value = QDoubleSpinBox(g)
+        self.mo_ct_value.setRange(0.0, 1e9)
+        self.mo_ct_value.setDecimals(4)
+        f.addRow("Heat transfer coefficient (W/(m2.K))", self.mo_ct_value)
+        btn2 = QPushButton("Apply contact heat", g)
+        btn2.clicked.connect(self._mo_ct_apply)
+        f.addRow(btn2)
+        lay = self.layout()
+        if lay is not None:
+            lay.addWidget(g)
+            lay.addStretch(1)
+
+    def _mo_hum_apply(self) -> None:
+        self._commit_mo_humidity(
+            self.mo_hum_name.text().strip() or "MOHum1", "MovingObject",
+            self.mo_hum_value.value())
+
+    def _mo_ct_apply(self) -> None:
+        self._commit_mo_contact_heat(
+            self.mo_ct_name.text().strip() or "MOCont1", "MovingObject",
+            self.mo_ct_value.value())
 
     def apply(self) -> None:
         on = self.enable.isChecked()

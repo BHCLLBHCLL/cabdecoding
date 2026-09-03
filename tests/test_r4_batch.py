@@ -96,3 +96,56 @@ def test_area_objective(qapp):
         assert kids["obj_constraint"] == "0.05" and kids["weight"] == "1.2"
     finally:
         page.deleteLater()
+
+
+# ------------------------------------------------- A2: UI wiring smoke
+
+def test_particle_family_ui_wired(qapp):
+    import cab_cwizard_pages as cw
+    m = _model()
+    page = cw._CwParticlePage(m)
+    try:
+        assert hasattr(page, "pf_table")
+        page.commit_particle_family("heat_source", {"region": "Xmin",
+                                                    "power": "500"})
+        assert page.pf_table.rowCount() == 1
+        assert page.pf_table.item(0, 0).text() == "heat_source"
+        assert "power=500" in page.pf_table.item(0, 1).text()
+    finally:
+        page.deleteLater()
+
+
+def test_porous_subtype_ui_wired(qapp):
+    import cab_cwizard_pages as cw
+    m = _model()
+    page = cw._CwPorousPage(m)
+    try:
+        assert hasattr(page, "ps_subtype")
+        page.ps_subtype.setCurrentText("plate_fin")
+        page.ps_k1.setValue(0.01)
+        page.ps_k2.setValue(0.002)
+        page._ps_apply()
+        v = page._porous_subtype_value("plate_fin")
+        assert v["subtype"] == "plate_fin"
+        assert v["k1"] == "0.01" and v["k2"] == "0.002"
+    finally:
+        page.deleteLater()
+
+
+def test_moving_body_ui_wired(qapp):
+    import cab_cwizard_pages as cw
+    m = _model()
+    page = cw._CwMovingBodyPage(m)
+    try:
+        page.mo_hum_name.setText("MOHum2")
+        page.mo_hum_value.setValue(60.0)
+        page._mo_hum_apply()
+        val = m.find_value("MOHum2")
+        assert val is not None and val.attrib.get("type") == "mo_humidity"
+        page.mo_ct_name.setText("MOCt2")
+        page.mo_ct_value.setValue(1500.0)
+        page._mo_ct_apply()
+        val = m.find_value("MOCt2")
+        assert val is not None and val.attrib.get("type") == "mo_contact_heat"
+    finally:
+        page.deleteLater()
