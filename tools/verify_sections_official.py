@@ -50,18 +50,12 @@ def extract_block(lines, cmd):
             break
     if start is None:
         return None
-    depth = 0
+    # stop at the next top-level command no matter the nesting depth —
+    # sub-directives are always lowercase in the official format.
     for j in range(start + 1, len(lines)):
         stripped = lines[j].rstrip()
-        nxt = re.match(r"^[A-Z][A-Z0-9_]{3,}$", stripped)
-        if nxt and depth == 0:
+        if re.match(r"^[A-Z][A-Z0-9_]{3,}$", stripped):
             return lines[start:j]
-        if stripped == "/":
-            if depth == 0:
-                return lines[start:j + 1]
-            depth -= 1
-        elif stripped.endswith(" /"):
-            depth += 1
     return lines[start:]
 
 

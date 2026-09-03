@@ -1201,6 +1201,9 @@ class SExport:
                 self.lines.append("   " + region)
                 self.lines.append("   /")
             self.lines.append("/")
+            # official exA07-3: empty ES_FIELD_SORC after ES_FIELD_BC
+            self.lines.append("ES_FIELD_SORC")
+            self.lines.append("/")
 
     def _sufs_region(self):
         """SUFS_REGION contactangle cards — free-surface Contact Angle (C3).
@@ -1403,7 +1406,7 @@ class SExport:
         self.lines.append("LSOL_FORCE_IP")
         self.lines.append("contact")
         self.lines.append(" follow" + f"{0:12d}{0:12d}")
-        self.lines.append("   /")
+        self.lines.append("/")
         # R3b: LSOL_FORCE_BC per-contact property group (exA07-4 layout:
         # 'contact' / follow line / parameter lines / '/' per group).
         ip_group = self.m.dem_ip_group()
@@ -1766,20 +1769,20 @@ class SExport:
             self.lines.append(f"spray-cone{iatrb:12d}")
             self.lines.append(_f(num("particle_mass", 1e-4), 29))
             self.lines.append(_f(num("velocity", 2.0), 29))
-            self.lines.append(" " * 9
+            self.lines.append(" " * 3
                               + "".join(_f(v) for v in (
                                   self._PCLE_ROP, self._PCLE_CDP,
                                   self._PCLE_DDP, self._PCLE_RFP))
                               + f"{self._PCLE_IUSE:4d}")
-            self.lines.append(" " * 9
+            self.lines.append(" " * 3
                               + "".join(_f(v) for v in (
                                   num("time_start", 0.0),
                                   num("time_end", 10.0),
                                   num("time_inc", 3e-3))))
-            self.lines.append(_i(int(num("particle_num", 100)), 12)
+            self.lines.append(_i(int(num("particle_num", 100)), 15)
                               + _i(self._PCLE_NPGE, 12)
                               + _i(self._PCLE_NPED, 12))
-            self.lines.append(f"{self._PCLE_ICD:15d}" + " " * 7
+            self.lines.append(f"{self._PCLE_ICD:15d}"
                               + "".join(_f(v) for v in apex)
                               + "".join(_f(v) for v in normal))
             angles = [float(v) for v in
@@ -1790,7 +1793,7 @@ class SExport:
                 dsp = float(_child_text(val, "diameter", "2.5")) / 1000.0
             except ValueError:
                 dsp = 2.5e-3
-            self.lines.append(" " * 9
+            self.lines.append(" " * 3
                               + "".join(_f(v) for v in (
                                   angles[0], angles[1], dsp)))
             if iatrb:

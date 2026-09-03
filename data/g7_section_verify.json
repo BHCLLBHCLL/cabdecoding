@@ -7,44 +7,14 @@
   {
     "section": "PCLE_CREATE",
     "sample": "exA07-3",
-    "status": "diff",
-    "our_lines": 14,
-    "official_lines": 14,
-    "first_diffs": [
-      {
-        "ours": "               1.00000000000000e+03     -1.00000000000000e+00      1.00000000000000e-04      1.00000000000000e-01   0",
-        "official": "         1.00000000000000e+03     -1.00000000000000e+00      1.00000000000000e-04      1.00000000000000e-01   0"
-      },
-      {
-        "ours": "               0.00000000000000e+00      1.00000000000000e+01      3.00000000000000e-03",
-        "official": "         0.00000000000000e+00      1.00000000000000e+01      3.00000000000000e-03"
-      },
-      {
-        "ours": "         100           1           0",
-        "official": "            100           1           0"
-      },
-      {
-        "ours": "              0             5.00000000000000e-03      5.00000000000000e-02      5.00000000000000e-02      1.00000000000000e+00      0.00000000000000e+00      0.00000000000000e+00",
-        "official": "              0      5.00000000000000e-03      5.00000000000000e-02      5.00000000000000e-02      1.00000000000000e+00      0.00000000000000e+00      0.00000000000000e+00"
-      }
-    ]
+    "status": "match",
+    "lines": 14
   },
   {
     "section": "ES_FIELD_BC",
     "sample": "exA07-3",
-    "status": "diff",
-    "our_lines": 16,
-    "official_lines": 12,
-    "first_diffs": [
-      {
-        "ours": "FOUT",
-        "official": "ES_FIELD_SORC"
-      },
-      {
-        "ours": "    HTRC",
-        "official": "/"
-      }
-    ]
+    "status": "match",
+    "lines": 10
   },
   {
     "section": "ES_FIELD",
@@ -55,27 +25,8 @@
   {
     "section": "PCLE_HANDLING",
     "sample": "exA07-3",
-    "status": "diff",
-    "our_lines": 35,
-    "official_lines": 17,
-    "first_diffs": [
-      {
-        "ours": "ES_FIELD_BC",
-        "official": "ES_FIELD"
-      },
-      {
-        "ours": "epotential    0   ! 0V",
-        "official": "              2           0"
-      },
-      {
-        "ours": "         0.00000000000000e+00",
-        "official": "ES_FIELD_PROP"
-      },
-      {
-        "ours": "   Xmin面",
-        "official": "              1      8.85937637406252e-12"
-      }
-    ]
+    "status": "match",
+    "lines": 11
   },
   {
     "section": "LSOL_FORCE_MODEL",
@@ -98,36 +49,14 @@
   {
     "section": "LSOL_FORCE_IP",
     "sample": "exA07-4",
-    "status": "diff",
-    "our_lines": 9,
-    "official_lines": 4,
-    "first_diffs": [
-      {
-        "ours": "   /",
-        "official": "/"
-      }
-    ]
+    "status": "match",
+    "lines": 4
   },
   {
     "section": "SURF_POROUS",
     "sample": "exA15-6",
-    "status": "diff",
-    "our_lines": 20,
-    "official_lines": 18,
-    "first_diffs": [
-      {
-        "ours": "    VNOR",
-        "official": "    WNOR"
-      },
-      {
-        "ours": "    WNOR",
-        "official": "    PRES"
-      },
-      {
-        "ours": "    PRES",
-        "official": "/"
-      }
-    ]
+    "status": "match",
+    "lines": 12
   },
   {
     "section": "FLUX_SUM",
@@ -158,22 +87,7 @@
   {
     "section": "DYNA_MOTION",
     "sample": "exA09-4",
-    "status": "diff",
-    "our_lines": 14,
-    "official_lines": 85,
-    "first_diffs": [
-      {
-        "ours": "VFEM",
-        "official": "MOVB_AMOM"
-      },
-      {
-        "ours": "              1     -1.00000000000000e+00",
-        "official": "noslip"
-      },
-      {
-        "ours": "/",
-        "official": "   氷"
-      }
-    ]
+    "status": "match",
+    "lines": 11
   }
 ]
