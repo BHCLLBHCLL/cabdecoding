@@ -77,3 +77,50 @@ def test_delphi_thermal_nodes_roundtrip():
     assert [n for n, _r in g2] == ["Case", "Board"]
     assert m.set_part_params("D1", {"nodes": []})
     assert "nodes" not in (m.part_params("D1") or {})
+
+
+# ---- A3: peltier / slit_punching / anemostat deep-field locks ----
+
+def test_peltier_deep_fields_roundtrip():
+    """Peltier: paramV (drive voltage list), rjc/rjb (thermal resistances),
+    package_power, peltier_current, peltier_delta_t round-trip."""
+    import cab_parts
+    m = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    m.add_part(name="Peltier1", kind="peltier", attribute="Solid")
+    info = next(p for p in m.parts() if p.name == "Peltier1")
+    for tag, val in (("paramV", "15.5,17.5,10"), ("rjc", "2.5"),
+                     ("rjb", "1.8"), ("package_power", "12"),
+                     ("peltier_current", "3.2"),
+                     ("peltier_delta_t", "65")):
+        from xml.etree.ElementTree import SubElement
+        c = SubElement(info.elem, tag)
+        c.text = f" {val} "
+    reparsed = StpreModel(parse_stpre(m.doc.serialize()))
+    info2 = next(p for p in reparsed.parts() if p.name == "Peltier1")
+    for tag, expected in (("paramV", "15.5,17.5,10"), ("rjc", "2.5"),
+                          ("rjb", "1.8"), ("package_power", "12"),
+                          ("peltier_current", "3.2"),
+                          ("peltier_delta_t", "65")):
+        from cabxml import _first
+        el = _first(info2.elem, tag)
+        assert el is not None, tag
+        assert (el.text or "").strip() == expected, tag
+
+
+def test_slit_punching_anemostat_roundtrip():
+    """Slit punching and anemostat: base/size + direction round-trip."""
+    import cab_parts
+    m = StpreModel(parse_stpre(new_stpre_bytes("T")))
+    for name, kind in (("Slit1", "slit_punching"), ("Anemo1", "anemostat")):
+        m.add_part(name=name, kind=kind, attribute="Solid")
+        info = next(p for p in m.parts() if p.name == name)
+        from xml.etree.ElementTree import SubElement
+        for tag, val in (("base", "10,20,30"), ("size", "40,50,60"),
+                         ("direction", "+Z")):
+            c = SubElement(info.elem, tag)
+            c.text = f" {val} "
+    reparsed = StpreModel(parse_stpre(m.doc.serialize()))
+    for name in ("Slit1", "Anemo1"):
+        info = next(p for p in reparsed.parts() if p.name == name)
+        assert info.base.strip() == "10,20,30", name
+        assert info.size.strip() == "40,50,60", name
