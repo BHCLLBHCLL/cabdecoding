@@ -1,0 +1,124 @@
+{
+  "results": [
+    {
+      "member": "GetParam('flow')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('heat')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('temperature')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('pressure')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('mesh')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('particle')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('humidity')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('porous')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('radiation')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('ventilation')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('solar')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('wall')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "GetParam('initial')",
+      "status": "error",
+      "error": "com_error: (-2147352570, '未知名称。', None, None)"
+    },
+    {
+      "member": "Model.GetParam('flow')",
+      "status": "error",
+      "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+    },
+    {
+      "member": "Model.GetParam('heat')",
+      "status": "error",
+      "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+    },
+    {
+      "member": "Model.GetParam('mesh')",
+      "status": "error",
+      "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+    },
+    {
+      "member": "Model.GetParam('particle')",
+      "status": "error",
+      "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+    },
+    {
+      "member": "Model.GetParam('wall')",
+      "status": "error",
+      "error": "com_error: (-2147352561, '非选择性的参数。', None, None)"
+    },
+    {
+      "member": "GetAnalysisType('flow')",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetAnalysisType('heat')",
+      "status": "ok",
+      "value": "None"
+    },
+    {
+      "member": "GetAnalysisType('transient')",
+      "status": "ok",
+      "value": "'F'"
+    },
+    {
+      "member": "GetAnalysisType('steady')",
+      "status": "ok",
+      "value": "'T'"
+    },
+    {
+      "member": "GetAnalysisType('particle')",
+      "status": "ok",
+      "value": "'F'"
+    },
+    {
+      "member": "GetAnalysisType('turbulence')",
+      "status": "ok",
+      "value": "'F'"
+    }
+  ]
+}

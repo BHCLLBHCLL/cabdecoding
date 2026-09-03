@@ -135,3 +135,15 @@ LSOL_FORCE_BC）。PCLE 列位差与 MEIX 变量列表为已知记录。
 
 至此破坏性成员的沙箱批量脚本已入库——后续只需 `--members` 追加即可
 扩展覆盖，无需再写新脚本。
+
+
+## D9 第五批（GetParam 间接访问）
+
+工具：同 probe_com_b3.py 方法论；产物：`data/com_b_probe5.json`。
+
+**GetAnalysisType(type_name) 6/6 ok**——flow/heat/transient/steady/
+particle/turbulence 均成功返回（transient='F'/steady='T'/其余='F'，
+与 ex4_e 的 analysis_set 一致）。GetParam(param_name) 在 Doc 和
+Model 层面均报错——该方法是内部接口，不走 COM 暴露面。
+
+**D9 累计终证：248 + 6 = 254 项**（719 目录 35.3%）。
