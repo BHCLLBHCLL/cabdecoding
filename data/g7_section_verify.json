@@ -2,7 +2,8 @@
   {
     "section": "HUMW_REGION",
     "sample": "exA05-2",
-    "status": "both-absent"
+    "status": "error",
+    "error": "ValueError: could not convert string to float: ''"
   },
   {
     "section": "PCLE_CREATE",
@@ -67,9 +68,8 @@
   {
     "section": "TOPOPT_REGION",
     "sample": "exA28-1",
-    "status": "one-absent",
-    "ours": true,
-    "official": false
+    "status": "match",
+    "lines": 10
   },
   {
     "section": "SUFS_REGION",

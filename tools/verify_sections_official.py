@@ -19,23 +19,23 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 CORPUS = Path(r"D:\training\cradle\CradleCFD_2023.2_ST_Example\Exercise\Function")
 
-# (sample dir, section name)
+# (sample dir, cab/s file stem, section name)
 CASES = [
-    ("exA05-2", "HUMW_REGION"),
-    ("exA07-3", "PCLE_CREATE"),
-    ("exA07-3", "ES_FIELD_BC"),
-    ("exA07-3", "ES_FIELD"),
-    ("exA07-3", "PCLE_HANDLING"),
-    ("exA07-4", "LSOL_FORCE_MODEL"),
-    ("exA07-4", "LSOL_OPTION"),
-    ("exA07-4", "LSOL_TIME_STEP"),
-    ("exA07-4", "LSOL_FORCE_IP"),
-    ("exA15-6", "SURF_POROUS"),
-    ("exA18-2", "FLUX_SUM"),
-    ("exA28-1", "TOPOPT_REGION"),
-    ("exA09-4", "SUFS_REGION"),
-    ("exA09-4", "MOVB_CONTROL"),
-    ("exA09-4", "DYNA_MOTION"),
+    ("exA05-2", "exA05-2a", "HUMW_REGION"),
+    ("exA07-3", "exA07-3", "PCLE_CREATE"),
+    ("exA07-3", "exA07-3", "ES_FIELD_BC"),
+    ("exA07-3", "exA07-3", "ES_FIELD"),
+    ("exA07-3", "exA07-3", "PCLE_HANDLING"),
+    ("exA07-4", "exA07-4", "LSOL_FORCE_MODEL"),
+    ("exA07-4", "exA07-4", "LSOL_OPTION"),
+    ("exA07-4", "exA07-4", "LSOL_TIME_STEP"),
+    ("exA07-4", "exA07-4", "LSOL_FORCE_IP"),
+    ("exA15-6", "exA15-6", "SURF_POROUS"),
+    ("exA18-2", "exA18-2", "FLUX_SUM"),
+    ("exA28-1", "exA28-1_step2", "TOPOPT_REGION"),
+    ("exA09-4", "exA09-4", "SUFS_REGION"),
+    ("exA09-4", "exA09-4", "MOVB_CONTROL"),
+    ("exA09-4", "exA09-4", "DYNA_MOTION"),
 ]
 
 
@@ -65,10 +65,10 @@ def main() -> int:
     from cabxml import PropertyModel, StpreModel, parse_property, \
         parse_stpre
     results = []
-    for sample_dir, cmd in CASES:
+    for sample_dir, stem, cmd in CASES:
         d = CORPUS / sample_dir
-        cab_path = next(iter(sorted(d.glob("*step2*.cab")) or d.glob("*.cab")), None)
-        s_path = next(iter(d.glob("*.s")), None)
+        cab_path = d / f"{stem}.cab"
+        s_path = d / f"{stem}.s"
         if cab_path is None or s_path is None:
             results.append({"section": cmd, "sample": sample_dir,
                             "status": "file-not-found"})
