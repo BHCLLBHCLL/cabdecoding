@@ -314,6 +314,7 @@ class SExport:
         self._regions()
         self._movb_parts()
         self._les_init()
+        self._les_option()
         self._init_region()
         self._region_floats()
         self._phase_transition()
@@ -330,6 +331,7 @@ class SExport:
         self._movb_control()
         self._movb_amom()
         self._movb_init_aent()
+        self._vmom_region()
         self._vfem_vfde()
         self._peltier()
         self._autofixp()
@@ -340,6 +342,7 @@ class SExport:
         self._pcle_create()
         self._lsol_sections()
         self._pcle_handling()
+        self._humd_sections()
         self._humw_region()
         self._es_field_bc()
         self._tmsr()
@@ -352,6 +355,10 @@ class SExport:
         self._meix_var()
         self._gout_avrg()
         self._gout_var()
+        self._varlist()
+        self._table_section()
+        self._pbas_material()
+        self._stmc()
         self._balances()
         self._flux_sum()
         self._pfoc_region()
@@ -542,6 +549,11 @@ class SExport:
         if jfnk.strip():
             self.lines.append("JFNK")
             self.lines.append(f"{int(jfnk)}")
+        # H1h: TBEC 标志（exA01-1:12 宽单值，非终止，头区）
+        tbec = _child_text(aset, "tbec", "")
+        if tbec.strip():
+            self.lines.append("TBEC")
+            self.lines.append(_i(int(float(tbec)), 12))
         grav_abs = float(_child_text(aset, "grav_abs", "9.8"))
         grav_vec = [float(x) for x in _child_text(aset, "grav_vec",
                                                    "0,0,-1").split(",")[:3]]
@@ -634,6 +646,12 @@ class SExport:
         if uvwt and uvwt.strip():
             self.lines.append("UVWT")
             self.lines.append(f"{_i(int(uvwt), 12)}")
+        # H1h: UPWD 风上差分掩码（exA23-1a：8 位等式掩码字符串，
+        # 非终止，位于 UVWT 之后）
+        upwd = self.m.analysis_set_value("upwd_mask", "")
+        if upwd and upwd.strip():
+            self.lines.append("UPWD")
+            self.lines.append(upwd.strip())
         # UNDR / STED：稳态控制卡，逐条来自 steady_param
         # （类型索引 U1 V2 W3 P4 T5 K6 E7；ex4_e under_relax T 0.99
         #   -> "5 0.99"；exB16a conv_check U/V/W/T -> STED 1/2/3/5 行）
@@ -1168,6 +1186,28 @@ class SExport:
             self.lines.append("   /")
         self.lines.append("/")
 
+    def _vmom_region(self):
+        """VMOM_REGION — 速度固定区域（exA05-2：'fixV    0   ! name' +
+        29/26/26 宽三分量 + region + '   /'，'/' 收节；卡片家族与
+        AMOM/FLUX 同构）。存储 <value type="vmom">（source vx,vy,vz
+        csv）+ 条件绑定。"""
+        entries = list(self._bound_region_values("vmom"))
+        if not entries:
+            return
+        self.lines.append("VMOM_REGION")
+        for name, val, region in sorted(entries,
+                                        key=lambda x: _name_key(x[0])):
+            comps = [float(x) for x in
+                     _child_text(val, "source", "0,0,0").split(",")
+                     if x.strip()] or [0.0]
+            comps = (comps + [0.0, 0.0, 0.0])[:3]
+            self.lines.append(f"fixV    0   ! {name}")
+            self.lines.append(_f(comps[0], 29) + _f(comps[1], 26)
+                              + _f(comps[2], 26))
+            self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
+
     def _bound_region_values(self, vtype: str):
         """Conditions bound to any region-ish target (analysis / parts /
         region children) — used by AHSO_REGION."""
@@ -1577,6 +1617,140 @@ class SExport:
             self.lines.append("   " + rec.attrib.get("region", ""))
             self.lines += ["   /", "/"]
 
+    # -- H1h: scattered low-frequency cards -------------------------------
+
+    def _les_option(self):
+        """LES_OPTION — LES 选项关键字表（exB18：wiggle_sensor /
+        time_integration，15 宽值，'/' 收节）。存储
+        analysis_etc/les_option 子元素（关键字名 = 元素名）。"""
+        el = self.m.root.find("analysis_etc/les_option")
+        if el is None or len(el) == 0:
+            return
+        self.lines.append("LES_OPTION")
+        for c in el:
+            if c.text and c.text.strip():
+                self.lines.append(c.tag)
+                self.lines.append(_i(int(float(c.text)), 15))
+        self.lines.append("/")
+
+    def _humd_sections(self):
+        """H1h: 湿度蒸发族 — HUMD_CONTROL（exA05-1：关键字对 15 宽，
+        '/' 收节）+ HUMC（初始绝对湿度 29 宽，非终止）+ HUMF_REGION
+        （type=4 fluxhumid 边界：29/26 宽双值 + region，'/' 收节）。
+        存储 analysis_etc/humd_control 子元素、analysis_etc/humc、
+        humidity 值 type=4（param1/param2）。HUMC 仅在 HUMF 存在时发射
+        （非终止卡需后随命令）。"""
+        ctrl = self.m.root.find("analysis_etc/humd_control")
+        if ctrl is not None and len(ctrl) > 0:
+            self.lines.append("HUMD_CONTROL")
+            for c in ctrl:
+                if c.text and c.text.strip():
+                    self.lines.append(c.tag)
+                    self.lines.append(_i(int(float(c.text)), 15))
+            self.lines.append("/")
+        flux_vals = []
+        for val in self.m.values_of_type("humidity"):
+            if _child_text(val, "kind").strip() != "boundary":
+                continue
+            if _child_text(val, "type").strip() != "4":
+                continue
+            flux_vals.append(val)
+        if not flux_vals:
+            return
+        humc = self.m.root.find("analysis_etc/humc")
+        if humc is not None and (humc.text or "").strip():
+            self.lines.append("HUMC")
+            self.lines.append(_f(float(humc.text), 29))
+        self.lines.append("HUMF_REGION")
+        for val in sorted(flux_vals, key=lambda v: _name_key(
+                _child_text(v, "name"))):
+            self.lines.append(
+                f"fluxhumid    0   ! {_child_text(val, 'name')}")
+            self.lines.append(
+                _f(float(_child_text(val, "param1", "0")), 29)
+                + _f(float(_child_text(val, "param2", "0")), 26))
+            for _name, _val, region in self._bound_values_for(val):
+                self.lines.append("   " + region)
+                self.lines.append("   /")
+        self.lines.append("/")
+
+    def _bound_values_for(self, val):
+        """(value_name, val, region) bindings for one value element."""
+        vname = _child_text(val, "name")
+        for c in self.m.conditions():
+            if _child_text(c, "value").strip() != vname.strip():
+                continue
+            for ch in c:
+                if ch.tag in ("parts", "region", "analysis") and ch.text:
+                    yield vname, val, ch.text.strip()
+
+    def _pbas_material(self):
+        """PBAS_MATERIAL — 压缩性基准压力每材质行（exA14-1：12 宽号 +
+        26 宽压力 + 26 宽温度，'/' 收节）。存储
+        analysis_etc/pbas_material/row(no,p,t)。"""
+        el = self.m.root.find("analysis_etc/pbas_material")
+        if el is None or len(el.findall("row")) == 0:
+            return
+        self.lines.append("PBAS_MATERIAL")
+        for r in el.findall("row"):
+            self.lines.append(
+                _i(int(r.attrib.get("no", "1")), 12)
+                + _f(float(r.attrib.get("p", "101325")), 26)
+                + _f(float(r.attrib.get("t", "0")), 26))
+        self.lines.append("/")
+
+    def _stmc(self):
+        """STMC — 稳态多重控制（exA23-4：15 宽标志 + UNDR 行
+        12 宽号 + 1/3×26 宽值，'/' 收节）。存储
+        analysis_etc/stmc：flag 属性 + row(no,vals csv) 子元素。"""
+        el = self.m.root.find("analysis_etc/stmc")
+        if el is None or len(el.findall("row")) == 0:
+            return
+        self.lines.append("STMC")
+        self.lines.append(_i(int(el.attrib.get("flag", "1")), 15))
+        self.lines.append("UNDR")
+        for r in el.findall("row"):
+            vals = [x for x in (r.attrib.get("vals", "")
+                                ).split(",") if x.strip()]
+            line = _i(int(r.attrib.get("no", "1")), 12)
+            for v in vals:
+                line += _f(float(v), 26)
+            self.lines.append(line)
+        self.lines.append("/")
+
+    def _table_section(self):
+        """TABLE — 命名函数表（exA13-1 fanpq 风机 P-Q：'   {name}   !
+        {name}' + '   simple' + 7 宽行数 + 27/25 宽双值行，'/' 收节）。
+        存储 <value type="table">（kind 子元素 + row(v1,v2) 子元素）。"""
+        tables = list(self.m.values_of_type("table"))
+        if not tables:
+            return
+        for val in tables:
+            rows = val.findall("row")
+            if not rows:
+                continue
+            name = _child_text(val, "name")
+            kind = _child_text(val, "kind", "simple")
+            self.lines.append("TABLE")
+            self.lines.append(f"   {name}   ! {name}")
+            self.lines.append(f"   {kind}")
+            self.lines.append(f"{len(rows):>7d}")
+            for r in rows:
+                self.lines.append(
+                    f"{float(r.attrib.get('v1', '0')):>27.14e}"
+                    f"{float(r.attrib.get('v2', '0')):>25.14e}")
+            self.lines.append("/")
+
+    def _varlist(self):
+        """VARLIST — 输出变量列表直传（exB02：裸行 + '/'）。存储
+        output/varlist 文本。"""
+        el = self.m.root.find("output/varlist")
+        if el is None or not (el.text or "").strip():
+            return
+        self.lines.append("VARLIST")
+        self.lines.append(el.text.strip())
+        self.lines.append("/")
+
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
         rad = self.m.find_value("_rad_condition(undefined_faces)")
@@ -1818,11 +1992,33 @@ class SExport:
                      "afterward_interpolation", "0")
         self.lines.append("/")
         tension = self.m.free_surf_attr("tension", "")
+        # H1h: SURF_1MARS / SURF_AENT — 单相 MARS 头与绝热/传导交换卡
+        # （exA15-3：15/12 宽二值 + '   {kind}' + 26 宽值；二者均在
+        # SURF_PROPERTY 之前，非终止需后随命令 -> 与 tension 共门控）
+        if tension:
+            one_mars = self.m.free_surf_attr("surf_1mars", "")
+            if one_mars.strip():
+                mp = [x.strip() for x in one_mars.split(",") if x.strip()]
+                self.lines.append("SURF_1MARS")
+                self.lines.append(_i(int(mp[0]), 15)
+                                  + _i(int(mp[1]) if len(mp) > 1 else 0, 12))
+            kind = self.m.free_surf_attr("surf_aent_kind", "")
+            if kind.strip():
+                self.lines.append("SURF_AENT")
+                self.lines.append("   " + kind)
+                self.lines.append(_f(float(
+                    self.m.free_surf_attr("surf_aent_value", "0")), 26))
         if tension:
             self.lines.append("SURF_PROPERTY")
             for idx, val in enumerate(
                     [x for x in tension.split(",") if x.strip()], 1):
                 self.lines.append(_i(idx, 6) + _f(float(val), 26))
+            self.lines.append("/")
+        # H1h: VFRT_SPC — VOF 参照物种区域（exA02-2a：4 空格区域 + '/'）
+        vfrt = self.m.free_surf_attr("vfrt_spc_region", "")
+        if vfrt.strip():
+            self.lines.append("VFRT_SPC")
+            self.lines.append("    " + vfrt)
             self.lines.append("/")
 
     def _sufs_region(self):
@@ -2110,6 +2306,29 @@ class SExport:
         if not ds_vals:
             return
         obj_vals = self.m.values_of_type("topo_obj_func")
+        # H1h: TOPOPT 头卡（exA28-1_step2：penalization 15 宽 + 26 宽值 +
+        # constrained_optimization 15 宽 + 3×26 宽，'/' 收节）。存储
+        # analysis_etc/topology_optimize 的 penalization/penalty_flag/
+        # cons_flag/cons_vals 属性。
+        top = self.m.root.find("analysis_etc/topology_optimize")
+        if top is not None and (top.attrib.get("penalization")
+                                or "").strip():
+            self.lines.append("TOPOPT")
+            self.lines.append("penalization")
+            self.lines.append(_i(int(
+                top.attrib.get("penalty_flag", "1")), 15))
+            self.lines.append(_f(float(top.attrib.get("penalization")),
+                                 26))
+            self.lines.append("constrained_optimization")
+            self.lines.append(_i(int(top.attrib.get("cons_flag", "1")),
+                                 15))
+            cons = [float(x) for x in
+                    (top.attrib.get("cons_vals", "100,100,100")
+                     ).split(",") if x.strip()]
+            cons = (cons + [100.0, 100.0, 100.0])[:3]
+            self.lines.append(_f(cons[0], 29) + _f(cons[1], 26)
+                              + _f(cons[2], 26))
+            self.lines.append("/")
 
         def txt(val, tag, default=""):
             from cabxml import _first
