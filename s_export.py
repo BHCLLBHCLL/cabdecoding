@@ -315,6 +315,7 @@ class SExport:
         self._movb_parts()
         self._les_init()
         self._init_region()
+        self._region_floats()
         self._flux_region()
         self._amom_region()
         self._aent_region()
@@ -323,10 +324,13 @@ class SExport:
         self._vfwl_region()
         self._movb_control()
         self._movb_amom()
+        self._movb_init_aent()
         self._vfem_vfde()
         self._peltier()
         self._autofixp()
         self._stop_var()
+        self._script_block()
+        self._operation_var()
         self._es_field_heads()
         self._pcle_create()
         self._lsol_sections()
@@ -342,6 +346,7 @@ class SExport:
         self._topopt_region()
         self._meix_var()
         self._gout_avrg()
+        self._gout_var()
         self._balances()
         self._flux_sum()
         self._pfoc_region()
@@ -1221,6 +1226,112 @@ class SExport:
                 self.lines += ["MOVB_AMOM", "noslip",
                                "   moving_object", "   /", "/"]
                 return
+
+    # -- H1e: script / global-output / moving-body-init / region floats --
+
+    def _script_block(self):
+        """SCRIPT — 用户脚本逐字直传（exA02-2a.s / exA05-2a.s，52/52
+        块统一 'context_start' + 空行 + 脚本体 + 裸 '/'）。
+        存储 analysis_etc/script 的多行文本。"""
+        el = self.m.root.find("analysis_etc/script")
+        if el is None or not (el.text or "").strip():
+            return
+        self.lines.append("SCRIPT")
+        self.lines.append("context_start")
+        self.lines.append("")
+        self.lines.extend((el.text or "").rstrip("\r\n").splitlines())
+        self.lines.append("/")
+
+    def _operation_var(self):
+        """OPERATION_VAR — 运算变量定义（exA02-2a.s:148-162，与 SCRIPT
+        12/12 共生）。头行 15 宽模式位；每记录：裸名 / '   kind' /
+        '   VTYPE' / 15 宽标志 / 6 空格 region / '   /'；单 '/' 收节。
+        存储 analysis_etc/operation_vars：mode 属性 + var 子元素
+        （name/kind/vtype/flag/region 属性）。"""
+        el = self.m.root.find("analysis_etc/operation_vars")
+        if el is None:
+            return
+        records = el.findall("var")
+        if not records:
+            return
+        self.lines.append("OPERATION_VAR")
+        self.lines.append(_i(int(el.attrib.get("mode", "0") or 0), 15))
+        for rec in records:
+            self.lines.append(rec.attrib.get("name", ""))
+            self.lines.append("   " + rec.attrib.get("kind", "flux"))
+            self.lines.append("   " + rec.attrib.get("vtype", "MASS"))
+            self.lines.append(_i(int(rec.attrib.get("flag", "1") or 1), 15))
+            self.lines.append("      " + rec.attrib.get("region", ""))
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _gout_var(self):
+        """GOUT_VAR + GOUT_VAR_CONTROL — 全局输出附加变量（exA07-5.s:263-
+        268 / exA27-1a，8/8 共生）。GOUT_VAR：3 空格变量名行 + '/'；
+        GOUT_VAR_CONTROL：'overwrite' + 15 宽值 + '/'。
+        存储 output/gout_var：var 子元素 + overwrite 属性。"""
+        el = self.m.root.find("output/gout_var")
+        if el is None:
+            return
+        names = [v.text.strip() for v in el.findall("var")
+                 if v.text and v.text.strip()]
+        if not names:
+            return
+        self.lines.append("GOUT_VAR")
+        for n in names:
+            self.lines.append("   " + n)
+        self.lines.append("/")
+        self.lines.append("GOUT_VAR_CONTROL")
+        self.lines.append("overwrite")
+        self.lines.append(_i(int(el.attrib.get("overwrite", "0") or 0), 15))
+        self.lines.append("/")
+
+    def _movb_init_aent(self):
+        """MOVB_INIT / MOVB_AENT — 移动物体初始温度与热流（exA09-2.s:247-
+        252：kind 关键字 + 29 宽值 + '   moving_object' + 内外双终止符）。
+        存储 body_move 值子元素 init_kind/init_value、aent_kind/
+        aent_value（首个命中即发射，应用于全部移动物体）。"""
+        from cabxml import _first
+        init = aent = None
+        for val in self.m.values_of_type("body_move"):
+            if init is None:
+                k = _first(val, "init_kind")
+                v = _first(val, "init_value")
+                if k is not None and v is not None:
+                    init = (k, v)
+            if aent is None:
+                k = _first(val, "aent_kind")
+                v = _first(val, "aent_value")
+                if k is not None and v is not None:
+                    aent = (k, v)
+        if init is not None:
+            self.lines += ["MOVB_INIT", init[0].text.strip(),
+                           _f(float(init[1].text), 29),
+                           "   moving_object", "   /", "/"]
+        if aent is not None:
+            self.lines += ["MOVB_AENT", aent[0].text.strip(),
+                           _f(float(aent[1].text), 29),
+                           "   moving_object", "   /", "/"]
+
+    def _region_floats(self):
+        """H1e 区域标量初始/松弛族 — O2 / N2（exA14-3 物种初始摩尔分数）、
+        VOFL（exA10-1 液相体积分率）、TRT2 / TRET（exB16b 辐射松弛时间）。
+        同构卡片：29 宽值 + 3 空格 region + '   /'。存储：同名类型值
+        （param 子元素）+ 条件绑定（analysis/region/parts），逐 region
+        一块。"""
+        for vtype, cmd in (("o2", "O2"), ("n2", "N2"), ("vofl", "VOFL"),
+                           ("trt2", "TRT2"), ("tret", "TRET")):
+            entries = list(self._bound_region_values(vtype))
+            if not entries:
+                continue
+            for _name, val, region in sorted(entries,
+                                             key=lambda x: _name_key(x[0])):
+                from cabxml import _first
+                param = _first(val, "param")
+                v = param.text.strip() if param is not None and param.text \
+                    else "0"
+                self.lines += [cmd, _f(float(v), 29),
+                               "   " + region, "   /"]
 
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
