@@ -333,11 +333,14 @@ class SExport:
         self._pcle_handling()
         self._humw_region()
         self._es_field_bc()
+        self._tmsr()
         self._fout()
+        self._surf_output()
         self._sufs_region()
         self._surf_porous()
         self._topopt_region()
         self._meix_var()
+        self._gout_avrg()
         self._balances()
         self._flux_sum()
         self._pfoc_region()
@@ -386,9 +389,13 @@ class SExport:
             "RO",
             fname("ro"),
         ]
-        # TM（时间监控 csv）不随 file/tm 文件名存储发射：官方语料
-        # TM/TMSR 18/18 共生，ex4_e 存有 tm 文件名却无 TM 卡——
-        # TM 由 TMSR 时间监控条件驱动，随 TMSR（H1c 输出族）发射。
+        # H1c: TM/SUFL 时间监控文件头。TM ⇔ TMSR 点监控、SUFL ⇔
+        # SURF_OUTPUT 自由面监控（语料 18/18、20/20 共生，零例外；
+        # ex4_e 存有文件名却无监控条件 -> 不发射，parity 保持）。
+        if self._has_tmsr():
+            self.lines += ["TM", self._tm_filename("tm")]
+        if self._has_surf_output():
+            self.lines += ["SUFL", self._tm_filename("sufl")]
         self.lines += [
             "VF",
             fname("vf"),
@@ -2270,6 +2277,97 @@ class SExport:
                     if vtype in ("TURK", "TEPS") and turb == "0":
                         continue
                     self.lines.append(f"    {vtype}")
+        self.lines.append("/")
+
+    # -- H1c: output-monitor family ---------------------------------------
+
+    def _tm_filename(self, tag: str) -> str:
+        """Time-monitor csv name: file/<tag> storage if present, else
+        <project>_tm.csv / <project>_sufl_tm.csv (exA09-2 / exB13)."""
+        aset = self.m.root.find("analysis_set")
+        files = aset.find("file") if aset is not None else None
+        name = _child_text(files, tag, "")
+        if name:
+            return name
+        stem = (self.m.project_name or "project").split(".")[0]
+        return f"{stem}{'_tm.csv' if tag == 'tm' else '_sufl_tm.csv'}"
+
+    def _has_tmsr(self) -> bool:
+        el = self.m.root.find("output/tmsr")
+        return el is not None and len(el.findall("point")) > 0
+
+    def _has_surf_output(self) -> bool:
+        return self.m.root.find("output/surf_output") is not None
+
+    def _tmsr(self):
+        """TMSR — 点时间监控采样（exA09-2.s:253-279）。头行全语料
+        18/18 恒为 '    1:L    0'；每点 '    P<n>' + 29/26/26 宽坐标 +
+        3 空格变量行 + '   /'；TM 文件头与本节共生发射。"""
+        el = self.m.root.find("output/tmsr")
+        if el is None:
+            return
+        points = el.findall("point")
+        if not points:
+            return
+        self.lines.append("TMSR")
+        self.lines.append("    1:L    0")
+        for idx, pt in enumerate(points, 1):
+            name = _child_text(pt, "name", f"P{idx}")
+            self.lines.append(
+                f"    {name}"
+                + _f(float(_child_text(pt, "v1", "0")), 29)
+                + _f(float(_child_text(pt, "v2", "0")), 26)
+                + _f(float(_child_text(pt, "v3", "0")), 26))
+            variables = [v.text.strip() for v in pt.findall("var")
+                         if v.text and v.text.strip()]
+            for v in variables or ["TEMP"]:
+                self.lines.append("   " + v)
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _surf_output(self):
+        """SURF_OUTPUT — 自由面表面高度时间监控（exB13/exB14a/exB15a，
+        与 SUFL 文件头 20/20 共生）。keyword + 15/12 宽模式行 + 每点
+        29/26/26/26 宽四值 + 3 空格点名；'   /' 收点表、'/' 收节。"""
+        el = self.m.root.find("output/surf_output")
+        if el is None:
+            return
+        self.lines.append("SURF_OUTPUT")
+        self.lines.append(_child_text(el, "keyword", "surfacelevel_tm"))
+        mode = [x.strip() for x in
+                _child_text(el, "mode", "1,2").split(",") if x.strip()]
+        m1 = int(mode[0]) if mode else 1
+        m2 = int(mode[1]) if len(mode) > 1 else 2
+        self.lines.append(f"{_i(m1, 15)}{_i(m2, 12)}")
+        for pt in el.findall("point"):
+            self.lines.append(
+                _f(float(_child_text(pt, "v1", "0")), 29)
+                + _f(float(_child_text(pt, "v2", "0")), 26)
+                + _f(float(_child_text(pt, "v3", "0")), 26)
+                + _f(float(_child_text(pt, "v4", "0")), 26)
+                + "   " + _child_text(pt, "name", "level1"))
+        self.lines.append("   /")
+        self.lines.append("/")
+
+    def _gout_avrg(self):
+        """GOUT_AVRG — 全局平均输出（exB18.s:159-170 / exB19a / exB20a）。
+        15 宽使能位 + 3 位选项码 + 内嵌 MEIX_VAR 变量表（与顶层
+        MEIX_VAR 同 4×12 宽头、4 空格变量行），单 '/' 收节。"""
+        el = self.m.root.find("output/gout_avrg")
+        if el is None:
+            return
+        self.lines.append("GOUT_AVRG")
+        self.lines.append(_i(int(_child_text(el, "enable", "1")), 15))
+        self.lines.append(_child_text(el, "code", "000"))
+        cycle = _child_text(el, "cycle", "1")
+        kind = _child_text(el, "kind", "1,1,2").split(",")
+        kind += ["0"] * (3 - len(kind))
+        self.lines.append("MEIX_VAR")
+        self.lines.append(f"{_i(int(cycle))}{_i(int(kind[0]))}"
+                          f"{_i(int(kind[1]))}{_i(int(kind[2]))}")
+        for v in el.findall("var"):
+            if v.text and v.text.strip():
+                self.lines.append(f"    {v.text.strip()}")
         self.lines.append("/")
 
     def _balances(self):
