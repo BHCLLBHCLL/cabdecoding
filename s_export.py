@@ -313,13 +313,16 @@ class SExport:
         self._parts()
         self._regions()
         self._movb_parts()
+        self._les_init()
         self._init_region()
         self._flux_region()
         self._amom_region()
         self._aent_region()
         self._vent_region()
+        self._ahso_region()
         self._vfwl_region()
         self._movb_control()
+        self._movb_amom()
         self._vfem_vfde()
         self._peltier()
         self._autofixp()
@@ -345,6 +348,12 @@ class SExport:
         self._pcl_restriction()
         self._cutcell()
         self._tprt()
+        # H1b: WALL_MODEL 壁面函数模型，紧贴 GOGO 之前（exA02-3.s:334）
+        wall_model = _child_text(self.m.root.find("analysis_set"),
+                                 "wall_model", "")
+        if wall_model.strip():
+            self.lines.append("WALL_MODEL")
+            self.lines.append(_i(int(wall_model), 15))
         self.lines.append("GOGO")
         return "\r\n".join(self.lines) + "\r\n"
 
@@ -353,8 +362,13 @@ class SExport:
     def _header(self):
         aset = self.m.root.find("analysis_set")
         files = aset.find("file") if aset is not None else None
+
         def fname(tag: str) -> str:
             return _child_text(files, tag, "ex4_e")
+
+        def fname_opt(tag: str) -> str:
+            return _child_text(files, tag, "")
+
         self.lines += [
             "SDAT",
             "STREAM  ",
@@ -363,8 +377,19 @@ class SExport:
             "! STpre  Version.2023.2  1623.20302.20231027",
             "POST",
             self.m.project_name,
+        ]
+        # H1b: RI 重启动输入文件在项目名之后、RO 之前（exA05-2a.s:8）
+        ri_name = fname_opt("ri")
+        if ri_name:
+            self.lines += ["RI", ri_name]
+        self.lines += [
             "RO",
             fname("ro"),
+        ]
+        # TM（时间监控 csv）不随 file/tm 文件名存储发射：官方语料
+        # TM/TMSR 18/18 共生，ex4_e 存有 tm 文件名却无 TM 卡——
+        # TM 由 TMSR 时间监控条件驱动，随 TMSR（H1c 输出族）发射。
+        self.lines += [
             "VF",
             fname("vf"),
             "OT",
@@ -471,7 +496,34 @@ class SExport:
 
     def _equations(self):
         aset = self.m.root.find("analysis_set")
+        # H1b: CYLD 圆柱坐标标志，位于 EQUA 之前（exA04-1.s CYLD→EQUA）
+        cyl = _child_text(aset, "cyl_coord", "")
+        if cyl.strip():
+            cp = [x.strip() for x in cyl.split(",") if x.strip()]
+            self.lines.append("CYLD")
+            self.lines.append(_i(int(cp[0]), 12)
+                              + _i(int(cp[1]) if len(cp) > 1 else 0, 12))
+        # H1b: LESM LES 模型选择，位于 EQUA 之前（exB18.s LESM→EQUA）；
+        # 存储 "model,sub1,sub2" -> 15 宽 + 15/12 宽两行
+        lesm = _child_text(aset, "lesm", "")
+        if lesm.strip():
+            lp = [x.strip() for x in lesm.split(",") if x.strip()]
+            self.lines.append("LESM")
+            self.lines.append(_i(int(lp[0]), 15))
+            if len(lp) >= 3:
+                self.lines.append(_i(int(lp[1]), 15) + _i(int(lp[2]), 12))
         self.lines += ["EQUA", self._equa_mask()]
+        # H1b: PCTY 压力计算类型，位于 EQUA 之后、CYCT 之前（exB18.s:23）
+        pcty = _child_text(aset, "pcty", "")
+        if pcty.strip():
+            self.lines.append("PCTY")
+            self.lines.append(_i(int(pcty), 12))
+        # H1b: JFNK Jacobian-free Newton-Krylov 开关（exA28-1_step1.s
+        # EQUA→JFNK→SOLV；数据行无填充）
+        jfnk = _child_text(aset, "jfnk", "")
+        if jfnk.strip():
+            self.lines.append("JFNK")
+            self.lines.append(f"{int(jfnk)}")
         grav_abs = float(_child_text(aset, "grav_abs", "9.8"))
         grav_vec = [float(x) for x in _child_text(aset, "grav_vec",
                                                    "0,0,-1").split(",")[:3]]
@@ -897,7 +949,31 @@ class SExport:
             self.lines.append("/")
 
     def _init_region(self):
-        self.lines += ["INIT_REGION", "TEMP"]
+        from cabxml import _first
+        # H1b: RHUM 初始相对湿度（exA05-2a INIT_REGION 内：流体侧 RHUM
+        # 在 TEMP 之前，固体侧在固体 TEMP 之后；逐 region 一块）
+        fluid_hums: list[tuple[str, str]] = []
+        solid_hums: list[tuple[str, str]] = []
+        for c in self.m.conditions():
+            vname = _child_text(c, "value")
+            val = self.m.find_value(vname)
+            if val is None or val.attrib.get("type", "") != "init_humidity":
+                continue
+            param = _first(val, "param")
+            hum = (param.text.strip() if param is not None and param.text
+                   else "0")
+            for ch in c:
+                if ch.tag in ("analysis", "region"):
+                    fluid_hums.append(
+                        (hum, ch.text.strip() if ch.text else ""))
+                elif ch.tag == "parts":
+                    solid_hums.append(
+                        (hum, ch.text.strip() if ch.text else ""))
+        self.lines.append("INIT_REGION")
+        for hum, region in fluid_hums:
+            self.lines += ["RHUM", _f(float(hum), 29),
+                           "   " + region, "   /"]
+        self.lines.append("TEMP")
         init_temp = "20"
         for c in self.m.conditions():
             has_analysis = any(ch.tag == "analysis" for ch in c)
@@ -922,7 +998,11 @@ class SExport:
         self.lines.append(_f(float(solid_temp), 29))
         for p in self.parts[1:]:
             self.lines.append("      " + p["name"])
-        self.lines += ["   /", "/"]
+        self.lines.append("   /")
+        for hum, region in solid_hums:
+            self.lines += ["RHUM", _f(float(hum), 29),
+                           "   " + region, "   /"]
+        self.lines.append("/")
 
     def _flux_region(self):
         self.lines.append("FLUX_REGION")
@@ -1060,6 +1140,79 @@ class SExport:
             self.lines.append("   " + region)
             self.lines.append("   /")
         self.lines.append("/")
+
+    def _bound_region_values(self, vtype: str):
+        """Conditions bound to any region-ish target (analysis / parts /
+        region children) — used by AHSO_REGION."""
+        from cabxml import _first
+        for c in self.m.conditions():
+            target = ""
+            for child in c:
+                if child.tag in ("analysis", "parts", "region"):
+                    target = child.text.strip() if child.text else ""
+                    break
+            if not target:
+                continue
+            vname = _child_text(c, "value")
+            val = self.m.find_value(vname)
+            if val is None or val.attrib.get("type", "") != vtype:
+                continue
+            yield vname, val, target
+
+    def _ahso_region(self):
+        """AHSO_REGION — 面発熱 area heat source（exA15-7.s:221-226，
+        卡片与 VENT_REGION 同构但数值行 26 宽 + 12 宽 kind 2；
+        VENT_REGION 的体積発熱为 29 宽 + 3 空格 2）。"""
+        entries = list(self._bound_region_values("area_heat_source"))
+        if not entries:
+            return
+        self.lines.append("AHSO_REGION")
+        for name, val, region in sorted(entries,
+                                        key=lambda x: _name_key(x[0])):
+            src = float(_child_text(val, "source", "0"))
+            self.lines.append(f"source    0   ! {name}")
+            self.lines.append(f"{_f(src, 26)}{_i(2, 12)}")
+            self.lines.append("   " + region)
+            self.lines.append("   /")
+        self.lines.append("/")
+
+    def _les_init(self):
+        """LES_INIT — LES 初期乱流場（exB18.s:127-132：method + 3 尺度
+        29/26/26 宽 + 驱动 region + '   /' + '/'）。存储
+        analysis_etc/les_init 子元素 method/name/r1/r2/r3/region。"""
+        el = self.m.root.find("analysis_etc/les_init")
+        if el is None:
+            return
+
+        def _v(tag, default=""):
+            c = el.find(tag)
+            return (c.text or "").strip() if c is not None and c.text \
+                else default
+
+        method = _v("method", "random")
+        name = _v("name")
+        self.lines.append("LES_INIT")
+        self.lines.append(f"{method}  ! {name}" if name else method)
+        self.lines.append(_f(float(_v("r1", "1.0")), 29)
+                          + _f(float(_v("r2", "3.0")), 26)
+                          + _f(float(_v("r3", "3.0")), 26))
+        region = _v("region")
+        if region:
+            self.lines.append("   " + region)
+        self.lines.append("   /")
+        self.lines.append("/")
+
+    def _movb_amom(self):
+        """MOVB_AMOM — 移動物体角運動量滑り（exA09-3a.s:243-247：
+        noslip + moving_object 列表）。任一 body_move 值含
+        amom_noslip=1|noslip 时发射，应用于全部移动物体。"""
+        from cabxml import _first
+        for val in self.m.values_of_type("body_move"):
+            el = _first(val, "amom_noslip")
+            if el is not None and (el.text or "").strip() in ("1", "noslip"):
+                self.lines += ["MOVB_AMOM", "noslip",
+                               "   moving_object", "   /", "/"]
+                return
 
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
@@ -1611,78 +1764,6 @@ class SExport:
             self.lines.append(f"{1:15d}"
                               f"{self._ES_FIELD_EPS0 * rel:26.14e}")
         self.lines.append("/")
-
-    def _solver_ctrl(self):
-        """Solver-control commands — CYCS/CYCT, STED, DTSR, TOFF, SOLV,
-        EMOC, COUR, UPWD, UVWT (H1).
-
-        These are solver-control settings stored in analysis_set by the
-        CW Analysis Control pages.  Only emits commands whose storage is
-        non-default.  ex4_e (steady, default) produces CYCS only —
-        matching the golden sample.
-        """
-        aset = self.m.root.find("analysis_set")
-
-        def _v(tag, default=""):
-            from cabxml import _first
-            if aset is None:
-                return default
-            el = _first(aset, tag)
-            return (el.text or "").strip() if el is not None else default
-
-        calc = _v("calculation", "steady")
-        cycle_raw = _v("cycle", "1,100")
-        sep = ":" if ":" in cycle_raw else ","
-        start_c = cycle_raw.split(sep)[0].strip() or "1"
-        last_c = cycle_raw.split(sep)[-1].strip() or "100"
-
-        if calc == "transient":
-            self.lines.append("CYCT")
-            self.lines.append(f"{_i(int(start_c), 8)}{_i(int(last_c), 8)}"
-                              f"{_i(-1, 8)}")
-            self.lines.append(f"{_i(99999, 8)}"
-                              f"{_f(float(_v('init_time_step', '0.01')))}")
-            self.lines.append("/")
-        else:
-            self.lines.append("CYCS")
-            self.lines.append(f"{_i(int(start_c), 8)}{_i(int(last_c), 8)}")
-
-        sted_max = _v("sted_max_cycle", "")
-        if sted_max:
-            self.lines.append("STED")
-            self.lines.append(f"{_i(int(sted_max), 12)}"
-                              f"{_i(int(_v('sted_check_type') or 1), 12)}")
-            self.lines.append(_f(float(_v('sted_tolerance') or 1e-5), 26))
-            self.lines.append("/")
-
-        if calc == "transient":
-            dtsr_type = _v("dtsr_type", "")
-            if dtsr_type:
-                self.lines.append("DTSR")
-                self.lines.append(f"{_i(int(dtsr_type), 12)}"
-                                  f"{_f(float(_v('dtsr_start', '0.1')), 26)}")
-                self.lines.append("/")
-            toff = _v("toff_time", "")
-            if toff:
-                self.lines.append("TOFF")
-                self.lines.append(_f(float(toff), 26))
-
-        solv = _v("solver_type", "")
-        if solv:
-            self.lines.append("SOLV")
-            self.lines.append(f"{_i(int(solv), 12)}")
-        emoc = _v("emoc_tolerance", "")
-        if emoc:
-            self.lines.append("EMOC")
-            self.lines.append(_f(float(emoc), 26))
-        cour = _v("courant", "")
-        if cour:
-            self.lines.append("COUR")
-            self.lines.append(f"{_i(int(float(courant)), 12)}")
-        upwd = _v("upwd_scheme", "")
-        if upwd:
-            self.lines.append("UPWD")
-            self.lines.append(f"{_i(int(upwd), 12)}")
 
     def _pofc_plit(self):
         """POFC / PLIT — output cycle control (H1)."""

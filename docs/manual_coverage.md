@@ -19,22 +19,20 @@
 
 ## 命中依据分布
 
-- keyword: 312
+- keyword: 321
 - ui-family: 141
 - C-batch: 85
 - kind: 31
 - C-informational: 25
 - hub-B:Output_Condition: 11
-- hub-B: 7
 - alias:porous: 6
 - hub-B:Free_Surface: 6
 - hub-B:Moving_Object: 6
 - hub-B:Radiation: 6
 - hub-B:Solidification_Melting: 6
-- alias:particle: 5
+- hub-B: 5
 - hub-B:Initial_Setting: 4
-- alias:moving_body: 3
-- alias:topology: 2
+- alias:moving_body: 2
 - alias:rough: 2
 - alias:topo_obj_func: 2
 - hub-B:Humidity: 2
@@ -74,6 +72,7 @@
 - C-disabled:: 1
 - hub-B:Marangoni_Convection: 1
 - hub-B:Particle: 1
+- alias:particle: 1
 - hub-B:Solar_Radiation: 1
 - alias:welding: 1
 - hub-B:Solidification_Melting_When_MARS_method_is_not_used: 1
