@@ -318,6 +318,9 @@ class SExport:
         self._region_floats()
         self._phase_transition()
         self._radiation_sections()
+        self._chem_sections()
+        self._ecur_sections()
+        self._solar_sections()
         self._flux_region()
         self._amom_region()
         self._aent_region()
@@ -549,6 +552,15 @@ class SExport:
             f"{_f(grav_vec[1] * grav_abs)}{_f(grav_vec[2] * grav_abs)}"
             f"{_f(ambient)}{_i(0)}",
         ]
+        # H1g: SNAM 物种寄存器名，位于 GRAV 之后 HSOL 之前
+        # （exA04-1:26-32，非终止块，行宽 '   {name:<16}'）
+        snam = self.m.root.find("analysis_etc/chem/snam")
+        if snam is not None and any(
+                (snam.attrib.get(k) or "").strip()
+                for k in ("r1", "r2", "p1", "p2")):
+            self.lines.append("SNAM")
+            for k in ("r1", "r2", "p1", "p2"):
+                self.lines.append(f"   {snam.attrib.get(k, ''):<16}")
         # HSOL：固体热传导求解卡。样本中 compressive / mars 自由面 /
         # 运动件项目的官方 .s 均无此段；值取 thermal_solver 的
         # [0] 与 [1],[3],[4]（ex4_e "1,3,2,1,1,0" -> 1 / 3 1 1）
@@ -1427,6 +1439,143 @@ class SExport:
                 self.lines.append("   " + rec.attrib.get("region", ""))
                 self.lines.append("   /")
             self.lines.append("/")
+
+    def _chem_sections(self):
+        """H1g: 化学反应族 — CDIF 物种扩散 / REAC_REGION 反应区域 /
+        VDFU_REGION 物种源区域（exA04-1 / exA03-1）。SNAM 物种寄存器
+        为非终止头区块，由 _equations 在 GRAV 与 HSOL 之间发射
+        （exA04-1:26-32）；CDIF 非终止（29 宽 + '  ! species'）；
+        REAC_REGION 15 宽号 + 4 空格式 + 29/26×6 值 + '  0' 尾 +
+        region + 双终止；VDFU_REGION 物种行 + source 记录 + 单 '/'。
+        存储 analysis_etc/chem：snam(r1..p2)、dif(species,value)、
+        reac(no,formula,a,b,c,e,x1,x2,x3,tail,region)、
+        vdfu(species,name,value,region)。"""
+        chem = self.m.root.find("analysis_etc/chem")
+        if chem is None:
+            return
+        difs = chem.findall("dif")
+        if difs:
+            self.lines.append("CDIF")
+            for d in difs:
+                self.lines.append(
+                    _f(float(d.attrib.get("value", "0")), 29)
+                    + "  ! " + d.attrib.get("species", ""))
+        for r in chem.findall("reac"):
+            self.lines.append("REAC_REGION")
+            self.lines.append(_i(int(r.attrib.get("no", "1")), 15))
+            self.lines.append("    " + r.attrib.get("formula", ""))
+            self.lines.append(
+                _f(float(r.attrib.get("a", "0")), 29)
+                + _f(float(r.attrib.get("b", "0")), 26)
+                + _f(float(r.attrib.get("c", "0")), 26)
+                + _f(float(r.attrib.get("e", "0")), 26)
+                + _f(float(r.attrib.get("x1", "0")), 26)
+                + _f(float(r.attrib.get("x2", "0")), 26)
+                + _f(float(r.attrib.get("x3", "0")), 26)
+                + "  " + r.attrib.get("tail", "0"))
+            self.lines.append("   " + r.attrib.get("region", ""))
+            self.lines += ["   /", "/"]
+        vdfus = chem.findall("vdfu")
+        if vdfus:
+            self.lines.append("VDFU_REGION")
+            for v in vdfus:
+                self.lines.append(v.attrib.get("species", ""))
+                self.lines.append(f"source    0   ! "
+                                  f"{v.attrib.get('name', '')}")
+                self.lines.append(_f(float(v.attrib.get("value", "0")), 29))
+                self.lines.append("   " + v.attrib.get("region", ""))
+                self.lines.append("   /")
+            self.lines.append("/")
+
+    def _ecur_sections(self):
+        """H1g: 电流解析族 — ECUR（3×12 宽，非终止）/ ECUR_MAGFIELD
+        （'{kind:<10}{no}' + '     {region}' + 2×26 宽，非终止）/
+        ECUR_PROPERTY（12 宽 + 26 宽行，'/' 收节）（exA12-1.s:88-96）。
+        存储 analysis_etc/ecur：i1/i2/i3、mag_kind/mag_no/mag_region/
+        mag_v1/mag_v2 属性 + prop(no,v) 子元素。"""
+        el = self.m.root.find("analysis_etc/ecur")
+        if el is None:
+            return
+        self.lines.append("ECUR")
+        self.lines.append(_i(int(el.attrib.get("i1", "1")), 12)
+                          + _i(int(el.attrib.get("i2", "0")), 12)
+                          + _i(int(el.attrib.get("i3", "0")), 12))
+        if (el.attrib.get("mag_region") or "").strip():
+            self.lines.append("ECUR_MAGFIELD")
+            self.lines.append(f"{el.attrib.get('mag_kind', 'uniform'):<10}"
+                              f"{el.attrib.get('mag_no', '0')}")
+            self.lines.append(
+                "     " + el.attrib.get("mag_region", "")
+                + _f(float(el.attrib.get("mag_v1", "0")), 26)
+                + _f(float(el.attrib.get("mag_v2", "0")), 26))
+        props = el.findall("prop")
+        if props:
+            self.lines.append("ECUR_PROPERTY")
+            for p in props:
+                self.lines.append(
+                    _i(int(p.attrib.get("no", "1")), 12)
+                    + _f(float(p.attrib.get("v", "0")), 26))
+            self.lines.append("/")
+
+    def _solar_sections(self):
+        """H1g: 太陽日射族 — SOLAR（非终止固定卡：mode/11.3f 三值行/
+        ASHRAE 26 宽/12 宽二值/12×%11.3f 月表×2）+ SOLA_DEFAULT
+        （关键字表：整型右 9 / 浮点 %11.5e 右 17，'/' 收节）共生发射；
+        SOLA_REGION 独立门控（exA07-5 无 SOLAR 头，语料 10 vs 6/6）。
+        存储 analysis_etc/solar：head 属性 + default 子元素 +
+        region(kind,name,v1..v4,flag,region) 子元素。"""
+        el = self.m.root.find("analysis_etc/solar")
+        if el is None:
+            return
+        if (el.attrib.get("mode") or "").strip():
+            self.lines.append("SOLAR")
+
+            def _a(k, d):
+                return el.attrib.get(k, d)
+
+            def _f3(v):
+                return f"{float(v):11.3f}"
+
+            self.lines.append(" " + _a("mode", "latitude_dec"))
+            self.lines.append(_f3(_a("lat", "35.680"))
+                              + _f3(_a("lon", "139.770"))
+                              + _f3(_a("meridian", "135.000")))
+            self.lines.append(_f3(_a("a1", "0")) + _f3(_a("a2", "0")))
+            self.lines.append(_f3(_a("a3", "0")))
+            self.lines.append(_f3(_a("a4", "0")) + _f3(_a("a5", "0")))
+            self.lines.append(" " + _a("ashrae_kind", "ASHRAE")
+                              + _f(float(_a("ashrae_val", "0.1")), 26))
+            self.lines.append(_i(int(float(_a("n1", "9"))), 12)
+                              + _i(int(float(_a("n2", "1"))), 12))
+            for mk in ("monthly1", "monthly2"):
+                vals = [x for x in _a(mk, "").split(",") if x.strip()]
+                if vals:
+                    self.lines.append("".join(_f3(v) for v in vals))
+            dflt = el.find("default")
+            if dflt is not None:
+                self.lines.append("SOLA_DEFAULT")
+                for kw in ("IDRF", "SKY", "GND", "INFO", "MPCL", "MAXM",
+                           "ASHRAE"):
+                    v = (dflt.attrib.get(kw, "") or "").strip()
+                    if not v:
+                        continue
+                    if kw in ("SKY", "GND"):
+                        self.lines.append(f"    {kw}{float(v):>17.5e}")
+                    else:
+                        self.lines.append(f"    {kw}{int(float(v)):>9}")
+                self.lines.append("/")
+        for rec in el.findall("region"):
+            self.lines.append("SOLA_REGION")
+            self.lines.append(rec.attrib.get("kind", "body_d"))
+            self.lines.append(
+                f"{float(rec.attrib.get('v1', '0')):28.14e}"
+                f"{float(rec.attrib.get('v2', '0')):27.14e}"
+                f"{float(rec.attrib.get('v3', '0')):27.14e}"
+                f"{float(rec.attrib.get('v4', '0')):27.14e}"
+                f"  ! {rec.attrib.get('name', '')}")
+            self.lines.append("   " + rec.attrib.get("flag", "0"))
+            self.lines.append("   " + rec.attrib.get("region", ""))
+            self.lines += ["   /", "/"]
 
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
