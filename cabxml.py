@@ -719,6 +719,15 @@ class StpreModel:
             "plane": (None, "str"), "thick": ("mm", 1),
             "count": (None, "int"),
         },
+        # H3: plate fin — official schema (exA17-1a.cab 放熱フィン):
+        # <fin unit=mm>2</fin> <space unit=mm>7.5</space>
+        # <depth unit=mm>0.8</depth> <nfin>5</nfin>
+        # <row_axis>+X</row_axis> <def_axis>+Z</def_axis>
+        "plate_fin": {
+            "fin": ("mm", 1), "space": ("mm", 1), "depth": ("mm", 1),
+            "nfin": (None, "int"), "row_axis": (None, "str"),
+            "def_axis": (None, "str"),
+        },
         "anemostat": {
             "mode": (None, "str"), "type": (None, "str"),
         },

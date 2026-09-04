@@ -556,11 +556,18 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
         p = conical_tess(
             c1, c2, max(s[0], s[1]) / 2, max(s[0], s[1]) / 6)
     elif kind == "plate_fin":
+        # H3: official schema keys (exA17-1a: fin/space/depth/nfin);
+        # legacy fin_count/fin_thickness kept as fallback
         p = _plate_fin_tess({
             "base": _el_vec(el, "base"),
             "size": _el_vec(el, "size", (10.0, 10.0, 10.0)),
-            "fin_count": int(_el_scalar(el, "fin_count", 5)),
-            "fin_thickness": _el_scalar(el, "fin_thickness", 0.5),
+            "fin_count": int(_el_scalar(el, "nfin",
+                                        _el_scalar(el, "fin_count", 5))),
+            "fin_thickness": _el_scalar(el, "fin",
+                                        _el_scalar(el, "fin_thickness",
+                                                   0.5)),
+            "space": _el_scalar(el, "space", 7.5),
+            "depth": _el_scalar(el, "depth", 0.8),
         })
     elif kind == "pin_fin":
         p = _pin_fin_tess({

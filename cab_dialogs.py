@@ -903,6 +903,15 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
             ("f", "Thickness (mm)", "thick", None, 1.0),
             ("i", "Number of slits", "count", None, 8),
         ),
+        # H3: plate fin — official schema (exA17-1a.cab 放熱フィン)
+        "plate_fin": (
+            ("f", "Fin thickness (mm)", "fin", None, 2.0),
+            ("f", "Fin spacing (mm)", "space", None, 7.5),
+            ("f", "Fin depth (mm)", "depth", None, 0.8),
+            ("i", "Number of fins", "nfin", None, 5),
+            ("s", "Row axis", "row_axis", None, "+X"),
+            ("s", "Definition axis", "def_axis", None, "+Z"),
+        ),
         "anemostat": (
             ("t", "Mode", "mode", None, ""),
             ("t", "Type", "type", None, ""),

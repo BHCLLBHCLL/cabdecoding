@@ -280,6 +280,44 @@ class SketchProfile:
             if self.close and abs(span) < 359.999:
                 pts.append((cx, cy))
             return pts
+        if self.geometry_type == "spline":
+            # SK-3: Catmull-Rom through the control points; the outline is
+            # the sampled curve (closed) or the curve closed by a straight
+            # segment so the profile stays tessellatable
+            ctrl = list(self.points)
+            while len(ctrl) > 1 and ctrl[0] == ctrl[-1]:
+                ctrl = ctrl[:-1]
+            if len(ctrl) < 3:
+                return ctrl
+            per = max(2, int(self.divisions))
+            n = len(ctrl)
+            out: list[tuple[float, float]] = []
+            segs = n if self.close else n - 1
+            for s in range(segs):
+                p0 = ctrl[(s - 1) % n] if self.close else ctrl[max(s - 1, 0)]
+                p1 = ctrl[s % n]
+                p2 = ctrl[(s + 1) % n]
+                p3 = (ctrl[(s + 2) % n] if self.close
+                      else ctrl[min(s + 2, n - 1)])
+                for t in np.linspace(0.0, 1.0, per, endpoint=False):
+                    t2 = t * t
+                    t3 = t2 * t
+                    x = 0.5 * ((2.0 * p1[0])
+                               + (-p0[0] + p2[0]) * t
+                               + (2.0 * p0[0] - 5.0 * p1[0] + 4.0 * p2[0]
+                                  - p3[0]) * t2
+                               + (-p0[0] + 3.0 * p1[0] - 3.0 * p2[0]
+                                  + p3[0]) * t3)
+                    y = 0.5 * ((2.0 * p1[1])
+                               + (-p0[1] + p2[1]) * t
+                               + (2.0 * p0[1] - 5.0 * p1[1] + 4.0 * p2[1]
+                                  - p3[1]) * t2
+                               + (-p0[1] + 3.0 * p1[1] - 3.0 * p2[1]
+                                  + p3[1]) * t3)
+                    out.append((float(x), float(y)))
+            if not self.close:
+                out.append(ctrl[-1])
+            return out
         pts = list(self.points)
         # Drop accidental trailing duplicate of the first vertex
         while len(pts) > 1 and pts[0] == pts[-1]:
@@ -513,6 +551,14 @@ def profile_dimensions(profile: SketchProfile) -> list[dict]:
             out.append({"kind": "angle", "label": "Span (deg)",
                         "value": float(profile.end_angle
                                        - profile.start_angle), "index": 1})
+    elif profile.geometry_type == "spline":
+        # SK-3: bbox of the control points drives the sketch extents
+        xs = [p[0] for p in profile.points] or [0.0]
+        ys = [p[1] for p in profile.points] or [0.0]
+        out.append({"kind": "width", "label": "Width (U)",
+                    "value": float(max(xs) - min(xs)), "index": 0})
+        out.append({"kind": "height", "label": "Height (V)",
+                    "value": float(max(ys) - min(ys)), "index": 1})
     else:
         pts = profile.polygon()
         rng = range(len(pts)) if profile.close else range(len(pts) - 1)
@@ -646,6 +692,11 @@ def _write_sketch_fields(el, *, plane: SketchPlane, profile: SketchProfile,
         add("divisions", str(profile.divisions))
         add("start_angle", f"{profile.start_angle:.12g}", "deg")
         add("end_angle", f"{profile.end_angle:.12g}", "deg")
+    elif profile.geometry_type == "spline":
+        # SK-3: control points + samples per Catmull-Rom segment
+        pts = ",".join(f"{x:.12g},{y:.12g}" for x, y in profile.points)
+        add("points", pts, "mm")
+        add("divisions", str(profile.divisions))
     else:
         pts = ",".join(f"{x:.12g},{y:.12g}" for x, y in profile.points)
         add("points", pts, "mm")
@@ -810,6 +861,8 @@ def read_sketch_part(model: StpreModel, name: str
         vals = [float(x) for x in t.replace(";", ",").split(",") if x.strip()]
         profile.points = [(vals[i], vals[i + 1])
                           for i in range(0, len(vals) - 1, 2)]
+        if geometry == "spline":
+            profile.divisions = int(float(text("divisions", "12")))
     meta = {
         "name": name,
         "model_type": text("model_type", "extrusion"),
@@ -923,6 +976,8 @@ def tess_for_sketch_part(model: StpreModel, part) -> Optional[object]:
         vals = [float(x) for x in t.replace(";", ",").split(",")]
         profile.points = [(vals[i], vals[i + 1])
                           for i in range(0, len(vals) - 1, 2)]
+        if geometry == "spline":
+            profile.divisions = int(float(text("divisions", "12")))
     plane = SketchPlane(
         origin=tuple(float(x) for x in
                      text("plane_origin", "0,0,0").split(",")[:3]),
@@ -1032,7 +1087,7 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         grow = QHBoxLayout()
         self.geometry_type = QComboBox(page)
         self.geometry_type.addItems(
-            ["Point sequence", "Rectangle", "Circle", "Arc"])
+            ["Point sequence", "Rectangle", "Circle", "Arc", "Spline"])
         self.geometry_type.currentIndexChanged.connect(self._on_geometry)
         grow.addWidget(self.geometry_type, 1)
         self.btn_reset = QPushButton("Reset Vertex", page)
@@ -1105,6 +1160,17 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
         self.close_chk = QCheckBox("Close start and end points", page)
         self.close_chk.setChecked(True)
         lay.addWidget(self.close_chk)
+
+        # SK-3: spline sampling density (visible for Spline only)
+        srow = QHBoxLayout()
+        self.spline_div_label = QLabel("Samples per segment", page)
+        self.spline_div = QSpinBox(page)
+        self.spline_div.setRange(2, 64)
+        self.spline_div.setValue(12)
+        srow.addWidget(self.spline_div_label)
+        srow.addWidget(self.spline_div)
+        srow.addStretch(1)
+        lay.addLayout(srow)
 
         # Sketch origin (display of plane origin — STpre chrome)
         org = QHBoxLayout()
@@ -1238,7 +1304,7 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
 
     def _on_geometry(self) -> None:
         g = self.geometry_type.currentText()
-        is_pts = g == "Point sequence"
+        is_pts = g in ("Point sequence", "Spline")
         is_round = g in ("Circle", "Arc")
         self.points_table.setVisible(is_pts)
         self.btn_add.setVisible(is_pts)
@@ -1251,6 +1317,9 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
             for sb in (self.arc_a0, self.arc_a1):
                 sb.setVisible(g == "Arc")
                 sb.setEnabled(g == "Arc")
+        if hasattr(self, "spline_div"):
+            self.spline_div.setVisible(g == "Spline")
+            self.spline_div_label.setVisible(g == "Spline")
 
     # SK-4: model types that act on a selected target solid
     _TARGET_TYPES = ("Cutout", "Extrusion to selected part",
@@ -1444,7 +1513,8 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
 
     def accepts_plane_picks(self) -> bool:
         return (self.isVisible()
-                and self.geometry_type.currentText() == "Point sequence")
+                and self.geometry_type.currentText()
+                in ("Point sequence", "Spline"))
 
     def _profile(self) -> SketchProfile:
         g = self.geometry_type.currentText()
@@ -1472,6 +1542,20 @@ class SketchPartDialog(QDialog if _HAS_GUI_DEPS else object):
                 start_angle=self.arc_a0.value(),
                 end_angle=self.arc_a1.value(),
                 close=True)
+        if g == "Spline":
+            sp = []
+            for r in range(self.points_table.rowCount()):
+                u = self.points_table.item(r, 1)
+                v = self.points_table.item(r, 2)
+                if u is None or v is None:
+                    continue
+                try:
+                    sp.append((float(u.text()), float(v.text())))
+                except ValueError:
+                    continue
+            return SketchProfile(geometry_type="spline", points=sp,
+                                 close=self.close_chk.isChecked(),
+                                 divisions=self.spline_div.value())
         pts = []
         for r in range(self.points_table.rowCount()):
             u = self.points_table.item(r, 1)

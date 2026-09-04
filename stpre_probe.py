@@ -80,6 +80,7 @@ class ProbeCase:
     base: str = "box"                      # box | tr03 | ex4e
     keep_parts: tuple[str, ...] = ()       # delete every other part
     stl_body_files: bool = False           # register STL in <body_files>
+    cyl_part: bool = False                 # H6: cylinder part (drop box)
     note: str = ""
 
     def key(self) -> str:
@@ -130,6 +131,7 @@ class ProbeCase:
             "base": self.base,
             "keep_parts": list(self.keep_parts),
             "stl_body_files": self.stl_body_files,
+            "cyl_part": self.cyl_part,
             "note": self.note,
         }
 
@@ -293,12 +295,30 @@ def stl_registration_cases() -> list[ProbeCase]:
     ]
 
 
+def cylinder_vd_cases() -> list[ProbeCase]:
+    """H6: axis_plane semantics on a cylinder part — does the 'plane'
+    vertex detection pick the axial planes, the diametric planes or the
+    bounding-box planes?  Centre-aligned and off-centre variants."""
+    base = dict(drop_box=True, cyl_part=True)
+    cases = []
+    for vd in (0, 1, 2, 3):
+        label = {0: "all", 1: "rep", 2: "plane", 3: "minmax"}[vd]
+        cases.append(ProbeCase(name=f"cyl_vd_{label}", **base,
+                               vertex_detection=vd))
+    cases.append(ProbeCase(
+        name="cyl_offcenter_vd_plane", **base, vertex_detection=2,
+        part_transform="1,0,0,0,0,1,0,0,0,0,1,0,5,3,0,1",
+        note="cylinder centre offset (5,3,0) from domain centre"))
+    return cases
+
+
 _MATRICES = {
     "default": default_cases,
     "auto1": auto1_sweep_cases,
     "tr03": tr03_vd_cases,
     "ex4e": ex4e_vd_cases,
     "stlreg": stl_registration_cases,
+    "cyl": cylinder_vd_cases,
 }
 
 
@@ -411,6 +431,37 @@ def _apply_case(model: StpreModel, case: ProbeCase,
             cab_import.register_parts(model, bodies, kind="polygon")
     if case.drop_box:
         model.delete_part("box")
+    if case.cyl_part:
+        # H6: cylinder part (official STpre schema exA11-1 パイプ1:
+        # center/radius/height/divide/def_axis — parametric, NO <file>
+        # x_t reference; a dangling x_t reference makes STpre COM throw
+        # 0x80010105 on open).
+        if "box" in [p.name for p in model.parts()]:
+            model.delete_part("box")
+        el = model.add_part(name="cyl", kind="cylinder",
+                            attribute="solid")
+        if el is not None:
+            import xml.etree.ElementTree as ET
+            for tag in ("file", "facet_kind"):
+                e = el.find(tag)
+                if e is not None:
+                    el.remove(e)
+            for tag, text, unit in (
+                    ("center", "0,0,0", "mm"), ("radius", "10", "mm"),
+                    ("height", "30", "mm"), ("divide", "48", None),
+                    ("def_axis", "+Z", None)):
+                c = el.find(tag)
+                if c is None:
+                    c = ET.SubElement(el, tag)
+                c.text = f" {text} "
+                if unit:
+                    c.attrib["unit"] = unit
+            vol = el.find("volume")
+            if vol is not None:
+                vol.attrib["unit"] = "m"
+                vol.text = " 9.42477796076938e-06 "
+        if case.part_transform:
+            model.set_part_transform("cyl", case.part_transform)
     if case.keep_parts:
         for p in list(model.parts()):
             if p.name not in case.keep_parts:
