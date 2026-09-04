@@ -336,6 +336,7 @@ class SExport:
         self._tmsr()
         self._fout()
         self._surf_output()
+        self._free_surf_sections()
         self._sufs_region()
         self._surf_porous()
         self._topopt_region()
@@ -1394,6 +1395,79 @@ class SExport:
                     self.lines.append(_f(0.0, 29))
                 self.lines.append("   " + region)
                 self.lines.append("   /")
+            self.lines.append("/")
+
+    def _free_surf_sections(self):
+        """H1d: VOF2 / SURF_CONTROL / SURF_PROPERTY — 自由表面族，
+        analysis_etc/free_surf 驱动。语料规则：SURF_PROPERTY 与
+        SURF_CONTROL 48/48 共生；VOF2 38/48，由第二相（phase2_name）
+        定义触发；SURF_CONTROL 两变体零混合——两相输运变体
+        （transport_phase..filling_check，exA09-4/exA15-7）与单相变体
+        （hydrostatic_pressure..afterward_interpolation，exA10-1）。
+        顺序 exA09-4：VOF2 → SURF_CONTROL → SURF_PROPERTY → SUFS_REGION。"""
+        fs = self.m.root.find("analysis_etc/free_surf")
+        if fs is None:
+            return
+        p2_name = self.m.free_surf_attr("phase2_name", "")
+        if p2_name:
+            self.lines.append("VOF2")
+            self.lines.append(_f(float(
+                self.m.free_surf_attr("phase2_density", "1.0")), 29))
+            self.lines.append("   " + p2_name)
+            self.lines.append("   /")
+        self.lines.append("SURF_CONTROL")
+        self.lines.append("various")
+
+        def _int_opt(keyword, attr, default):
+            self.lines.append(keyword)
+            self.lines.append(_i(int(float(
+                self.m.free_surf_attr(attr, default))), 15))
+
+        def _pair_opt(keyword, attr, default, attr2, default2):
+            self.lines.append(keyword)
+            self.lines.append(
+                _i(int(float(self.m.free_surf_attr(attr, default))), 15)
+                + _f(float(self.m.free_surf_attr(attr2, default2)), 26))
+
+        if p2_name:
+            _int_opt("transport_phase", "one_fluid_model", "2")
+            _int_opt("fractional_step", "fractional_step", "5")
+            _int_opt("tension_phase", "tension_phase", "1")
+            _int_opt("listout_vof", "vof_list_cycle", "0")
+            # cutoff 存储 'EPSVF,0.5,eps_save' 三元组，卡片取 EPSVF（首值）
+            epsvf = (self.m.free_surf_attr("cutoff", "0.0001")
+                     .split(",")[0].strip() or "0.0001")
+            self.lines.append("cutoff_vof")
+            self.lines.append(
+                _i(int(float(self.m.free_surf_attr("cutoff_enable", "1"))),
+                   15) + _f(float(epsvf), 26))
+            _int_opt("conservation_term", "conservation_term", "1")
+            _pair_opt("filling_check", "filling_check", "0",
+                      "fill_rate", "95")
+            buoy = self.m.free_surf_attr("buoyancy_in_mars", "")
+            if buoy:
+                self.lines.append("buoyancy_in_mars")
+                self.lines.append(_i(int(float(buoy)), 15))
+                vals = [float(x) for x in
+                        self.m.free_surf_attr("buoyancy_vals", "")
+                        .split(",") if x.strip()]
+                if vals:
+                    self.lines.append(
+                        "".join(_f(v, 26) for v in vals))
+        else:
+            _int_opt("hydrostatic_pressure", "hydro_pres", "0")
+            _int_opt("surface_shape", "surface_set", "1")
+            _int_opt("listout_flow", "flow_list", "1")
+            _int_opt("volume_correction", "volume_correction", "0")
+            _int_opt("afterward_interpolation",
+                     "afterward_interpolation", "0")
+        self.lines.append("/")
+        tension = self.m.free_surf_attr("tension", "")
+        if tension:
+            self.lines.append("SURF_PROPERTY")
+            for idx, val in enumerate(
+                    [x for x in tension.split(",") if x.strip()], 1):
+                self.lines.append(_i(idx, 6) + _f(float(val), 26))
             self.lines.append("/")
 
     def _sufs_region(self):
