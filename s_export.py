@@ -316,6 +316,8 @@ class SExport:
         self._les_init()
         self._init_region()
         self._region_floats()
+        self._phase_transition()
+        self._radiation_sections()
         self._flux_region()
         self._amom_region()
         self._aent_region()
@@ -1332,6 +1334,99 @@ class SExport:
                     else "0"
                 self.lines += [cmd, _f(float(v), 29),
                                "   " + region, "   /"]
+
+    def _phase_transition(self):
+        """PHASE_TRANSITION — 相変化（PCM）材（exA15-4a.s：Keyword 固定
+        構造 solidification_melting/phase_diagram/constant_melt + 29/26/
+        26/26 宽四值 + solid_property 29/26/26 + conservation 15 宽 +
+        phase_function + solid_resistance + darcy 26 宽）。
+        存储 <value type="pcm">（CW PCM 页已写 melting_temp/latent_heat），
+        扩展子元素 liquid_temp/prandtl/solid_density/solid_cp/
+        solid_conductivity/conservation/phase_function/resistance_kind/
+        resistance_coeff 取官方样本值。"""
+        pcm = None
+        for val in self.m.values_of_type("pcm"):
+            pcm = val
+            break
+        if pcm is None:
+            return
+        from cabxml import _first
+
+        def _v(tag, default):
+            el = _first(pcm, tag)
+            return (el.text or "").strip() if el is not None and el.text \
+                else default
+
+        tmelt = float(_v("melting_temp", "28.0"))
+        self.lines += ["PHASE_TRANSITION", "solidification_melting",
+                       "phase_diagram", "constant_melt"]
+        self.lines.append(
+            _f(tmelt, 29)
+            + _f(float(_v("liquid_temp", f"{tmelt:g}")), 26)
+            + _f(float(_v("latent_heat", "200000.0")), 26)
+            + _f(float(_v("prandtl", "0.6")), 26))
+        self.lines.append("solid_property")
+        self.lines.append(
+            _f(float(_v("solid_density", "7170.0")), 29)
+            + _f(float(_v("solid_cp", "228.0")), 26)
+            + _f(float(_v("solid_conductivity", "66.6")), 26))
+        self.lines += ["conservation",
+                       _i(int(float(_v("conservation", "2"))), 15),
+                       "phase_function", _v("phase_function", "linear"),
+                       "solid_resistance", _v("resistance_kind", "darcy"),
+                       _f(float(_v("resistance_coeff", "1e-10")), 26),
+                       "/"]
+
+    def _radiation_sections(self):
+        """H1f: RADD / RADC_MATERIAL / RADB_REGION — 辐射求解族
+        （exA01-1.s）。RADD 关键字表（3 空格 + 5 宽关键字 + 整型右 8 /
+        浮点 %.5e 右 15，'/' 收节）存 radiation/radd 子元素；
+        RADC_MATERIAL 每材质 12 宽 + 3×26 宽存 radiation/radc_material/
+        row(no,v1,v2,v3)；RADB_REGION mirror 边界记录
+        （'{kind:<6}    {no}   ! {name}' + region + '   /'）存
+        radiation/radb_region/record。ex4_e 有 radiation 但无 radd/
+        radc/radb 子树 -> 不发射，parity 保持。"""
+        rad = self.m.root.find("analysis_set/radiation")
+        if rad is None:
+            return
+        radd = rad.find("radd")
+        if radd is not None and len(radd) > 0:
+            # exA01-1 交错顺序（整型右 8，浮点 %.5e 右 15）
+            RADD_ORDER = ("MTDSR", "ITRSR", "EQCSR", "UNDSR", "ITRR",
+                          "REPS", "INRD", "MTCR", "NPRQ")
+            FLT_KWS = ("EQCSR", "UNDSR", "REPS")
+            self.lines.append("RADD")
+            for kw in RADD_ORDER:
+                el = radd.find(kw)
+                if el is None or not (el.text or "").strip():
+                    continue
+                v = el.text.strip()
+                if kw in FLT_KWS:
+                    self.lines.append(f"   {kw:<5}{float(v):>15.5e}")
+                else:
+                    self.lines.append(f"   {kw:<5}{int(float(v)):>8}")
+            self.lines.append("/")
+        radc = rad.find("radc_material")
+        if radc is not None and len(radc.findall("row")) > 0:
+            self.lines.append("RADC_MATERIAL")
+            for row in radc.findall("row"):
+                self.lines.append(
+                    _i(int(row.attrib.get("no", "1")), 12)
+                    + _f(float(row.attrib.get("v1", "-1.0")), 26)
+                    + _f(float(row.attrib.get("v2", "0.0")), 26)
+                    + _f(float(row.attrib.get("v3", "0.0")), 26))
+            self.lines.append("/")
+        radb = rad.find("radb_region")
+        if radb is not None and len(radb.findall("record")) > 0:
+            self.lines.append("RADB_REGION")
+            for rec in radb.findall("record"):
+                self.lines.append(
+                    f"{rec.attrib.get('kind', 'mirror'):<6}"
+                    f"    {rec.attrib.get('no', '0')}"
+                    f"   ! {rec.attrib.get('name', '')}")
+                self.lines.append("   " + rec.attrib.get("region", ""))
+                self.lines.append("   /")
+            self.lines.append("/")
 
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
