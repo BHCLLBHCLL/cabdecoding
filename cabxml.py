@@ -662,10 +662,13 @@ class StpreModel:
     #: 专用件参数字段表：tag -> (unit 属性, 长度；1 为标量，
     #: "int" 为整数, "str" 为字符串)
     _SPECIAL_PARAM_FIELDS = {
+        # official arity is variable (exA22-2: paramT 4 values,
+        # paramA/paramQ 2 values) -> csv; the card layout is fixed by
+        # the .s emitter, not the storage arity
         "peltier": {
-            "thick": ("mm", 2), "paramV": ("default", 4),
-            "paramA": ("default", 5), "paramQ": ("default", 5),
-            "paramT": (None, 2), "def_axis": (None, "str"),
+            "thick": ("mm", "csv"), "paramV": ("default", "csv"),
+            "paramA": ("default", "csv"), "paramQ": ("default", "csv"),
+            "paramT": (None, "csv"), "def_axis": (None, "str"),
         },
         "card_guide": {
             "fin": ("mm", 1), "space": ("mm", 2), "depth": ("mm", 2),
@@ -756,7 +759,7 @@ class StpreModel:
         # ``<thermal_node no>`` / name / resistance (unit C/W).
         "two_resistor": {
             "rjc": ("K/W", 1), "rjb": ("K/W", 1),
-            "package_power": ("W", 1),
+            "package_power": ("W", 1), "package": (None, "str"),
         },
         "multi_resistor": {
             "rjc": ("K/W", 1), "rjb": ("K/W", 1),
@@ -806,6 +809,9 @@ class StpreModel:
                 if not vals:
                     continue
                 out[tag] = vals[0] if fmt == 1 else vals
+            pk = _first(el, "package")
+            if pk is not None and pk.text:
+                out["package"] = pk.text.strip()
         if kind == "two_resistor":
             # Official-key bridge (exA22-1 network schema): the JEDEC
             # pair lives in <condition><resistance node1/node2> and the
@@ -831,10 +837,6 @@ class StpreModel:
                             (src_el.text or "0").strip())
                     except ValueError:
                         pass
-            # official geometry keys surfaced alongside
-            pk = _first(el, "package")
-            if pk is not None and pk.text:
-                out["package"] = pk.text.strip()
 
         if kind == "delphi":
             nodes = []

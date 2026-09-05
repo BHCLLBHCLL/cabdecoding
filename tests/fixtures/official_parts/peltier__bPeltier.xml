@@ -1,0 +1,23 @@
+<parts type="peltier">
+      <name> Peltier </name>
+      <property> alumina(Al2O3)(300K) </property>
+      <volume unit="m"> 3.6e-06 </volume>
+      <color> 191,191,191,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <tree_expand> F </tree_expand>
+      <layer> 1 </layer>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <kind> 2 </kind>
+      <base unit="mm"> 0,0,0 </base>
+      <size unit="mm"> 30,30,4 </size>
+      <thick unit="mm"> 1,1 </thick>
+      <paramV unit="V"> 15.5,17.5,10 </paramV>
+      <paramA unit="A"> 7.5,7.5 </paramA>
+      <paramQ unit="W"> 59,65 </paramQ>
+      <paramT> 25,50,56,62 </paramT>
+      <def_axis> +Z </def_axis>
+      <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,-0.015,-0.015,-0.002,1 </transform>
+   </parts>
+   

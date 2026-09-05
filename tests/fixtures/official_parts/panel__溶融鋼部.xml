@@ -1,0 +1,19 @@
+<parts type="panel">
+      <name> 溶融鋼部 </name>
+      <attribute> cface </attribute>
+      <volume unit="m"> 0.92 </volume>
+      <color> 117,25,255,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <tree_expand> F </tree_expand>
+      <layer> 1 </layer>
+      <rad_group_num> 0 </rad_group_num>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <base unit="mm"> 0,0,0 </base>
+      <size unit="mm"> 400,2300,0 </size>
+      <percent> -1 </percent>
+      <thick unit="mm"> 0 </thick>
+      <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0.6,0,0,1 </transform>
+   </parts>
+   

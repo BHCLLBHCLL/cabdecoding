@@ -1,0 +1,24 @@
+<parts type="sphere">
+      <name> Bowl </name>
+      <property> 石英ガラス(300K) </property>
+      <attribute> panel </attribute>
+      <volume unit="m"> 0.0056460386558229 </volume>
+      <cutcell> T </cutcell>
+      <color> 25,117,255,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <tree_expand> F </tree_expand>
+      <layer> 1 </layer>
+      <monitor> T </monitor>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <center unit="mm"> 0,0,0 </center>
+      <radius3 unit="mm"> 30,30,30 </radius3>
+      <angle> 180,360 </angle>
+      <kind> 1 </kind>
+      <divide> 48 </divide>
+      <percent> 0 </percent>
+      <thick unit="mm"> 3 </thick>
+      <transform unit="m"> 0,1,0,0,0,0,1,0,1,0,0,0,0.05,0.05,0.035,1 </transform>
+   </parts>
+   

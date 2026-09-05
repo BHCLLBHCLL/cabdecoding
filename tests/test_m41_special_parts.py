@@ -265,9 +265,10 @@ def test_params_validation():
     assert m.set_part_params("Nope", {"thick": (1.0, 1.0)}) is False
     # 未知字段拒绝
     assert m.set_part_params("Peltier1", {"voltage": 12.0}) is False
-    # 向量长度不符拒绝且不落盘
-    assert m.set_part_params("Peltier1", {"thick": (1.0, 1.0, 1.0)}) is False
-    assert "thick" not in (m.part_params("Peltier1") or {})
+    # 官方 arity 可变（exA22-2: paramT 4 值）——thick 放宽为 csv；
+    # 拒绝路径由未知字段验证（上方 voltage 断言）
+    assert m.set_part_params("Peltier1", {"thick": (1.0, 1.0, 1.0)}) is True
+    assert m.part_params("Peltier1")["thick"] == [1.0, 1.0, 1.0]
 
 
 # -- PartDialog Parameters 面板 -------------------------------------------------

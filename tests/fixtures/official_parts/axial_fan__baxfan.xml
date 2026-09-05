@@ -1,0 +1,18 @@
+<parts type="axial_fan_model">
+      <name> axfan </name>
+      <attribute> area </attribute>
+      <color> 209,255,25,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <tree_expand> F </tree_expand>
+      <layer> 1 </layer>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <kind> circle </kind>
+      <panel_kind> 2 </panel_kind>
+      <center unit="mm"> 0,0,0 </center>
+      <size unit="mm"> 100,400 </size>
+      <thick unit="mm"> 150,150 </thick>
+      <transform unit="m"> 0.5,-0.86602540378444,0,0,0,0,-1,0,0.86602540378444,0.5,0,0,1.866,1.5,0.7,1 </transform>
+   </parts>
+   

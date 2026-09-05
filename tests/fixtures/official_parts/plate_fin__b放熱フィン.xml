@@ -1,0 +1,27 @@
+<parts type="plate_fin">
+      <name> 放熱フィン </name>
+      <property> 6/4黄銅(300K) </property>
+      <attribute> solid </attribute>
+      <volume unit="m"> 7.36e-06 </volume>
+      <color> 25,25,255,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <tree_expand> F </tree_expand>
+      <layer> 1 </layer>
+      <monitor> T </monitor>
+      <rad_group_num> 100 </rad_group_num>
+      <off> T </off>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <base unit="mm"> 0,0,0 </base>
+      <size unit="mm"> 40,40,16 </size>
+      <fin unit="mm"> 2 </fin>
+      <space unit="mm"> 7.5 </space>
+      <depth unit="mm"> 0.8 </depth>
+      <nfin> 5 </nfin>
+      <row_axis> +X </row_axis>
+      <def_axis> +Z </def_axis>
+      <file unit="m"> x_t </file>
+      <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0.08,0.08,0.004,1 </transform>
+   </parts>
+   

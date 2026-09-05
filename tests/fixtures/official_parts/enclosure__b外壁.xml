@@ -1,0 +1,129 @@
+<parts type="case_cube">
+      <name> 外壁 </name>
+      <solar_property> 建築材 </solar_property>
+      <volume unit="m"> 36.184 </volume>
+      <color> 191,191,191,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <layer> 1 </layer>
+      <sola_group_num> 0 </sola_group_num>
+      <fluid_solar_group_num> 0 </fluid_solar_group_num>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <base unit="m"> 0,0,0 </base>
+      <size unit="m"> 7,7,4 </size>
+      <thickness unit="m"> 0.2,0.2,0.2,0.2,0.2,0.2 </thickness>
+      <file unit="m"> x_t </file>
+      <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,2,2,0,1 </transform>
+      <boolean>
+         <parts type="body">
+            <name> 窓1 </name>
+            <attribute> area </attribute>
+            <volume unit="m"> 2.4 </volume>
+            <color> 0,255,255,178 </color>
+            <mode> sketch </mode>
+            <visible_count> 1 </visible_count>
+            <tree_expand> F </tree_expand>
+            <layer> 1 </layer>
+            <sola_group_num> 0 </sola_group_num>
+            <fluid_solar_group_num> 0 </fluid_solar_group_num>
+            <heat_balance> F,F </heat_balance>
+            <VF_balance> F </VF_balance>
+            <facet_kind> 2 </facet_kind>
+            <def_axis> +Z </def_axis>
+            <file unit="m"> x_t </file>
+            <transform unit="m"> 1,0,0,0,0,0,1,0,0,-1,0,0,0,2,0,1 </transform>
+            <feature type="hole">
+               <kind> rectangle </kind>
+               <loop num="4" unit="m">
+                  <pnt0> 3.5,0.2,0,0 </pnt0>
+                  <pnt1> 7.5,0.2,0,0 </pnt1>
+                  <pnt2> 7.5,3.2,0,0 </pnt2>
+                  <pnt3> 3.5,3.2,0,0 </pnt3>
+               </loop>
+               <close> T </close>
+               <search> T </search>
+               <sketch_plane> 1 </sketch_plane>
+               <local_system unit="m">
+                  <c> 0,2,0 </c>
+                  <u> 1,0,0 </u>
+                  <w> 0,-1,0 </w>
+               </local_system>
+               <minus> F </minus>
+               <panel> F </panel>
+               <range unit="m"> -0.2,0 </range>
+            </feature>
+            <target> 外壁 </target>
+            <bool_type> subtract+intersect </bool_type>
+               <region type="face_list">
+                  <name> _面領域_窓1[1] </name>
+                  <kind> hole1 </kind>
+                  <base> 窓1 </base>
+                  <face no="1" node_id="1" original="6"> 窓1,6 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+               <region type="face_list">
+                  <name> _面領域_窓1[2] </name>
+                  <kind> hole2 </kind>
+                  <base> 窓1 </base>
+                  <face no="1" node_id="176" original="5"> 窓1,5 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+         </parts>
+         <parts type="body">
+            <name> 窓2 </name>
+            <attribute> area </attribute>
+            <volume unit="m"> 0.6 </volume>
+            <color> 0,255,255,178 </color>
+            <mode> sketch </mode>
+            <visible_count> 1 </visible_count>
+            <tree_expand> F </tree_expand>
+            <layer> 1 </layer>
+            <sola_group_num> 0 </sola_group_num>
+            <fluid_solar_group_num> 0 </fluid_solar_group_num>
+            <heat_balance> F,F </heat_balance>
+            <VF_balance> F </VF_balance>
+            <facet_kind> 2 </facet_kind>
+            <def_axis> +Z </def_axis>
+            <file unit="m"> x_t </file>
+            <transform unit="m"> 0,1,0,0,0,0,1,0,1,0,0,0,9,0,0,1 </transform>
+            <feature type="hole">
+               <kind> rectangle </kind>
+               <loop num="4" unit="m">
+                  <pnt0> 5,1.5,0,0 </pnt0>
+                  <pnt1> 7,1.5,0,0 </pnt1>
+                  <pnt2> 7,3,0,0 </pnt2>
+                  <pnt3> 5,3,0,0 </pnt3>
+               </loop>
+               <close> T </close>
+               <search> T </search>
+               <sketch_plane> 1 </sketch_plane>
+               <local_system unit="m">
+                  <c> 9,0,0 </c>
+                  <u> 0,1,0 </u>
+                  <w> 1,0,0 </w>
+               </local_system>
+               <minus> F </minus>
+               <panel> F </panel>
+               <range unit="m"> -0.2,0 </range>
+            </feature>
+            <target> 外壁 </target>
+            <bool_type> subtract+intersect </bool_type>
+               <region type="face_list">
+                  <name> _面領域_窓2[1] </name>
+                  <kind> hole1 </kind>
+                  <base> 窓2 </base>
+                  <face no="1" node_id="54" original="6"> 窓2,6 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+               <region type="face_list">
+                  <name> _面領域_窓2[2] </name>
+                  <kind> hole2 </kind>
+                  <base> 窓2 </base>
+                  <face no="1" node_id="170" original="5"> 窓2,5 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+         </parts>
+      </boolean>
+   </parts>
+   

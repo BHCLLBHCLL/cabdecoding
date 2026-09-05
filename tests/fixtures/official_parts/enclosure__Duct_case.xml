@@ -1,0 +1,132 @@
+<parts type="case_cube">
+      <name> Duct_case </name>
+      <property> ケイ岩質骨材コンクリート(293K) </property>
+      <solar_property> 吸収体 </solar_property>
+      <attribute> solid </attribute>
+      <volume unit="m"> 0.0035355 </volume>
+      <color> 25,25,255,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <layer> 1 </layer>
+      <monitor> T </monitor>
+      <sola_group_num> 0 </sola_group_num>
+      <fluid_solar_group_num> 0 </fluid_solar_group_num>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <base unit="mm"> 0,0,0 </base>
+      <size unit="mm"> 510,110,155 </size>
+      <thickness unit="mm"> 5,5,5,5,5,50 </thickness>
+      <file unit="m"> x_t </file>
+      <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,-0.005,-0.005,-0.005,1 </transform>
+      <boolean>
+         <parts type="body">
+            <name> Cutout1 </name>
+            <attribute> area </attribute>
+            <volume unit="m"> 8e-05 </volume>
+            <color> 0,255,255,178 </color>
+            <mode> sketch </mode>
+            <visible_count> 1 </visible_count>
+            <tree_expand> F </tree_expand>
+            <layer> 1 </layer>
+            <sola_group_num> 0 </sola_group_num>
+            <fluid_solar_group_num> 0 </fluid_solar_group_num>
+            <heat_balance> F,F </heat_balance>
+            <VF_balance> F </VF_balance>
+            <facet_kind> 2 </facet_kind>
+            <def_axis> +Z </def_axis>
+            <file unit="m"> x_t </file>
+            <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0.15,1 </transform>
+            <feature type="hole">
+               <kind> rectangle </kind>
+               <loop num="4" unit="mm">
+                  <pnt0> 30,30,0,0 </pnt0>
+                  <pnt1> 70,30,0,0 </pnt1>
+                  <pnt2> 70,70,0,0 </pnt2>
+                  <pnt3> 30,70,0,0 </pnt3>
+               </loop>
+               <close> T </close>
+               <search> T </search>
+               <sketch_plane> 1 </sketch_plane>
+               <local_system unit="mm">
+                  <c> 0,0,150 </c>
+                  <u> 1,0,0 </u>
+                  <w> 0,0,1 </w>
+               </local_system>
+               <minus> F </minus>
+               <panel> F </panel>
+               <range unit="mm"> -50,0 </range>
+            </feature>
+            <target> Duct_case </target>
+            <bool_type> subtract+intersect </bool_type>
+               <region type="face_list">
+                  <name> inlet </name>
+                  <kind> hole1 </kind>
+                  <base> Cutout1 </base>
+                  <face no="1" node_id="33" original="6"> Cutout1,6 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+               <region type="face_list">
+                  <name> _面領域_Cutout1[2] </name>
+                  <kind> hole2 </kind>
+                  <base> Cutout1 </base>
+                  <face no="1" node_id="173" original="5"> Cutout1,5 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+         </parts>
+         <parts type="body">
+            <name> Cutout2 </name>
+            <attribute> area </attribute>
+            <volume unit="m"> 8e-05 </volume>
+            <color> 0,255,255,178 </color>
+            <mode> sketch </mode>
+            <visible_count> 1 </visible_count>
+            <tree_expand> F </tree_expand>
+            <layer> 1 </layer>
+            <sola_group_num> 0 </sola_group_num>
+            <fluid_solar_group_num> 0 </fluid_solar_group_num>
+            <heat_balance> F,F </heat_balance>
+            <VF_balance> F </VF_balance>
+            <facet_kind> 2 </facet_kind>
+            <def_axis> +Z </def_axis>
+            <file unit="m"> x_t </file>
+            <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0,0,0.15,1 </transform>
+            <feature type="hole">
+               <kind> rectangle </kind>
+               <loop num="4" unit="mm">
+                  <pnt0> 430,30,0,0 </pnt0>
+                  <pnt1> 470,30,0,0 </pnt1>
+                  <pnt2> 470,70,0,0 </pnt2>
+                  <pnt3> 430,70,0,0 </pnt3>
+               </loop>
+               <close> T </close>
+               <search> T </search>
+               <sketch_plane> 1 </sketch_plane>
+               <local_system unit="mm">
+                  <c> 0,0,150 </c>
+                  <u> 1,0,0 </u>
+                  <w> 0,0,1 </w>
+               </local_system>
+               <minus> F </minus>
+               <panel> F </panel>
+               <range unit="mm"> -50,0 </range>
+            </feature>
+            <target> Duct_case </target>
+            <bool_type> subtract+intersect </bool_type>
+               <region type="face_list">
+                  <name> outlet </name>
+                  <kind> hole1 </kind>
+                  <base> Cutout2 </base>
+                  <face no="1" node_id="33" original="6"> Cutout2,6 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+               <region type="face_list">
+                  <name> _面領域_Cutout2[2] </name>
+                  <kind> hole2 </kind>
+                  <base> Cutout2 </base>
+                  <face no="1" node_id="173" original="5"> Cutout2,5 </face>
+                  <sola_group_num> 0 </sola_group_num>
+               </region>
+         </parts>
+      </boolean>
+   </parts>
+   

@@ -1,0 +1,55 @@
+<parts type="network">
+            <name> 熱回路網モデル1 </name>
+            <color> 191,191,191,0 </color>
+            <mode> global </mode>
+            <visible_count> 1 </visible_count>
+            <tree_expand> F </tree_expand>
+            <layer> 1 </layer>
+            <rad_group_num> 0 </rad_group_num>
+            <heat_balance> F,F </heat_balance>
+            <VF_balance> F </VF_balance>
+            <package> TWO_RESIST </package>
+            <base unit="mm"> 0,0,0 </base>
+            <size unit="mm"> 20,20,2 </size>
+            <thick unit="mm"> 0.5,1,0.5 </thick>
+            <def_plane> +Y </def_plane>
+            <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0.14371496362211,0.14492649345125,0.154675,1 </transform>
+            <nodes num="4">
+               <node no="1" position="J">
+                  <name> J </name>
+                  <capacity unit="J/K"> 0 </capacity>
+                  <emissivity> -1 </emissivity>
+                  <rad_group_num> -1 </rad_group_num>
+               </node>
+               <node no="2" position="TO">
+                  <name> T </name>
+                  <size unit="mm"> 0,0,0 </size>
+                  <capacity unit="J/K"> 0 </capacity>
+                  <emissivity> -1 </emissivity>
+                  <rad_group_num> 1 </rad_group_num>
+               </node>
+               <node no="3" position="BO">
+                  <name> B </name>
+                  <size unit="mm"> 0,0,0 </size>
+                  <capacity unit="J/K"> 0 </capacity>
+                  <emissivity> -1 </emissivity>
+                  <rad_group_num> 1 </rad_group_num>
+               </node>
+               <node no="4" position="S">
+                  <name> S </name>
+                  <size unit="mm"> 0,0,0 </size>
+                  <capacity> 0 </capacity>
+                  <emissivity> -1 </emissivity>
+                  <rad_group_num> -1 </rad_group_num>
+               </node>
+            </nodes>
+            <condition>
+               <source node="J" unit="W"> 1 </source>
+               <transfer kind="loglaw" node="T"> -1.5 </transfer>
+               <transfer kind="conduction" node="B"> -1 </transfer>
+               <transfer kind="transfer2" node="S" unit="W/(m2.K)"> 0 </transfer>
+               <resistance node1="J" node2="T" unit="K/W"> 10 </resistance>
+               <resistance node1="J" node2="B" unit="K/W"> 5 </resistance>
+            </condition>
+         </parts>
+         

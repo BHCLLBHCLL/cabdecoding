@@ -1,0 +1,20 @@
+<parts type="panel">
+         <name> 吹出口 </name>
+         <attribute> cface </attribute>
+         <volume unit="m"> 0.045 </volume>
+         <color> 209,255,25,0 </color>
+         <mode> global </mode>
+         <visible_count> 1 </visible_count>
+         <tree_expand> F </tree_expand>
+         <layer> 1 </layer>
+         <rad_group_num> 0 </rad_group_num>
+         <mesh_fine_divide> 2,0,0 </mesh_fine_divide>
+         <heat_balance> F,F </heat_balance>
+         <VF_balance> F </VF_balance>
+         <base unit="mm"> 0,0,0 </base>
+         <size unit="mm"> 50,900,0 </size>
+         <percent> -1 </percent>
+         <thick unit="mm"> 0 </thick>
+         <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0.1,1.05,2.2,1 </transform>
+      </parts>
+   

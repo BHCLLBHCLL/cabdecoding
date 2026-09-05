@@ -1,0 +1,22 @@
+<parts type="sphere">
+      <name> 球1 </name>
+      <property> 鉄(Fe)(300K) </property>
+      <attribute> solid </attribute>
+      <volume unit="m"> 3.333425473896e-05 </volume>
+      <color> 25,25,255,0 </color>
+      <mode> global </mode>
+      <visible_count> 1 </visible_count>
+      <tree_expand> F </tree_expand>
+      <layer> 1 </layer>
+      <heat_balance> F,F </heat_balance>
+      <VF_balance> F </VF_balance>
+      <center unit="mm"> 0,0,0 </center>
+      <radius3 unit="mm"> 20,20,20 </radius3>
+      <angle> 0,360 </angle>
+      <kind> 1 </kind>
+      <divide> 48 </divide>
+      <percent> 0 </percent>
+      <thick unit="mm"> 0 </thick>
+      <transform unit="m"> 1,0,0,0,0,1,0,0,0,0,1,0,0.05,0.05,0.05,1 </transform>
+   </parts>
+   
