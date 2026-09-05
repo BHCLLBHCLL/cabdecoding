@@ -3128,6 +3128,16 @@ class SExport:
             self.lines.append("/")
 
     def _fout(self):
+        # I3: VFRE（exA09-3b：12 宽 int + 26 宽 float，非终止，紧贴
+        # FOUT 之前；FOUT 恒发射故后随命令有保证）。存储
+        # analysis_set vfre = "int,float"。
+        vfre = self.m.analysis_set_value("vfre", "")
+        if vfre.strip():
+            vp = [x.strip() for x in vfre.split(",") if x.strip()]
+            self.lines.append("VFRE")
+            self.lines.append(_i(int(float(vp[0])), 12)
+                              + (_f(float(vp[1]), 26)
+                                 if len(vp) > 1 and vp[1] else ""))
         out = self.m.root.find("output")
         from cabxml import _children
         self.lines.append("FOUT")

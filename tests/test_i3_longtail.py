@@ -160,3 +160,15 @@ def test_absent_without_storage():
                 "LOOP_OPTION", "DYNA_OPTION", "LUMI", "FOUT_LUMI",
                 "UPOS", "AENT_POROUS", "AIRCON_SET"):
         assert cmd not in lines, cmd
+
+
+def test_vfre_before_fout():
+    """exA09-3b — VFRE (12-wide int + 26-wide float, non-terminated)
+    immediately before FOUT."""
+    m = _model()
+    m.set_analysis_set_value("vfre", "2,10")
+    lines = _lines(m)
+    i = lines.index("VFRE")
+    assert lines[i + 1] == f"{2:12d}{10.0:26.14e}"
+    assert lines[i + 2] == "FOUT"
+    assert "VFRE" not in _lines(_model())
