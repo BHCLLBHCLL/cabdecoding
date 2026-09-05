@@ -148,9 +148,9 @@ COM 自动化桥             █████████████████
 | D6 | ~~区域标量族与 vfre/wlty/vfgo 头标志无 CW 面板~~ 已收口（I5：InitialPage Region Scalars 标签 + Solver Control 标志行） | ✅ 完成 |
 | D8 | 求解参数页与 STpre 对话框逐项复核未清零 | 滚动批 |
 | D9 | 低频成员 Set*Param 值格式未终证 | 滚动批 |
-| D10 | 壳/六面体 FEM kind 未实现（探针证实官方面存在） | 特性批 |
+| D10 | ~~壳/六面体 FEM kind 未实现~~ 误判更正：STpre 实机仅出 tet4 → 边界项入册 | ✅ 满格 |
 | D11 | WindTool/PICLS 带参深证 | 滚动批 |
-| D12 | IFC 导出仅矩形 profile；STEP/SAT 导出缺 | 特性批 |
+| D12 | ~~IFC 导出仅矩形 profile；STEP/SAT 导出缺~~ 误判更正：三 profile/三分支已在位有测试 → 边界项入册 | ✅ 满格 |
 
 > 本节为 2026-09-05 实测重核（v9.0 审计后的双口径重估）；§二 宽表
 > （v5→v9.0 演进）保留不动，两表口径差异：§二 为分维百分比演进史，

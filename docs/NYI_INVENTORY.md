@@ -5,7 +5,7 @@
 > 扫描可再生（本册为人工审计账，随批更新不丢账）。
 > 建立日期：2026-09-05（v9.1 双口径重核）。
 
-合计 **9** 项（边界 6 + 豁免 3）。
+合计 **11** 项（边界 8 + 豁免 3）。
 
 ## 产品边界项（灰显/不做，理由载明）
 
@@ -73,3 +73,20 @@ scSTREAM 求解器与 scPOST 为官方可执行体，本仓走进程驱动 + 结
 - D6 区域标量族等存储级值族无 CW 面板（下一 UI 批）
 - D10 壳/六面体 FEM kind（特性批）
 - D12 IFC 导出圆/多边 profile、STEP/SAT 导出（特性批）
+
+### 10. FEM 壳/六面体单元 kind（D10）
+
+**官方行为边界**（2026-09-05 复核确认，`docs/fem_kind_probe.md`）：
+本机 STpre 2025.2 COM 实机 FEM 转换仅输出 kind=4 四面体——Panel 件
+不产生 .xfem、无六面体单元路径可观测（CreateHexaModel 各参数表均
+报无效参数数目）。本仓 tet4 离线 Delaunay/Kuhn 剖分 + .xfem 字节级
+写端测试与官方行为一致；壳/六面体 kind 无官方输出面可对拍，不实现。
+
+### 11. STEP/SAT 写端捆绑（D12）
+
+**许可链边界**：STEP 导出走三降级分支（STPRE_STEP_CLI → pythonocc
+OCC → B 级声明 SatExportUnavailable），SAT 仅 STPRE_SAT_CLI——
+pythonocc/FreeCAD 均不能写 ACIS SAT，官方 STEP 导出同样依赖许可
+CAD 链，本仓不捆绑运行时 writer（*import* 侧 STEP/SAT 已可用）。
+IFC 导出三 profile（矩形/圆/任意多边）均已在位并有 roundtrip
+测试（test_p3_import_export.py）。
