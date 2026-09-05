@@ -7375,14 +7375,47 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
         btn_flux.clicked.connect(self._new_humidity_flux)
         btn_wall = QPushButton("Humidity transfer (wall)…", bc)
         btn_wall.clicked.connect(self._new_humidity_wall)
+        btn_src = QPushButton("Moisture source flux (fluxhumid)…", bc)
+        btn_src.clicked.connect(self._new_humidity_source)
         btn_del = QPushButton("Delete", bc)
         btn_del.clicked.connect(self._hum_delete)
         hrow.addWidget(btn_flux)
         hrow.addWidget(btn_wall)
+        hrow.addWidget(btn_src)
         hrow.addStretch(1)
         hrow.addWidget(btn_del)
         bl.addLayout(hrow)
         lay.addWidget(bc)
+
+        # I1b: humidity evaporation control — HUMD_CONTROL keyword pairs +
+        # HUMC initial absolute-humidity concentration (exA05-1)
+        ev = QGroupBox("Evaporation control (exA05-1)", self)
+        evl = QFormLayout(ev)
+        self.humd_evaporation = QCheckBox("Consider evaporation", ev)
+        self.humd_upper = QCheckBox("Apply upper limit", ev)
+        evl.addRow(self.humd_evaporation)
+        evl.addRow(self.humd_upper)
+        self.humc_value = QDoubleSpinBox(ev)
+        self.humc_value.setRange(0.0, 1.0)
+        self.humc_value.setDecimals(9)
+        self.humc_value.setSingleStep(1e-5)
+        evl.addRow("Initial humidity concentration (kg/kg)", self.humc_value)
+        _humc = model.analysis_etc_section("humc")
+        try:
+            self.humc_value.setValue(float(
+                (_humc.text or "0").strip() or 0) if _humc is not None
+                else 0.0)
+        except ValueError:
+            self.humc_value.setValue(0.0)
+        _ctrl = model.root.find("analysis_etc/humd_control")
+        if _ctrl is not None:
+            _ev = _ctrl.find("evaporation")
+            _ul = _ctrl.find("upper_limit")
+            self.humd_evaporation.setChecked(
+                _ev is not None and (_ev.text or "0").strip() == "1")
+            self.humd_upper.setChecked(
+                _ul is not None and (_ul.text or "0").strip() == "1")
+        lay.addWidget(ev)
         self._hum_reload()
         lay.addStretch(1)
 
@@ -7466,6 +7499,16 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
             return
         name, p1, p2, region = picked
         self._commit_humidity(name, 2, p1, p2, region)
+
+    def _new_humidity_source(self) -> None:
+        """I1b: Moisture source flux (type=4 -> HUMF_REGION fluxhumid
+        card, exA05-1: param1 = flux, param2 = secondary value)."""
+        picked = self._hum_pick("Moisture Source Flux (fluxhumid)",
+                                param2=True)
+        if picked is None:
+            return
+        name, p1, p2, region = picked
+        self._commit_humidity(name, 4, p1, p2, region)
 
     def _new_initial_moisture(self) -> None:
         """C2/F2: [Condition (Initial Moisture)] — HUMH_REGION wallwater
@@ -7552,6 +7595,24 @@ class _CwHumidityPage(QWidget if _HAS_GUI else object):
         if on and self.bind_domain.isChecked():
             domain = self.model.domain_name() or "Domain"
             self.model.bind_condition("analysis", domain, vname)
+        # I1b: HUMD_CONTROL + HUMC (exA05-1 evaporation family)
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("humd_control")
+        if old is not None:
+            aet.remove(old)
+        if self.humd_evaporation.isChecked() or self.humd_upper.isChecked():
+            ctrl = ET.SubElement(aet, "humd_control")
+            ET.SubElement(ctrl, "evaporation").text = (
+                "1" if self.humd_evaporation.isChecked() else "0")
+            ET.SubElement(ctrl, "upper_limit").text = (
+                "1" if self.humd_upper.isChecked() else "0")
+        old = aet.find("humc")
+        if old is not None:
+            aet.remove(old)
+        if self.humc_value.value() > 0:
+            ET.SubElement(aet, "humc").text = (
+                f" {self.humc_value.value():g} ")
 
 
 class _CwPorousPage(QWidget if _HAS_GUI else object):
@@ -9415,6 +9476,134 @@ class _CwPlantCanopyPage(QWidget if _HAS_GUI else object):
             "plant_resistance", "1" if on else "0")
 
 
+# ---------------------------------------------------------------------------
+# I1b: LES turbulence page — LES_INIT + LES_OPTION
+# (emitters byte-verified against exB18; LESM lives in the Solver Control
+#  tab of _CwSolverPage, same analysis_set tag)
+# ---------------------------------------------------------------------------
+class _CwLesPage(QWidget if _HAS_GUI else object):
+    """Condition Wizard - LES (large-eddy simulation) initialisation and
+    options."""
+
+    def __init__(self, model: StpreModel, parent=None):
+        super().__init__(parent)
+        self.model = model
+        lay = QVBoxLayout(self)
+        lay.addWidget(_note(
+            "LES analysis. LESM (model selector) is on the Solver "
+            "Parameters → Solver Control tab; this page carries the "
+            "initialisation field and the option table.", self))
+
+        init = QGroupBox("LES_INIT — initial turbulence field (exB18)",
+                         self)
+        il = QFormLayout(init)
+        self.init_enable = QCheckBox("Consider LES initialisation", init)
+        li = model.root.find("analysis_etc/les_init")
+        self.init_enable.setChecked(li is not None)
+        self.init_method = QComboBox(init)
+        self.init_method.addItem("random", "random")
+        self.init_region = QLineEdit(init)
+        self.init_name = QLineEdit(init)
+        self.init_r1 = QDoubleSpinBox(init)
+        self.init_r2 = QDoubleSpinBox(init)
+        self.init_r3 = QDoubleSpinBox(init)
+        for w in (self.init_r1, self.init_r2, self.init_r3):
+            w.setRange(-1e9, 1e9)
+            w.setDecimals(6)
+        self.init_r1.setValue(1.0)
+        self.init_r2.setValue(3.0)
+        self.init_r3.setValue(3.0)
+        if li is not None:
+            def _t(tag, default=""):
+                c = li.find(tag)
+                return (c.text or "").strip() if c is not None else default
+            _mi = self.init_method.findData(_t("method", "random"))
+            self.init_method.setCurrentIndex(_mi if _mi >= 0 else 0)
+            self.init_region.setText(_t("region"))
+            self.init_name.setText(_t("name"))
+            try:
+                self.init_r1.setValue(float(_t("r1", "1.0")))
+                self.init_r2.setValue(float(_t("r2", "3.0")))
+                self.init_r3.setValue(float(_t("r3", "3.0")))
+            except ValueError:
+                pass
+        il.addRow(self.init_enable)
+        il.addRow("Method", self.init_method)
+        il.addRow("Name (comment)", self.init_name)
+        il.addRow("Scale 1 (turb. energy)", self.init_r1)
+        il.addRow("Scale 2", self.init_r2)
+        il.addRow("Scale 3", self.init_r3)
+        il.addRow("Driver region", self.init_region)
+        lay.addWidget(init)
+
+        opt = QGroupBox("LES_OPTION — option table (exB18)", self)
+        ol = QVBoxLayout(opt)
+        self.opt_table = QTableWidget(0, 2, opt)
+        self.opt_table.setHorizontalHeaderLabels(["Option", "Value"])
+        self.opt_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        ol.addWidget(self.opt_table, 1)
+        orow = QHBoxLayout()
+        btn_add = QPushButton("Add", opt)
+        btn_add.clicked.connect(self._opt_add)
+        btn_del = QPushButton("Delete", opt)
+        btn_del.clicked.connect(self._opt_del)
+        orow.addWidget(btn_add)
+        orow.addStretch(1)
+        orow.addWidget(btn_del)
+        ol.addLayout(orow)
+        lo = model.root.find("analysis_etc/les_option")
+        if lo is not None:
+            for c in lo:
+                if c.text and c.text.strip():
+                    self._opt_add(c.tag, c.text.strip())
+        lay.addWidget(opt)
+        lay.addStretch(1)
+
+    def _opt_add(self, keyword: str = "", value: str = "1") -> None:
+        r = self.opt_table.rowCount()
+        self.opt_table.insertRow(r)
+        self.opt_table.setItem(r, 0, QTableWidgetItem(keyword or ""))
+        self.opt_table.setItem(r, 1, QTableWidgetItem(str(value)))
+
+    def _opt_del(self) -> None:
+        rows = self.opt_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.opt_table.removeRow(idx)
+
+    def apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("les_init")
+        if old is not None:
+            aet.remove(old)
+        if self.init_enable.isChecked():
+            li = ET.SubElement(aet, "les_init")
+            ET.SubElement(li, "method").text = \
+                self.init_method.currentData()
+            ET.SubElement(li, "name").text = self.init_name.text().strip()
+            ET.SubElement(li, "r1").text = f"{self.init_r1.value():g}"
+            ET.SubElement(li, "r2").text = f"{self.init_r2.value():g}"
+            ET.SubElement(li, "r3").text = f"{self.init_r3.value():g}"
+            ET.SubElement(li, "region").text = \
+                self.init_region.text().strip()
+        old = aet.find("les_option")
+        if old is not None:
+            aet.remove(old)
+        rows = {}
+        for r in range(self.opt_table.rowCount()):
+            k_it = self.opt_table.item(r, 0)
+            v_it = self.opt_table.item(r, 1)
+            k = k_it.text().strip() if k_it else ""
+            v = v_it.text().strip() if v_it else ""
+            if k and v:
+                rows[k] = v
+        if rows:
+            lo = ET.SubElement(aet, "les_option")
+            for k, v in rows.items():
+                ET.SubElement(lo, k).text = v
+
+
 class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
     """Condition Wizard - Moving object (STpre move_body analysis).
 
@@ -10060,6 +10249,57 @@ class _CwEvaporationPage(QWidget if _HAS_GUI else object):
         ff.addRow("[VOF] Free-surface shape", self.fs_surface_set)
         ff.addRow("[VOF] Flow rate check cycle", self.fs_flow_list)
         ff.addRow("[VOF] Initial hydrostatic pressure", self.fs_hydro)
+
+        # I1b: VOF2 second phase / SURF_1MARS / SURF_AENT / VFRT_SPC
+        # (emitters byte-verified against exA09-4 / exA15-3 / exA15-1 /
+        # exA02-2a)
+        self.fs_p2_name = QLineEdit(fg)
+        self.fs_p2_density = QDoubleSpinBox(fg)
+        self.fs_p2_density.setRange(1e-6, 1e6)
+        self.fs_p2_density.setDecimals(6)
+        self.fs_p2_density.setValue(1.0)
+        ff.addRow("VOF2 phase-2 name (blank = off)", self.fs_p2_name)
+        ff.addRow("VOF2 phase-2 density", self.fs_p2_density)
+        self.fs_1mars_m1 = QSpinBox(fg)
+        self.fs_1mars_m1.setRange(0, 9)
+        self.fs_1mars_m1.setValue(0)
+        self.fs_1mars_m2 = QSpinBox(fg)
+        self.fs_1mars_m2.setRange(0, 99)
+        ff.addRow("[1MARS] mode (0 = off)", self.fs_1mars_m1)
+        ff.addRow("[1MARS] sub-mode", self.fs_1mars_m2)
+        self.fs_aent_kind = QComboBox(fg)
+        self.fs_aent_kind.addItem("(off)", "")
+        self.fs_aent_kind.addItem("adiabatic", "adiabatic")
+        self.fs_aent_kind.addItem("conduction", "conduction")
+        self.fs_aent_value = QDoubleSpinBox(fg)
+        self.fs_aent_value.setRange(-1e9, 1e9)
+        self.fs_aent_value.setDecimals(6)
+        ff.addRow("[SURF_AENT] exchange kind", self.fs_aent_kind)
+        ff.addRow("[SURF_AENT] value", self.fs_aent_value)
+        self.fs_vfrt_region = QLineEdit(fg)
+        ff.addRow("VFRT_SPC reference region", self.fs_vfrt_region)
+        cur = model.free_surf_attr
+        self.fs_p2_name.setText(cur("phase2_name", ""))
+        try:
+            self.fs_p2_density.setValue(float(
+                cur("phase2_density", "1.0") or 1.0))
+        except ValueError:
+            pass
+        try:
+            _m = (cur("surf_1mars", "").split(",") + ["0", "0"])[:2]
+            self.fs_1mars_m1.setValue(int(float(_m[0] or 0)))
+            self.fs_1mars_m2.setValue(int(float(_m[1] or 0)))
+        except ValueError:
+            pass
+        _ak = cur("surf_aent_kind", "")
+        _ai = self.fs_aent_kind.findData(_ak)
+        self.fs_aent_kind.setCurrentIndex(_ai if _ai >= 0 else 0)
+        try:
+            self.fs_aent_value.setValue(float(
+                cur("surf_aent_value", "0") or 0))
+        except ValueError:
+            pass
+        self.fs_vfrt_region.setText(cur("vfrt_spc_region", ""))
         lay.addWidget(g)
         lay.addWidget(fg)
         lay.addStretch(1)
@@ -10115,6 +10355,21 @@ class _CwEvaporationPage(QWidget if _HAS_GUI else object):
                 "flow_list", str(self.fs_flow_list.value()))
             m.set_free_surf_attr(
                 "hydro_pres", self.fs_hydro.currentData())
+            # I1b: VOF2 second phase / SURF_1MARS / SURF_AENT / VFRT_SPC
+            m.set_free_surf_attr(
+                "phase2_name", self.fs_p2_name.text().strip())
+            m.set_free_surf_attr(
+                "phase2_density", f"{self.fs_p2_density.value():g}")
+            m.set_free_surf_attr(
+                "surf_1mars",
+                f"{self.fs_1mars_m1.value()},{self.fs_1mars_m2.value()}"
+                if self.fs_1mars_m1.value() else "")
+            m.set_free_surf_attr(
+                "surf_aent_kind", self.fs_aent_kind.currentData())
+            m.set_free_surf_attr(
+                "surf_aent_value", f"{self.fs_aent_value.value():g}")
+            m.set_free_surf_attr(
+                "vfrt_spc_region", self.fs_vfrt_region.text().strip())
         else:
             # 取消勾选时移除整个自由面节（与 CW Analysis Types 行为一致）
             self.model.remove_analysis_etc_section("free_surf")

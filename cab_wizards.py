@@ -570,6 +570,7 @@ _CW_PAGES = [
     ("evaporation", "Evaporation (Free Surface)", None),
     ("boil", "Boil/Condensation", None),
     ("free_surface", "Free Surface", None),
+    ("les", "LES (Turbulence)", None),
     ("initial", "Initial Condition", None),
     ("bc", "Boundary Condition", None),
     ("bc_flow", "Flow Boundary", "bc"),
@@ -3736,7 +3737,8 @@ class ConditionWizard(WizardBase):
             _CwEvaporationPage,
             _CwFilePage, _CwFixedPage, _CwFusionPage,
             _CwFreeSurfacePage,
-            _CwHumidityPage, _CwLampPage, _CwMarangoniPage,
+            _CwHumidityPage, _CwLampPage, _CwLesPage,
+            _CwMarangoniPage,
             _CwMovingBodyPage, _CwOutputFieldPage, _CwOutputHeatPathPage,
             _CwOutputLFilePage, _CwOutputSeriesPage, _CwParticlePage,
             _CwPcmPage, _CwPlantCanopyPage, _CwPorousPage,
@@ -3765,6 +3767,7 @@ class ConditionWizard(WizardBase):
         self.p_lamp = _CwLampPage(model)
         self.p_pcm = _CwPcmPage(model)
         self.p_evaporation = _CwEvaporationPage(model)
+        self.p_les = _CwLesPage(model)
         self.p_boil = _CwBoilPage(model)
         self.p_free_surface = _CwFreeSurfacePage(model)
         self.p_plant = _CwPlantCanopyPage(model)
@@ -3813,6 +3816,7 @@ class ConditionWizard(WizardBase):
             "topology_opti": self.p_topopt,
             "aircon_model": self.p_aircon,
             "evaporation": self.p_evaporation,
+            "les": self.p_les,
             "boil": self.p_boil,
             "free_surface": self.p_free_surface,
             "initial": self.p_initial,
