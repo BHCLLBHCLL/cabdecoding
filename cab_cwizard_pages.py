@@ -7158,11 +7158,221 @@ class _CwSolarPage(QWidget if _HAS_GUI else object):
             self.absorptance.setValue(0.8)
         f.addRow("Default absorptance", self.absorptance)
         lay.addWidget(g)
+
+        # I1c: SOLAR .s cards (exA08-1 / exA07-5) — head, default table,
+        # absorber regions.  lat/lon/timezone widgets above feed the
+        # SOLAR head row (meridian = timezone x 15).
+        sc = QGroupBox("SOLAR .s cards (exA08-1)", self)
+        scl = QVBoxLayout(sc)
+        self.solar_emit = QCheckBox("Emit SOLAR/SOLA_DEFAULT cards", sc)
+        self.solar_emit.setChecked(
+            self.model.root.find("analysis_etc/solar") is not None)
+        scl.addWidget(self.solar_emit)
+        sform = QFormLayout()
+        self.solar_a1 = QDoubleSpinBox(sc)
+        self.solar_a2 = QDoubleSpinBox(sc)
+        self.solar_a3 = QDoubleSpinBox(sc)
+        self.solar_a4 = QDoubleSpinBox(sc)
+        self.solar_a5 = QDoubleSpinBox(sc)
+        for w in (self.solar_a1, self.solar_a2, self.solar_a3,
+                  self.solar_a4, self.solar_a5):
+            w.setRange(-1e6, 1e6)
+            w.setDecimals(3)
+        self.solar_a4.setValue(14.0)
+        srow1 = QHBoxLayout()
+        for lab, w in (("a1", self.solar_a1), ("a2", self.solar_a2),
+                       ("a3", self.solar_a3), ("a4", self.solar_a4),
+                       ("a5", self.solar_a5)):
+            srow1.addWidget(QLabel(lab, sc))
+            srow1.addWidget(w)
+        srow1.addStretch(1)
+        sform.addRow("Auxiliary fixed values", srow1)
+        self.solar_ashrae = QDoubleSpinBox(sc)
+        self.solar_ashrae.setRange(0.0, 1e6)
+        self.solar_ashrae.setDecimals(3)
+        self.solar_ashrae.setValue(0.1)
+        sform.addRow("ASHRAE value", self.solar_ashrae)
+        self.solar_n1 = QSpinBox(sc)
+        self.solar_n1.setRange(0, 99)
+        self.solar_n1.setValue(9)
+        self.solar_n2 = QSpinBox(sc)
+        self.solar_n2.setRange(0, 99)
+        self.solar_n2.setValue(1)
+        nrow = QHBoxLayout()
+        nrow.addWidget(QLabel("n1", sc))
+        nrow.addWidget(self.solar_n1)
+        nrow.addWidget(QLabel("n2", sc))
+        nrow.addWidget(self.solar_n2)
+        nrow.addStretch(1)
+        sform.addRow("Header ints", nrow)
+        self.solar_monthly1 = QLineEdit(sc)
+        self.solar_monthly2 = QLineEdit(sc)
+        self.solar_monthly1.setPlaceholderText("12 comma values")
+        self.solar_monthly2.setPlaceholderText("12 comma values")
+        sform.addRow("Monthly table 1", self.solar_monthly1)
+        sform.addRow("Monthly table 2", self.solar_monthly2)
+        scl.addLayout(sform)
+        dform = QFormLayout()
+        self.sola_idrf = QSpinBox(sc)
+        self.sola_idrf.setRange(0, 99)
+        self.sola_idrf.setValue(1)
+        self.sola_sky = QDoubleSpinBox(sc)
+        self.sola_sky.setDecimals(5)
+        self.sola_sky.setValue(1.0)
+        self.sola_gnd = QDoubleSpinBox(sc)
+        self.sola_gnd.setDecimals(5)
+        self.sola_gnd.setValue(0.2)
+        self.sola_info = QSpinBox(sc)
+        self.sola_info.setRange(0, 99)
+        self.sola_info.setValue(1)
+        self.sola_mpcl = QSpinBox(sc)
+        self.sola_mpcl.setRange(0, 999999)
+        self.sola_mpcl.setValue(20000)
+        self.sola_maxm = QSpinBox(sc)
+        self.sola_maxm.setRange(0, 999999)
+        self.sola_maxm.setValue(4000)
+        self.sola_ashrae = QSpinBox(sc)
+        self.sola_ashrae.setRange(0, 9999)
+        self.sola_ashrae.setValue(2013)
+        dform.addRow("SOLA_DEFAULT IDRF", self.sola_idrf)
+        dform.addRow("SOLA_DEFAULT SKY", self.sola_sky)
+        dform.addRow("SOLA_DEFAULT GND", self.sola_gnd)
+        dform.addRow("SOLA_DEFAULT INFO", self.sola_info)
+        dform.addRow("SOLA_DEFAULT MPCL", self.sola_mpcl)
+        dform.addRow("SOLA_DEFAULT MAXM", self.sola_maxm)
+        dform.addRow("SOLA_DEFAULT ASHRAE (year)", self.sola_ashrae)
+        scl.addLayout(dform)
+        self.sola_table = QTableWidget(0, 8, sc)
+        self.sola_table.setHorizontalHeaderLabels(
+            ["Kind", "Name", "v1", "v2", "v3", "v4", "Flag", "Region"])
+        self.sola_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        scl.addWidget(self.sola_table)
+        srrow = QHBoxLayout()
+        self.sola_add = QPushButton("Add absorber region", sc)
+        self.sola_del = QPushButton("Delete", sc)
+        self.sola_add.clicked.connect(self._sola_add)
+        self.sola_del.clicked.connect(self._sola_del)
+        srrow.addWidget(self.sola_add)
+        srrow.addStretch(1)
+        srrow.addWidget(self.sola_del)
+        scl.addLayout(srrow)
+        _sol = self.model.root.find("analysis_etc/solar")
+        if _sol is not None:
+            try:
+                self.solar_ashrae.setValue(float(
+                    _sol.attrib.get("ashrae_val", "0.1")))
+                self.solar_n1.setValue(int(float(
+                    _sol.attrib.get("n1", "9"))))
+                self.solar_n2.setValue(int(float(
+                    _sol.attrib.get("n2", "1"))))
+                for w, k in ((self.solar_a1, "a1"), (self.solar_a2, "a2"),
+                             (self.solar_a3, "a3"), (self.solar_a4, "a4"),
+                             (self.solar_a5, "a5")):
+                    w.setValue(float(_sol.attrib.get(k, "0") or 0))
+            except ValueError:
+                pass
+            self.solar_monthly1.setText(_sol.attrib.get("monthly1", ""))
+            self.solar_monthly2.setText(_sol.attrib.get("monthly2", ""))
+            d = _sol.find("default")
+            if d is not None:
+                try:
+                    self.sola_idrf.setValue(int(float(
+                        d.attrib.get("IDRF", "1"))))
+                    self.sola_sky.setValue(float(d.attrib.get("SKY",
+                                                              "1.0")))
+                    self.sola_gnd.setValue(float(d.attrib.get("GND",
+                                                              "0.2")))
+                    self.sola_info.setValue(int(float(
+                        d.attrib.get("INFO", "1"))))
+                    self.sola_mpcl.setValue(int(float(
+                        d.attrib.get("MPCL", "20000"))))
+                    self.sola_maxm.setValue(int(float(
+                        d.attrib.get("MAXM", "4000"))))
+                    self.sola_ashrae.setValue(int(float(
+                        d.attrib.get("ASHRAE", "2013"))))
+                except ValueError:
+                    pass
+            for rec in _sol.findall("region"):
+                self._sola_add(
+                    rec.attrib.get("kind", "body_d"),
+                    rec.attrib.get("name", ""),
+                    rec.attrib.get("v1", "0"), rec.attrib.get("v2", "0"),
+                    rec.attrib.get("v3", "0"), rec.attrib.get("v4", "0"),
+                    rec.attrib.get("flag", "0"),
+                    rec.attrib.get("region", ""))
+        lay.addWidget(sc)
         lay.addStretch(1)
+
+    # -- I1c: SOLAR .s cards ----------------------------------------------
+
+    @staticmethod
+    def _table_text(table, row: int, col: int, default: str = "") -> str:
+        it = table.item(row, col)
+        return it.text().strip() if it is not None and it.text()             else default
+
+    def _sola_add(self, kind: str = "body_d", name: str = "吸収体",
+                  v1: str = "0", v2: str = "0", v3: str = "0",
+                  v4: str = "0", flag: str = "0", region: str = "") -> None:
+        r = self.sola_table.rowCount()
+        self.sola_table.insertRow(r)
+        for col, text in enumerate((kind, name, v1, v2, v3, v4, flag,
+                                    region)):
+            self.sola_table.setItem(r, col, QTableWidgetItem(str(text)))
+
+    def _sola_del(self) -> None:
+        rows = self.sola_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.sola_table.removeRow(idx)
+
+    def _solar_apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("solar")
+        if old is not None:
+            aet.remove(old)
+        if not self.solar_emit.isChecked():
+            return
+        sol = ET.SubElement(aet, "solar")
+        sol.attrib.update(mode="latitude_dec",
+                          lat=f"{self.lat.value():g}",
+                          lon=f"{self.lon.value():g}",
+                          meridian=f"{self.tz.value() * 15}",
+                          a1=f"{self.solar_a1.value():g}",
+                          a2=f"{self.solar_a2.value():g}",
+                          a3=f"{self.solar_a3.value():g}",
+                          a4=f"{self.solar_a4.value():g}",
+                          a5=f"{self.solar_a5.value():g}",
+                          ashrae_kind="ASHRAE",
+                          ashrae_val=f"{self.solar_ashrae.value():g}",
+                          n1=str(self.solar_n1.value()),
+                          n2=str(self.solar_n2.value()),
+                          monthly1=self.solar_monthly1.text().strip(),
+                          monthly2=self.solar_monthly2.text().strip())
+        d = ET.SubElement(sol, "default")
+        d.attrib.update(IDRF=str(self.sola_idrf.value()),
+                        SKY=f"{self.sola_sky.value():g}",
+                        GND=f"{self.sola_gnd.value():g}",
+                        INFO=str(self.sola_info.value()),
+                        MPCL=str(self.sola_mpcl.value()),
+                        MAXM=str(self.sola_maxm.value()),
+                        ASHRAE=str(self.sola_ashrae.value()))
+        for r in range(self.sola_table.rowCount()):
+            rec = ET.SubElement(sol, "region")
+            rec.attrib.update(
+                kind=self._table_text(self.sola_table, r, 0, "body_d"),
+                name=self._table_text(self.sola_table, r, 1),
+                v1=self._table_text(self.sola_table, r, 2, "0"),
+                v2=self._table_text(self.sola_table, r, 3, "0"),
+                v3=self._table_text(self.sola_table, r, 4, "0"),
+                v4=self._table_text(self.sola_table, r, 5, "0"),
+                flag=self._table_text(self.sola_table, r, 6, "0"),
+                region=self._table_text(self.sola_table, r, 7))
 
     def apply(self) -> None:
         on = self.enable.isChecked()
         self.model.set_analysis_set_value("solar", "1" if on else "0")
+        self._solar_apply()
         if on:
             self.model.set_analysis_set_value(
                 "solar_latitude", f"{self.lat.value():g}")
@@ -8695,6 +8905,89 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
         el.addLayout(crow)
         lay.addWidget(ecr)
         self._ecr_reload()
+
+        # I1c: ECUR subsystem (exA12-1) — head flags, magnetic field,
+        # per-material conductivity rows
+        ec = QGroupBox("ECUR — electric current .s cards (exA12-1)", self)
+        efl = QFormLayout(ec)
+        self.ecur_i1 = QSpinBox(ec)
+        self.ecur_i1.setRange(0, 9)
+        self.ecur_i2 = QSpinBox(ec)
+        self.ecur_i2.setRange(0, 9)
+        self.ecur_i3 = QSpinBox(ec)
+        self.ecur_i3.setRange(0, 9)
+        irow = QHBoxLayout()
+        for lab, w in (("i1", self.ecur_i1), ("i2", self.ecur_i2),
+                       ("i3", self.ecur_i3)):
+            irow.addWidget(QLabel(lab, ec))
+            irow.addWidget(w)
+        irow.addStretch(1)
+        efl.addRow("Head flags", irow)
+        self.ecur_mag_kind = QComboBox(ec)
+        self.ecur_mag_kind.addItem("(off)", "")
+        self.ecur_mag_kind.addItem("uniform", "uniform")
+        self.ecur_mag_no = QSpinBox(ec)
+        self.ecur_mag_no.setRange(0, 99)
+        self.ecur_mag_region = QLineEdit(ec)
+        self.ecur_mag_region.setPlaceholderText("@S:rbmx")
+        self.ecur_mag_v1 = QDoubleSpinBox(ec)
+        self.ecur_mag_v1.setRange(-1e9, 1e9)
+        self.ecur_mag_v1.setDecimals(6)
+        self.ecur_mag_v2 = QDoubleSpinBox(ec)
+        self.ecur_mag_v2.setRange(-1e9, 1e9)
+        self.ecur_mag_v2.setDecimals(6)
+        efl.addRow("Magnetic field kind", self.ecur_mag_kind)
+        efl.addRow("Magnetic field no", self.ecur_mag_no)
+        efl.addRow("Magnetic field region", self.ecur_mag_region)
+        mvrow = QHBoxLayout()
+        mvrow.addWidget(self.ecur_mag_v1)
+        mvrow.addWidget(self.ecur_mag_v2)
+        mvrow.addStretch(1)
+        efl.addRow("Magnetic field values", mvrow)
+        self.ecur_table = QTableWidget(0, 2, ec)
+        self.ecur_table.setHorizontalHeaderLabels(
+            ["Material no", "Conductivity"])
+        self.ecur_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        efl.addRow(self.ecur_table)
+        eprow = QHBoxLayout()
+        self.ecur_add = QPushButton("Add material", ec)
+        self.ecur_del = QPushButton("Delete", ec)
+        self.ecur_add.clicked.connect(self._ecur_add)
+        self.ecur_del.clicked.connect(self._ecur_del)
+        eprow.addWidget(self.ecur_add)
+        eprow.addStretch(1)
+        eprow.addWidget(self.ecur_del)
+        efl.addRow(eprow)
+        _ecur = self.model.root.find("analysis_etc/ecur")
+        if _ecur is not None:
+            try:
+                self.ecur_i1.setValue(int(float(
+                    _ecur.attrib.get("i1", "1"))))
+                self.ecur_i2.setValue(int(float(
+                    _ecur.attrib.get("i2", "0"))))
+                self.ecur_i3.setValue(int(float(
+                    _ecur.attrib.get("i3", "0"))))
+            except ValueError:
+                pass
+            _mk = _ecur.attrib.get("mag_kind", "")
+            _mi = self.ecur_mag_kind.findData(_mk)
+            self.ecur_mag_kind.setCurrentIndex(_mi if _mi >= 0 else 0)
+            self.ecur_mag_region.setText(_ecur.attrib.get("mag_region",
+                                                          ""))
+            try:
+                self.ecur_mag_no.setValue(int(float(
+                    _ecur.attrib.get("mag_no", "0"))))
+                self.ecur_mag_v1.setValue(float(
+                    _ecur.attrib.get("mag_v1", "0")))
+                self.ecur_mag_v2.setValue(float(
+                    _ecur.attrib.get("mag_v2", "0")))
+            except ValueError:
+                pass
+            for p in _ecur.findall("prop"):
+                self._ecur_add(p.attrib.get("no", "1"),
+                               p.attrib.get("v", "0"))
+        lay.addWidget(ec)
         lay.addStretch(1)
 
     _ECR_MODES = (
@@ -8704,6 +8997,53 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
         ("conductivity_thickness", "Electrical conductivity and thickness"),
         ("no_resistance_current", "Electric current without resistance"),
     )
+
+    # -- I1c: ECUR subsystem ----------------------------------------------
+
+    @staticmethod
+    def _table_text(table, row: int, col: int, default: str = "") -> str:
+        it = table.item(row, col)
+        return it.text().strip() if it is not None and it.text()             else default
+
+    def _ecur_add(self, no: str = "1", v: str = "1e6") -> None:
+        r = self.ecur_table.rowCount()
+        self.ecur_table.insertRow(r)
+        self.ecur_table.setItem(r, 0, QTableWidgetItem(str(no)))
+        self.ecur_table.setItem(r, 1, QTableWidgetItem(str(v)))
+
+    def _ecur_del(self) -> None:
+        rows = self.ecur_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.ecur_table.removeRow(idx)
+
+    def _ecur_apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("ecur")
+        if old is not None:
+            aet.remove(old)
+        props = [tuple(self._table_text(self.ecur_table, r, c)
+                       for c in range(2))
+                 for r in range(self.ecur_table.rowCount())]
+        mag = self.ecur_mag_kind.currentData()
+        if not props and not mag and not self.ecur_mag_region.text().strip():
+            # all defaults -> nothing stored
+            if (self.ecur_i1.value(), self.ecur_i2.value(),
+                    self.ecur_i3.value()) == (1, 0, 0):
+                return
+        ec = ET.SubElement(aet, "ecur")
+        ec.attrib.update(i1=str(self.ecur_i1.value()),
+                         i2=str(self.ecur_i2.value()),
+                         i3=str(self.ecur_i3.value()))
+        if mag:
+            ec.attrib.update(mag_kind=mag,
+                             mag_no=str(self.ecur_mag_no.value()),
+                             mag_region=self.ecur_mag_region.text().strip(),
+                             mag_v1=f"{self.ecur_mag_v1.value():g}",
+                             mag_v2=f"{self.ecur_mag_v2.value():g}")
+        for no, v in props:
+            p = ET.SubElement(ec, "prop")
+            p.attrib.update(no=no or "1", v=v or "0")
 
     def _commit_econtact(self, name: str, mode: str, param: float,
                          region: str) -> bool:
@@ -8798,6 +9138,7 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
                 self.ecr_table.setItem(r, col, QTableWidgetItem(text))
 
     def apply(self) -> None:
+        self._ecur_apply()
         on = self.enable.isChecked()
         self.model.set_project_value(
             "current_enable", "T" if on else "F")
@@ -9109,7 +9450,188 @@ class _CwReactionPage(QWidget if _HAS_GUI else object):
         rgl.addLayout(btns)
         lay.addWidget(rg)
         self._steps_load()
+
+        # I1c: chemical species subsystem — SNAM registers / CDIF
+        # diffusivity / REAC_REGION reactions / VDFU_REGION sources
+        # (emitters byte-verified against exA04-1 / exA03-1)
+        chem = QGroupBox("Chemical species (.s: SNAM/CDIF/REAC/VDFU)",
+                         self)
+        cl = QVBoxLayout(chem)
+        sn = QFormLayout()
+        self.snam_r1 = QLineEdit(chem)
+        self.snam_r2 = QLineEdit(chem)
+        self.snam_p1 = QLineEdit(chem)
+        self.snam_p2 = QLineEdit(chem)
+        snrow = QHBoxLayout()
+        for lab, w in (("R1", self.snam_r1), ("R2", self.snam_r2),
+                       ("P1", self.snam_p1), ("P2", self.snam_p2)):
+            snrow.addWidget(QLabel(lab, chem))
+            snrow.addWidget(w)
+        sn.addRow("Species register names (blank = off)", snrow)
+        cl.addLayout(sn)
+        self.dif_table = QTableWidget(0, 2, chem)
+        self.dif_table.setHorizontalHeaderLabels(
+            ["Species", "Diffusivity"])
+        self.dif_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        cl.addWidget(self.dif_table)
+        drow = QHBoxLayout()
+        self.dif_add = QPushButton("Add diffusivity", chem)
+        self.dif_del = QPushButton("Delete", chem)
+        self.dif_add.clicked.connect(self._dif_add)
+        self.dif_del.clicked.connect(self._dif_del)
+        drow.addWidget(self.dif_add)
+        drow.addStretch(1)
+        drow.addWidget(self.dif_del)
+        cl.addLayout(drow)
+        self.reac_table = QTableWidget(0, 5, chem)
+        self.reac_table.setHorizontalHeaderLabels(
+            ["No", "Formula", "Params (a,b,c,e,x1,x2,x3)",
+             "Tail", "Region"])
+        self.reac_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        cl.addWidget(self.reac_table)
+        rrow = QHBoxLayout()
+        self.reac_add = QPushButton("Add reaction", chem)
+        self.reac_del2 = QPushButton("Delete", chem)
+        self.reac_add.clicked.connect(self._reac_add)
+        self.reac_del2.clicked.connect(self._reac_del)
+        rrow.addWidget(self.reac_add)
+        rrow.addStretch(1)
+        rrow.addWidget(self.reac_del2)
+        cl.addLayout(rrow)
+        self.vdfu_table = QTableWidget(0, 4, chem)
+        self.vdfu_table.setHorizontalHeaderLabels(
+            ["Species", "Name", "Value", "Region"])
+        self.vdfu_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        cl.addWidget(self.vdfu_table)
+        vrow = QHBoxLayout()
+        self.vdfu_add = QPushButton("Add source", chem)
+        self.vdfu_del = QPushButton("Delete", chem)
+        self.vdfu_add.clicked.connect(self._vdfu_add)
+        self.vdfu_del.clicked.connect(self._vdfu_del)
+        vrow.addWidget(self.vdfu_add)
+        vrow.addStretch(1)
+        vrow.addWidget(self.vdfu_del)
+        cl.addLayout(vrow)
+        self._chem_load()
+        lay.addWidget(chem)
         lay.addStretch(1)
+
+    # -- I1c: chemical species subsystem ----------------------------------
+
+    def _chem_load(self) -> None:
+        chem = self.model.root.find("analysis_etc/chem")
+        if chem is None:
+            return
+        snam = chem.find("snam")
+        if snam is not None:
+            self.snam_r1.setText(snam.attrib.get("r1", ""))
+            self.snam_r2.setText(snam.attrib.get("r2", ""))
+            self.snam_p1.setText(snam.attrib.get("p1", ""))
+            self.snam_p2.setText(snam.attrib.get("p2", ""))
+        for d in chem.findall("dif"):
+            self._dif_add(d.attrib.get("species", ""),
+                          d.attrib.get("value", "0"))
+        for r in chem.findall("reac"):
+            self._reac_add(
+                r.attrib.get("no", "1"), r.attrib.get("formula", ""),
+                r.attrib.get("a", "0"), r.attrib.get("b", "0"),
+                r.attrib.get("c", "0"), r.attrib.get("e", "0"),
+                r.attrib.get("x1", "0"), r.attrib.get("x2", "0"),
+                r.attrib.get("x3", "0"), r.attrib.get("tail", "0"),
+                r.attrib.get("region", ""))
+        for v in chem.findall("vdfu"):
+            self._vdfu_add(v.attrib.get("species", ""),
+                           v.attrib.get("name", ""),
+                           v.attrib.get("value", "0"),
+                           v.attrib.get("region", ""))
+
+    @staticmethod
+    def _table_text(table, row: int, col: int, default: str = "") -> str:
+        it = table.item(row, col)
+        return it.text().strip() if it is not None and it.text() \
+            else default
+
+    def _dif_add(self, species: str = "", value: str = "0") -> None:
+        r = self.dif_table.rowCount()
+        self.dif_table.insertRow(r)
+        self.dif_table.setItem(r, 0, QTableWidgetItem(str(species)))
+        self.dif_table.setItem(r, 1, QTableWidgetItem(str(value)))
+
+    def _dif_del(self) -> None:
+        rows = self.dif_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.dif_table.removeRow(idx)
+
+    def _reac_add(self, no: str = "1", formula: str = "", a: str = "0",
+                  b: str = "0", c: str = "0", e: str = "0", x1: str = "0",
+                  x2: str = "0", x3: str = "0", tail: str = "0",
+                  region: str = "") -> None:
+        r = self.reac_table.rowCount()
+        self.reac_table.insertRow(r)
+        params = ",".join((a, b, c, e, x1, x2, x3))
+        for col, text in enumerate((no, formula, params, tail, region)):
+            self.reac_table.setItem(r, col, QTableWidgetItem(text))
+
+    def _reac_del(self) -> None:
+        rows = self.reac_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.reac_table.removeRow(idx)
+
+    def _vdfu_add(self, species: str = "", name: str = "",
+                  value: str = "0", region: str = "") -> None:
+        r = self.vdfu_table.rowCount()
+        self.vdfu_table.insertRow(r)
+        for col, text in enumerate((species, name, value, region)):
+            self.vdfu_table.setItem(r, col, QTableWidgetItem(text))
+
+    def _vdfu_del(self) -> None:
+        rows = self.vdfu_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.vdfu_table.removeRow(idx)
+
+    def _chem_apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("chem")
+        if old is not None:
+            aet.remove(old)
+        names = [self.snam_r1.text().strip(),
+                 self.snam_r2.text().strip(),
+                 self.snam_p1.text().strip(),
+                 self.snam_p2.text().strip()]
+        difs = [(self._table_text(self.dif_table, r, 0),
+                 self._table_text(self.dif_table, r, 1))
+                for r in range(self.dif_table.rowCount())]
+        reacs = [tuple(self._table_text(self.reac_table, r, c)
+                       for c in range(5))
+                 for r in range(self.reac_table.rowCount())]
+        vdfus = [tuple(self._table_text(self.vdfu_table, r, c)
+                       for c in range(4))
+                 for r in range(self.vdfu_table.rowCount())]
+        if not any(names) and not difs and not reacs and not vdfus:
+            return
+        chem = ET.SubElement(aet, "chem")
+        if any(names):
+            sn = ET.SubElement(chem, "snam")
+            sn.attrib.update(r1=names[0], r2=names[1],
+                             p1=names[2], p2=names[3])
+        for species, value in difs:
+            d = ET.SubElement(chem, "dif")
+            d.attrib.update(species=species, value=value)
+        for no, formula, params, tail, region in reacs:
+            p = [x.strip() for x in params.split(",")] + ["0"] * 7
+            r = ET.SubElement(chem, "reac")
+            r.attrib.update(no=no or "1", formula=formula,
+                            a=p[0], b=p[1], c=p[2], e=p[3],
+                            x1=p[4], x2=p[5], x3=p[6], tail=tail or "0",
+                            region=region)
+        for species, name, value, region in vdfus:
+            v = ET.SubElement(chem, "vdfu")
+            v.attrib.update(species=species, name=name, value=value,
+                            region=region)
 
     def _steps_load(self) -> None:
         """从 Reaction_step{N} value 重建多步速率表。"""
@@ -9182,6 +9704,7 @@ class _CwReactionPage(QWidget if _HAS_GUI else object):
             "reaction", "Reaction_default",
             [("reaction_mode", mode, None),
              ("reaction_rate", f"{self.rate.value():g}", "1/s")])
+        self._chem_apply()
         # R8-A 深字段：多步速率表写回 Reaction_step{N}（步数减少时删多余）
         rows = self.step_table.rowCount()
         for i in range(rows):
