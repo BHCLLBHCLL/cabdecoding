@@ -309,12 +309,14 @@ class SExport:
         self._heatpath()
         self._equations()
         self._property()
+        self._cnrm_material()
         self._cxyz()
         self._parts()
         self._regions()
         self._movb_parts()
         self._les_init()
         self._les_option()
+        self._les_driver()
         self._init_region()
         self._region_floats()
         self._phase_transition()
@@ -1631,6 +1633,50 @@ class SExport:
             if c.text and c.text.strip():
                 self.lines.append(c.tag)
                 self.lines.append(_i(int(float(c.text)), 15))
+        self.lines.append("/")
+
+    def _les_driver(self):
+        """DRIVER_REGION — LES 入口驱动区域（exB18/exB20a，两种形态
+        零混合：velocity 值形态与 script 形态，均 '   /'+'/' 双终止）。
+        存储 analysis_etc/les_driver：stage/direction/kind/name 属性，
+        velocity 形态用 value；script 形态用 direction_line/params。"""
+        el = self.m.root.find("analysis_etc/les_driver")
+        if el is None:
+            return
+        kind = el.attrib.get("kind", "velocity")
+        stage = el.attrib.get("stage", "fully-developed")
+        direction = el.attrib.get("direction", "positive_x")
+        name = el.attrib.get("name", "")
+        self.lines.append("DRIVER_REGION")
+        self.lines.append(
+            f"   {stage}  {direction}  {kind}  ! {name}")
+        if kind == "script":
+            self.lines.append(
+                "    " + el.attrib.get("direction_line", "z-direction"))
+            params = [x.strip() for x in
+                      el.attrib.get("params", "1,0").split(",")]
+            self.lines.append(
+                f"{params[0] or '1'}   "
+                f"{params[1] if len(params) > 1 else '0'}")
+            self.lines.append("#")
+        else:
+            self.lines.append(_f(float(el.attrib.get("value", "0")), 29))
+        for region in [x.strip() for x in
+                       el.attrib.get("region", "").split(",") if x.strip()]:
+            self.lines.append("   " + region)
+        self.lines += ["   /", "/"]
+
+    def _cnrm_material(self):
+        """CNRM_MATERIAL — 物种材料号对照行（exA14-2/exB12：12 宽二值，
+        '/' 收节）。存储 analysis_etc/cnrm/row(no,val)。"""
+        el = self.m.root.find("analysis_etc/cnrm")
+        if el is None or len(el.findall("row")) == 0:
+            return
+        self.lines.append("CNRM_MATERIAL")
+        for r in el.findall("row"):
+            self.lines.append(
+                _i(int(float(r.attrib.get("no", "1"))), 12)
+                + _i(int(float(r.attrib.get("val", "1"))), 12))
         self.lines.append("/")
 
     def _humd_sections(self):

@@ -8174,12 +8174,68 @@ class _CwDiffusionPage(QWidget if _HAS_GUI else object):
         f.addRow("Molecular diffusion coefficient (m2/s)", self.coeff)
         f.addRow("Turbulent Schmidt number", self.schmidt)
         lay.addWidget(g)
+
+        # I2: CNRM_MATERIAL rows (exA14-2/exB12) — species-material
+        # mapping for the chemical species family
+        cn = QGroupBox("CNRM_MATERIAL — species material map (exA14-2)",
+                       self)
+        cnl = QVBoxLayout(cn)
+        self.cnrm_table = QTableWidget(0, 2, cn)
+        self.cnrm_table.setHorizontalHeaderLabels(
+            ["Material no", "Species no"])
+        self.cnrm_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        cnl.addWidget(self.cnrm_table)
+        crow2 = QHBoxLayout()
+        self.cnrm_add = QPushButton("Add", cn)
+        self.cnrm_del = QPushButton("Delete", cn)
+        self.cnrm_add.clicked.connect(self._cnrm_add)
+        self.cnrm_del.clicked.connect(self._cnrm_del)
+        crow2.addWidget(self.cnrm_add)
+        crow2.addStretch(1)
+        crow2.addWidget(self.cnrm_del)
+        cnl.addLayout(crow2)
+        _cn = self.model.root.find("analysis_etc/cnrm")
+        if _cn is not None:
+            for r in _cn.findall("row"):
+                self._cnrm_add(r.attrib.get("no", "1"),
+                               r.attrib.get("val", "1"))
+        lay.addWidget(cn)
         lay.addStretch(1)
+
+    # -- I2: CNRM rows ----------------------------------------------------
+
+    def _cnrm_add(self, no: str = "1", val: str = "1") -> None:
+        r = self.cnrm_table.rowCount()
+        self.cnrm_table.insertRow(r)
+        self.cnrm_table.setItem(r, 0, QTableWidgetItem(str(no)))
+        self.cnrm_table.setItem(r, 1, QTableWidgetItem(str(val)))
+
+    def _cnrm_del(self) -> None:
+        rows = self.cnrm_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.cnrm_table.removeRow(idx)
+
+    def _cnrm_apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("cnrm")
+        if old is not None:
+            aet.remove(old)
+        if not self.cnrm_table.rowCount():
+            return
+        cn = ET.SubElement(aet, "cnrm")
+        for r in range(self.cnrm_table.rowCount()):
+            it = [self.cnrm_table.item(r, c) for c in range(2)]
+            row = ET.SubElement(cn, "row")
+            row.attrib["no"] = it[0].text() if it[0] else str(r + 1)
+            row.attrib["val"] = it[1].text() if it[1] else "1"
 
     def apply(self) -> None:
         on = self.enable.isChecked()
         self.model.set_project_value(
             "diffusion_enable", "T" if on else "F")
+        self._cnrm_apply()
         self.model.set_project_value(
             "diffusion_n_species", str(self.n_species.value()))
         self.model.set_project_value(
@@ -10059,6 +10115,62 @@ class _CwLesPage(QWidget if _HAS_GUI else object):
         il.addRow("Driver region", self.init_region)
         lay.addWidget(init)
 
+        drv = QGroupBox("DRIVER_REGION — LES inflow driver (exB18/exB20a)",
+                        self)
+        dl = QFormLayout(drv)
+        self.drv_stage = QComboBox(drv)
+        self.drv_stage.addItem("fully-developed", "fully-developed")
+        self.drv_stage.addItem("developing", "developing")
+        self.drv_dir = QComboBox(drv)
+        self.drv_dir.addItem("positive_x", "positive_x")
+        self.drv_dir.addItem("negative_x", "negative_x")
+        self.drv_dir.addItem("positive_y", "positive_y")
+        self.drv_dir.addItem("negative_y", "negative_y")
+        self.drv_dir.addItem("positive_z", "positive_z")
+        self.drv_dir.addItem("negative_z", "negative_z")
+        self.drv_kind = QComboBox(drv)
+        self.drv_kind.addItem("velocity", "velocity")
+        self.drv_kind.addItem("script", "script")
+        self.drv_name = QLineEdit(drv)
+        self.drv_value = QDoubleSpinBox(drv)
+        self.drv_value.setRange(-1e9, 1e9)
+        self.drv_value.setDecimals(6)
+        self.drv_direction_line = QLineEdit(drv)
+        self.drv_direction_line.setPlaceholderText("z-direction")
+        self.drv_params = QLineEdit(drv)
+        self.drv_params.setPlaceholderText("1,0")
+        self.drv_region = QLineEdit(drv)
+        dl.addRow("Stage", self.drv_stage)
+        dl.addRow("Direction", self.drv_dir)
+        dl.addRow("Kind", self.drv_kind)
+        dl.addRow("Name (comment)", self.drv_name)
+        dl.addRow("Inflow velocity", self.drv_value)
+        dl.addRow("[script] Direction line", self.drv_direction_line)
+        dl.addRow("[script] Params", self.drv_params)
+        dl.addRow("Driver region(s, csv)", self.drv_region)
+        _ld = model.root.find("analysis_etc/les_driver")
+        if _ld is not None:
+            _si = self.drv_stage.findData(_ld.attrib.get("stage",
+                                                         "fully-developed"))
+            self.drv_stage.setCurrentIndex(_si if _si >= 0 else 0)
+            _di = self.drv_dir.findData(_ld.attrib.get("direction",
+                                                       "positive_x"))
+            self.drv_dir.setCurrentIndex(_di if _di >= 0 else 0)
+            _ki = self.drv_kind.findData(_ld.attrib.get("kind",
+                                                        "velocity"))
+            self.drv_kind.setCurrentIndex(_ki if _ki >= 0 else 0)
+            self.drv_name.setText(_ld.attrib.get("name", ""))
+            try:
+                self.drv_value.setValue(float(
+                    _ld.attrib.get("value", "0") or 0))
+            except ValueError:
+                pass
+            self.drv_direction_line.setText(
+                _ld.attrib.get("direction_line", "z-direction"))
+            self.drv_params.setText(_ld.attrib.get("params", "1,0"))
+            self.drv_region.setText(_ld.attrib.get("region", ""))
+        lay.addWidget(drv)
+
         opt = QGroupBox("LES_OPTION — option table (exB18)", self)
         ol = QVBoxLayout(opt)
         self.opt_table = QTableWidget(0, 2, opt)
@@ -10125,6 +10237,24 @@ class _CwLesPage(QWidget if _HAS_GUI else object):
             lo = ET.SubElement(aet, "les_option")
             for k, v in rows.items():
                 ET.SubElement(lo, k).text = v
+        old = aet.find("les_driver")
+        if old is not None:
+            aet.remove(old)
+        region = self.drv_region.text().strip()
+        if region:
+            ld = ET.SubElement(aet, "les_driver")
+            ld.attrib.update(
+                stage=self.drv_stage.currentData(),
+                direction=self.drv_dir.currentData(),
+                kind=self.drv_kind.currentData(),
+                name=self.drv_name.text().strip(),
+                region=region)
+            if self.drv_kind.currentData() == "script":
+                ld.attrib.update(
+                    direction_line=self.drv_direction_line.text().strip(),
+                    params=self.drv_params.text().strip() or "1,0")
+            else:
+                ld.attrib["value"] = f"{self.drv_value.value():g}"
 
 
 class _CwMovingBodyPage(QWidget if _HAS_GUI else object):
