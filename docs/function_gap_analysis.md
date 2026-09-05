@@ -47,6 +47,21 @@
 > 电位/电接触/接触热阻/波generation/DEM/6DOF/Design Space 提交 API
 > 齐。全量 **755 passed / 5 skipped**；§23 八批全部完成，剩余发射
 > 留档项均标注证据缺口（探针窗口）。
+> 2026-09-02..05 v7.0→v9.0（§29 H 系 + §30 I 系，`b0a664a..1d7be98`
+> 共 15 个代码提交）：.s 发射面扩容——H1/H1b/H1c/H1d/H1e/H1f/H1g/H1h
+> 八批 70+ 新命令（solver 控制标志、语料高频命令、TM/SUFL/TMSR/
+> SURF_OUTPUT/GOUT_AVRG 输出监控族、VOF2/SURF_CONTROL/SURF_PROPERTY
+> 自由表面族、SCRIPT/OPERATION_VAR/MOVB 族/区域标量族、PCM+辐射族、
+> 化学/ECUR/SOLAR 三子系统、14 张零散卡），render 派发 32→70
+> section、不同字面命令 115 个，语料真实命令发射覆盖 ≈96%（195 命令
+> 中仅剩 ~18 个 ≤4 文件长尾）。§30 I1a/I1b/I1c/I2/I3 把全部新存储
+> 接通 Condition Wizard UI（Solver Control 标签、LES 新页、湿度蒸发
+> 组、自由表面扩展、chem/ECUR/SOLAR/LAMP/JOS/TABLE 组），UI→存储→
+> 发射全链路测试闭环。H3 plate_fin 深字段（exA17-1a 官方 schema）、
+> H4 草图样条 SK-3、H6 axis_plane 圆柱语义 COM 探针（5/5 真机，
+> data/h6_cyl_probe.json）。I4 COM 泄漏守卫（会话级 reaper + 模块
+> com_guard，48GB 泄漏事件防复发）。全量 **934 passed / 5 skipped**
+>（137 测试文件）。
 
 ---
 
@@ -150,6 +165,40 @@ v6.4 W5 COM A 层包装全量闭环 92% →
 **v6.6（2026-08-29，P1–P6 收口 + §24 FMT/AM/MB/SK 四批，≈94%）**。
 差距非虚报，而是 v5 对求解/工具/格式三维度按「逻辑存在」计分，v6 按
 「用户可用深度」严格复核后的修正。
+
+v6.6 → v9.0 变更溯源（2026-09-02..05，§29 H 系八批 + §30 I 系五批，
+代码提交 `b0a664a..1d7be98` 共 15 个）：
+
+- **维度 4（.s 导出）95%→97%**：render 派发 32→70 section，字面命令
+  115 个；H1→H1h 八批 70+ 新命令全部语料库逐字节定档（每卡样本号见
+  tests/test_h1*_batch.py 文档串）；语料 195 命令真实发射覆盖 ≈96%
+  （剩 ~18 个 ≤4 文件长尾 + 数据行误报）；ex4_e 黄金 parity 十五批
+  零泄漏保持。TM/TMSR 18/18、SUFL⇔SURF_OUTPUT 20/20、GOUT 对 8/8、
+  SP⇔SC 48/48 等共生规则入库（data/h1b_cards.json）。
+- **维度 6（Condition Wizard）90%→93%**：§30 I1a–I1c/I2/I3 全部新
+  存储 UI 闭环（Solver Control 标签 7 标志 + STMC/PBAS 行表、LES 新页
+  LESM/LES_INIT/LES_OPTION/DRIVER_REGION、湿度 HUMD/HUMC/type=4
+  fluxhumid、自由表面 VOF2/SURF_1MARS/SURF_AENT/VFRT_SPC、Reaction
+  页 chem 子系统、Current 页 ECUR 扩展、Solar 页 SOLAR 三卡、Lamp 页
+  LAMP 族、Thermoregulation 页 JOS 直传、Output Series 页 TABLE）；
+  A 级闭合规则（UI→存储→发射全链路）自此对全部新族成立。
+- **维度 2（Part）94%→95%**：plate_fin 深字段按官方 exA17-1a schema
+  （fin/space/depth/nfin/row_axis/def_axis）接通存储+面板+几何；
+  enclosure 查证为域条件（IW_enclosure A/B 经验系数）非零件参数，
+  定档非缺口。
+- **维度 3（UI）94%→95%**：草图样条 SK-3（Catmull-Rom、XML 往返、
+  对话框接线）；Solver Control / LES 新标签页。
+- **维度 9（COM）90%→91%**：H6 axis_plane 圆柱语义 5/5 真机探针
+  （plane 模式=轴心平面标准长度格子 + 1.2 外延比，偏心不锚定件轴；
+  data/h6_cyl_probe.json）；悬空 x_t 引用致 COM 打开崩溃的根因定档；
+  I4 泄漏守卫（会话级 reaper + 模块 com_guard fixture）防 48GB 复发。
+
+**总体完成度 v9.0 ≈96%**（v6.6 94% → v9.0：维度 2/3 +1、维度 4 +2、
+维度 6 +3、维度 9 +1）。剩余开项：.s 长尾 ~18 命令（≤4 文件子系统：
+TPOR/TCMDL/STHM/POROUS_MEDIA/LUMI/LSOL_GENERATE/LOOP_OPTION/INIV/
+HUSL/H2/FOUT_LUMI/FANV_REGION/DYNA_OPTION/A_PRT/AIRCON_SET/
+AENT_POROUS/WLTY/VFRE 等）、D9 B 层 live 终证滚动、WindTool/PICLS
+带参深证。
 
 ---
 
