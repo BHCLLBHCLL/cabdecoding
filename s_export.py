@@ -322,6 +322,8 @@ class SExport:
         self._phase_transition()
         self._radiation_sections()
         self._chem_sections()
+        self._sthm()
+        self._tcmdl()
         self._ecur_sections()
         self._solar_sections()
         self._lamp_sections()
@@ -332,6 +334,8 @@ class SExport:
         self._vent_region()
         self._ahso_region()
         self._aent_porous()
+        self._porous_media()
+        self._fanv_region()
         self._aircon_set()
         self._vfwl_region()
         self._movb_control()
@@ -348,6 +352,7 @@ class SExport:
         self._es_field_heads()
         self._pcle_create()
         self._lsol_sections()
+        self._lsol_generate()
         self._pcle_handling()
         self._humd_sections()
         self._humw_region()
@@ -365,6 +370,7 @@ class SExport:
         self._gout_var()
         self._varlist()
         self._upos()
+        self._upos_script()
         self._table_section()
         self._pbas_material()
         self._stmc()
@@ -1978,6 +1984,179 @@ class SExport:
             comment = _child_text(val, "comment", "")
             self.lines.append(f"   {name}   !{comment}")
             self.lines.append("   " + region)
+        self.lines.append("/")
+
+    # -- I4: final deferred subsystem cards --------------------------------
+
+    def _upos_script(self):
+        """UPOS_SCRIPT — 脚本版平均输出（exA26-2：'#' + SCRIPT 包装
+        context_start..context_end + '/'），脚本体逐字直传。存储
+        output/upos_script 文本。"""
+        el = self.m.root.find("output/upos_script")
+        if el is None or not (el.text or "").strip():
+            return
+        self.lines.append("UPOS_SCRIPT")
+        self.lines.append("#")
+        self.lines.append("SCRIPT")
+        self.lines.append("context_start")
+        body = (el.text or "").rstrip("\r\n")
+        if body:
+            self.lines.extend(body.splitlines())
+        self.lines.append("context_end")
+        self.lines.append("/")
+
+    def _lsol_generate(self):
+        """LSOL_GENERATE — 拉格朗日粒子生成器（exA07-4：property/
+        shape/position/timing/condition 五子记录）。存储
+        analysis_etc/lsol_generate 属性组。"""
+        el = self.m.root.find("analysis_etc/lsol_generate")
+        if el is None:
+            return
+
+        def _a(k, d=""):
+            return el.attrib.get(k, d)
+
+        def _csv(k):
+            return [x.strip() for x in _a(k).split(",") if x.strip()]
+
+        self.lines.append("LSOL_GENERATE")
+        self.lines.append(_a("name", "pcle1"))
+        self.lines.append(" property")
+        self.lines.append(
+            f"{_i(int(float(_a('pno', '1'))), 12)}      ! {_a('pname')}")
+        self.lines.append(" shape")
+        self.lines.append(f"      {_a('shape_kind', 'sphere')}")
+        self.lines.append(_f(float(_a("shape_size", "0")), 29))
+        self.lines.append(" position")
+        self.lines.append(f"      {_a('pos_kind', 'cuboid')}")
+        p1, p2 = _csv("pos_p1"), _csv("pos_p2")
+        self.lines.append(_f(float(p1[0]), 29) + _f(float(p1[1]), 26)
+                          + _f(float(p1[2]), 26))
+        self.lines.append(_f(float(p2[0]), 29) + _f(float(p2[1]), 26)
+                          + _f(float(p2[2]), 26))
+        n = _csv("pos_n")
+        self.lines.append(_i(int(n[0])) + _i(int(n[1])) + _i(int(n[2])))
+        self.lines.append(_i(int(float(_a("pos_flag", "0")))))
+        self.lines.append(" timing")
+        self.lines.append(f"   {_a('timing_kind', 'cycle')}")
+        t = _csv("timing_t")
+        self.lines.append(_i(int(t[0])) + _i(int(t[1])) + _i(int(t[2])))
+        self.lines.append(" condition")
+        self.lines.append(f"   {_a('cond_kind', 'velocity_random')}")
+        v = _csv("cond_vals")
+        self.lines.append(_f(float(v[0]), 29) + _f(float(v[1]), 26)
+                          + _f(float(v[2]), 26))
+        self.lines.append("   /")
+
+    def _tcmdl(self):
+        """TCMDL — 熱回路網モデル（exA22-1：index + name + 节点记录
+        J/T/B/S + 支路表；非终止，随下一命令结束）。存储
+        analysis_etc/tcmdl：index/name 属性 + node(kind,params,name)
+        + branch(a,b,value) 子元素。"""
+        el = self.m.root.find("analysis_etc/tcmdl")
+        if el is None:
+            return
+        nodes = el.findall("node")
+        branches = el.findall("branch")
+        if not nodes:
+            return
+        self.lines.append("TCMDL")
+        self.lines.append(_i(int(float(el.attrib.get("index", "1"))), 12))
+        self.lines.append("   " + el.attrib.get("name", ""))
+        self.lines.append(_i(len(nodes), 12))
+        for nd in nodes:
+            self.lines.append("   " + nd.attrib.get("kind", "J"))
+            vals = [float(x) for x in
+                    nd.attrib.get("params", "").split(",") if x.strip()]
+            row = "      " + _f(vals[0], 26) if vals else "      "
+            for v in vals[1:]:
+                row += _f(v, 26)
+            if nd.attrib.get("name"):
+                row += _i(int(float(nd.attrib.get("flag", "1"))), 12)
+            self.lines.append(row)
+            if nd.attrib.get("name"):
+                self.lines.append("      " + nd.attrib["name"])
+        self.lines.append(_i(len(branches), 12))
+        for br in branches:
+            self.lines.append(
+                "      " + br.attrib.get("a", "J")
+                + f"{br.attrib.get('b', 'T'):>13}"
+                + f"{float(br.attrib.get('value', '0')):>38.14e}")
+
+    def _sthm(self):
+        """STHM — 物种热物性 NASA 多项式（exA14-3：系数必须逐字节保真，
+        逐字直传 B 级定档；非终止）。存储 analysis_etc/sthm/card
+        （lines='|' 分隔）。"""
+        el = self.m.root.find("analysis_etc/sthm")
+        if el is None:
+            return
+        raw = el.attrib.get("lines", "")
+        lines = [x for x in raw.split("|")]
+        if not lines:
+            return
+        self.lines.append("STHM")
+        self.lines.extend(lines)
+
+    def _porous_media(self):
+        """POROUS_MEDIA — 多孔质体材料卡（exA17-1b：'{kind}{no:>4}' +
+        异构数值行（逐字直传）+ 15/26 宽尾行 + region + 双终止）。
+        存储 analysis_etc/porous_media：kind/no/rows/tail_v/tail_f/
+        region。"""
+        el = self.m.root.find("analysis_etc/porous_media")
+        if el is None:
+            return
+        rows = [x for x in el.attrib.get("rows", "").split("|") if x]
+        if not rows:
+            return
+        self.lines.append("POROUS_MEDIA")
+        self.lines.append(
+            f"{el.attrib.get('kind', 'anisotropic')}"
+            f"{int(float(el.attrib.get('no', '0'))):>4}")
+        self.lines.extend(rows)
+        self.lines.append(
+            _i(int(float(el.attrib.get("tail_v", "1"))), 15)
+            + _f(float(el.attrib.get("tail_f", "0")), 26))
+        self.lines.append("   " + el.attrib.get("region", ""))
+        self.lines += ["   /", "/"]
+
+    def _fanv_region(self):
+        """FANV_REGION — 轴流风扇区域（exA13-1：'{kind}   {no}  !
+        {name}' + 29/26 + 6×26 + 12 宽 + '@T:表' + 15/15/26 + 15 宽 +
+        29/26/26 + 多区域行各 '   /' + '/'）。存储
+        analysis_etc/fanv_region 属性组。"""
+        el = self.m.root.find("analysis_etc/fanv_region")
+        if el is None:
+            return
+
+        def _csv(k):
+            return [x.strip() for x in
+                    el.attrib.get(k, "").split(",") if x.strip()]
+
+        regions = _csv("regions")
+        if not regions:
+            return
+        self.lines.append("FANV_REGION")
+        self.lines.append(
+            f"{el.attrib.get('kind', 'axial_fan')}   "
+            f"{el.attrib.get('no', '0')}  ! "
+            f"{el.attrib.get('name', '')}")
+        v12 = _csv("v12")
+        self.lines.append(_f(float(v12[0]), 29) + _f(float(v12[1]), 26))
+        v6 = _csv("v6")
+        self.lines.append("".join(_f(float(x), 26) for x in v6[:6]))
+        self.lines.append(_i(int(float(el.attrib.get("flag", "2")))))
+        self.lines.append("   " + el.attrib.get("table_ref", "@T:fanpq"))
+        t3 = _csv("t3")
+        self.lines.append(_i(int(float(t3[0])), 15)
+                          + _i(int(float(t3[1])), 15)
+                          + _f(float(t3[2]), 26))
+        self.lines.append(_i(int(float(el.attrib.get("t1", "3"))), 15))
+        t4 = _csv("t4")
+        self.lines.append(_f(float(t4[0]), 29) + _f(float(t4[1]), 26)
+                          + _f(float(t4[2]), 26))
+        for region in regions:
+            self.lines.append("   " + region)
+            self.lines.append("   /")
         self.lines.append("/")
 
     def _vfwl_region(self):
