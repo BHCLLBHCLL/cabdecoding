@@ -131,3 +131,25 @@ def test_csv_arity_accepts_any_length():
     assert m.set_part_params("球3", {"angle": "0,180"})
     assert m.set_part_params("球3", {"angle": "0,180,45"})
     assert m.part_params("球3")["angle"] == [0.0, 180.0, 45.0]
+
+
+def test_enclosure_official_case_cube_keys(qapp):
+    """exA07-5 Duct_case schema: thickness 6-value per-face wall + 
+    solar_property on the canonical enclosure kind."""
+    from cab_dialogs import SpecialParamsPanel
+    m = _model()
+    m.add_part(name="Duct_case", kind="enclosure", attribute="solid")
+    assert m.set_part_params("Duct_case", {
+        "thickness": "5,5,5,5,5,50",
+        "solar_property": "吸収体"})
+    params = m.part_params("Duct_case")
+    assert params["thickness"] == [5.0, 5.0, 5.0, 5.0, 5.0, 50.0]
+    assert params["solar_property"] == "吸収体"
+    el = m.find_part("Duct_case")
+    th = el.find("thickness")
+    assert th.attrib.get("unit") == "mm"
+    assert th.text.strip() == "5,5,5,5,5,50"
+    panel = SpecialParamsPanel(m, "Duct_case")
+    panel.load()
+    assert ("thickness", None) in panel.edits
+    assert panel.edits[("solar_property", None)].text() == "吸収体"

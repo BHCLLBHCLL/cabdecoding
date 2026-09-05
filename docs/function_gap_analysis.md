@@ -83,7 +83,7 @@
 | # | 功能域 | 完整度 | 深度 | 分层 |
 |---:|---|:---:|:---:|---|
 | 1 | 数据层（cab 容器/XML/材料库/单位） | 100% | L3 | 满格层 ▸边界项（非MSZIP 压缩族无样本） |
-| 2 | 几何建模 Part（原语/专用件/草图） | 99% | L2 | 中间层（官方键桥双落点收口：two_resistor⇔network condition 节点派生/写回、axial_fan 草图式键→FANV 发射派生；余 case_cube thickness 6 值等零星） |
+| 2 | 几何建模 Part（原语/专用件/草图） | 99% | L2 | 中间层（官方键面全收口：panel/sphere/case_cube thickness·solar_property/two_resistor⇔network 桥/axial_fan→FANV；仅余嵌套 boolean 子件解析等零星滚动） |
 | 3 | UI 菜单/对话框 | 100% | L2 | 满格层 |
 | 4 | .s 求解输入导出 | 100% | L3 | 满格层 ▸边界项（STHM/POROUS_MEDIA/JOS 逐字直传） |
 | 5 | 网格 Gridding/Meshing | 100% | L3 | 满格层 |

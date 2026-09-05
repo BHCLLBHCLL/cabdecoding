@@ -732,6 +732,12 @@ class StpreModel:
             "divide": (None, "int"), "percent": (None, 1),
             "thick": ("mm", 1),
         },
+        # R3.5d scroll: enclosure = official case_cube (exA07-5
+        # Duct_case): per-face wall thickness (X-/X+/Y-/Y+/Z-/Z+) and
+        # the solar absorber property name.
+        "enclosure": {
+            "thickness": ("mm", "csv"), "solar_property": (None, "str"),
+        },
         # H3: plate fin — official schema (exA17-1a.cab 放熱フィン):
         # <fin unit=mm>2</fin> <space unit=mm>7.5</space>
         # <depth unit=mm>0.8</depth> <nfin>5</nfin>

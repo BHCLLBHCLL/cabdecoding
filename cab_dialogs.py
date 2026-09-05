@@ -906,6 +906,12 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
             ("f", "Thickness (mm)", "thick", None, 1.0),
             ("i", "Number of slits", "count", None, 8),
         ),
+        # R3.5d scroll: enclosure = official case_cube (exA07-5)
+        "enclosure": (
+            ("t", "Wall thickness (6 csv: X-/X+/Y-/Y+/Z-/Z+ mm)",
+             "thickness", None, "5,5,5,5,5,50"),
+            ("t", "Solar absorber property", "solar_property", None, ""),
+        ),
         # R3.5d scroll: official keys — panel percent/thick
         # (exA15-x 溶融鋼部: percent -1 = auto, thick 0 = zero-thickness
         # face) and sphere ellipsoid/arc (exA07-3 球1: radius3 triple,
