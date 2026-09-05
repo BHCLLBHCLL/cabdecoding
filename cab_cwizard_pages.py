@@ -4522,6 +4522,82 @@ class _CwOutputSeriesPage(QWidget if _HAS_GUI else object):
         self._load()
         self._ts_fill()
 
+
+        # I1c: TABLE named function tables (exA13-1 fanpq P-Q curve)
+        tg = QGroupBox("TABLE — named function tables (exA13-1)", self)
+        tgl = QVBoxLayout(tg)
+        self.tbl_table = QTableWidget(0, 4, tg)
+        self.tbl_table.setHorizontalHeaderLabels(
+            ["Name", "Kind", "v1", "v2"])
+        self.tbl_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        tgl.addWidget(self.tbl_table)
+        trow = QHBoxLayout()
+        self.tbl_add = QPushButton("Add row", tg)
+        self.tbl_del = QPushButton("Delete", tg)
+        self.tbl_add.clicked.connect(self._tbl_add)
+        self.tbl_del.clicked.connect(self._tbl_del)
+        trow.addWidget(self.tbl_add)
+        trow.addStretch(1)
+        trow.addWidget(self.tbl_del)
+        tgl.addLayout(trow)
+        self._tbl_load()
+        lay.addWidget(tg)
+        lay.addStretch(1)
+
+    # -- I1c: TABLE (named function tables, exA13-1 fanpq) ----------------
+
+    def _tbl_add(self, name: str = "fanpq", kind: str = "simple",
+                 v1: str = "0", v2: str = "0") -> None:
+        r = self.tbl_table.rowCount()
+        self.tbl_table.insertRow(r)
+        for col, text in enumerate((name, kind, v1, v2)):
+            self.tbl_table.setItem(r, col, QTableWidgetItem(str(text)))
+
+    def _tbl_del(self) -> None:
+        rows = self.tbl_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.tbl_table.removeRow(idx)
+
+    def _tbl_load(self) -> None:
+        for val in self.model.values_of_type("table"):
+            name = ""
+            from cabxml import _first
+            n = _first(val, "name")
+            if n is not None and n.text:
+                name = n.text.strip()
+            kind = ""
+            k = _first(val, "kind")
+            if k is not None and k.text:
+                kind = k.text.strip()
+            for r in val.findall("row"):
+                self._tbl_add(name, kind,
+                              r.attrib.get("v1", "0"),
+                              r.attrib.get("v2", "0"))
+
+    def _tbl_apply(self) -> None:
+        groups: dict[str, tuple[str, list]] = {}
+        for r in range(self.tbl_table.rowCount()):
+            it = [self.tbl_table.item(r, c) for c in range(4)]
+            name = it[0].text().strip() if it[0] else ""
+            if not name:
+                continue
+            kind = it[1].text().strip() if it[1] else "simple"
+            groups.setdefault(name, (kind, []))[1].append(
+                (it[2].text() if it[2] else "0",
+                 it[3].text() if it[3] else "0"))
+        # rebuild all table values from the UI
+        for val in list(self.model.values_of_type("table")):
+            self.model.root.remove(val)
+        for name, (kind, rows) in groups.items():
+            self.model.upsert_value("table", name,
+                                    [("kind", kind, None)])
+            val = self.model.find_value(name)
+            import xml.etree.ElementTree as ET
+            for v1, v2 in rows:
+                row = ET.SubElement(val, "row")
+                row.attrib.update(v1=v1, v2=v2)
+
     def _point_parts(self) -> list[tuple[str, str]]:
         out = []
         for p in self.model.parts():
@@ -4588,6 +4664,7 @@ class _CwOutputSeriesPage(QWidget if _HAS_GUI else object):
                     self._ts[n.strip()] = v.strip()
 
     def apply(self) -> None:
+        self._tbl_apply()
         parts = [f"{n}|{v}" for n, v in self._ts.items()]
         self.model.set_analysis_set_value(
             "timeseries_points", ";".join(parts))
@@ -8579,9 +8656,64 @@ class _CwThermoregulationPage(QWidget if _HAS_GUI else object):
         f.addRow("Metabolic rate (met)", self.metabolic)
         f.addRow("Clothing insulation (clo)", self.clothing)
         lay.addWidget(g)
+
+        # I3: JOS_* verbatim cards (exA27-1a; semantics deep, passthrough)
+        jg = QGroupBox("JOS cards (verbatim, exA27-1a)", self)
+        jgl = QVBoxLayout(jg)
+        self.jos_table = QTableWidget(0, 2, jg)
+        self.jos_table.setHorizontalHeaderLabels(
+            ["Card", "Lines ('|'-separated, verbatim)"])
+        self.jos_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        jgl.addWidget(self.jos_table)
+        jr = QHBoxLayout()
+        self.jos_add = QPushButton("Add card", jg)
+        self.jos_del = QPushButton("Delete", jg)
+        self.jos_add.clicked.connect(self._jos_add)
+        self.jos_del.clicked.connect(self._jos_del)
+        jr.addWidget(self.jos_add)
+        jr.addStretch(1)
+        jr.addWidget(self.jos_del)
+        jgl.addLayout(jr)
+        _jos = model.root.find("analysis_etc/jos")
+        if _jos is not None:
+            for c in _jos.findall("card"):
+                self._jos_add(c.attrib.get("name", "JOS_SET"),
+                              c.attrib.get("lines", ""))
+        lay.addWidget(jg)
         lay.addStretch(1)
 
+    # -- I3: JOS verbatim cards -------------------------------------------
+
+    def _jos_add(self, name: str = "JOS_SET", lines: str = "") -> None:
+        r = self.jos_table.rowCount()
+        self.jos_table.insertRow(r)
+        self.jos_table.setItem(r, 0, QTableWidgetItem(str(name)))
+        self.jos_table.setItem(r, 1, QTableWidgetItem(str(lines)))
+
+    def _jos_del(self) -> None:
+        rows = self.jos_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.jos_table.removeRow(idx)
+
+    def _jos_apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("jos")
+        if old is not None:
+            aet.remove(old)
+        if not self.jos_table.rowCount():
+            return
+        jos = ET.SubElement(aet, "jos")
+        for r in range(self.jos_table.rowCount()):
+            n_it = self.jos_table.item(r, 0)
+            l_it = self.jos_table.item(r, 1)
+            card = ET.SubElement(jos, "card")
+            card.attrib["name"] = n_it.text() if n_it else "JOS_SET"
+            card.attrib["lines"] = l_it.text() if l_it else ""
+
     def apply(self) -> None:
+        self._jos_apply()
         on = self.enable.isChecked()
         self.model.set_project_value(
             "jos_enable", "T" if on else "F")
@@ -9015,6 +9147,31 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
         eprow.addStretch(1)
         eprow.addWidget(self.ecur_del)
         efl.addRow(eprow)
+        # I3: ECUR_CONTROL + ECUR_BOUNDARY (exA12-2a)
+        self.ecur_control_kind = QComboBox(ec)
+        self.ecur_control_kind.addItem("(off)", "")
+        self.ecur_control_kind.addItem("joule_ht_by_resist",
+                                       "joule_ht_by_resist")
+        self.ecur_control_val = QSpinBox(ec)
+        self.ecur_control_val.setRange(0, 9)
+        self.ecur_control_val.setValue(1)
+        efl.addRow("Control kind", self.ecur_control_kind)
+        efl.addRow("Control value", self.ecur_control_val)
+        self.ecb_table = QTableWidget(0, 5, ec)
+        self.ecb_table.setHorizontalHeaderLabels(
+            ["Kind", "No", "Name", "Value", "Region"])
+        self.ecb_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        efl.addRow(self.ecb_table)
+        ebrow = QHBoxLayout()
+        self.ecb_add = QPushButton("Add boundary", ec)
+        self.ecb_del = QPushButton("Delete", ec)
+        self.ecb_add.clicked.connect(self._ecb_add)
+        self.ecb_del.clicked.connect(self._ecb_del)
+        ebrow.addWidget(self.ecb_add)
+        ebrow.addStretch(1)
+        ebrow.addWidget(self.ecb_del)
+        efl.addRow(ebrow)
         _ecur = self.model.root.find("analysis_etc/ecur")
         if _ecur is not None:
             try:
@@ -9043,6 +9200,20 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
             for p in _ecur.findall("prop"):
                 self._ecur_add(p.attrib.get("no", "1"),
                                p.attrib.get("v", "0"))
+            _ck = _ecur.attrib.get("control_kind", "")
+            _ci = self.ecur_control_kind.findData(_ck)
+            self.ecur_control_kind.setCurrentIndex(_ci if _ci >= 0 else 0)
+            try:
+                self.ecur_control_val.setValue(int(float(
+                    _ecur.attrib.get("control_val", "1"))))
+            except ValueError:
+                pass
+            for b in _ecur.findall("ebound"):
+                self._ecb_add(
+                    b.attrib.get("kind", "epotential"),
+                    b.attrib.get("no", "0"), b.attrib.get("name", ""),
+                    b.attrib.get("value", "0"),
+                    b.attrib.get("region", ""))
         lay.addWidget(ec)
         lay.addStretch(1)
 
@@ -9066,6 +9237,19 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
         self.ecur_table.insertRow(r)
         self.ecur_table.setItem(r, 0, QTableWidgetItem(str(no)))
         self.ecur_table.setItem(r, 1, QTableWidgetItem(str(v)))
+
+    def _ecb_add(self, kind: str = "epotential", no: str = "0",
+                 name: str = "", value: str = "0",
+                 region: str = "") -> None:
+        r = self.ecb_table.rowCount()
+        self.ecb_table.insertRow(r)
+        for col, text in enumerate((kind, no, name, value, region)):
+            self.ecb_table.setItem(r, col, QTableWidgetItem(str(text)))
+
+    def _ecb_del(self) -> None:
+        rows = self.ecb_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.ecb_table.removeRow(idx)
 
     def _ecur_del(self) -> None:
         rows = self.ecur_table.selectionModel().selectedRows()
@@ -9100,6 +9284,19 @@ class _CwCurrentPage(QWidget if _HAS_GUI else object):
         for no, v in props:
             p = ET.SubElement(ec, "prop")
             p.attrib.update(no=no or "1", v=v or "0")
+        ck = self.ecur_control_kind.currentData()
+        if ck:
+            ec.attrib.update(control_kind=ck,
+                             control_val=str(self.ecur_control_val.value()))
+        for r in range(self.ecb_table.rowCount()):
+            it = [self.ecb_table.item(r, c) for c in range(5)]
+            b = ET.SubElement(ec, "ebound")
+            b.attrib.update(
+                kind=it[0].text() if it[0] else "epotential",
+                no=it[1].text() if it[1] else "0",
+                name=it[2].text() if it[2] else "",
+                value=it[3].text() if it[3] else "0",
+                region=it[4].text() if it[4] else "")
 
     def _commit_econtact(self, name: str, mode: str, param: float,
                          region: str) -> bool:
@@ -9905,7 +10102,110 @@ class _CwLampPage(QWidget if _HAS_GUI else object):
         f.addRow("Lamp model", self.model_type)
         f.addRow("Luminous flux (lm)", self.flux)
         lay.addWidget(g)
+
+        # I3: LAMP_REGION / LAMP_RAYDRAW cards (exA07-5)
+        lg = QGroupBox("LAMP .s cards (exA07-5)", self)
+        lgl = QVBoxLayout(lg)
+        self.lamp_region_table = QTableWidget(0, 4, lg)
+        self.lamp_region_table.setHorizontalHeaderLabels(
+            ["Kind", "Count", "Value", "Region"])
+        self.lamp_region_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        lgl.addWidget(self.lamp_region_table)
+        lr1 = QHBoxLayout()
+        self.lamp_region_add = QPushButton("Add region", lg)
+        self.lamp_region_del = QPushButton("Delete", lg)
+        self.lamp_region_add.clicked.connect(self._lamp_region_add)
+        self.lamp_region_del.clicked.connect(self._lamp_region_del)
+        lr1.addWidget(self.lamp_region_add)
+        lr1.addStretch(1)
+        lr1.addWidget(self.lamp_region_del)
+        lgl.addLayout(lr1)
+        self.raydraw_table = QTableWidget(0, 2, lg)
+        self.raydraw_table.setHorizontalHeaderLabels(
+            ["Option", "Value"])
+        self.raydraw_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        lgl.addWidget(self.raydraw_table)
+        lr2 = QHBoxLayout()
+        self.raydraw_add = QPushButton("Add option", lg)
+        self.raydraw_del = QPushButton("Delete", lg)
+        self.raydraw_add.clicked.connect(self._raydraw_add)
+        self.raydraw_del.clicked.connect(self._raydraw_del)
+        lr2.addWidget(self.raydraw_add)
+        lr2.addStretch(1)
+        lr2.addWidget(self.raydraw_del)
+        lgl.addLayout(lr2)
+        _lr = model.root.find("analysis_etc/lamp_region")
+        if _lr is not None:
+            for r in _lr.findall("row"):
+                self._lamp_region_add(
+                    r.attrib.get("kind", "diffusion"),
+                    r.attrib.get("count", "1"),
+                    r.attrib.get("value", "0"),
+                    r.attrib.get("region", ""))
+        _rd = model.root.find("analysis_etc/lamp_raydraw")
+        if _rd is not None:
+            for c in _rd:
+                if c.text and c.text.strip():
+                    self._raydraw_add(c.tag, c.text.strip())
+        lay.addWidget(lg)
         lay.addStretch(1)
+
+    # -- I3: LAMP rows ----------------------------------------------------
+
+    def _lamp_region_add(self, kind: str = "diffusion",
+                         count: str = "1", value: str = "0",
+                         region: str = "") -> None:
+        r = self.lamp_region_table.rowCount()
+        self.lamp_region_table.insertRow(r)
+        for col, text in enumerate((kind, count, value, region)):
+            self.lamp_region_table.setItem(r, col, QTableWidgetItem(
+                str(text)))
+
+    def _lamp_region_del(self) -> None:
+        rows = self.lamp_region_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.lamp_region_table.removeRow(idx)
+
+    def _raydraw_add(self, keyword: str = "NRAY",
+                     value: str = "1000") -> None:
+        r = self.raydraw_table.rowCount()
+        self.raydraw_table.insertRow(r)
+        self.raydraw_table.setItem(r, 0, QTableWidgetItem(str(keyword)))
+        self.raydraw_table.setItem(r, 1, QTableWidgetItem(str(value)))
+
+    def _raydraw_del(self) -> None:
+        rows = self.raydraw_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.raydraw_table.removeRow(idx)
+
+    def _lamp_apply(self) -> None:
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        for tag, table, cols, attr_cols in (
+                ("lamp_region", self.lamp_region_table, 4,
+                 ("kind", "count", "value", "region")),
+                ("lamp_raydraw", self.raydraw_table, 2, ())):
+
+            def _cell(t, r, c, d=""):
+                it = t.item(r, c)
+                return it.text().strip() if it is not None and it.text()                     else d
+            old = aet.find(tag)
+            if old is not None:
+                aet.remove(old)
+            if not table.rowCount():
+                continue
+            el = ET.SubElement(aet, tag)
+            for r in range(table.rowCount()):
+                if tag == "lamp_region":
+                    row = ET.SubElement(el, "row")
+                    row.attrib.update(
+                        {k: _cell(table, r, i, d) for i, (k, d) in
+                         enumerate(zip(attr_cols,
+                                       ("diffusion", "1", "0", "")))})
+                else:
+                    ET.SubElement(el, _cell(table, r, 0, "NRAY")).text =                         _cell(table, r, 1, "0")
 
     def _commit_laser(self, name: str, total_luminosity: float,
                       flux_density: float, region: str) -> bool:
@@ -9925,6 +10225,7 @@ class _CwLampPage(QWidget if _HAS_GUI else object):
         return True
 
     def apply(self) -> None:
+        self._lamp_apply()
         on = self.enable.isChecked()
         mtype = self.model_type.currentText()
         self.model.set_project_value(

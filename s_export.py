@@ -324,6 +324,8 @@ class SExport:
         self._chem_sections()
         self._ecur_sections()
         self._solar_sections()
+        self._lamp_sections()
+        self._jos_sections()
         self._flux_region()
         self._amom_region()
         self._aent_region()
@@ -350,6 +352,7 @@ class SExport:
         self._tmsr()
         self._fout()
         self._surf_output()
+        self._surf_wavegene()
         self._free_surf_sections()
         self._sufs_region()
         self._surf_porous()
@@ -1558,6 +1561,27 @@ class SExport:
                     _i(int(p.attrib.get("no", "1")), 12)
                     + _f(float(p.attrib.get("v", "0")), 26))
             self.lines.append("/")
+        # I3: ECUR_CONTROL (exA12-2a) + ECUR_BOUNDARY records
+        ck = el.attrib.get("control_kind", "")
+        if ck.strip():
+            self.lines.append("ECUR_CONTROL")
+            self.lines.append(ck)
+            self.lines.append(_i(int(float(
+                el.attrib.get("control_val", "1"))), 15))
+            self.lines.append("/")
+        bounds = el.findall("ebound")
+        if bounds:
+            self.lines.append("ECUR_BOUNDARY")
+            for b in bounds:
+                self.lines.append(
+                    f"{b.attrib.get('kind', 'epotential')}    "
+                    f"{b.attrib.get('no', '0')}   ! "
+                    f"{b.attrib.get('name', '')}")
+                self.lines.append(_f(float(b.attrib.get("value", "0")),
+                                     26))
+                self.lines.append("   " + b.attrib.get("region", ""))
+                self.lines.append("   /")
+            self.lines.append("/")
 
     def _solar_sections(self):
         """H1g: 太陽日射族 — SOLAR（非终止固定卡：mode/11.3f 三值行/
@@ -1796,6 +1820,47 @@ class SExport:
         self.lines.append("VARLIST")
         self.lines.append(el.text.strip())
         self.lines.append("/")
+
+    def _lamp_sections(self):
+        """LAMP_REGION + LAMP_RAYDRAW — 灯具族（exA07-5）。REGION：
+        '{kind}{count:>12}' + 29 宽值 + region + 双终止；RAYDRAW：
+        '    {kw:<8}{v:>9}' 关键字表。存储 analysis_etc/lamp_region/row
+        与 analysis_etc/lamp_raydraw 子元素。"""
+        lr = self.m.root.find("analysis_etc/lamp_region")
+        if lr is not None and len(lr.findall("row")) > 0:
+            self.lines.append("LAMP_REGION")
+            for r in lr.findall("row"):
+                self.lines.append(
+                    f"{r.attrib.get('kind', 'diffusion')}"
+                    f"{int(float(r.attrib.get('count', '1'))):>12}")
+                self.lines.append(_f(float(r.attrib.get("value", "0")),
+                                     29))
+                self.lines.append("   " + r.attrib.get("region", ""))
+                self.lines += ["   /", "/"]
+        rd = self.m.root.find("analysis_etc/lamp_raydraw")
+        if rd is not None and len(rd) > 0:
+            self.lines.append("LAMP_RAYDRAW")
+            for c in rd:
+                if c.text and c.text.strip():
+                    self.lines.append(
+                        f"    {c.tag:<8}{int(float(c.text)):>9}")
+            self.lines.append("/")
+
+    def _jos_sections(self):
+        """JOS_* — JOS-3 人体调温模型五卡（exA27-1a：SET/PERSON/BODY/
+        CLOTHING/INFO，语义深无映射实证）——逐字直传 B 级定档。存储
+        analysis_etc/jos/card(name=..., lines=行文本 | 分隔）。"""
+        jos = self.m.root.find("analysis_etc/jos")
+        if jos is None:
+            return
+        for card in jos.findall("card"):
+            raw = card.attrib.get("lines", "")
+            lines = [x for x in raw.split("|") if x.strip() != ""]
+            if not lines:
+                continue
+            self.lines.append(card.attrib.get("name", "JOS_SET"))
+            self.lines.extend(lines)
+            self.lines.append("/")
 
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
@@ -3042,6 +3107,38 @@ class SExport:
                 + "   " + _child_text(pt, "name", "level1"))
         self.lines.append("   /")
         self.lines.append("/")
+
+    def _surf_wavegene(self):
+        """SURF_WAVEGENE — 波形発生（exA15-6，官方 .cab 存储映射实证：
+        行1 = kind 首字母大写 + 固定 1 + bias + depth + num（各 2 宽）；
+        行2 = height 29 宽 + period 26 宽；行3 = 固定 100 + angle +
+        固定 1（两常数单样本，B 级定档）。'   /'+'/' 双终止。"""
+        for val in self.m.values_of_type("wave_gen"):
+            kind = _child_text(val, "kind", "stokes3")
+
+            def _num(v, default=0.0):
+                try:
+                    f = float(v)
+                except (TypeError, ValueError):
+                    f = default
+                return f"{int(f):d}" if f == int(f) else f"{f:g}"
+
+            row1 = (kind.capitalize()
+                    + f" {_num(1):>2}"
+                    + f" {_num(_child_text(val, 'bias', '0')):>2}"
+                    + f" {_num(_child_text(val, 'depth', '0')):>2}"
+                    + f" {_num(_child_text(val, 'num', '0')):>2}")
+            self.lines.append("SURF_WAVEGENE")
+            self.lines.append(row1)
+            self.lines.append(
+                _f(float(_child_text(val, "height", "0")), 29)
+                + _f(float(_child_text(val, "period", "0")), 26))
+            self.lines.append(
+                _f(100.0, 29)
+                + _f(float(_child_text(val, "angle", "0")), 26)
+                + _f(1.0, 26))
+            self.lines += ["   /", "/"]
+            return
 
     def _gout_avrg(self):
         """GOUT_AVRG — 全局平均输出（exB18.s:159-170 / exB19a / exB20a）。
