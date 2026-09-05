@@ -2119,12 +2119,50 @@ class SExport:
         self.lines.append("   " + el.attrib.get("region", ""))
         self.lines += ["   /", "/"]
 
+    def _fanv_from_official_part(self):
+        """官方键 axial_fan 零件 → 临时 fanv_region 属性组（不落盘，
+        每次 render 重派生）。取首个带 <panel_kind> 的 axial_fan 件。"""
+        from cabxml import _first, canonical_part_kind
+        for pel in self.m.root.iter("parts"):
+            raw = pel.attrib.get("type", "")
+            if canonical_part_kind(raw, pel) != "axial_fan":
+                continue
+            if _first(pel, "panel_kind") is None:
+                continue
+
+            def _m(tag, default=""):
+                c = _first(pel, tag)
+                return (c.text or "").strip() if c is not None else default
+
+            size = _m("size").split(",")
+            if len(size) < 2:
+                continue
+            import xml.etree.ElementTree as ET
+            el = ET.Element("fanv_region")
+            el.attrib.update(
+                kind=_m("kind", "axial_fan") or "axial_fan",
+                no="0",
+                name=_m("name") or "axial_fan",
+                v12=f"{float(size[0]):g},{float(size[1]):g}",
+                v6="0,0,0,1,0,0", flag="2",
+                table_ref="@T:fanpq",
+                t3="3,3,0", t1="3", t4="1000,70,1",
+                regions=f"{_m('name') or 'axial_fan'},"
+                        f"{_m('name') or 'axial_fan'}_inlet")
+            return el
+        return None
+
     def _fanv_region(self):
         """FANV_REGION — 轴流风扇区域（exA13-1：'{kind}   {no}  !
         {name}' + 29/26 + 6×26 + 12 宽 + '@T:表' + 15/15/26 + 15 宽 +
         29/26/26 + 多区域行各 '   /' + '/'）。存储
-        analysis_etc/fanv_region 属性组。"""
+        analysis_etc/fanv_region 属性组；无配置时从官方键 axial_fan
+        零件派生（official-key bridge：kind/panel_kind/size(m)/thick/
+        sketch_plane，exA13-1 軸流ファン——v12=size、name=件名、
+        regions=[件名, 件名_inlet]）。"""
         el = self.m.root.find("analysis_etc/fanv_region")
+        if el is None:
+            el = self._fanv_from_official_part()
         if el is None:
             return
 

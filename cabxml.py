@@ -702,6 +702,8 @@ class StpreModel:
         "axial_fan": {
             "r1": ("mm", 1), "r2": ("mm", 1), "t1": ("mm", 1),
             "t2": ("mm", 1), "axis": (None, "str"), "kind": (None, "str"),
+            # official sketch-style keys (exA13-1 軸流ファン)
+            "panel_kind": (None, "int"), "sketch_plane": (None, "str"),
         },
         "blower_fan": {
             "r1": ("mm", 1), "r2": ("mm", 1), "thickness": ("mm", 1),
@@ -798,6 +800,36 @@ class StpreModel:
                 if not vals:
                     continue
                 out[tag] = vals[0] if fmt == 1 else vals
+        if kind == "two_resistor":
+            # Official-key bridge (exA22-1 network schema): the JEDEC
+            # pair lives in <condition><resistance node1/node2> and the
+            # package power in <condition><source node="J">.  Official
+            # keys win over our flat children when both exist.
+            cond = el.find("condition")
+            if cond is not None:
+                for res in cond.findall("resistance"):
+                    pair = (res.attrib.get("node1", "").upper(),
+                            res.attrib.get("node2", "").upper())
+                    try:
+                        v = float((res.text or "").strip())
+                    except ValueError:
+                        continue
+                    if pair == ("J", "T"):
+                        out["rjc"] = v
+                    elif pair == ("J", "B"):
+                        out["rjb"] = v
+                src_el = cond.find("source")
+                if src_el is not None:
+                    try:
+                        out["package_power"] = float(
+                            (src_el.text or "0").strip())
+                    except ValueError:
+                        pass
+            # official geometry keys surfaced alongside
+            pk = _first(el, "package")
+            if pk is not None and pk.text:
+                out["package"] = pk.text.strip()
+
         if kind == "delphi":
             nodes = []
             for n in el.findall("thermal_node"):
@@ -902,6 +934,25 @@ class StpreModel:
                 if isinstance(fmt, int) and fmt != 1 and len(vals) != fmt:
                     return False
                 set_field(tag, ",".join(f"{v:.12g}" for v in vals), unit)
+
+        # two_resistor 官方键桥：rjc/rjb/package_power 同步写
+        # <condition><resistance|source>（exA22-1 官方 schema，已有
+        # condition 时更新，否则不凭空造节）
+        if kind == "two_resistor":
+            cond = el.find("condition")
+            if cond is not None:
+                for res in cond.findall("resistance"):
+                    pair = (res.attrib.get("node1", "").upper(),
+                            res.attrib.get("node2", "").upper())
+                    if pair == ("J", "T") and params.get("rjc") is not None:
+                        set_text(res, f" {float(params['rjc']):.12g} ")
+                    elif pair == ("J", "B") and params.get("rjb") is not None:
+                        set_text(res, f" {float(params['rjb']):.12g} ")
+                if params.get("package_power") is not None:
+                    src_el = cond.find("source")
+                    if src_el is not None:
+                        set_text(src_el,
+                                 f" {float(params['package_power']):.12g} ")
 
         # diffuser：风量/温度镜像到绑定的 flux 值（实证格式）
         if kind == "diffuser" and ("supply_flow_rate" in params

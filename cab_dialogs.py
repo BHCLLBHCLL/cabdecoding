@@ -882,6 +882,9 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
             ("f", "Rear thickness t2 (mm)", "t2", None, 5.0),
             ("s", "Axis", "axis", None, "+Z"),
             ("t", "Kind", "kind", None, ""),
+            # official sketch-style keys (exA13-1)
+            ("i", "Panel kind", "panel_kind", None, 2),
+            ("t", "Sketch plane", "sketch_plane", None, ""),
         ),
         "blower_fan": (
             ("f", "Inner radius r1 (mm)", "r1", None, 5.0),
