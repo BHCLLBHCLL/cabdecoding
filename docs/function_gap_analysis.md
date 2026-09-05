@@ -147,7 +147,8 @@ COM 自动化桥             █████████████████
 | D2 | 专用件深字段逐字段复核未清零（R3.5d 滚动） | 滚动批 |
 | D6 | ~~区域标量族与 vfre/wlty/vfgo 头标志无 CW 面板~~ 已收口（I5：InitialPage Region Scalars 标签 + Solver Control 标志行） | ✅ 完成 |
 | D8 | 求解参数页与 STpre 对话框逐项复核未清零 | 滚动批 |
-| D9 | 低频成员 Set*Param 值格式未终证 | 滚动批 |
+| D6 | hub-B ~96 wizard 子页的参数深度跟随（§30 已收主族：Solver Control/LES/湿度/自由表面/chem/ECUR/SOLAR/LAMP/JOS/TABLE/区域标量族——剩余为无独立深参数的展示型子页，随官方样本滚动） | 持续跟随 |
+| D9 | 低频成员 Set*Param 值格式未终证 + B 层 no-object 四类（MeshBlock/Sketch/Property/Table）活体终证——2026-09-05 推迟：live-COM 当日三次异常（com_error→泄漏→进程崩），待环境稳定日跑 probe_com_b_layer 轮次 | 滚动批 |
 | D10 | ~~壳/六面体 FEM kind 未实现~~ 误判更正：STpre 实机仅出 tet4 → 边界项入册 | ✅ 满格 |
 | D11 | WindTool/PICLS 带参深证 | 滚动批 |
 | D12 | ~~IFC 导出仅矩形 profile；STEP/SAT 导出缺~~ 误判更正：三 profile/三分支已在位有测试 → 边界项入册 | ✅ 满格 |
