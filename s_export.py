@@ -183,6 +183,20 @@ def _i(v: int, w: int = 12) -> str:
     return f"{v:{w}d}"
 
 
+# UDF 函数名 -> 参数签名（语料 76 函数枚举，name 唯一无多义）
+UDF_SIGNATURES = {
+    "rddpch": " isw,nu ", "rddpcl_create": " isw,nu ",
+    "uexaent": " isw,i,j,k,men ",
+    "uexdriv": " isw,nd,idir,iver,i,j,k,xyz,rval ",
+    "uexflux": " isw,i,j,k,men ", "uexvdfu": " isw,i,j,k ",
+    "uexvent": " isw,i,j,k,mdr ", "uinaent": " isw,nu ",
+    "uindriv": " isw,nu ", "uinflux": " isw,nu ", "uinvdfu": " isw,nu ",
+    "uinvent": " isw,nu ", "user_rgn_proc_inner": " isw,i,j,k,men ",
+    "usrpch": " isw,np,ip,jp,kp,mp,rop,ddp,scp,rfp,iphdl ",
+    "usrpcl_create": " nd,np,ip,jp,kp,rop,ddp,scp ", "usrpos": " ipos ",
+}
+
+
 def _ff(text: str, default: float = 0.0) -> float:
     """Safe float for XML text: empty/None -> default (official cabs
     carry empty value elements, e.g. exA05-2a AENT temperature)."""
@@ -662,11 +676,14 @@ class SExport:
             self.lines.append(_f(float(
                 self.m.analysis_set_value("dtsr_start", "0.1") or 0.1), 26))
             self.lines.append("/")
-        # TOFF (time limit) — transient only
-        toff = self.m.analysis_set_value("toff_time", "")
+        # TOFF (time limit) — transient only; official storage key is
+        # <time_off> (exA05-1; corpus 66/66 zero-exception correlation),
+        # legacy toff_time kept as fallback
+        toff = (self.m.analysis_set_value("time_off", "") or
+                self.m.analysis_set_value("toff_time", ""))
         if toff and toff.strip():
             self.lines.append("TOFF")
-            self.lines.append(_f(float(toff), 26))
+            self.lines.append(_f(_ff(toff), 26))
         # COUR (Courant number)
         cour = self.m.analysis_set_value("courant", "")
         if cour and cour.strip():
@@ -1336,6 +1353,29 @@ class SExport:
         存储 analysis_etc/script 的多行文本。"""
         el = self.m.root.find("analysis_etc/script")
         if el is None or not (el.text or "").strip():
+            # 官方读端映射：<function_script><name>/<text line=N>
+            # （exA05-2a 等 52 文件）-> 拼接官方 SCRIPT 卡
+            funcs = [f for f in self.m.root.iter("function_script")
+                     if f.findtext("name", "").strip()]
+            if not funcs:
+                return
+            self.lines.append("SCRIPT")
+            self.lines.append("context_start")
+            self.lines.append("")
+            for f in funcs:
+                name = f.findtext("name").strip()
+                sig = UDF_SIGNATURES.get(name, "")
+                self.lines.append(f"function {name}({sig})" if sig
+                                  else f"function {name}()")
+                self.lines.append("{")
+                for t in f.findall("text"):
+                    body = (t.text or "").strip()
+                    if body.startswith('"') and body.endswith('"'):
+                        body = body[1:-1]
+                    self.lines.append(body)
+                self.lines.append("}")
+                self.lines.append("")
+            self.lines += ["context_end", "/"]
             return
         self.lines.append("SCRIPT")
         self.lines.append("context_start")
@@ -2882,26 +2922,50 @@ class SExport:
         self.lines.append("/")
 
     def _pofc_plit(self):
-        """POFC / PLIT — output cycle control (H1)."""
-        aset = self.m.root.find("analysis_set")
+        """POFC / PLIT — 场文件输出周期与初场输出（波次 2 定谳）。
 
-        def _v(tag, default=""):
-            from cabxml import _first
-            if aset is None:
-                return default
-            el = _first(aset, tag)
-            return (el.text or "").strip() if el is not None else default
+        官方触发模型（Solver_eng POFC/PLIT 页 + 语料 101 文件实测）：
+        * POFC = output/post type='const_step'|'const_cycle'（正值）
+          -> (NCFT30, DTFT30)：const_step -> 0,<time>；const_cycle
+          -> <cycle>,0；两者均 *_start 负值表列暂不发射（单样本一
+          at a time）；默认（无 post 周期标签）不发 = 仅输出最终步。
+        * PLIT = output/post type='initial' text=T（初场输出）
+          -> IPF30=1；restart 计算无效（手册注，本仓不触发检查）。
+        两卡均为非终止单值卡（无 '/'），POFC 紧随 FBAL 尾、PLIT 随后。
+        """
+        out = self.m.root.find("output")
+        if out is None:
+            return
+        from cabxml import _children
 
-        pofc_cycle = _v("pofc_cycle", "")
-        pofc_time = _v("pofc_time", "")
-        if pofc_cycle or pofc_time:
-            self.lines.append("POFC")
-            self.lines.append(f"{_i(int(pofc_cycle or 0), 12)}")
-            self.lines.append(_f(float(pofc_time or 10.0), 26))
-        plit = _v("plit_output", "")
-        if plit:
+        def _post(tag_kind, attr_type=None):
+            for p in _children(out, "post"):
+                if p.attrib.get("type", "") == tag_kind and p.text                         and p.text.strip():
+                    yield p.text.strip()
+
+        for text in _post("const_step"):
+            try:
+                v = float(text)
+            except ValueError:
+                continue
+            if v > 0:
+                self.lines.append("POFC")
+                self.lines.append(_i(0, 12) + _f(v, 26))
+            break
+        for text in _post("const_cycle"):
+            try:
+                v = int(float(text))
+            except ValueError:
+                continue
+            if v > 0:
+                self.lines.append("POFC")
+                self.lines.append(_i(v, 12) + _f(0.0, 26))
+            break
+        if any(p.attrib.get("type", "") == "initial" and p.text
+               and p.text.strip().upper() == "T"
+               for p in _children(out, "post")):
             self.lines.append("PLIT")
-            self.lines.append(f"{_i(int(plit), 12)}")
+            self.lines.append(_i(1, 12))
 
     # F1: STOP_VAR variable-name codes (Solver_eng STOP_VAR table)
     _STOP_VAR_CODES = {
