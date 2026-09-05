@@ -2613,6 +2613,100 @@ class _CwSolverPage(QWidget if _HAS_GUI else object):
             else:
                 self.eqn_tol = chk
 
+        # I1a: Solver Control — header flags (PCTY/TBEC/JFNK/WALL_MODEL/
+        # CYLD/LESM/UPWD) + STMC/PBAS_MATERIAL row tables.  Storage tags
+        # match the H1b/H1h emitters byte-verified against the corpus.
+        sc = QWidget()
+        sl2 = QVBoxLayout(sc)
+        flags = QGroupBox("Solver control flags", sc)
+        ff = QFormLayout(flags)
+        self.pcty = QSpinBox(flags)
+        self.pcty.setRange(0, 9)
+        self.tbec = QSpinBox(flags)
+        self.tbec.setRange(0, 1)
+        self.jfnk_flag = QSpinBox(flags)
+        self.jfnk_flag.setRange(0, 99)
+        self.wall_model = QSpinBox(flags)
+        self.wall_model.setRange(0, 15)
+        ff.addRow("PCTY (pressure type)", self.pcty)
+        ff.addRow("TBEC", self.tbec)
+        ff.addRow("JFNK (int flag)", self.jfnk_flag)
+        ff.addRow("Wall model", self.wall_model)
+        cyl = QHBoxLayout()
+        self.cyl_a = QSpinBox(flags)
+        self.cyl_a.setRange(0, 1)
+        self.cyl_b = QSpinBox(flags)
+        self.cyl_b.setRange(0, 1)
+        cyl.addWidget(QLabel("flag", flags))
+        cyl.addWidget(self.cyl_a)
+        cyl.addWidget(QLabel("coord", flags))
+        cyl.addWidget(self.cyl_b)
+        cyl.addStretch(1)
+        ff.addRow("CYLD (cylindrical)", cyl)
+        lesm = QHBoxLayout()
+        self.lesm_m = QSpinBox(flags)
+        self.lesm_m.setRange(0, 9)
+        self.lesm_s1 = QSpinBox(flags)
+        self.lesm_s1.setRange(0, 99)
+        self.lesm_s2 = QSpinBox(flags)
+        self.lesm_s2.setRange(0, 99)
+        for lab, w in (("model", self.lesm_m), ("sub1", self.lesm_s1),
+                       ("sub2", self.lesm_s2)):
+            lesm.addWidget(QLabel(lab, flags))
+            lesm.addWidget(w)
+        lesm.addStretch(1)
+        ff.addRow("LESM (LES model)", lesm)
+        self.upwd_mask = QLineEdit(flags)
+        self.upwd_mask.setMaxLength(8)
+        self.upwd_mask.setPlaceholderText("11000000")
+        ff.addRow("UPWD mask (8 digits)", self.upwd_mask)
+        sl2.addWidget(flags)
+
+        stmc = QGroupBox("STMC (steady multi-control)", sc)
+        stl = QVBoxLayout(stmc)
+        strow = QHBoxLayout()
+        strow.addWidget(QLabel("Flag", stmc))
+        self.stmc_flag = QSpinBox(stmc)
+        self.stmc_flag.setRange(0, 9)
+        strow.addWidget(self.stmc_flag)
+        strow.addStretch(1)
+        self.stmc_add = QPushButton("Add", stmc)
+        self.stmc_del = QPushButton("Delete", stmc)
+        self.stmc_add.clicked.connect(self._stmc_add_row)
+        self.stmc_del.clicked.connect(self._stmc_del_row)
+        strow.addWidget(self.stmc_add)
+        strow.addWidget(self.stmc_del)
+        stl.addLayout(strow)
+        self.stmc_table = QTableWidget(0, 2, stmc)
+        self.stmc_table.setHorizontalHeaderLabels(["No", "Values (csv)"])
+        self.stmc_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        stl.addWidget(self.stmc_table)
+        sl2.addWidget(stmc)
+
+        pbas = QGroupBox("PBAS_MATERIAL (compressible base pressure)",
+                         sc)
+        pbl = QVBoxLayout(pbas)
+        prow = QHBoxLayout()
+        prow.addStretch(1)
+        self.pbas_add = QPushButton("Add", pbas)
+        self.pbas_del = QPushButton("Delete", pbas)
+        self.pbas_add.clicked.connect(self._pbas_add_row)
+        self.pbas_del.clicked.connect(self._pbas_del_row)
+        prow.addWidget(self.pbas_add)
+        prow.addWidget(self.pbas_del)
+        pbl.addLayout(prow)
+        self.pbas_table = QTableWidget(0, 3, pbas)
+        self.pbas_table.setHorizontalHeaderLabels(
+            ["Material no", "Pressure (Pa)", "Temperature (C)"])
+        self.pbas_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        pbl.addWidget(self.pbas_table)
+        sl2.addWidget(pbas)
+        sl2.addStretch(1)
+        tabs.addTab(sc, "Solver Control")
+        self._solver_control_load()
+
         lay.addWidget(tabs, 1)
 
     def _solver_param_text(self) -> str:
@@ -2692,10 +2786,156 @@ class _CwSolverPage(QWidget if _HAS_GUI else object):
         if self.tabs.currentIndex() != 0 and not detailed:
             self.tabs.setCurrentIndex(0)
 
+    # -- I1a: Solver Control tab ------------------------------------------
+
+    def _stmc_add_row(self) -> None:
+        r = self.stmc_table.rowCount()
+        self.stmc_table.insertRow(r)
+        self.stmc_table.setItem(r, 0, QTableWidgetItem(str(r + 1)))
+        self.stmc_table.setItem(r, 1, QTableWidgetItem("0.99,0.5,0.0001"))
+
+    def _stmc_del_row(self) -> None:
+        rows = self.stmc_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.stmc_table.removeRow(idx)
+
+    def _pbas_add_row(self) -> None:
+        r = self.pbas_table.rowCount()
+        self.pbas_table.insertRow(r)
+        self.pbas_table.setItem(r, 0, QTableWidgetItem(str(r + 1)))
+        self.pbas_table.setItem(r, 1, QTableWidgetItem("101325"))
+        self.pbas_table.setItem(r, 2, QTableWidgetItem("0"))
+
+    def _pbas_del_row(self) -> None:
+        rows = self.pbas_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.pbas_table.removeRow(idx)
+
+    @staticmethod
+    def _spin_val(sb, default: str = "") -> str:
+        text = default
+        try:
+            text = f"{int(sb.value()):d}"
+        except (TypeError, ValueError, AttributeError):
+            pass
+        return text
+
+    def _solver_control_load(self) -> None:
+        aset = self.model
+        self.pcty.setValue(int(float(
+            aset.analysis_set_value("pcty", "0") or 0)))
+        self.tbec.setValue(int(float(
+            aset.analysis_set_value("tbec", "0") or 0)))
+        self.jfnk_flag.setValue(int(float(
+            aset.analysis_set_value("jfnk", "0") or 0)))
+        self.wall_model.setValue(int(float(
+            aset.analysis_set_value("wall_model", "0") or 0)))
+        cyl = aset.analysis_set_value("cyl_coord", "0,0").split(",")
+        try:
+            self.cyl_a.setValue(int(float(cyl[0])))
+            self.cyl_b.setValue(int(float(cyl[1]) if len(cyl) > 1 else 0))
+        except (ValueError, IndexError):
+            pass
+        lesm = aset.analysis_set_value("lesm", "0,0,0").split(",")
+        try:
+            self.lesm_m.setValue(int(float(lesm[0])))
+            for sb, i in ((self.lesm_s1, 1), (self.lesm_s2, 2)):
+                sb.setValue(int(float(lesm[i])) if len(lesm) > i else 0)
+        except (ValueError, IndexError):
+            pass
+        self.upwd_mask.setText(
+            aset.analysis_set_value("upwd_mask", ""))
+        # STMC rows
+        import xml.etree.ElementTree as ET
+        st = self.model.root.find("analysis_etc/stmc")
+        self.stmc_table.setRowCount(0)
+        if st is not None:
+            try:
+                self.stmc_flag.setValue(int(float(st.attrib.get("flag",
+                                                                "1"))))
+            except ValueError:
+                pass
+            for r in st.findall("row"):
+                row = self.stmc_table.rowCount()
+                self.stmc_table.insertRow(row)
+                self.stmc_table.setItem(
+                    row, 0, QTableWidgetItem(r.attrib.get("no", "1")))
+                self.stmc_table.setItem(
+                    row, 1, QTableWidgetItem(r.attrib.get("vals", "")))
+        # PBAS rows
+        pb = self.model.root.find("analysis_etc/pbas_material")
+        self.pbas_table.setRowCount(0)
+        if pb is not None:
+            for r in pb.findall("row"):
+                row = self.pbas_table.rowCount()
+                self.pbas_table.insertRow(row)
+                self.pbas_table.setItem(
+                    row, 0, QTableWidgetItem(r.attrib.get("no", "1")))
+                self.pbas_table.setItem(
+                    row, 1, QTableWidgetItem(r.attrib.get("p", "101325")))
+                self.pbas_table.setItem(
+                    row, 2, QTableWidgetItem(r.attrib.get("t", "0")))
+
+    def _solver_control_apply(self) -> None:
+        aset = self.model
+        aset.set_analysis_set_value("pcty", self._spin_val(self.pcty, "0"))
+        aset.set_analysis_set_value("tbec", self._spin_val(self.tbec, "0"))
+        aset.set_analysis_set_value("jfnk",
+                                    self._spin_val(self.jfnk_flag, "0"))
+        aset.set_analysis_set_value("wall_model",
+                                    self._spin_val(self.wall_model, "0"))
+        aset.set_analysis_set_value(
+            "cyl_coord",
+            f"{self.cyl_a.value()},{self.cyl_b.value()}")
+        aset.set_analysis_set_value(
+            "lesm",
+            f"{self.lesm_m.value()},{self.lesm_s1.value()},"
+            f"{self.lesm_s2.value()}")
+        mask = self.upwd_mask.text().strip()
+        if mask:
+            aset.set_analysis_set_value("upwd_mask", mask)
+        else:
+            # clear by writing an empty value is lossy — drop the tag
+            el = aset.root.find("analysis_set")
+            if el is not None:
+                from cabxml import _first
+                c = _first(el, "upwd_mask")
+                if c is not None:
+                    el.remove(c)
+        # STMC
+        import xml.etree.ElementTree as ET
+        aet = self.model.ensure_analysis_etc()
+        old = aet.find("stmc")
+        if old is not None:
+            aet.remove(old)
+        if self.stmc_table.rowCount():
+            st = ET.SubElement(aet, "stmc")
+            st.attrib["flag"] = str(self.stmc_flag.value())
+            for r in range(self.stmc_table.rowCount()):
+                no_it = self.stmc_table.item(r, 0)
+                vals_it = self.stmc_table.item(r, 1)
+                row = ET.SubElement(st, "row")
+                row.attrib["no"] = (no_it.text() if no_it else str(r + 1))
+                row.attrib["vals"] = (vals_it.text() if vals_it else "")
+        # PBAS
+        old = aet.find("pbas_material")
+        if old is not None:
+            aet.remove(old)
+        if self.pbas_table.rowCount():
+            pb = ET.SubElement(aet, "pbas_material")
+            for r in range(self.pbas_table.rowCount()):
+                it = [self.pbas_table.item(r, c) for c in range(3)]
+                row = ET.SubElement(pb, "row")
+                row.attrib["no"] = it[0].text() if it[0] else str(r + 1)
+                row.attrib["p"] = it[1].text() if it[1] else "101325"
+                row.attrib["t"] = it[2].text() if it[2] else "0"
+
     def apply(self) -> None:
         # heat_balance in analysis_set is typically "F,F"
         flag = "T" if self.hbal_on.isChecked() else "F"
         self.model.set_analysis_set_value("heat_balance", f"{flag},{flag}")
+        # I1a: Solver Control flags + STMC/PBAS row tables
+        self._solver_control_apply()
         # Persist matrix-solver rows (type|iters|relerr|adv per target).
         rows = []
         for r in range(self.solver_table.rowCount()):

@@ -1,6 +1,14 @@
 """ComObject + typed STpre class-hierarchy wrappers (late-bound coverage)."""
 from __future__ import annotations
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _com_leak_guard(com_guard):
+    """I4: reap any preprocessor process leaked by this module."""
+    yield
+
 import pytest
 
 import cab_stpre_api

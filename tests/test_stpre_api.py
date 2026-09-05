@@ -1,6 +1,14 @@
 """STpre VB/COM API bridge tests (cab_stpre_api + GUI switch)."""
 from __future__ import annotations
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _com_leak_guard(com_guard):
+    """I4: reap any preprocessor process leaked by this module."""
+    yield
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")

@@ -17,6 +17,14 @@ parse_femodel/femodel_bytes 往返、build_fem_hexa 离线六面体→四面体
 """
 from __future__ import annotations
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _com_leak_guard(com_guard):
+    """I4: reap any preprocessor process leaked by this module."""
+    yield
+
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
