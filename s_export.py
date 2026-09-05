@@ -183,6 +183,15 @@ def _i(v: int, w: int = 12) -> str:
     return f"{v:{w}d}"
 
 
+def _ff(text: str, default: float = 0.0) -> float:
+    """Safe float for XML text: empty/None -> default (official cabs
+    carry empty value elements, e.g. exA05-2a AENT temperature)."""
+    try:
+        return float(text)
+    except (TypeError, ValueError):
+        return default
+
+
 # Pinned .s header / VFDE constants (R8-B, 295 official samples).
 # hdr1 tail default is 1,1,0,0,0; overlays from <particle>:
 # col3 = max_num, col4 = col5 = 1 iff kind == "reaction" (P5-1,
@@ -586,10 +595,10 @@ class SExport:
         if tbec.strip():
             self.lines.append("TBEC")
             self.lines.append(_i(int(float(tbec)), 12))
-        grav_abs = float(_child_text(aset, "grav_abs", "9.8"))
+        grav_abs = _ff(_child_text(aset, "grav_abs", "9.8"))
         grav_vec = [float(x) for x in _child_text(aset, "grav_vec",
                                                    "0,0,-1").split(",")[:3]]
-        ambient = float(_child_text(self.m.project, "ambient_temperature", "20"))
+        ambient = _ff(_child_text(self.m.project, "ambient_temperature", "20"))
         self.lines += [
             "GRAV",
             f"{_f(grav_vec[0] * grav_abs, 29)}"
@@ -640,8 +649,8 @@ class SExport:
                 first = _i(int(v0)) if v0 == int(v0) else _f(v0)
                 self.lines.append(first + _f(v1))
             else:
-                dt = float(_child_text(aset, "init_time_step", "0"))
-                cou = float(_child_text(aset, "courant", "0"))
+                dt = _ff(_child_text(aset, "init_time_step", "0"))
+                cou = _ff(_child_text(aset, "courant", "0"))
                 self.lines.append(_f(dt) + _f(cou))
         else:
             self.lines += ["CYCS", f"{_i(c0)}{_i(c1, 10)}"]
@@ -986,8 +995,11 @@ class SExport:
                        name)
             if kind == "coordinate":
                 coord = motion.get("coordinate") or (0.0, 0.0, 0.0)
-                _entry("coordinate",
-                       tuple(float(v) / 1000.0 for v in coord[:3]), name)
+                try:
+                    vals = tuple(_ff(v) / 1000.0 for v in coord[:3])
+                except (TypeError, ValueError):
+                    vals = (0.0, 0.0, 0.0)
+                _entry("coordinate", vals, name)
         # C7: 6DOF rigid-body conditions -> dynamical entry + DYNA_MOTION
         # (exA09-4 evidence).  Parts already driven by a body_move keep
         # their classic entry above.
@@ -1066,7 +1078,10 @@ class SExport:
                 param = _first(val, "param")
                 init_temp = param.text.strip() if param is not None else "20"
                 break
-        self.lines.append(_f(float(init_temp), 29))
+        # official cabs may bind a script name (exB08a 'sc1') as the
+        # initial value — the script computes the temperature; emit the
+        # numeric default and let the SCRIPT block carry the reference
+        self.lines.append(_f(_ff(init_temp, 20.0), 29))
         ar = self.m.analysis_region()
         self.lines.append("   " + _child_text(ar, "name", "Domain"))
         self.lines.append("   /")
@@ -1092,8 +1107,8 @@ class SExport:
                                                              "total-pres    0")
             self.lines.append(f"{prefix}   ! {name}")
             if kind == "total-pres":
-                pres = float(_child_text(val, "pressure", "0"))
-                temp = float(_child_text(val, "temperature", "20"))
+                pres = _ff(_child_text(val, "pressure", "0"))
+                temp = _ff(_child_text(val, "temperature", "20"))
                 self.lines.append(f"{_f(pres, 29)}{_f(temp)}")
             self.lines.append("      0  0  0  0")
             self.lines.append("   " + region)
@@ -1125,18 +1140,18 @@ class SExport:
             self.lines.append(f"{prefix}   ! {first_name}")
             if kind == "rough":
                 try:
-                    aks = float(_child_text(val, "roughness", "0"))
+                    aks = _ff(_child_text(val, "roughness", "0"))
                 except ValueError:
                     aks = 0.0
                 try:
-                    scal = float(_child_text(val, "rough_const", "9"))
+                    scal = _ff(_child_text(val, "rough_const", "9"))
                 except ValueError:
                     scal = 9.0
                 self.lines.append(_f(aks, 29))
                 self.lines.append(_f(scal, 29))
             elif kind == "power":
                 try:
-                    am = float(_child_text(val, "exponent", "1"))
+                    am = _ff(_child_text(val, "exponent", "1"))
                 except ValueError:
                     am = 1.0
                 self.lines.append(_f(am, 29))
@@ -1186,7 +1201,7 @@ class SExport:
                           kw, "conduction    0")
             self.lines.append(f"{prefix}   ! {vname}")
             if kw == "conduction":
-                temp = float(_child_text(val, "temperature", "0"))
+                temp = _ff(_child_text(val, "temperature", "0"))
                 self.lines.append(_f(temp, 29))
             self.lines.append("   " + key)
             self.lines.append("   /")
@@ -1199,7 +1214,7 @@ class SExport:
                           kw, "conduction    0")
             self.lines.append(f"{prefix}   ! {name}")
             if kw == "conduction":
-                temp = float(_child_text(val, "temperature", "0"))
+                temp = _ff(_child_text(val, "temperature", "0"))
                 self.lines.append(_f(temp, 29))
             self.lines.append("   " + region)
             self.lines.append("   /")
@@ -1211,7 +1226,7 @@ class SExport:
         entries += list(self._bound_analysis_values("heat_source"))
         for name, val, region in sorted(
                 entries, key=lambda x: _name_key(x[0])):
-            src = float(_child_text(val, "source", "0"))
+            src = _ff(_child_text(val, "source", "0"))
             self.lines.append(f"source    0   ! {name}")
             self.lines.append(f"{_f(src, 29)}   2")
             self.lines.append("   " + region)
@@ -1268,7 +1283,7 @@ class SExport:
         self.lines.append("AHSO_REGION")
         for name, val, region in sorted(entries,
                                         key=lambda x: _name_key(x[0])):
-            src = float(_child_text(val, "source", "0"))
+            src = _ff(_child_text(val, "source", "0"))
             self.lines.append(f"source    0   ! {name}")
             self.lines.append(f"{_f(src, 26)}{_i(2, 12)}")
             self.lines.append("   " + region)
@@ -1765,8 +1780,8 @@ class SExport:
             self.lines.append(
                 f"fluxhumid    0   ! {_child_text(val, 'name')}")
             self.lines.append(
-                _f(float(_child_text(val, "param1", "0")), 29)
-                + _f(float(_child_text(val, "param2", "0")), 26))
+                _f(_ff(_child_text(val, "param1", "0")), 29)
+                + _f(_ff(_child_text(val, "param2", "0")), 26))
             for _name, _val, region in self._bound_values_for(val):
                 self.lines.append("   " + region)
                 self.lines.append("   /")
@@ -1966,8 +1981,8 @@ class SExport:
                 f"{_child_text(val, 'kind', 'PMconduction'):<12}"
                 f"{_child_text(val, 'no', '0'):>4}")
             self.lines.append(
-                _f(float(_child_text(val, "param1", "0")), 29)
-                + _f(float(_child_text(val, "param2", "0")), 26))
+                _f(_ff(_child_text(val, "param1", "0")), 29)
+                + _f(_ff(_child_text(val, "param2", "0")), 26))
             self.lines.append("   " + region)
             self.lines += ["   /", "/"]
 
@@ -2201,8 +2216,8 @@ class SExport:
         self.lines.append("VFWL_REGION")
         rad = self.m.find_value("_rad_condition(undefined_faces)")
         if rad is not None:
-            temp = float(_child_text(rad, "temperature", "20"))
-            factor = float(_child_text(rad, "factor", "0.9"))
+            temp = _ff(_child_text(rad, "temperature", "20"))
+            factor = _ff(_child_text(rad, "factor", "0.9"))
             self.lines += [
                 "detailFAC    0   1   0   ! _rad_condition(undefined_faces)",
                 _f(temp, 29),
@@ -2547,7 +2562,7 @@ class SExport:
             except ValueError:
                 continue
             try:
-                depth = float(_child_text(val, "depth", "0"))
+                depth = _ff(_child_text(val, "depth", "0"))
             except ValueError:
                 continue
             nums += [0.0] * (4 - len(nums))
@@ -2596,7 +2611,7 @@ class SExport:
 
         def num(tag, default):
             try:
-                return float(_child_text(dem, tag, str(default)))
+                return _ff(_child_text(dem, tag, str(default)))
             except ValueError:
                 return float(default)
 
@@ -3063,7 +3078,7 @@ class SExport:
 
             def num(tag, default, _val=val):
                 try:
-                    return float(_child_text(_val, tag, str(default)))
+                    return _ff(_child_text(_val, tag, str(default)))
                 except ValueError:
                     return float(default)
 
@@ -3097,7 +3112,7 @@ class SExport:
             while len(angles) < 2:
                 angles.append(0.0)
             try:
-                dsp = float(_child_text(val, "diameter", "2.5")) / 1000.0
+                dsp = _ff(_child_text(val, "diameter", "2.5")) / 1000.0
             except ValueError:
                 dsp = 2.5e-3
             self.lines.append(" " * 3
@@ -3419,9 +3434,9 @@ class SExport:
             name = _child_text(pt, "name", f"P{idx}")
             self.lines.append(
                 f"    {name}"
-                + _f(float(_child_text(pt, "v1", "0")), 29)
-                + _f(float(_child_text(pt, "v2", "0")), 26)
-                + _f(float(_child_text(pt, "v3", "0")), 26))
+                + _f(_ff(_child_text(pt, "v1", "0")), 29)
+                + _f(_ff(_child_text(pt, "v2", "0")), 26)
+                + _f(_ff(_child_text(pt, "v3", "0")), 26))
             variables = [v.text.strip() for v in pt.findall("var")
                          if v.text and v.text.strip()]
             for v in variables or ["TEMP"]:
@@ -3445,10 +3460,10 @@ class SExport:
         self.lines.append(f"{_i(m1, 15)}{_i(m2, 12)}")
         for pt in el.findall("point"):
             self.lines.append(
-                _f(float(_child_text(pt, "v1", "0")), 29)
-                + _f(float(_child_text(pt, "v2", "0")), 26)
-                + _f(float(_child_text(pt, "v3", "0")), 26)
-                + _f(float(_child_text(pt, "v4", "0")), 26)
+                _f(_ff(_child_text(pt, "v1", "0")), 29)
+                + _f(_ff(_child_text(pt, "v2", "0")), 26)
+                + _f(_ff(_child_text(pt, "v3", "0")), 26)
+                + _f(_ff(_child_text(pt, "v4", "0")), 26)
                 + "   " + _child_text(pt, "name", "level1"))
         self.lines.append("   /")
         self.lines.append("/")
@@ -3476,11 +3491,11 @@ class SExport:
             self.lines.append("SURF_WAVEGENE")
             self.lines.append(row1)
             self.lines.append(
-                _f(float(_child_text(val, "height", "0")), 29)
-                + _f(float(_child_text(val, "period", "0")), 26))
+                _f(_ff(_child_text(val, "height", "0")), 29)
+                + _f(_ff(_child_text(val, "period", "0")), 26))
             self.lines.append(
                 _f(100.0, 29)
-                + _f(float(_child_text(val, "angle", "0")), 26)
+                + _f(_ff(_child_text(val, "angle", "0")), 26)
                 + _f(1.0, 26))
             self.lines += ["   /", "/"]
             return
@@ -3616,7 +3631,7 @@ class SExport:
             return
         aset = self.m.root.find("analysis_set")
         try:
-            criteria = float(_child_text(aset, "cutcell_criteria", "0.05"))
+            criteria = _ff(_child_text(aset, "cutcell_criteria", "0.05"))
         except ValueError:
             criteria = 0.05
         try:
