@@ -903,6 +903,22 @@ class SpecialParamsPanel(QGroupBox if _HAS_GUI_DEPS else object):
             ("f", "Thickness (mm)", "thick", None, 1.0),
             ("i", "Number of slits", "count", None, 8),
         ),
+        # R3.5d scroll: official keys — panel percent/thick
+        # (exA15-x 溶融鋼部: percent -1 = auto, thick 0 = zero-thickness
+        # face) and sphere ellipsoid/arc (exA07-3 球1: radius3 triple,
+        # angle span, kind, divide, percent, thick).
+        "panel": (
+            ("f", "Thickness (mm)", "thick", None, 0.0),
+            ("f", "Mesh percentage (-1 = auto)", "percent", None, -1.0),
+        ),
+        "sphere": (
+            ("t", "Radius3 (a,b,c mm; blank = scalar radius)",
+             "radius3", None, ""),
+            ("t", "Arc angle (deg)", "angle", None, "0,360"),
+            ("i", "Divide", "divide", None, 48),
+            ("f", "Percent", "percent", None, 0.0),
+            ("f", "Thickness (mm)", "thick", None, 0.0),
+        ),
         # H3: plate fin — official schema (exA17-1a.cab 放熱フィン)
         "plate_fin": (
             ("f", "Fin thickness (mm)", "fin", None, 2.0),

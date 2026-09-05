@@ -605,16 +605,23 @@ def tess_for_part(part) -> Optional[PrimitivePart]:
             _el_scalar(el, "radius1", 5.0), _el_scalar(el, "radius2", 2.0),
             int(_el_scalar(el, "divisions", 24)))
     elif kind == "sphere":
-        rv = _el_vec(el, "radius", (5.0, 5.0, 5.0))
-        # radius may be scalar stored as single value
         from cabxml import _first
-        rc = _first(el, "radius")
-        if rc is not None and rc.text and "," not in rc.text:
-            r = float(rc.text.strip())
+        # official schema (exA07-3 球1): radius3 = ellipsoid triple,
+        # radius = scalar fallback; angle = arc span (kind=1 full sphere)
+        r3 = _first(el, "radius3")
+        if r3 is not None and r3.text and "," in r3.text:
+            r = [float(x) for x in r3.text.split(",")[:3]]
         else:
-            r = rv[0] if all(abs(x - rv[0]) < 1e-12 for x in rv) else rv
+            rv = _el_vec(el, "radius", (5.0, 5.0, 5.0))
+            rc = _first(el, "radius")
+            if rc is not None and rc.text and "," not in rc.text:
+                r = float(rc.text.strip())
+            else:
+                r = rv[0] if all(abs(x - rv[0]) < 1e-12
+                                 for x in rv) else rv
         p = sphere_tess(_el_vec(el, "center"), r,
-                        int(_el_scalar(el, "divisions", 12)))
+                        int(_el_scalar(el, "divide",
+                                       _el_scalar(el, "divisions", 12))))
     elif kind == "panel":
         p = panel_tess(_el_vec(el, "base"),
                        _el_vec(el, "size", (10, 10, 0)),

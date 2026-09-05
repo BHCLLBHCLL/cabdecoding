@@ -719,6 +719,17 @@ class StpreModel:
             "plane": (None, "str"), "thick": ("mm", 1),
             "count": (None, "int"),
         },
+        # R3.5d scroll: official part keys (panel exA15-x 溶融鋼部,
+        # sphere exA07-3 球1 — percent/thick shell-out pair + ellipsoid
+        # radius3 / arc angle / divide).
+        "panel": {
+            "thick": ("mm", 1), "percent": (None, 1),
+        },
+        "sphere": {
+            "radius3": ("mm", 3), "angle": (None, "csv"),
+            "divide": (None, "int"), "percent": (None, 1),
+            "thick": ("mm", 1),
+        },
         # H3: plate fin — official schema (exA17-1a.cab 放熱フィン):
         # <fin unit=mm>2</fin> <space unit=mm>7.5</space>
         # <depth unit=mm>0.8</depth> <nfin>5</nfin>
@@ -881,11 +892,14 @@ class StpreModel:
             elif fmt == "int":
                 set_field(tag, str(int(value)), unit)
             else:
+                if isinstance(value, str):
+                    value = [x for x in value.split(",") if x.strip()]
                 if isinstance(value, (int, float)):
                     vals = [float(value)]
                 else:
                     vals = [float(v) for v in value]
-                if fmt != 1 and len(vals) != fmt:
+                # fmt is 1 (scalar), an int arity, or "csv" (any arity)
+                if isinstance(fmt, int) and fmt != 1 and len(vals) != fmt:
                     return False
                 set_field(tag, ",".join(f"{v:.12g}" for v in vals), unit)
 
