@@ -112,3 +112,26 @@ def test_toff_from_official_time_off_key():
 def test_toff_absent_by_default():
     m = _model()
     assert "TOFF" not in _lines(m)
+
+
+def test_v_ijk_from_element_parts_boxes():
+    """exA03-1: element/parts body list first 6 values -> V_IJK card
+    ('    ' prefix + 10-wide six values)."""
+    from xml.etree import ElementTree as ET
+    m = _model()
+    elem = ET.SubElement(m.root, "element")
+    p = ET.SubElement(elem, "parts")
+    p.attrib["name"] = "煙H"
+    body = ET.SubElement(p, "body")
+    body.attrib["num"] = "1"
+    lst = ET.SubElement(body, "list")
+    lst.attrib["no"] = "1"
+    lst.text = " 38,40,11,15,13,13,0,1,1 "
+    lines = _lines(m)
+    i = next(k for k, l in enumerate(lines) if l.strip() == "V_IJK")
+    assert lines[i - 1] == "   煙H   ! 煙H"
+    assert lines[i + 1] == "    " + "".join(f"{v:10d}"
+                                            for v in (38, 40, 11, 15,
+                                                      13, 13))
+    assert lines[i + 2] == "   /"
+    assert "REGION" in " ".join(lines[:i + 3])

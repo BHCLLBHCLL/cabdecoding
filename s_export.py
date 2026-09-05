@@ -794,7 +794,14 @@ class SExport:
 
     def _regions(self):
         self.lines.append("REGION")
+        # V_PRT only for solid-type parts (ex4_e: 32 solid records);
+        # area/fluid members register as V_IJK instead (exA03-1 煙H/煙L)
+        _vprt = set()
         for p in self.parts:
+            attr = p.get("attribute", "") or ""
+            if attr and attr not in ("solid", "panel", "wall"):
+                continue
+            _vprt.add(p["name"])
             self.lines += [
                 f"   {p['name']}   ! {p['name']}",
                 "   V_PRT",
@@ -843,6 +850,31 @@ class SExport:
                     "   A_MDR",
                     f"{code:11d}"
                     + "".join(f"{int(x):10d}" for x in box[1:7]),
+                    "   /",
+                ]
+        # V_IJK — 流体体区域（element/parts body boxes，exA03-1 煙H/煙L）
+        # 前 6 值 = IJK 范围；仅 element 段的 parts（无 type 属性），
+        # 顺序按官方 REGION 块（面记录之后、按 element 出现序）。
+        elem = self.m.root.find("element")
+        if elem is not None:
+            for p in elem.findall("parts"):
+                pname = p.attrib.get("name", "")
+                if not pname or pname in _vprt:
+                    continue
+                body = p.find("body")
+                if body is None:
+                    continue
+                lst = body.find("list")
+                if lst is None or not lst.text:
+                    continue
+                vals = [int(x) for x in lst.text.split(",")[:6]
+                        if x.strip()]
+                if len(vals) < 6:
+                    continue
+                self.lines += [
+                    f"   {pname}   ! {pname}",
+                    "   V_IJK",
+                    "    " + "".join(f"{v:10d}" for v in vals),
                     "   /",
                 ]
         self.lines.append("/")
