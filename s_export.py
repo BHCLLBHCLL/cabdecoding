@@ -331,6 +331,8 @@ class SExport:
         self._aent_region()
         self._vent_region()
         self._ahso_region()
+        self._aent_porous()
+        self._aircon_set()
         self._vfwl_region()
         self._movb_control()
         self._movb_amom()
@@ -340,6 +342,7 @@ class SExport:
         self._peltier()
         self._autofixp()
         self._stop_var()
+        self._option_cards()
         self._script_block()
         self._operation_var()
         self._es_field_heads()
@@ -361,6 +364,7 @@ class SExport:
         self._gout_avrg()
         self._gout_var()
         self._varlist()
+        self._upos()
         self._table_section()
         self._pbas_material()
         self._stmc()
@@ -427,6 +431,10 @@ class SExport:
             "HPT",
             fname("hpt"),
         ]
+        # I3: PROP 属性文件头（exA22-1：文件名 + '/'，文件族）
+        prop_name = fname_opt("prop")
+        if prop_name:
+            self.lines += ["PROP", prop_name]
         # R20: cut-cell parts reference their geometry container after
         # the RO/VF/OT/HPT family (exA23-3_e / exA23-4_e header evidence;
         # exA23-2b carries CCEL right after RO because it has no
@@ -473,6 +481,19 @@ class SExport:
         if rad is not None and rad.attrib.get("type", "") != "flux":
             method = _child_text(rad, "method", "1")
             self.lines += ["VFEX", f"{_i(int(method))}{_i(1)}"]
+        # I3: WLTY/VFGO 头区标志，紧贴 UNIT 之前（exA15-1 / vf-ex2：
+        # 12 宽一值 / 12 宽两值，非终止）
+        wlty = _child_text(aset, "wlty", "")
+        if wlty.strip():
+            self.lines.append("WLTY")
+            self.lines.append(_i(int(float(wlty)), 12))
+        vfgo = _child_text(aset, "vfgo", "")
+        if vfgo.strip():
+            vp = [x.strip() for x in vfgo.split(",") if x.strip()]
+            self.lines.append("VFGO")
+            self.lines.append(_i(int(vp[0]), 12)
+                              + (_i(int(vp[1]), 12)
+                                 if len(vp) > 1 else ""))
         self.lines += [
             "UNIT",
             f"   temperature{_i(1, 15)}{_i(1)}",
@@ -1378,8 +1399,9 @@ class SExport:
         同构卡片：29 宽值 + 3 空格 region + '   /'。存储：同名类型值
         （param 子元素）+ 条件绑定（analysis/region/parts），逐 region
         一块。"""
-        for vtype, cmd in (("o2", "O2"), ("n2", "N2"), ("vofl", "VOFL"),
-                           ("trt2", "TRT2"), ("tret", "TRET")):
+        for vtype, cmd in (("o2", "O2"), ("n2", "N2"), ("h2", "H2"),
+                           ("vofl", "VOFL"), ("trt2", "TRT2"),
+                           ("tret", "TRET"), ("tpor", "TPOR")):
             entries = list(self._bound_region_values(vtype))
             if not entries:
                 continue
@@ -1861,6 +1883,102 @@ class SExport:
             self.lines.append(card.attrib.get("name", "JOS_SET"))
             self.lines.extend(lines)
             self.lines.append("/")
+
+    def _option_cards(self):
+        """I3 长尾关键字值卡：STEADY_CHECK / LOOP_OPTION（15 宽 + 26 宽
+        对 + '/'，exA26-1a/exA05-2a）、DYNA_OPTION（4 宽值，
+        exA09-4）、LUMI（右 10 关键字 + 26 宽，exA08-3）、FOUT_LUMI
+        （4+8+12 行，exA08-3）。存储 analysis_etc 同名子元素。"""
+        aet = self.m.root.find("analysis_etc")
+        if aet is None:
+            return
+        for tag, cmd, vfmt in (("steady_check", "STEADY_CHECK", 15),
+                               ("loop_option", "LOOP_OPTION", 15)):
+            el = aet.find(tag)
+            if el is None or len(el) == 0:
+                continue
+            self.lines.append(cmd)
+            for c in el:
+                if not (c.text or "").strip():
+                    continue
+                self.lines.append(c.tag)
+                parts = [x.strip() for x in c.text.split(",")]
+                self.lines.append(_i(int(float(parts[0])), vfmt)
+                                  + (_f(float(parts[1]), 26)
+                                     if len(parts) > 1 and parts[1] else ""))
+            self.lines.append("/")
+        el = aet.find("dyna_option")
+        if el is not None and len(el) > 0:
+            self.lines.append("DYNA_OPTION")
+            for c in el:
+                if (c.text or "").strip():
+                    self.lines.append(c.tag)
+                    self.lines.append(_i(int(float(c.text)), 4))
+            self.lines.append("/")
+        el = aet.find("lumi")
+        if el is not None and len(el) > 0:
+            self.lines.append("LUMI")
+            for c in el:
+                if (c.text or "").strip():
+                    self.lines.append(f"{c.tag:>10}"
+                                      f"{float(c.text):26.14e}")
+            self.lines.append("/")
+        el = aet.find("fout_lumi")
+        if el is not None and len(el) > 0:
+            self.lines.append("FOUT_LUMI")
+            for c in el:
+                if (c.text or "").strip():
+                    self.lines.append(f"    {c.tag:<8}"
+                                      f"{int(float(c.text)):>12}")
+            self.lines.append("/")
+
+    def _upos(self):
+        """UPOS — 平均输出位置规格（exA16-1：文件名 + kind + '/'）。
+        存储 output/upos：file/kind 子元素。"""
+        el = self.m.root.find("output/upos")
+        if el is None:
+            return
+        fname = _child_text(el, "file", "")
+        if not fname:
+            return
+        self.lines.append("UPOS")
+        self.lines.append(fname)
+        self.lines.append(_child_text(el, "kind", "outlet"))
+        self.lines.append("/")
+
+    def _aent_porous(self):
+        """AENT_POROUS — 多孔质体热交换区域（exA17-1b：'{kind:<12}{no}'
+        + 29/26 宽双值 + region + 双终止）。存储 <value
+        type="aent_porous">（kind/param1/param2）+ 条件绑定。"""
+        entries = list(self._bound_region_values("aent_porous"))
+        if not entries:
+            return
+        self.lines.append("AENT_POROUS")
+        for name, val, region in sorted(entries,
+                                        key=lambda x: _name_key(x[0])):
+            self.lines.append(
+                f"{_child_text(val, 'kind', 'PMconduction'):<12}"
+                f"{_child_text(val, 'no', '0'):>4}")
+            self.lines.append(
+                _f(float(_child_text(val, "param1", "0")), 29)
+                + _f(float(_child_text(val, "param2", "0")), 26))
+            self.lines.append("   " + region)
+            self.lines += ["   /", "/"]
+
+    def _aircon_set(self):
+        """AIRCON_SET — 空调机组集合（exA02-2a：'   {name}   !{comment}'
+        + 区域行 + '/'）。存储 <value type="aircon_set">（name/comment）
+        + 条件绑定。"""
+        entries = list(self._bound_region_values("aircon_set"))
+        if not entries:
+            return
+        self.lines.append("AIRCON_SET")
+        for name, val, region in sorted(entries,
+                                        key=lambda x: _name_key(x[0])):
+            comment = _child_text(val, "comment", "")
+            self.lines.append(f"   {name}   !{comment}")
+            self.lines.append("   " + region)
+        self.lines.append("/")
 
     def _vfwl_region(self):
         self.lines.append("VFWL_REGION")
