@@ -1871,11 +1871,103 @@ class _CwInitialPage(QWidget if _HAS_GUI_DEPS else object):
         tip.setStyleSheet("color: #555;")
         lay.addWidget(tip)
 
+        # I5: region scalar values panel — o2/n2/h2/vofl/trt2/tret/tpor
+        # storage-level emissions (<CMD> value region /) get a CW surface
+        rsp = QWidget()
+        rl = QVBoxLayout(rsp)
+        rtip = QLabel(
+            "Region scalar values (.s: O2/N2/H2/VOFL/TRT2/TRET/TPOR —"
+            " 29-wide value + region card).", rsp)
+        rtip.setStyleSheet("color: #555;")
+        rl.addWidget(rtip)
+        self.rs_table = QTableWidget(0, 3, rsp)
+        self.rs_table.setHorizontalHeaderLabels(["Kind", "Value",
+                                                 "Region"])
+        self.rs_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        rl.addWidget(self.rs_table)
+        rrow = QHBoxLayout()
+        self.rs_add = QPushButton("Add", rsp)
+        self.rs_del = QPushButton("Delete", rsp)
+        self.rs_add.clicked.connect(self._rs_add)
+        self.rs_del.clicked.connect(self._rs_del)
+        rrow.addWidget(self.rs_add)
+        rrow.addStretch(1)
+        rrow.addWidget(self.rs_del)
+        rl.addLayout(rrow)
+        rl.addStretch(1)
+        self._rs_load()
+        self.tabs = tabs
+        tabs.addTab(rsp, "Region Scalars")
+
         tabs.addTab(page, "Initial Condition")
         root.addWidget(tabs, 1)
         self.display.currentIndexChanged.connect(self.refresh)
         self._load_defaults()
         self.refresh()
+
+    _RS_TYPES = (("o2", "O2"), ("n2", "N2"), ("h2", "H2"),
+                 ("vofl", "VOFL"), ("trt2", "TRT2"), ("tret", "TRET"),
+                 ("tpor", "TPOR"))
+
+    def _rs_add(self, kind: str = "O2", value: str = "0",
+                region: str = "") -> None:
+        r = self.rs_table.rowCount()
+        self.rs_table.insertRow(r)
+        self.rs_table.setItem(r, 0, QTableWidgetItem(str(kind)))
+        self.rs_table.setItem(r, 1, QTableWidgetItem(str(value)))
+        self.rs_table.setItem(r, 2, QTableWidgetItem(str(region)))
+
+    def _rs_del(self) -> None:
+        rows = self.rs_table.selectionModel().selectedRows()
+        for idx in sorted((i.row() for i in rows), reverse=True):
+            self.rs_table.removeRow(idx)
+
+    def _rs_load(self) -> None:
+        for vtype, cmd in self._RS_TYPES:
+            for val in self.model.values_of_type(vtype):
+                from cabxml import _first
+                name = ""
+                n = _first(val, "name")
+                if n is not None and n.text:
+                    name = n.text.strip()
+                param = _first(val, "param")
+                value = (param.text.strip() if param is not None
+                         and param.text else "0")
+                for c in self.model.conditions():
+                    v = c.find("value")
+                    if v is None or not v.text                             or v.text.strip() != name:
+                        continue
+                    for ch in c:
+                        if ch.tag in ("parts", "region", "analysis")                                 and ch.text and ch.text.strip():
+                            self._rs_add(cmd, value, ch.text.strip())
+
+    def _rs_apply(self) -> None:
+        # rebuild: drop all 7-type values + their condition bindings,
+        # recreate from the table
+        names = []
+        for vtype, _cmd in self._RS_TYPES:
+            for val in list(self.model.values_of_type(vtype)):
+                from cabxml import _first
+                n = _first(val, "name")
+                if n is not None and n.text:
+                    names.append(n.text.strip())
+                self.model.root.remove(val)
+        for c in list(self.model.conditions()):
+            v = c.find("value")
+            if v is not None and v.text and v.text.strip() in names:
+                self.model.root.remove(c)
+        for r in range(self.rs_table.rowCount()):
+            it = [self.rs_table.item(r, c) for c in range(3)]
+            kind = (it[0].text() if it[0] else "").strip().lower()
+            value = it[1].text() if it[1] else "0"
+            region = (it[2].text() if it[2] else "").strip()
+            if kind not in dict(self._RS_TYPES) or not region:
+                continue
+            vname = f"RS_{kind}_{region}"
+            self.model.upsert_value(kind, vname,
+                                    [("param", value, None)])
+            self.model.bind_condition("region", region, vname)
 
     def _load_defaults(self) -> None:
         try:
@@ -2159,6 +2251,7 @@ class _CwInitialPage(QWidget if _HAS_GUI_DEPS else object):
         self._edit_selected()
 
     def apply(self) -> None:
+        self._rs_apply()
         self.model.set_project_value(
             "ambient_temperature", f"{self.fluid_temp.value():g}")
         self.model.set_project_value(

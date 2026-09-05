@@ -2660,6 +2660,22 @@ class _CwSolverPage(QWidget if _HAS_GUI else object):
         self.upwd_mask.setMaxLength(8)
         self.upwd_mask.setPlaceholderText("11000000")
         ff.addRow("UPWD mask (8 digits)", self.upwd_mask)
+        self.vfre_i = QSpinBox(flags)
+        self.vfre_i.setRange(0, 99)
+        self.vfre_f = QDoubleSpinBox(flags)
+        self.vfre_f.setRange(-1e9, 1e9)
+        self.vfre_f.setDecimals(6)
+        ff.addRow("VFRE (int, value)", self._pair_h(flags, self.vfre_i,
+                                                   self.vfre_f))
+        self.wlty = QSpinBox(flags)
+        self.wlty.setRange(0, 99)
+        ff.addRow("WLTY (wall layer type)", self.wlty)
+        self.vfgo_a = QSpinBox(flags)
+        self.vfgo_a.setRange(0, 99)
+        self.vfgo_b = QSpinBox(flags)
+        self.vfgo_b.setRange(0, 99)
+        ff.addRow("VFGO (a, b)", self._pair_h(flags, self.vfgo_a,
+                                              self.vfgo_b))
         sl2.addWidget(flags)
 
         stmc = QGroupBox("STMC (steady multi-control)", sc)
@@ -2788,6 +2804,22 @@ class _CwSolverPage(QWidget if _HAS_GUI else object):
 
     # -- I1a: Solver Control tab ------------------------------------------
 
+    def _aset_drop(self, tag: str) -> None:
+        el = self.model.root.find("analysis_set")
+        if el is not None:
+            from cabxml import _first
+            c = _first(el, tag)
+            if c is not None:
+                el.remove(c)
+
+    @staticmethod
+    def _pair_h(parent, w1, w2):
+        lay = QHBoxLayout()
+        lay.addWidget(w1)
+        lay.addWidget(w2)
+        lay.addStretch(1)
+        return lay
+
     def _stmc_add_row(self) -> None:
         r = self.stmc_table.rowCount()
         self.stmc_table.insertRow(r)
@@ -2845,6 +2877,19 @@ class _CwSolverPage(QWidget if _HAS_GUI else object):
             pass
         self.upwd_mask.setText(
             aset.analysis_set_value("upwd_mask", ""))
+        try:
+            _vf = (aset.analysis_set_value("vfre", "").split(",")
+                   + ["0", "0"])[:2]
+            self.vfre_i.setValue(int(float(_vf[0] or 0)))
+            self.vfre_f.setValue(float(_vf[1] or 0))
+            self.wlty.setValue(int(float(
+                aset.analysis_set_value("wlty", "0") or 0)))
+            _vg = (aset.analysis_set_value("vfgo", "").split(",")
+                   + ["0", "0"])[:2]
+            self.vfgo_a.setValue(int(float(_vg[0] or 0)))
+            self.vfgo_b.setValue(int(float(_vg[1] or 0)))
+        except ValueError:
+            pass
         # STMC rows
         import xml.etree.ElementTree as ET
         st = self.model.root.find("analysis_etc/stmc")
@@ -2891,17 +2936,25 @@ class _CwSolverPage(QWidget if _HAS_GUI else object):
             "lesm",
             f"{self.lesm_m.value()},{self.lesm_s1.value()},"
             f"{self.lesm_s2.value()}")
+        if self.vfre_i.value() or self.vfre_f.value():
+            aset.set_analysis_set_value(
+                "vfre", f"{self.vfre_i.value()},{self.vfre_f.value():g}")
+        else:
+            self._aset_drop("vfre")
+        if self.wlty.value():
+            aset.set_analysis_set_value("wlty", str(self.wlty.value()))
+        else:
+            self._aset_drop("wlty")
+        if self.vfgo_a.value() or self.vfgo_b.value():
+            aset.set_analysis_set_value(
+                "vfgo", f"{self.vfgo_a.value()},{self.vfgo_b.value()}")
+        else:
+            self._aset_drop("vfgo")
         mask = self.upwd_mask.text().strip()
         if mask:
             aset.set_analysis_set_value("upwd_mask", mask)
         else:
-            # clear by writing an empty value is lossy — drop the tag
-            el = aset.root.find("analysis_set")
-            if el is not None:
-                from cabxml import _first
-                c = _first(el, "upwd_mask")
-                if c is not None:
-                    el.remove(c)
+            self._aset_drop("upwd_mask")
         # STMC
         import xml.etree.ElementTree as ET
         aet = self.model.ensure_analysis_etc()
